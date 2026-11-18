@@ -21,57 +21,57 @@ from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _READ_SOURCE = text(
-    "SELECT aap_assets_v1.read_image_source(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.read_image_source(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid))"
 )
 _OBSERVE_SOURCE = text(
-    "SELECT aap_assets_v1.observe_image_source(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.observe_image_source(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid), :snapshot, CAST(:identity AS jsonb))"
 )
 _RESOLVE_INTERNAL = text(
-    "SELECT aap_assets_v1.resolve_internal_image_source(:owner_kind, "
+    "SELECT yoao_assets_v1.resolve_internal_image_source(:owner_kind, "
     "CAST(:owner_id AS uuid), :snapshot, CAST(:identity AS jsonb))"
 )
 _READ_SUMMARIES = text(
-    "SELECT aap_assets_v1.read_image_summaries(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.read_image_summaries(CAST(:actor_id AS uuid), "
     "CAST(:selectors AS jsonb), CAST(:profile_version AS text))"
 )
 _READ_GENERATION = text(
-    "SELECT aap_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
     "CAST(:generation AS integer), CAST(:profile_version AS text))"
 )
 _PREPARE = text(
-    "SELECT aap_assets_v1.prepare_image_media(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.prepare_image_media(CAST(:operation_id AS uuid), "
     "CAST(:actor_id AS uuid), CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
     ":purpose, :snapshot, CAST(:policy AS jsonb), CAST(:force AS boolean))"
 )
 _RETRY = text(
-    "SELECT aap_assets_v1.retry_image_media(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.retry_image_media(CAST(:operation_id AS uuid), "
     "CAST(:actor_id AS uuid), CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
     ":purpose, :snapshot, CAST(:policy AS jsonb), CAST(:force AS boolean))"
 )
 _READ_WORK = text(
-    "SELECT aap_assets_v1.read_image_work(CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
+    "SELECT yoao_assets_v1.read_image_work(CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
 )
 _READ_INTERNAL_WORK = text(
-    "SELECT aap_assets_v1.read_internal_image_work(CAST(:job_id AS uuid))"
+    "SELECT yoao_assets_v1.read_internal_image_work(CAST(:job_id AS uuid))"
 )
 _CANCEL = text(
-    "SELECT aap_assets_v1.cancel_image_media(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.cancel_image_media(CAST(:operation_id AS uuid), "
     "CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
 )
 _SCHEDULE = text(
-    "SELECT aap_assets_v1.schedule_image_media(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.schedule_image_media(CAST(:operation_id AS uuid), "
     "CAST(:owner_kind AS text), CAST(:owner_id AS uuid), CAST(:spec AS jsonb), "
     "CAST(:force AS boolean))"
 )
 _SCAN = text(
-    "SELECT aap_assets_v1.scan_image_backfill(CAST(:selection AS jsonb), "
+    "SELECT yoao_assets_v1.scan_image_backfill(CAST(:selection AS jsonb), "
     "CAST(:after_kind AS text), CAST(:after_id AS uuid), CAST(:page_size AS integer))"
 )
 _INVALIDATE = text(
-    "SELECT aap_assets_v1.invalidate_image_media(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.invalidate_image_media(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid), CAST(:invalidation AS jsonb))"
 )
 

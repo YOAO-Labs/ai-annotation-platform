@@ -84,12 +84,12 @@ async def _video_runtime(
         )
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     worker_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
-        "asset_media_worker_client",
+        "yoao_asset_media_worker_client",
         test_engine,
     )
     if source_test_engine is None:
@@ -478,7 +478,7 @@ async def _prove_video_cleanup_process(
     runtime, test_engine, tmp_path, request, plan, frame, native_signer
 ):
     cleanup_url = _guard_role_url(
-        "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client", test_engine
+        "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "yoao_asset_cleanup_client", test_engine
     )
     inputs_bucket = runtime.buckets["MINIO_INPUTS_BUCKET"]
     frame_prefix = frame.blob.key.split("frames/", 1)[0]

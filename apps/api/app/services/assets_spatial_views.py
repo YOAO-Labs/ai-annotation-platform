@@ -18,7 +18,7 @@ spatial_item_references = table(
     column("axis_convention", String),
     column("scene_name", String),
     column("calibration_metadata_present", Boolean),
-    schema="aap_assets_v1",
+    schema="yoao_assets_v1",
 )
 
 spatial_scene_references = table(
@@ -26,7 +26,7 @@ spatial_scene_references = table(
     column("scene_id", Uuid(as_uuid=True)),
     column("dataset_id", Uuid(as_uuid=True)),
     column("scene_name", String),
-    schema="aap_assets_v1",
+    schema="yoao_assets_v1",
 )
 
 _labeling_dataset_item_facts = table(
@@ -44,7 +44,7 @@ _labeling_dataset_item_facts = table(
             "height",
         )
     ),
-    schema="aap_assets_v1",
+    schema="yoao_assets_v1",
 )
 labeling_dataset_item_facts = aliased(
     DatasetItem, _labeling_dataset_item_facts, adapt_on_names=True

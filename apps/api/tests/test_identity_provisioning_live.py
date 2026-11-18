@@ -53,7 +53,7 @@ def _provisioning_target(test_engine) -> tuple[str, str]:
     url = make_url(
         _role_url(
             "AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL",
-            "identity_provisioning_client",
+            "yoao_identity_provisioning_client",
         )
     )
     assert url.host == "127.0.0.1"
@@ -231,8 +231,8 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
         requests=[],
         transaction="probe_denied",
     )
-    assert privilege_probe["current_user"] == "identity_provisioning_client"
-    assert privilege_probe["session_user"] == "identity_provisioning_client"
+    assert privilege_probe["current_user"] == "yoao_identity_provisioning_client"
+    assert privilege_probe["session_user"] == "yoao_identity_provisioning_client"
     assert privilege_probe["raw_user_access"] is False
     assert privilege_probe["denied_capabilities"] == 11
 
@@ -265,7 +265,7 @@ async def test_restricted_node_provisioning_client_matches_legacy_and_authentica
     assert (
         created["current_user"]
         == created["session_user"]
-        == "identity_provisioning_client"
+        == "yoao_identity_provisioning_client"
     )
     assert created["raw_user_access"] is False
     assert created["results"][0]["account_id"] is None

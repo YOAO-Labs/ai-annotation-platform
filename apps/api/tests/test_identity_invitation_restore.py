@@ -206,18 +206,18 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
         await _assert_exact_identity_functions(
             dsn("INVITATION"),
             {
-                "aap_identity_invitations_v1.invitation_policy()",
-                "aap_identity_invitations_v1.prepare_invitation_command(jsonb)",
-                "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
+                "yoao_identity_invitations_v1.invitation_policy()",
+                "yoao_identity_invitations_v1.prepare_invitation_command(jsonb)",
+                "yoao_identity_invitations_v1.apply_invitation_command(jsonb)",
             },
         )
         await _assert_exact_identity_functions(
             dsn("MAIL_V2"),
             {
-                "aap_identity_mail_v2.mail_policy()",
-                "aap_identity_mail_v2.claim_mail(jsonb)",
-                "aap_identity_mail_v2.renew_mail(jsonb)",
-                "aap_identity_mail_v2.finish_mail(jsonb)",
+                "yoao_identity_mail_v2.mail_policy()",
+                "yoao_identity_mail_v2.claim_mail(jsonb)",
+                "yoao_identity_mail_v2.renew_mail(jsonb)",
+                "yoao_identity_mail_v2.finish_mail(jsonb)",
             },
         )
         clone_manager = manager(

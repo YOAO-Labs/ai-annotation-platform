@@ -20,7 +20,7 @@ from tests.factory import create_user
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _SCHEMA = _SQL_DIR / "0258_workspace_template_query_support.schema.json"
 _PROTOCOL = "aap-identity-workspace-template-query/v1"
-_FUNCTION = "aap_identity_v1.workspace_template_query_org_ids(uuid)"
+_FUNCTION = "yoao_identity_v1.workspace_template_query_org_ids(uuid)"
 
 
 def _json_object(value):
@@ -145,7 +145,7 @@ async def test_template_query_org_ids_returns_current_memberships_only(test_engi
             await session.flush()
 
             query = text(
-                "SELECT aap_identity_v1.workspace_template_query_org_ids("
+                "SELECT yoao_identity_v1.workspace_template_query_org_ids("
                 "CAST(:actor_id AS uuid))"
             )
             actor_reply = _json_object(
@@ -212,7 +212,7 @@ async def test_template_query_org_ids_returns_current_memberships_only(test_engi
             "actor_id": str(user_ids[2]),
             "organization_ids": [],
         }
-        assert access["schema_name"] == "aap_identity_v1"
+        assert access["schema_name"] == "yoao_identity_v1"
         assert access["security_definer"] is True
         assert access["volatility"] == "s"
         assert access["parallel_mode"] == "u"
@@ -227,7 +227,7 @@ async def test_template_query_org_ids_returns_current_memberships_only(test_engi
             with pytest.raises(DBAPIError) as invalid_actor:
                 await session.scalar(
                     text(
-                        "SELECT aap_identity_v1.workspace_template_query_org_ids(NULL::uuid)"
+                        "SELECT yoao_identity_v1.workspace_template_query_org_ids(NULL::uuid)"
                     )
                 )
             assert _sqlstate(invalid_actor.value) == "22023"

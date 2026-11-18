@@ -97,7 +97,7 @@ async def test_assets_configuration_reads_are_scoped_and_filter_missing_items(
             rows = await _call(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_configuration_dataset_rows(
+                SELECT yoao_assets_v1.workspace_configuration_dataset_rows(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -106,7 +106,7 @@ async def test_assets_configuration_reads_are_scoped_and_filter_missing_items(
             linked_scenes = await _call(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_configuration_dataset_scenes(
+                SELECT yoao_assets_v1.workspace_configuration_dataset_scenes(
                     CAST(:dataset AS uuid)
                 )
                 """,
@@ -115,7 +115,7 @@ async def test_assets_configuration_reads_are_scoped_and_filter_missing_items(
             unlinked_scenes = await _call(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_configuration_dataset_scenes(
+                SELECT yoao_assets_v1.workspace_configuration_dataset_scenes(
                     CAST(:dataset AS uuid)
                 )
                 """,
@@ -124,7 +124,7 @@ async def test_assets_configuration_reads_are_scoped_and_filter_missing_items(
             valid_items = await _call(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_configuration_existing_item_ids(
+                SELECT yoao_assets_v1.workspace_configuration_existing_item_ids(
                     CAST(:items AS uuid[])
                 )
                 """,
@@ -280,7 +280,7 @@ async def test_labeling_configuration_reads_keep_persisted_count_and_phase_facts
             task_count = await _call(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_configuration_task_count(
+                SELECT yoao_labeling_v1.workspace_configuration_task_count(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -289,7 +289,7 @@ async def test_labeling_configuration_reads_keep_persisted_count_and_phase_facts
             annotation_count = await _call(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_configuration_annotation_count(
+                SELECT yoao_labeling_v1.workspace_configuration_annotation_count(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -298,7 +298,7 @@ async def test_labeling_configuration_reads_keep_persisted_count_and_phase_facts
             tracker_count = await _call(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_configuration_tracker_count(
+                SELECT yoao_labeling_v1.workspace_configuration_tracker_count(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -307,7 +307,7 @@ async def test_labeling_configuration_reads_keep_persisted_count_and_phase_facts
             video_items = await _call(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_configuration_video_items(
+                SELECT yoao_labeling_v1.workspace_configuration_video_items(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -382,7 +382,7 @@ async def test_inference_configuration_reads_pool_and_opaque_registry_snapshot(
             source_pool = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.workspace_configuration_source_pool(
+                SELECT yoao_inference_v1.workspace_configuration_source_pool(
                     CAST(:pool AS uuid)
                 )
                 """,
@@ -391,7 +391,7 @@ async def test_inference_configuration_reads_pool_and_opaque_registry_snapshot(
             missing_pool = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.workspace_configuration_source_pool(
+                SELECT yoao_inference_v1.workspace_configuration_source_pool(
                     CAST(:pool AS uuid)
                 )
                 """,
@@ -400,7 +400,7 @@ async def test_inference_configuration_reads_pool_and_opaque_registry_snapshot(
             backend = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.workspace_configuration_backend(
+                SELECT yoao_inference_v1.workspace_configuration_backend(
                     CAST(:registry AS uuid)
                 )
                 """,
@@ -409,7 +409,7 @@ async def test_inference_configuration_reads_pool_and_opaque_registry_snapshot(
             missing_backend = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.workspace_configuration_backend(
+                SELECT yoao_inference_v1.workspace_configuration_backend(
                     CAST(:registry AS uuid)
                 )
                 """,

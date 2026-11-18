@@ -29,7 +29,7 @@ from app.services.raster_mask_storage import load_coco_rle
 from app.services.raster_mask_contract import RasterMaskContractError
 from .execution import TrackerExecutionDeferred, TrackerExecutionLost, execution_proof
 
-_STEP = text("SELECT aap_labeling_v1.video_writer_step(:action,:arguments)")
+_STEP = text("SELECT yoao_labeling_v1.video_writer_step(:action,:arguments)")
 _LOST_CODES = {"lease_lost", "realm_mismatch", "job_missing", "job_not_active"}
 
 

@@ -183,15 +183,15 @@ async def test_export_locks_scope_limit_modes_and_rollback(test_engine):
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_CORE_READ_URL",
-                "labeling_core_read_client",
+                "yoao_labeling_core_read_client",
             )
         )
-        pred = "SELECT * FROM aap_labeling_v1.lock_prediction_rows_for_core_read_share($1,$2,$3)"
+        pred = "SELECT * FROM yoao_labeling_v1.lock_prediction_rows_for_core_read_share($1,$2,$3)"
         tracks = (
-            "SELECT * FROM aap_labeling_v1.lock_scene_track_rows_for_core_read($1,$2)"
+            "SELECT * FROM yoao_labeling_v1.lock_scene_track_rows_for_core_read($1,$2)"
         )
-        intervals = "SELECT * FROM aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share($1,$2)"
-        links = "SELECT * FROM aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share($1,$2)"
+        intervals = "SELECT * FROM yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share($1,$2)"
+        links = "SELECT * FROM yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share($1,$2)"
         rows = await client.fetch(pred, project_ids[0], [task_ids[0], task_ids[2]], 10)
         assert [(r["id"], r["created_at"], r["task_id"]) for r in rows] == [
             (prediction_id, times[0], task_ids[0]),
@@ -380,7 +380,7 @@ async def test_export_locks_scope_limit_modes_and_rollback(test_engine):
             prediction_row.task_id == task_ids[0]
         )
         locked = core_reads.lock_ids(
-            func.aap_labeling_v1.lock_prediction_rows_for_core_read_share(
+            func.yoao_labeling_v1.lock_prediction_rows_for_core_read_share(
                 project_ids[0], [task_ids[0]], 3
             )
         )

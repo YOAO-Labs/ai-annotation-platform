@@ -31,7 +31,7 @@ def observation_dsn(database_url):
     value = make_url(
         _role_url(
             "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL",
-            "inference_health_observation_client",
+            "yoao_inference_health_observation_client",
         )
     )
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"

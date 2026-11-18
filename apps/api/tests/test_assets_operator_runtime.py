@@ -36,7 +36,7 @@ def _resources(test_engine):
     from app.services.storage import storage_service
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_OPERATOR_URL"))
-    assert role_url.username == "asset_operator_client"
+    assert role_url.username == "yoao_asset_operator_client"
     assert role_url.database == test_engine.url.database
     assert role_url.database.endswith("_test")
     _verify_postgres(role_url)
@@ -49,7 +49,7 @@ def _resources(test_engine):
 
 def _consumer_engine(test_engine):
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_OPERATOR_URL"))
-    assert role_url.username == "asset_operator_client"
+    assert role_url.username == "yoao_asset_operator_client"
     assert (role_url.host, role_url.port, role_url.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -240,7 +240,7 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
                 assert (
                     await caller.scalar(
                         text(
-                            "SELECT count(*) FROM aap_labeling_v1.task_rows WHERE project_id=:project"
+                            "SELECT count(*) FROM yoao_labeling_v1.task_rows WHERE project_id=:project"
                         ),
                         {
                             "project": await find_import_project(
@@ -390,7 +390,7 @@ async def test_restricted_operator_pages_large_sources_and_rolls_back_oversized_
             )
             snapshot = await owner.scalar(
                 text(
-                    "SELECT aap_assets_v1._operator_source_snapshot(item) "
+                    "SELECT yoao_assets_v1._operator_source_snapshot(item) "
                     "FROM public.dataset_items AS item WHERE item.id=:id"
                 ),
                 {"id": oversized_id},
@@ -428,7 +428,7 @@ async def test_restricted_operator_pages_large_sources_and_rolls_back_oversized_
             "restricted_budget",
             {
                 "status": "passed",
-                "operator_login": "asset_operator_client",
+                "operator_login": "yoao_asset_operator_client",
                 "inactive_nonmanager_attribution": True,
                 "items": len(entries),
                 "record_bytes": record_bytes,

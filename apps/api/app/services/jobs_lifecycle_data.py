@@ -28,12 +28,12 @@ def job_lock_statement(job_id, *, mode, populate_existing=False):
         .from_statement(
             text(
                 "SELECT job.*, "
-                "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                 "AS execution_snapshot_id, progress.last_progress_at, "
                 "progress.progress_observation FROM "
                 f"{function}("
                 "CAST(:job_id AS pg_catalog.uuid)) AS job "
-                "CROSS JOIN LATERAL aap_jobs_v1.read_job_progress(job.id) "
+                "CROSS JOIN LATERAL yoao_jobs_v1.read_job_progress(job.id) "
                 "AS progress"
             )
         )
@@ -53,7 +53,7 @@ class JobsLifecyclePostgresData:
         """Keep the owner-bound snapshot out of generic lifecycle payload flushes.
 
         ``execution_snapshot_id`` is written only by
-        ``aap_jobs_v1.bind_prediction_execution_snapshot``. A public read must
+        ``yoao_jobs_v1.bind_prediction_execution_snapshot``. A public read must
         therefore return the database value as committed instead of re-submitting
         an unsupported direct change through the lifecycle command channel.
         """
@@ -77,7 +77,7 @@ class JobsLifecyclePostgresData:
         if "execution_snapshot_id" in values:
             raise ValueError(
                 "execution_snapshot_id must be bound after creation through "
-                "aap_jobs_v1.bind_prediction_execution_snapshot"
+                "yoao_jobs_v1.bind_prediction_execution_snapshot"
             )
         row = AsyncJob(**values)
         self.db.add(row)
@@ -111,12 +111,12 @@ class JobsLifecyclePostgresData:
             .from_statement(
                 text(
                     "SELECT job.*, "
-                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
-                    "progress.progress_observation FROM aap_jobs_v1.read_job("
+                    "progress.progress_observation FROM yoao_jobs_v1.read_job("
                     "CAST(:job_id AS pg_catalog.uuid)) AS job "
                     "CROSS JOIN LATERAL "
-                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
+                    "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             )
             .execution_options(populate_existing=True),
@@ -136,13 +136,13 @@ class JobsLifecyclePostgresData:
             select(AsyncJob).from_statement(
                 text(
                     "SELECT job.*, "
-                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
                     "progress.progress_observation FROM "
-                    "aap_jobs_v1.jobs_by_execution_id("
+                    "yoao_jobs_v1.jobs_by_execution_id("
                     "CAST(:execution_id AS pg_catalog.text)) AS job "
                     "CROSS JOIN LATERAL "
-                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
+                    "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"execution_id": execution_id},
@@ -156,7 +156,7 @@ class JobsLifecyclePostgresData:
         await self._autoflush()
         await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.insert_video_summary("
+                "SELECT yoao_jobs_v1.insert_video_summary("
                 "CAST(:id AS pg_catalog.uuid), CAST(:kind AS pg_catalog.text), "
                 "CAST(:user_id AS pg_catalog.uuid), "
                 "CAST(:project_id AS pg_catalog.uuid), "
@@ -193,7 +193,7 @@ class JobsLifecyclePostgresData:
         await self._autoflush()
         changed = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.mark_dispatch_failed("
+                "SELECT yoao_jobs_v1.mark_dispatch_failed("
                 "CAST(:job_id AS pg_catalog.uuid), "
                 "CAST(:failed_at AS pg_catalog.timestamptz), "
                 "CAST(:error AS pg_catalog.text))"
@@ -216,7 +216,7 @@ class JobsLifecyclePostgresData:
         await self._autoflush()
         cancelled = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.cancel_batch_predict_jobs("
+                "SELECT yoao_jobs_v1.cancel_batch_predict_jobs("
                 "CAST(:batch_id AS pg_catalog.uuid), "
                 "CAST(:completed_at AS pg_catalog.timestamptz))"
             ),
@@ -231,7 +231,7 @@ class JobsLifecyclePostgresData:
         await self._autoflush()
         deleted = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.delete_batch_predict_jobs("
+                "SELECT yoao_jobs_v1.delete_batch_predict_jobs("
                 "CAST(:batch_id AS pg_catalog.uuid))"
             ),
             {"batch_id": batch_id},
@@ -243,7 +243,7 @@ class JobsLifecyclePostgresData:
         await self._autoflush()
         deleted = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.delete_terminal_jobs_before("
+                "SELECT yoao_jobs_v1.delete_terminal_jobs_before("
                 "CAST(:cutoff AS pg_catalog.timestamptz), "
                 "CAST(:statuses AS pg_catalog.text[]))"
             ),

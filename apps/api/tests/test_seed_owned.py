@@ -144,7 +144,7 @@ async def fixture_playback_registry(app_module, monkeypatch, test_engine, tmp_pa
 
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     resources = _verified_resource_manifest(test_engine, control_url)

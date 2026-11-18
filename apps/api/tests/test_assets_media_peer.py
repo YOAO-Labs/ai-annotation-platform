@@ -40,7 +40,7 @@ async def test_restricted_worker_login_uses_native_state_without_table_access(
     except Exception:
         pytest.fail("the restricted worker connection URL is invalid", pytrace=False)
     if not (
-        worker_url.username == "asset_media_worker_client"
+        worker_url.username == "yoao_asset_media_worker_client"
         and worker_url.password
         and worker_url.host == "127.0.0.1"
         and worker_url.port is not None
@@ -99,11 +99,11 @@ async def test_restricted_worker_login_uses_native_state_without_table_access(
 
         async with worker_engine.connect() as worker:
             assert await worker.scalar(text("SELECT current_user")) == (
-                "asset_media_worker_client"
+                "yoao_asset_media_worker_client"
             )
             claim_reply = await worker.scalar(
                 text(
-                    "SELECT aap_assets_v1.claim_video_media("
+                    "SELECT yoao_assets_v1.claim_video_media("
                     "CAST(:worker_id AS uuid),CAST(:job_id AS uuid),120,"
                     "ARRAY['video_timetable']::text[])"
                 ),
@@ -119,7 +119,7 @@ async def test_restricted_worker_login_uses_native_state_without_table_access(
             transaction = await worker.begin()
             staged = await worker.scalar(
                 text(
-                    "SELECT aap_assets_v1.stage_video_timetable("
+                    "SELECT yoao_assets_v1.stage_video_timetable("
                     "CAST(:job_id AS uuid),CAST(:generation AS bigint),"
                     "CAST(:lease_token AS uuid),CAST(:rows AS jsonb))"
                 ),

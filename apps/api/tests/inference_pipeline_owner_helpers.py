@@ -27,10 +27,10 @@ def pipeline_dsn(test_engine, database: str | None = None) -> str:
     parsed = make_url(
         _role_url(
             "AAP_MODULE_DATA_INFERENCE_PIPELINES_URL",
-            "inference_pipelines_client",
+            "yoao_inference_pipelines_client",
         )
     )
-    assert parsed.username == "inference_pipelines_client"
+    assert parsed.username == "yoao_inference_pipelines_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,

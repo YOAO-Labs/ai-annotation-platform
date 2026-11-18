@@ -85,7 +85,7 @@ async def test_adapter_flushes_then_calls_owner_with_sql_null_and_borrows_transa
     )
     assert [event[0] for event in db.events] == ["flush", "scalar"]
     _, statement, parameters = db.events[1]
-    assert "aap_workspace_v1.delete_project(" in statement
+    assert "yoao_workspace_v1.delete_project(" in statement
     assert parameters == {
         "operation_id": operation_id,
         "actor_id": actor_id,

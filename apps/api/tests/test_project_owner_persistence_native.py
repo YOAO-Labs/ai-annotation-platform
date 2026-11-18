@@ -37,8 +37,8 @@ pytestmark = [
     ),
 ]
 _ROLE = "identity_api_consumer"
-_COUNTER = "aap_labeling_v1.write_project_counter_projection(uuid,jsonb)"
-_LOCK = "aap_workspace_v1.lock_project_references_for_update(uuid[])"
+_COUNTER = "yoao_labeling_v1.write_project_counter_projection(uuid,jsonb)"
+_LOCK = "yoao_workspace_v1.lock_project_references_for_update(uuid[])"
 
 
 @asynccontextmanager
@@ -98,7 +98,7 @@ async def _private_denied(db):
 async def _row(db, project_id):
     with db.no_autoflush:
         raw = await db.scalar(
-            text("SELECT aap_workspace_v1.read_project_row(CAST(:id AS uuid))"),
+            text("SELECT yoao_workspace_v1.read_project_row(CAST(:id AS uuid))"),
             {"id": project_id},
         )
     return json.loads(raw) if raw is not None else None
@@ -139,7 +139,7 @@ async def test_new_native_functions_have_exact_owners_and_execute_grants(test_en
                 for role, expected in (
                     (_ROLE, True),
                     ("legacy_runtime", True),
-                    ("append_client", False),
+                    ("yoao_append_client", False),
                     ("assets_code", False),
                     ("inference_code", False),
                 ):
@@ -280,7 +280,7 @@ async def test_counter_consumers_work_without_project_select_or_update(
                         text(
                             "SELECT b.total_tasks,b.completed_tasks,b.review_tasks,count(t.id),"
                             "count(t.id) FILTER (WHERE t.status='completed'),count(t.id) FILTER (WHERE t.status='review') "
-                            "FROM aap_labeling_v1.batch_rows b LEFT JOIN aap_labeling_v1.task_rows t ON t.batch_id=b.id "
+                            "FROM yoao_labeling_v1.batch_rows b LEFT JOIN yoao_labeling_v1.task_rows t ON t.batch_id=b.id "
                             "WHERE b.project_id=:id GROUP BY b.id,b.total_tasks,b.completed_tasks,b.review_tasks"
                         ),
                         {"id": world["project_id"]},
@@ -320,7 +320,7 @@ async def test_bad_counter_ack_rolls_back_actual_native_write_and_session_recove
         _url,
         _batches,
     ):
-        native = "aap_labeling_v1.write_project_counter_projection(CAST(:project_id AS uuid),CAST(:patch AS jsonb))"
+        native = "yoao_labeling_v1.write_project_counter_projection(CAST(:project_id AS uuid),CAST(:patch AS jsonb))"
         expression = {
             "missing": f"NULLIF({native},CAST(:project_id AS uuid))",
             "text": f"({native})::text",
@@ -433,7 +433,7 @@ async def test_counter_native_rejects_out_of_contract_patch(test_engine, patch):
             with pytest.raises(DBAPIError) as rejected:
                 await db.scalar(
                     text(
-                        "SELECT aap_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
+                        "SELECT yoao_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
                     ),
                     {
                         "id": world["project_id"],
@@ -456,7 +456,7 @@ async def test_counter_native_writes_only_supplied_columns_and_returns_missing_n
     ):
         async with api() as db:
             statement = text(
-                "SELECT aap_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
+                "SELECT yoao_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
             )
             assert (
                 await db.scalar(
@@ -506,7 +506,7 @@ async def test_project_write_capabilities_refuse_read_only_transaction(
                 else:
                     await db.scalar(
                         text(
-                            "SELECT aap_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
+                            "SELECT yoao_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
                         ),
                         {"id": world["project_id"], "patch": '{"total_tasks":0}'},
                     )

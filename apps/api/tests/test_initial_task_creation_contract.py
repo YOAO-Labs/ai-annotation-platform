@@ -25,7 +25,7 @@ from app.db.models.user import User
 
 _ASSOCIATE = text(
     """
-    SELECT aap_assets_v1.associate_project(
+    SELECT yoao_assets_v1.associate_project(
         CAST(:actor_id AS uuid),
         CAST(:dataset_id AS uuid),
         CAST(:project_id AS uuid)
@@ -34,7 +34,7 @@ _ASSOCIATE = text(
 )
 _ACCEPT = text(
     """
-    SELECT aap_labeling_v1.accept_dataset_task_creation(
+    SELECT yoao_labeling_v1.accept_dataset_task_creation(
         CAST(:operation_id AS uuid),
         CAST(:actor_id AS uuid),
         CAST(:dataset_id AS uuid),
@@ -48,28 +48,28 @@ _ACCEPT = text(
 )
 _PREPARE = text(
     """
-    SELECT aap_labeling_v1.prepare_dataset_task_creation(
+    SELECT yoao_labeling_v1.prepare_dataset_task_creation(
         CAST(:operation_id AS uuid), CAST(:frames AS jsonb)
     )
     """
 )
 _READ = text(
     """
-    SELECT aap_labeling_v1.read_dataset_task_creation(
+    SELECT yoao_labeling_v1.read_dataset_task_creation(
         CAST(:operation_id AS uuid)
     )
     """
 )
 _ADVANCE = text(
     """
-    SELECT aap_labeling_v1.advance_dataset_task_creation(
+    SELECT yoao_labeling_v1.advance_dataset_task_creation(
         CAST(:operation_id AS uuid), CAST(:chunk_index AS integer)
     )
     """
 )
 _APPEND = text(
     """
-    SELECT aap_labeling_v1.append_dataset_items(
+    SELECT yoao_labeling_v1.append_dataset_items(
         CAST(:dataset_id AS uuid), CAST(:item_ids AS uuid[]),
         CAST(:operation_id AS uuid)
     )

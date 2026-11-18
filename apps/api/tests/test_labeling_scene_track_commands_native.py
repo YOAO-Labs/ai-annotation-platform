@@ -41,7 +41,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_scene_track_command_client"
+_ROLE = "yoao_labeling_scene_track_command_client"
 
 
 async def test_split_transaction_replay_and_revert_use_the_single_owner_function(
@@ -115,7 +115,7 @@ async def test_split_transaction_replay_and_revert_use_the_single_owner_function
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("scene_track_command", "jsonb")},
             role=_ROLE,
         )
@@ -126,7 +126,7 @@ async def test_split_transaction_replay_and_revert_use_the_single_owner_function
 
         async def call(request_json: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.scene_track_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.scene_track_command($1::jsonb)",
                 request_json,
             )
 

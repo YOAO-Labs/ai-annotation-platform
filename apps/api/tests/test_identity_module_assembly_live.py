@@ -145,7 +145,7 @@ async def _assert_consumer_is_restricted(test_engine, actor):
             assert (
                 await connection.scalar(
                     text(
-                        "SELECT id FROM aap_identity_v1.account_profiles WHERE id=:id"
+                        "SELECT id FROM yoao_identity_v1.account_profiles WHERE id=:id"
                     ),
                     {"id": actor},
                 )
@@ -1125,13 +1125,13 @@ async def test_host_forwarded_identity_rpc_failures(
                         limit = await db.scalar(
                             text(
                                 "SELECT rolconnlimit FROM pg_roles "
-                                "WHERE rolname='identity_invitation_client' AND NOT rolsuper"
+                                "WHERE rolname='yoao_identity_invitation_client' AND NOT rolsuper"
                             )
                         )
                         assert isinstance(limit, int) and limit != 0
                         await db.execute(
                             text(
-                                "ALTER ROLE identity_invitation_client CONNECTION LIMIT 0"
+                                "ALTER ROLE yoao_identity_invitation_client CONNECTION LIMIT 0"
                             )
                         )
                     try:
@@ -1150,7 +1150,7 @@ async def test_host_forwarded_identity_rpc_failures(
                         async with test_engine.begin() as db:
                             await db.execute(
                                 text(
-                                    f"ALTER ROLE identity_invitation_client CONNECTION LIMIT {limit}"
+                                    f"ALTER ROLE yoao_identity_invitation_client CONNECTION LIMIT {limit}"
                                 )
                             )
                     async with test_engine.connect() as db:

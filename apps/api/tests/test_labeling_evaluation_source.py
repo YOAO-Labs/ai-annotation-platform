@@ -43,9 +43,9 @@ async def test_reader_builds_one_query_from_published_labeling_and_asset_facts()
     assert source is None
     assert len(session.statements) == 1
     sql = session.statements[0]
-    assert "FROM aap_labeling_v1.task_rows" in sql
-    assert "aap_labeling_v1.annotation_rows" in sql
-    assert "aap_assets_v1.labeling_dataset_item_facts" in sql
+    assert "FROM yoao_labeling_v1.task_rows" in sql
+    assert "yoao_labeling_v1.annotation_rows" in sql
+    assert "yoao_assets_v1.labeling_dataset_item_facts" in sql
     for private_relation in ("FROM tasks", "FROM annotations", "FROM dataset_items"):
         assert private_relation not in sql
 

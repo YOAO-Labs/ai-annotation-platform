@@ -25,11 +25,11 @@ from tests.test_assets_catalog_native import _CATALOG_LOGIN_FUNCTIONS
 pytestmark = pytest.mark.asyncio
 
 _LIST_DATASET_PROJECTS = text(
-    "SELECT aap_assets_v1.list_dataset_projects("
+    "SELECT yoao_assets_v1.list_dataset_projects("
     "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid))"
 )
 _LIST_PROJECT_DATASETS = text(
-    "SELECT aap_assets_v1.list_project_datasets("
+    "SELECT yoao_assets_v1.list_project_datasets("
     "CAST(:actor_id AS uuid), CAST(:project_id AS uuid))"
 )
 _ROLE_ACCEPTANCE = os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
@@ -550,7 +550,9 @@ async def test_catalog_login_has_exactly_the_catalog_and_spatial_reads():
     if not raw_url:
         pytest.fail(f"the module-data verifier did not provide {_CATALOG_URL}")
     url = make_url(raw_url)
-    if url.username != "asset_catalog_client" or not url.database.endswith("_test"):
+    if url.username != "yoao_asset_catalog_client" or not url.database.endswith(
+        "_test"
+    ):
         pytest.fail("catalog LOGIN URL does not target the owned test database")
     engine = create_async_engine(url, hide_parameters=True)
     try:
@@ -588,16 +590,16 @@ async def test_catalog_login_has_exactly_the_catalog_and_spatial_reads():
             )
             assert direct_relations is False
             for schema in (
-                "aap_identity_v1",
-                "aap_workspace_v1",
-                "aap_labeling_v1",
-                "aap_jobs_v1",
-                "aap_learning_v1",
-                "aap_inference_v1",
+                "yoao_identity_v1",
+                "yoao_workspace_v1",
+                "yoao_labeling_v1",
+                "yoao_jobs_v1",
+                "yoao_learning_v1",
+                "yoao_inference_v1",
                 "yoao_insights_v1",
                 "yoao_diagnostics_v1",
-                "aap_export_v1",
-                "aap_audit_v1",
+                "yoao_export_v1",
+                "yoao_audit_v1",
             ):
                 assert not await catalog.scalar(
                     text(

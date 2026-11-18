@@ -25,7 +25,7 @@ _COUNTER_FIELDS = (
 )
 _COUNTER_FIELD_SET = frozenset(_COUNTER_FIELDS)
 _WRITE_COUNTER_PROJECTION = text(
-    "SELECT aap_labeling_v1.write_project_counter_projection("
+    "SELECT yoao_labeling_v1.write_project_counter_projection("
     "CAST(:project_id AS uuid), CAST(:patch AS jsonb))"
 )
 

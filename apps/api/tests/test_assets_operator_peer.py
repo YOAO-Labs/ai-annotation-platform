@@ -46,17 +46,19 @@ def _native_psql(
 BEGIN;
 SELECT current_user || '|' || session_user || '|' || current_database();
 SELECT
-    pg_catalog.has_schema_privilege(session_user, 'aap_assets_v1', 'USAGE')
-    AND pg_catalog.has_schema_privilege(session_user, 'aap_identity_v1', 'USAGE')
+    pg_catalog.has_schema_privilege(session_user, 'yoao_assets_v1', 'USAGE')
+    AND pg_catalog.has_schema_privilege(session_user, 'yoao_identity_v1', 'USAGE')
     AND pg_catalog.has_function_privilege(
-        session_user, 'aap_identity_v1.read_first_seed_account()', 'EXECUTE')
-    AND NOT pg_catalog.has_schema_privilege(session_user, 'aap_assets_v1', 'CREATE')
+        session_user, 'yoao_identity_v1.read_first_seed_account()', 'EXECUTE')
+    AND NOT pg_catalog.has_schema_privilege(session_user, 'yoao_assets_v1', 'CREATE')
     AND NOT pg_catalog.has_database_privilege(session_user, current_database(), 'CREATE')
     AND NOT pg_catalog.has_database_privilege(session_user, current_database(), 'TEMP')
     AND NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND namespace.nspname NOT IN ('aap_assets_v1', 'aap_identity_v1')
+          AND namespace.nspname NOT IN (
+              'aap_assets_v1', 'aap_identity_v1',
+              'yoao_assets_v1', 'yoao_identity_v1')
           AND pg_catalog.has_schema_privilege(session_user, namespace.oid, 'USAGE')
     )
     AND NOT EXISTS (
@@ -107,8 +109,8 @@ SELECT
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace=namespace.oid
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
-          AND proc.oid <> 'aap_identity_v1.read_first_seed_account()'::regprocedure
-          AND namespace.nspname <> 'aap_assets_v1'
+          AND proc.oid <> 'yoao_identity_v1.read_first_seed_account()'::regprocedure
+          AND namespace.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_function_privilege(session_user, proc.oid, 'EXECUTE')
     );
 SELECT COALESCE(
@@ -119,32 +121,32 @@ SELECT COALESCE(
 )
 FROM pg_catalog.pg_proc AS proc
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=proc.pronamespace
-WHERE namespace.nspname='aap_assets_v1' AND proc.prokind='f'
+WHERE namespace.nspname='yoao_assets_v1' AND proc.prokind='f'
   AND pg_catalog.has_function_privilege(session_user, proc.oid, 'EXECUTE');
-SELECT aap_assets_v1.create_operator_image_dataset(
+SELECT yoao_assets_v1.create_operator_image_dataset(
     operation_id => :'image_operation_id'::uuid,
     created_by => :'actor_id'::uuid,
     name => :'image_name'::text,
     description => 'restricted psql operator image import'
 );
-SELECT aap_assets_v1.ensure_operator_nuscenes_dataset(
+SELECT yoao_assets_v1.ensure_operator_nuscenes_dataset(
     operation_id => :'ensure_operation_id'::uuid,
     owner_id => :'actor_id'::uuid,
     spec => :'nuscenes_spec'::jsonb
 );
-SELECT aap_assets_v1.append_operator_items(
+SELECT yoao_assets_v1.append_operator_items(
     operation_id => :'append_operation_id'::uuid,
     dataset_id => :'image_operation_id'::uuid,
     entries => :'entries'::jsonb
 );
 WITH page AS (
-    SELECT aap_assets_v1.read_operator_items(
+    SELECT yoao_assets_v1.read_operator_items(
         dataset_id => :'image_operation_id'::uuid,
         after_item_id => NULL::uuid,
         page_size => 5
     ) -> 'data' AS data
 )
-SELECT aap_assets_v1.patch_operator_items(
+SELECT yoao_assets_v1.patch_operator_items(
     operation_id => :'patch_operation_id'::uuid,
     dataset_id => :'image_operation_id'::uuid,
     entries => pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
@@ -154,11 +156,11 @@ SELECT aap_assets_v1.patch_operator_items(
     ))
 )
 FROM page;
-SELECT aap_assets_v1.recount_operator_items(
+SELECT yoao_assets_v1.recount_operator_items(
     operation_id => :'recount_operation_id'::uuid,
     dataset_id => :'image_operation_id'::uuid
 );
-SELECT aap_assets_v1.read_operator_items(
+SELECT yoao_assets_v1.read_operator_items(
     dataset_id => :'image_operation_id'::uuid,
     after_item_id => NULL::uuid,
     page_size => 5
@@ -184,7 +186,7 @@ ROLLBACK;
         "-p",
         "5432",
         "-U",
-        "asset_operator_client",
+        "yoao_asset_operator_client",
         "-d",
         operator_url.database,
         "-v",
@@ -249,7 +251,7 @@ async def test_operator_psql_login_executes_operator_capabilities_and_rolls_back
     except Exception:
         pytest.fail("the restricted operator connection URL is invalid", pytrace=False)
     if not (
-        operator_url.username == "asset_operator_client"
+        operator_url.username == "yoao_asset_operator_client"
         and operator_url.password
         and operator_url.host == "127.0.0.1"
         and operator_url.port is not None
@@ -262,42 +264,42 @@ async def test_operator_psql_login_executes_operator_capabilities_and_rolls_back
         owner_database = await owner.scalar(text("SELECT current_database()"))
         non_operator_has_operator_execute = await owner.scalar(
             text(
-                "SELECT pg_catalog.has_function_privilege('asset_source_client', "
-                "'aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_source_client', "
-                "'aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_source_client', "
-                "'aap_assets_v1.append_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_source_client', "
-                "'aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_source_client', "
-                "'aap_assets_v1.recount_operator_items(uuid,uuid)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_source_client', "
-                "'aap_assets_v1.read_operator_items(uuid,uuid,integer)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_catalog_client', "
-                "'aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_catalog_client', "
-                "'aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_catalog_client', "
-                "'aap_assets_v1.append_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_catalog_client', "
-                "'aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_catalog_client', "
-                "'aap_assets_v1.recount_operator_items(uuid,uuid)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_catalog_client', "
-                "'aap_assets_v1.read_operator_items(uuid,uuid,integer)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_import_client', "
-                "'aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_import_client', "
-                "'aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_import_client', "
-                "'aap_assets_v1.append_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_import_client', "
-                "'aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_import_client', "
-                "'aap_assets_v1.recount_operator_items(uuid,uuid)', 'EXECUTE') "
-                "OR pg_catalog.has_function_privilege('asset_import_client', "
-                "'aap_assets_v1.read_operator_items(uuid,uuid,integer)', 'EXECUTE')"
+                "SELECT pg_catalog.has_function_privilege('yoao_asset_source_client', "
+                "'yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_source_client', "
+                "'yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_source_client', "
+                "'yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_source_client', "
+                "'yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_source_client', "
+                "'yoao_assets_v1.recount_operator_items(uuid,uuid)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_source_client', "
+                "'yoao_assets_v1.read_operator_items(uuid,uuid,integer)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_catalog_client', "
+                "'yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_catalog_client', "
+                "'yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_catalog_client', "
+                "'yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_catalog_client', "
+                "'yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_catalog_client', "
+                "'yoao_assets_v1.recount_operator_items(uuid,uuid)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_catalog_client', "
+                "'yoao_assets_v1.read_operator_items(uuid,uuid,integer)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_import_client', "
+                "'yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_import_client', "
+                "'yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_import_client', "
+                "'yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_import_client', "
+                "'yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_import_client', "
+                "'yoao_assets_v1.recount_operator_items(uuid,uuid)', 'EXECUTE') "
+                "OR pg_catalog.has_function_privilege('yoao_asset_import_client', "
+                "'yoao_assets_v1.read_operator_items(uuid,uuid,integer)', 'EXECUTE')"
             )
         )
     if owner_database != operator_url.database or not owner_database.endswith("_test"):
@@ -356,7 +358,7 @@ async def test_operator_psql_login_executes_operator_capabilities_and_rolls_back
     assert len(lines) == 9
     assert (
         lines[0]
-        == f"asset_operator_client|asset_operator_client|{operator_url.database}"
+        == f"yoao_asset_operator_client|yoao_asset_operator_client|{operator_url.database}"
     )
     assert lines[1] == "t"
     capabilities = json.loads(lines[2])

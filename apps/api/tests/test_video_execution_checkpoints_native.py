@@ -38,7 +38,7 @@ async def _claimed_running_job(db):
     )
     await db.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "INSERT INTO yoao_jobs_v1.video_execution_journals "
             "(job_id,run_id,input_id,task_id,project_id,source_item_id) VALUES "
             "(:job,:run,:input,:task,:project,:source)"
         ),
@@ -68,7 +68,7 @@ async def test_cancelled_job_with_unretired_route_preserves_checkpoint_pins(db_s
         await db_session.execute(
             text(
                 "SELECT writer_terminal,execution_retired "
-                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": job.id},
         )
@@ -76,14 +76,14 @@ async def test_cancelled_job_with_unretired_route_preserves_checkpoint_pins(db_s
     assert journal == (False, False)
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+            text("SELECT yoao_jobs_v1.video_execution_input_retained(:input)"),
             {"input": input_id},
         )
         is True
     )
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1.video_execution_running_mask_roots_live(:job)"),
+            text("SELECT yoao_jobs_v1.video_execution_running_mask_roots_live(:job)"),
             {"job": job.id},
         )
         is True
@@ -99,7 +99,7 @@ async def test_failed_job_without_route_intents_retires_checkpoint_pins(db_sessi
         await db_session.execute(
             text(
                 "SELECT writer_terminal,writer_terminal_outcome,execution_retired "
-                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": job.id},
         )
@@ -107,7 +107,7 @@ async def test_failed_job_without_route_intents_retires_checkpoint_pins(db_sessi
     assert journal == (True, "failed", True)
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+            text("SELECT yoao_jobs_v1.video_execution_input_retained(:input)"),
             {"input": input_id},
         )
         is False
@@ -125,7 +125,7 @@ async def test_unknown_legacy_tracker_roots_preserve_fail_closed_policy(
         assert (
             await db_session.scalar(
                 text(
-                    "SELECT aap_labeling_v1._mask_gc_root_entry_live("
+                    "SELECT yoao_labeling_v1._mask_gc_root_entry_live("
                     ":kind,:job,NULL,:fail_closed)"
                 ),
                 {**request, "fail_closed": fail_closed},
@@ -152,7 +152,7 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     if open_artifact == "route":
         await db_session.execute(
             text(
-                "UPDATE aap_inference_routing_v1.scopes SET state=:state, "
+                "UPDATE yoao_inference_routing_v1.scopes SET state=:state, "
                 "closed=true WHERE id=:scope"
             ),
             {
@@ -163,20 +163,20 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     if open_artifact != "route":
         await db_session.execute(
             text(
-                "UPDATE aap_inference_routing_v1.scopes SET state='reconciled',"
+                "UPDATE yoao_inference_routing_v1.scopes SET state='reconciled',"
                 "closed=true WHERE id=:scope"
             ),
             {"scope": route["scope_id"]},
         )
         await db_session.execute(
             text(
-                "INSERT INTO aap_inference_routing_v1.scope_retirements "
+                "INSERT INTO yoao_inference_routing_v1.scope_retirements "
                 "(retirement_id,scope_id,registry_id,authority_epoch,"
                 "backend_incarnation,challenge,fence_until,admission_expires_at,"
                 "transport_identity_sha256,config_revision,realm,phase) "
                 "SELECT :retirement,id,registry_id,authority_epoch,:incarnation,"
                 ":digest,0,pg_catalog.clock_timestamp(),:digest,config_revision,"
-                "realm,'completed' FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+                "realm,'completed' FROM yoao_inference_routing_v1.scopes WHERE id=:scope"
             ),
             {
                 "retirement": uuid.uuid4(),
@@ -188,7 +188,7 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     if open_artifact != "journal":
         await db_session.execute(
             text(
-                "UPDATE aap_jobs_v1.video_execution_journals SET writer_terminal=true,"
+                "UPDATE yoao_jobs_v1.video_execution_journals SET writer_terminal=true,"
                 "writer_terminal_outcome=:outcome,execution_retired=true WHERE job_id=:job"
             ),
             {
@@ -203,7 +203,7 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     if open_artifact == "realm":
         await db_session.execute(
             text(
-                "UPDATE aap_jobs_v1.video_execution_route_intents SET realm='foreign' "
+                "UPDATE yoao_jobs_v1.video_execution_route_intents SET realm='foreign' "
                 "WHERE request_id=:request"
             ),
             {"request": route["request_id"]},
@@ -211,7 +211,7 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     if open_artifact == "run":
         await db_session.execute(
             text(
-                "UPDATE aap_jobs_v1.video_execution_route_intents SET run_id=:run "
+                "UPDATE yoao_jobs_v1.video_execution_route_intents SET run_id=:run "
                 "WHERE request_id=:request"
             ),
             {"request": route["request_id"], "run": uuid.uuid4()},
@@ -227,16 +227,19 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
         }
         await db_session.execute(
             text(
-                "INSERT INTO aap_jobs_v1.video_execution_window_attempts "
+                "INSERT INTO yoao_jobs_v1.video_execution_window_attempts "
                 "(job_id,run_id,generation,window_ordinal,window_digest,mode,state,capture_id) "
                 "VALUES (:job,:run,:generation,0,:digest,'execute',:state,:capture)"
             ),
-            {**params, "state": "capturing" if open_artifact == "capture" else "started"},
+            {
+                **params,
+                "state": "capturing" if open_artifact == "capture" else "started",
+            },
         )
         if open_artifact == "capture":
             await db_session.execute(
                 text(
-                    "INSERT INTO aap_jobs_v1.video_execution_captures "
+                    "INSERT INTO yoao_jobs_v1.video_execution_captures "
                     "(capture_id,job_id,run_id,generation,window_ordinal,"
                     "manifest_digest,manifest,state) VALUES "
                     "(:capture,:job,:run,:generation,0,:digest,'{}'::jsonb,'receiving')"
@@ -251,9 +254,10 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     # An extant lease always wins even over otherwise complete retirement.
     busy = await _step(db_session, "claim", request)
     assert busy["reason"] == "execution_busy"
-    proof = {key: claim[key] for key in (
-        "job_id", "run_id", "worker_id", "generation", "lease_token"
-    )}
+    proof = {
+        key: claim[key]
+        for key in ("job_id", "run_id", "worker_id", "generation", "lease_token")
+    }
     release = await _step(db_session, "release", proof)
     if open_artifact == "none":
         assert release["released"] is True
@@ -261,13 +265,18 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
         assert (await _step(db_session, "claim", request))["settled"] == {
             "job_id": str(job.id)
         }
-        assert await db_session.scalar(
-            text("SELECT route_request_id FROM aap_jobs_v1.video_executions WHERE job_id=:job"),
-            {"job": job.id},
-        ) == route["request_id"]
         assert (
             await db_session.scalar(
-                text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+                text(
+                    "SELECT route_request_id FROM yoao_jobs_v1.video_executions WHERE job_id=:job"
+                ),
+                {"job": job.id},
+            )
+            == route["request_id"]
+        )
+        assert (
+            await db_session.scalar(
+                text("SELECT yoao_jobs_v1.video_execution_input_retained(:input)"),
                 {"input": input_id},
             )
             is False
@@ -276,7 +285,7 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     assert release["reason"] == "recovery_required"
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions SET "
+            "UPDATE yoao_jobs_v1.video_executions SET "
             "lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE job_id=:job"
         ),
@@ -286,7 +295,7 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
     if open_artifact == "journal":
         assert (
             await db_session.scalar(
-                text("SELECT aap_jobs_v1.video_execution_input_retained(:input)"),
+                text("SELECT yoao_jobs_v1.video_execution_input_retained(:input)"),
                 {"input": input_id},
             )
             is True

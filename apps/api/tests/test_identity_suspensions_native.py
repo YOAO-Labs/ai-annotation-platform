@@ -67,7 +67,7 @@ def _suspension_dsn(test_engine=None) -> str:
         pytest.skip("Identity suspension client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_suspension_client"
+    assert parsed.username == "yoao_identity_suspension_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     if test_engine is not None:
         assert (parsed.host, parsed.port, parsed.database) == (
@@ -454,17 +454,17 @@ def test_frozen_suspension_artifacts_and_native_lock_contract():
     assert "disabled_reason = '管理员停用账号'" in artifact
     assert "record_identity_suspension_event" in artifact
     assert "identity_suspension_operation_receipts" in module_grants
-    assert "identity_suspension_role=identity_suspension_client" in role_grants
+    assert "identity_suspension_role=yoao_identity_suspension_client" in role_grants
     expected_functions = role_grants.split("expected_functions text[] := ARRAY[", 1)[
         1
     ].split("];", 1)[0]
     assert expected_functions.index(
         "execute_suspension_command"
     ) < expected_functions.index("suspension_policy")
-    assert "aap_identity_suspensions_v1.execute_suspension_command(jsonb)" in (
+    assert "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)" in (
         lan_grants
     )
-    assert '"SUSPENSION": "identity_suspension_client"' in verifier
+    assert '"SUSPENSION": "yoao_identity_suspension_client"' in verifier
 
 
 @pytest.mark.asyncio
@@ -777,9 +777,9 @@ async def test_malformed_workspace_scope_reply_fails_closed_without_effects(
         operation_id=request_id,
     )
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    function = "aap_workspace_v1.lock_identity_suspension_scope"
+    function = "yoao_workspace_v1.lock_identity_suspension_scope"
     original_name = f"_sus_scope_orig_{uuid.uuid4().hex}"
-    original = f"aap_workspace_v1.{original_name}"
+    original = f"yoao_workspace_v1.{original_name}"
     wrapped = False
     override = f"""
         CREATE FUNCTION {function}(

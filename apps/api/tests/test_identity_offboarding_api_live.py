@@ -229,7 +229,7 @@ async def test_auth_only_offboarding_http_bindings_preserve_public_contract(
                 async with maker.begin() as db:
                     await db.execute(
                         text(
-                            "GRANT SELECT ON public.users TO identity_offboarding_client"
+                            "GRANT SELECT ON public.users TO yoao_identity_offboarding_client"
                         )
                     )
                 try:
@@ -247,7 +247,7 @@ async def test_auth_only_offboarding_http_bindings_preserve_public_contract(
                         await db.execute(
                             text(
                                 "REVOKE SELECT ON public.users "
-                                "FROM identity_offboarding_client"
+                                "FROM yoao_identity_offboarding_client"
                             )
                         )
 

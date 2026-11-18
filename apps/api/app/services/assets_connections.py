@@ -475,7 +475,7 @@ class AssetsConnectionsGateway:
                 parameters[argument] = list(value)
             else:
                 parameters[argument] = value
-        statement = text(f"SELECT aap_assets_v1.{name}({placeholders})")
+        statement = text(f"SELECT yoao_assets_v1.{name}({placeholders})")
         if name in {"begin_connection_probe", "finish_connection_probe"}:
             # The ledger and the accepted-key fence are independently durable:
             # never hold the caller's publication transaction across physical I/O.
@@ -534,7 +534,7 @@ class AssetsConnectionsGateway:
                 )
         try:
             result = await self.db.execute(
-                text(f"SELECT aap_assets_v1.{operation}({placeholders})"), parameters
+                text(f"SELECT yoao_assets_v1.{operation}({placeholders})"), parameters
             )
             raw = result.scalar_one()
             decoded = decode_connection_reply(raw, result_type)

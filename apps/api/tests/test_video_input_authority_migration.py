@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from yoao_assets_video_inputs import authority as c
+from tests.frozen_namespaces import historical
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql/0223_video_input_authorities.sql"
@@ -23,7 +24,7 @@ def migration():
 
 
 def test_native_video_projection_schema_matches_the_portable_artifact():
-    assert json.loads(SCHEMA.read_text()) == c.contract_document()
+    assert json.loads(SCHEMA.read_text()) == historical(c.contract_document())
     assert len(c.OPERATIONS) == 3
     assert all(op.consumer == "assets_owner" for op in c.OPERATIONS.values())
 
@@ -45,7 +46,7 @@ def test_new_authorities_have_reversible_installer_and_no_image_replacements():
         re.match(r"(?is)^\s*(CREATE|ALTER|DROP)\s+TABLE", s) for s in statements
     )
     for name, definition in c.OPERATIONS.items():
-        assert definition.namespace + "." + name in created
+        assert historical(definition.namespace) + "." + name in created
 
 
 def test_rollback_uses_only_exact_restrict_drops():

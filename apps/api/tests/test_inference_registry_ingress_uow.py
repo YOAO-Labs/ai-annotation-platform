@@ -55,7 +55,7 @@ async def test_seed_apply_merges_only_caller_changed_keys_and_keeps_outer_rollba
             owner, registry_id, "Seed UOW", origin, "seed", extra_params=before
         )
         await owner.fetchrow(
-            "SELECT * FROM aap_inference_registry_ingress_v1.create_singleton_pool($1,$2,$3,'Seed UOW','null',NULL)",
+            "SELECT * FROM yoao_inference_registry_ingress_v1.create_singleton_pool($1,$2,$3,'Seed UOW','null',NULL)",
             registry_id,
             uuid.uuid4(),
             uuid.uuid4(),

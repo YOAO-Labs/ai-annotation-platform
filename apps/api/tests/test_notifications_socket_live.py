@@ -110,7 +110,7 @@ async def test_notification_socket_real_frames_revocation_and_cleanup(
         )
         _verify_postgres(url)
     assert consumer_url.username == "identity_api_consumer"
-    assert auth_url.username == "identity_auth_client"
+    assert auth_url.username == "yoao_identity_auth_client"
     redis_url = _verify_redis()
     seed, actor, project, membership = socket_world
     engine = create_async_engine(consumer_url, hide_parameters=True)
@@ -176,7 +176,7 @@ async def test_notification_socket_real_frames_revocation_and_cleanup(
             async with auth_engine.connect() as connection:
                 assert (
                     await connection.scalar(text("SELECT current_user"))
-                    == "identity_auth_client"
+                    == "yoao_identity_auth_client"
                 )
                 assert not await connection.scalar(
                     text(
@@ -362,7 +362,7 @@ async def test_notification_socket_real_frames_revocation_and_cleanup(
             json.dumps(
                 {
                     "actual_api_login": "identity_api_consumer",
-                    "actual_auth_login": "identity_auth_client",
+                    "actual_auth_login": "yoao_identity_auth_client",
                     "subscribe_only_redis": True,
                     "ordinary_and_sync_frames": True,
                     "node_stdio_frame_through_real_socket": True,

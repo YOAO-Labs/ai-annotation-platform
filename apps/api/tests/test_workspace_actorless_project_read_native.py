@@ -15,6 +15,7 @@ from sqlalchemy import inspect, text
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.project_access import get_workspace_project
+from tests.frozen_namespaces import current
 from tests.test_workspace_project_authority_locking import (
     _assert_private_denied,
     _world,
@@ -137,7 +138,7 @@ async def test_actorless_scalar_contract_and_exact_acl(test_engine):
         assert {
             item["signature"] for item in artifact["x-native-capabilities"]["functions"]
         } == set(signatures)
-        signature = signatures[0]
+        signature = current(signatures[0])
         async with owner() as db:
             row = (
                 await db.execute(
@@ -152,10 +153,10 @@ async def test_actorless_scalar_contract_and_exact_acl(test_engine):
             for role, expected in (
                 ("identity_api_consumer", True),
                 ("legacy_runtime", True),
-                ("append_client", False),
+                ("yoao_append_client", False),
                 ("assets_code", False),
                 ("inference_code", False),
-                ("workspace_project_deletion_client", False),
+                ("yoao_workspace_project_deletion_client", False),
             ):
                 assert (
                     await db.scalar(
@@ -178,7 +179,7 @@ async def test_actorless_scalar_contract_and_exact_acl(test_engine):
                 assert (
                     await db.scalar(
                         text(
-                            "SELECT aap_workspace_v1.read_project_row(CAST(:id AS uuid))"
+                            "SELECT yoao_workspace_v1.read_project_row(CAST(:id AS uuid))"
                         ),
                         {"id": project_id},
                     )
@@ -202,7 +203,7 @@ async def test_malformed_actorless_snapshot_rolls_back_prior_caller_write(
 
                 async def corrupt(statement, *args, **kwargs):
                     value = await scalar(statement, *args, **kwargs)
-                    if "aap_workspace_v1.read_project_row(" not in str(statement):
+                    if "yoao_workspace_v1.read_project_row(" not in str(statement):
                         return value
                     row = json.loads(value)
                     if corruption == "type":

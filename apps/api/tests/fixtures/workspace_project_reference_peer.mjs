@@ -27,21 +27,21 @@ try {
     const before = (
       await client.query("SELECT pg_backend_pid() AS pid,txid_current()::text AS xid")
     ).rows[0];
-    const query = `SELECT aap_workspace_v1.${name}($1::uuid) AS reference`;
+    const query = `SELECT yoao_workspace_v1.${name}($1::uuid) AS reference`;
     assert.equal(
       (await client.query(query, [input.project_id])).rows[0].reference,
       input.project_id,
     );
     assert.equal((await client.query(query, [null])).rows[0].reference, null);
     await assert.rejects(
-      contender.query("SELECT aap_workspace_v1.lock_project_row($1::uuid,true)", [
+      contender.query("SELECT yoao_workspace_v1.lock_project_row($1::uuid,true)", [
         input.project_id,
       ]),
       { code: "55P03" },
     );
     const snapshot = (
       await client.query(
-        "SELECT aap_workspace_v1.project_access_step($1::uuid,$2::uuid,'read_project_row') AS reply",
+        "SELECT yoao_workspace_v1.project_access_step($1::uuid,$2::uuid,'read_project_row') AS reply",
         [input.actor_id, input.project_id],
       )
     ).rows[0].reply;

@@ -227,7 +227,7 @@ async def test_create_receipt_replays_without_storing_the_raw_token(test_engine)
         async with maker.begin() as session:
             prepared = await _call(
                 session,
-                "aap_identity_invitations_v1.prepare_invitation_command",
+                "yoao_identity_invitations_v1.prepare_invitation_command",
                 prepare,
             )
         assert prepared["ok"] is True
@@ -236,7 +236,7 @@ async def test_create_receipt_replays_without_storing_the_raw_token(test_engine)
         async with maker.begin() as session:
             created = await _call(
                 session,
-                "aap_identity_invitations_v1.apply_invitation_command",
+                "yoao_identity_invitations_v1.apply_invitation_command",
                 applied,
             )
         assert created["ok"] is True
@@ -270,7 +270,7 @@ async def test_create_receipt_replays_without_storing_the_raw_token(test_engine)
         async with maker.begin() as session:
             replay = await _call(
                 session,
-                "aap_identity_invitations_v1.apply_invitation_command",
+                "yoao_identity_invitations_v1.apply_invitation_command",
                 applied,
             )
             replay_audits = await session.scalar(
@@ -327,7 +327,7 @@ async def test_read_commands_reject_null_status_and_scope_fields(test_engine):
             async with maker.begin() as session:
                 response = await _call(
                     session,
-                    "aap_identity_invitations_v1.prepare_invitation_command",
+                    "yoao_identity_invitations_v1.prepare_invitation_command",
                     command,
                 )
             assert response["ok"] is False
@@ -383,7 +383,7 @@ async def test_create_reports_existing_account_role_conflict_with_legacy_detail(
         async with maker.begin() as session:
             response = await _call(
                 session,
-                "aap_identity_invitations_v1.prepare_invitation_command",
+                "yoao_identity_invitations_v1.prepare_invitation_command",
                 command,
             )
         assert response["ok"] is False
@@ -435,7 +435,7 @@ async def test_create_rejects_platform_viewer_with_nonviewer_project_role(test_e
         async with maker.begin() as session:
             response = await _call(
                 session,
-                "aap_identity_invitations_v1.prepare_invitation_command",
+                "yoao_identity_invitations_v1.prepare_invitation_command",
                 command,
             )
         assert response["ok"] is False
@@ -522,14 +522,14 @@ async def test_batch_receipt_replay_rejects_a_project_scope_transfer(test_engine
         async with maker.begin() as session:
             prepared = await _call(
                 session,
-                "aap_identity_invitations_v1.prepare_invitation_command",
+                "yoao_identity_invitations_v1.prepare_invitation_command",
                 {key: value for key, value in command.items() if key != "derived"},
             )
         assert prepared["ok"] is True, prepared
         async with maker.begin() as session:
             applied = await _call(
                 session,
-                "aap_identity_invitations_v1.apply_invitation_command",
+                "yoao_identity_invitations_v1.apply_invitation_command",
                 command,
             )
         assert applied["ok"] is True
@@ -543,7 +543,7 @@ async def test_batch_receipt_replay_rejects_a_project_scope_transfer(test_engine
         async with maker.begin() as session:
             replay = await _call(
                 session,
-                "aap_identity_invitations_v1.apply_invitation_command",
+                "yoao_identity_invitations_v1.apply_invitation_command",
                 command,
             )
         assert replay["ok"] is False
@@ -596,7 +596,7 @@ async def test_batch_preview_executes_create_then_rolls_back_rows_receipts_and_a
         async with maker.begin() as session:
             result = await _call(
                 session,
-                "aap_identity_invitations_v1.prepare_invitation_command",
+                "yoao_identity_invitations_v1.prepare_invitation_command",
                 command,
             )
         assert result["ok"] is True

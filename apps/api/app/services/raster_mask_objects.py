@@ -260,7 +260,7 @@ async def _bind_prediction_producer(db, object_id):
     producer_id = current_prediction_mask_producer()
     if producer_id is not None:
         admitted = await db.scalar(
-            text("SELECT aap_jobs_v1.bind_prediction_mask_object(:producer, :object)"),
+            text("SELECT yoao_jobs_v1.bind_prediction_mask_object(:producer, :object)"),
             {"producer": producer_id, "object": object_id},
         )
         if admitted is not True:
@@ -591,7 +591,7 @@ async def _guarded(db, receipt, *, exclude_operation=None):
     if await db.scalar(select(exists().where(Publication.object_id == receipt.id))):
         return True
     if await db.scalar(
-        text("SELECT aap_jobs_v1.prediction_mask_object_retained(:object)"),
+        text("SELECT yoao_jobs_v1.prediction_mask_object_retained(:object)"),
         {"object": receipt.id},
     ):
         return True

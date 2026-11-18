@@ -18,7 +18,7 @@ from tests.factory import create_membership
 
 def _assert_public_audit_reads(statements: list[str]) -> None:
     lowered = [statement.lower() for statement in statements]
-    assert any("aap_audit_v1.audit_events" in statement for statement in lowered)
+    assert any("yoao_audit_v1.audit_events" in statement for statement in lowered)
     assert not any(
         "from audit_logs" in statement or "from public.audit_logs" in statement
         for statement in lowered

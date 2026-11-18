@@ -159,8 +159,8 @@ async def test_restored_directory_export_replays_snapshot_and_rejects_epoch(
         await _assert_exact_identity_functions(
             dsn("DIRECTORY"),
             {
-                "aap_identity_directory_v1.directory_policy()",
-                "aap_identity_directory_v1.execute_directory_command(jsonb)",
+                "yoao_identity_directory_v1.directory_policy()",
+                "yoao_identity_directory_v1.execute_directory_command(jsonb)",
             },
         )
         assert (

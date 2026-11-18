@@ -51,9 +51,9 @@ pytestmark = [
     ),
 ]
 
-_RESTORE_ROLE = "video_restore_operator_client"
+_RESTORE_ROLE = "yoao_video_restore_operator_client"
 _RESTORE_FUNCTIONS = {("video_restore_step", "text, text")}
-_RESTORE_SCHEMA = "aap_inference_routing_v1"
+_RESTORE_SCHEMA = "yoao_inference_routing_v1"
 _RESTORE_GRANTS = ROOT / "infra/docker/video-restore-grants.sql"
 _EXECUTION_GRANTS = ROOT / "infra/docker/video-execution-grants.sql"
 
@@ -74,7 +74,7 @@ def _apply_video_execution_grants(test_engine, database: str) -> None:
             "expected_database": database,
             "migration_role": "owner",
             "jobs_owner": "jobs_code",
-            "video_execution_role": "video_execution_client",
+            "video_execution_role": "yoao_video_execution_client",
         },
     )
 
@@ -103,7 +103,7 @@ def _apply_owned_grants(test_engine, database: str) -> None:
             "expected_database": database,
             "migration_role": "owner",
             "inference_owner": "inference_code",
-            "inference_routing_role": "inference_routing_client",
+            "inference_routing_role": "yoao_inference_routing_client",
         },
     )
     _apply_video_execution_grants(test_engine, database)
@@ -299,7 +299,7 @@ async def test_restore_operator_inspect_prepare_replay_conflict_and_role_boundar
         # the realm rotation.
         video_execution_dsn = _role_dsn(
             "AAP_MODULE_DATA_VIDEO_EXECUTION_URL",
-            "video_execution_client",
+            "yoao_video_execution_client",
             restored_database,
         )
         for isolation in ("repeatable_read", "serializable"):
@@ -413,7 +413,7 @@ async def test_same_identity_rotation_waits_for_writer_and_invalidates_old_proof
         connection = await asyncpg.connect(
             _role_dsn(
                 "AAP_MODULE_DATA_VIDEO_EXECUTION_URL",
-                "video_execution_client",
+                "yoao_video_execution_client",
                 database,
             ),
             timeout=5,
@@ -459,7 +459,7 @@ async def test_same_identity_rotation_waits_for_writer_and_invalidates_old_proof
             assert (
                 await owner.scalar(
                     text(
-                        "SELECT plan_digest FROM aap_jobs_v1.video_execution_journals "
+                        "SELECT plan_digest FROM yoao_jobs_v1.video_execution_journals "
                         "WHERE job_id=:job"
                     ),
                     {"job": job.id},

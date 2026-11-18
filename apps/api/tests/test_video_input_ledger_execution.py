@@ -20,62 +20,62 @@ pytestmark = pytest.mark.asyncio
 
 _SCHEMA = "aap-assets-video-input-execution/v1"
 _CAPTURE = text(
-    "SELECT aap_assets_v1.capture_accepted_video_manifest(CAST(:job AS uuid),"
+    "SELECT yoao_assets_v1.capture_accepted_video_manifest(CAST(:job AS uuid),"
     "CAST(:actor AS uuid),CAST(:project AS uuid),CAST(:selection AS jsonb))"
 )
 _PAGE = text(
-    "SELECT aap_assets_v1.read_accepted_video_manifest_page(CAST(:job AS uuid),"
+    "SELECT yoao_assets_v1.read_accepted_video_manifest_page(CAST(:job AS uuid),"
     "CAST(:actor AS uuid),CAST(:project AS uuid),CAST(:selection_digest AS text),"
     "CAST(:sealed_digest AS text),CAST(:cursor AS bigint),CAST(:page_size AS integer))"
 )
 _PREPARE = text(
-    "SELECT aap_assets_v1.prepare_accepted_video_member(CAST(:job AS uuid),"
+    "SELECT yoao_assets_v1.prepare_accepted_video_member(CAST(:job AS uuid),"
     "CAST(:actor AS uuid),CAST(:project AS uuid),CAST(:selection_digest AS text),"
     "CAST(:ordinal AS bigint),CAST(:task AS uuid),CAST(:source_snapshot AS text),"
     "CAST(:timetable_revision AS bigint),CAST(:object_identity AS jsonb),CAST(:terminal_error AS text))"
 )
 _SEAL = text(
-    "SELECT aap_assets_v1.seal_accepted_video_manifest(CAST(:job AS uuid),"
+    "SELECT yoao_assets_v1.seal_accepted_video_manifest(CAST(:job AS uuid),"
     "CAST(:actor AS uuid),CAST(:project AS uuid),CAST(:selection_digest AS text))"
 )
 _CLAIM_INPUT = text(
-    "SELECT aap_assets_v1.claim_accepted_video_input(CAST(:worker AS uuid),"
+    "SELECT yoao_assets_v1.claim_accepted_video_input(CAST(:worker AS uuid),"
     "CAST(:input AS uuid),CAST(:lease_seconds AS integer))"
 )
 _STAGE = text(
-    "SELECT aap_assets_v1.stage_accepted_video_times(CAST(:input AS uuid),"
+    "SELECT yoao_assets_v1.stage_accepted_video_times(CAST(:input AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:cursor AS bigint),CAST(:entries AS jsonb))"
 )
 _HEARTBEAT_INPUT = text(
-    "SELECT aap_assets_v1.heartbeat_accepted_video_input(CAST(:input AS uuid),"
+    "SELECT yoao_assets_v1.heartbeat_accepted_video_input(CAST(:input AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:lease_seconds AS integer))"
 )
 _FINISH_INPUT = text(
-    "SELECT aap_assets_v1.finish_accepted_video_input(CAST(:input AS uuid),"
+    "SELECT yoao_assets_v1.finish_accepted_video_input(CAST(:input AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:plan AS jsonb))"
 )
 _CLAIM_FRAME = text(
-    "SELECT aap_assets_v1.claim_accepted_video_frame(CAST(:worker AS uuid),"
+    "SELECT yoao_assets_v1.claim_accepted_video_frame(CAST(:worker AS uuid),"
     "CAST(:frame AS uuid),CAST(:lease_seconds AS integer))"
 )
 _REQUIRE_FRAME = text(
-    "SELECT aap_assets_v1.require_accepted_video_frame(CAST(:actor AS uuid),"
+    "SELECT yoao_assets_v1.require_accepted_video_frame(CAST(:actor AS uuid),"
     "CAST(:job AS uuid),CAST(:task AS uuid),CAST(:input AS uuid),CAST(:plan AS text),1)"
 )
 _HEARTBEAT_FRAME = text(
-    "SELECT aap_assets_v1.heartbeat_accepted_video_frame(CAST(:frame AS uuid),"
+    "SELECT yoao_assets_v1.heartbeat_accepted_video_frame(CAST(:frame AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:lease_seconds AS integer))"
 )
 _FINISH_FRAME = text(
-    "SELECT aap_assets_v1.finish_accepted_video_frame(CAST(:frame AS uuid),"
+    "SELECT yoao_assets_v1.finish_accepted_video_frame(CAST(:frame AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:blob AS jsonb))"
 )
 _FAIL_INPUT = text(
-    "SELECT aap_assets_v1.fail_accepted_video_input(CAST(:input AS uuid),"
+    "SELECT yoao_assets_v1.fail_accepted_video_input(CAST(:input AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:error_code AS text))"
 )
 _FAIL_FRAME = text(
-    "SELECT aap_assets_v1.fail_accepted_video_frame(CAST(:frame AS uuid),"
+    "SELECT yoao_assets_v1.fail_accepted_video_frame(CAST(:frame AS uuid),"
     "CAST(:generation AS bigint),CAST(:token AS uuid),CAST(:error_code AS text))"
 )
 

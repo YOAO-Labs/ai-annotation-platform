@@ -22,7 +22,7 @@ def ingress_dsn(database_url):
     value = make_url(
         _role_url(
             "AAP_MODULE_DATA_INFERENCE_REGISTRY_INGRESS_URL",
-            "inference_registry_ingress_client",
+            "yoao_inference_registry_ingress_client",
         )
     )
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"

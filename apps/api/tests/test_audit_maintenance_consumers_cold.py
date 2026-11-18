@@ -224,7 +224,7 @@ async def main():
  engine=create_async_engine(os.environ['DATABASE_URL'],hide_parameters=True)
  try:
   async with engine.connect() as db:
-   row=(await db.execute(text("SELECT current_user,current_database(),has_table_privilege(current_user,'public.audit_logs','SELECT'),has_table_privilege(current_user,'public.audit_logs','INSERT'),has_table_privilege(current_user,'public.async_jobs','SELECT'),has_table_privilege(current_user,'public.async_jobs','INSERT'),has_table_privilege(current_user,'public.notifications','SELECT'),has_function_privilege(current_user,'aap_audit_v1.maintenance_command(jsonb)','EXECUTE')"))).one()
+   row=(await db.execute(text("SELECT current_user,current_database(),has_table_privilege(current_user,'public.audit_logs','SELECT'),has_table_privilege(current_user,'public.audit_logs','INSERT'),has_table_privilege(current_user,'public.async_jobs','SELECT'),has_table_privilege(current_user,'public.async_jobs','INSERT'),has_table_privilege(current_user,'public.notifications','SELECT'),has_function_privilege(current_user,'yoao_audit_v1.maintenance_command(jsonb)','EXECUTE')"))).one()
    try:
     await db.execute(text('ALTER TABLE public.audit_logs ADD COLUMN audit_consumer_forbidden integer'))
     raise AssertionError('worker can alter Audit storage')
@@ -361,7 +361,7 @@ async def _verify_daily(engine, action, yesterday):
         rows = (
             await db.execute(
                 text(
-                    "SELECT day,event_count FROM aap_audit_v1.audit_daily_facts WHERE action=:action"
+                    "SELECT day,event_count FROM yoao_audit_v1.audit_daily_facts WHERE action=:action"
                 ),
                 {"action": action},
             )
@@ -581,7 +581,7 @@ while True:
                 assert (
                     await db.scalar(
                         text(
-                            "SELECT count(*) FROM aap_audit_v1.audit_events WHERE action='audit.archive' AND target_id=:name"
+                            "SELECT count(*) FROM yoao_audit_v1.audit_events WHERE action='audit.archive' AND target_id=:name"
                         ),
                         {"name": partition},
                     )
@@ -665,7 +665,7 @@ while True:
                         assert (
                             await db.scalar(
                                 text(
-                                    "SELECT count(*) FROM aap_audit_v1.audit_events WHERE action='audit.archive' AND target_id=:name"
+                                    "SELECT count(*) FROM yoao_audit_v1.audit_events WHERE action='audit.archive' AND target_id=:name"
                                 ),
                                 {"name": partition},
                             )

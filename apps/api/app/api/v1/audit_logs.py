@@ -76,7 +76,7 @@ async def _load_monthly_summary_rows(
     db: AsyncSession, *, month_start: date, month_end: date, business_only: bool
 ) -> tuple[date | None, list[tuple]]:
     materialized_through = (
-        await db.execute(text("SELECT MAX(day) FROM aap_audit_v1.audit_daily_facts"))
+        await db.execute(text("SELECT MAX(day) FROM yoao_audit_v1.audit_daily_facts"))
     ).scalar_one_or_none()
     mv_end = month_start
     if materialized_through is not None:
@@ -92,7 +92,7 @@ async def _load_monthly_summary_rows(
                     text(
                         """
                         SELECT day, action, target_type, actor_role, status_family, event_count
-                        FROM aap_audit_v1.audit_daily_facts
+                        FROM yoao_audit_v1.audit_daily_facts
                         WHERE day >= :month_start AND day < :mv_end
                           AND (:business_only = false OR action NOT LIKE 'http.%')
                         """
@@ -124,7 +124,7 @@ async def _load_monthly_summary_rows(
                                 ELSE 0::smallint
                             END AS status_family,
                             COUNT(*)::bigint AS event_count
-                        FROM aap_audit_v1.audit_events
+                        FROM yoao_audit_v1.audit_events
                         WHERE created_at >= :raw_start AND created_at < :month_end
                           AND (:business_only = false OR action NOT LIKE 'http.%')
                         GROUP BY day, action, target_type, actor_role, status_family

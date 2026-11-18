@@ -585,7 +585,10 @@ class DatasetService:
                 from app.services import image_pyramid_objects, thumbnail_outputs
 
                 d["thumbnail_url"] = await image_pyramid_objects.thumbnail_url(
-                    self.db, "dataset_item", item.id, item.thumbnail_path,
+                    self.db,
+                    "dataset_item",
+                    item.id,
+                    item.thumbnail_path,
                     actor_id=actor_id,
                 )
                 if d["thumbnail_url"] is None:
@@ -1207,7 +1210,7 @@ class DatasetService:
         await self.db.flush()
         payload = await self.db.scalar(
             text(
-                "SELECT aap_assets_v1.associate_project("
+                "SELECT yoao_assets_v1.associate_project("
                 "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), "
                 "CAST(:project_id AS uuid))"
             ),
@@ -1223,7 +1226,7 @@ class DatasetService:
         await self.db.flush()
         return await self.db.scalar(
             text(
-                "SELECT aap_assets_v1.lock_current_association("
+                "SELECT yoao_assets_v1.lock_current_association("
                 "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
             ),
             {"dataset_id": dataset_id, "project_id": project_id},
@@ -1232,7 +1235,7 @@ class DatasetService:
     async def lock_dataset_reference(self, dataset_id: uuid.UUID) -> uuid.UUID | None:
         await self.db.flush()
         return await self.db.scalar(
-            text("SELECT aap_assets_v1.lock_dataset_reference(CAST(:id AS uuid))"),
+            text("SELECT yoao_assets_v1.lock_dataset_reference(CAST(:id AS uuid))"),
             {"id": dataset_id},
         )
 

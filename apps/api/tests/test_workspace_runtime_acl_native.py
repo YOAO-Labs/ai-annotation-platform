@@ -107,7 +107,7 @@ async def _assert_private_storage_denied(engine, role):
             )
         assert not await connection.scalar(
             text(
-                "SELECT has_schema_privilege(current_user,'aap_workspace_v1','CREATE')"
+                "SELECT has_schema_privilege(current_user,'yoao_workspace_v1','CREATE')"
             )
         )
 
@@ -118,9 +118,9 @@ async def _assert_private_storage_denied(engine, role):
         "DELETE FROM public.project_members WHERE false",
         "SELECT id FROM public.project_templates LIMIT 1",
         "SELECT * FROM public.project_deletion_operations LIMIT 1",
-        "SELECT * FROM aap_workspace_v1.project_catalog_configs LIMIT 1",
+        "SELECT * FROM yoao_workspace_v1.project_catalog_configs LIMIT 1",
         "SELECT nextval('public.display_seq_projects')",
-        "UPDATE aap_workspace_v1.project_facts SET name=name WHERE false",
+        "UPDATE yoao_workspace_v1.project_facts SET name=name WHERE false",
     ):
         async with engine.connect() as connection:
             with pytest.raises(DBAPIError) as denied:
@@ -166,14 +166,14 @@ async def test_default_workspace_credentials_preserve_owner_seed_and_fixture_tra
             assert (
                 await db.scalar(
                     text(
-                        "SELECT name FROM aap_workspace_v1.project_facts WHERE id=:id"
+                        "SELECT name FROM yoao_workspace_v1.project_facts WHERE id=:id"
                     ),
                     {"id": seed_id},
                 )
                 == "Default runtime seed"
             )
             await db.execute(
-                text("SELECT * FROM aap_workspace_fixture_v1.templates LIMIT 1")
+                text("SELECT * FROM yoao_workspace_fixture_v1.templates LIMIT 1")
             )
             assert (
                 await db.execute(text("SELECT pg_backend_pid(),txid_current()"))
@@ -212,7 +212,7 @@ async def test_default_reapplication_fences_columns_partition_leaves_and_future_
         parent = f"public.workspace_acl_{suffix}"
         leaf = f"public.acl_leaf_{suffix}"
         sequence = parent + "_id_seq"
-        future = f"aap_workspace_v1.acl_future_{suffix}"
+        future = f"yoao_workspace_v1.acl_future_{suffix}"
         try:
             async with test_engine.begin() as db:
                 await db.exec_driver_sql(
@@ -226,10 +226,10 @@ async def test_default_reapplication_fences_columns_partition_leaves_and_future_
                         f"GRANT SELECT(id),UPDATE(name) ON public.projects TO {target}",
                         f"GRANT SELECT ON {leaf} TO {target}",
                         f"GRANT ALL ON SEQUENCE {sequence} TO {target}",
-                        f"GRANT CREATE ON SCHEMA aap_workspace_v1 TO {target}",
-                        f"GRANT UPDATE(name) ON aap_workspace_v1.project_facts TO {target}",
-                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA aap_workspace_v1 GRANT ALL ON TABLES TO {target}",
-                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA aap_workspace_v1 GRANT ALL ON SEQUENCES TO {target}",
+                        f"GRANT CREATE ON SCHEMA yoao_workspace_v1 TO {target}",
+                        f"GRANT UPDATE(name) ON yoao_workspace_v1.project_facts TO {target}",
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA yoao_workspace_v1 GRANT ALL ON TABLES TO {target}",
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA yoao_workspace_v1 GRANT ALL ON SEQUENCES TO {target}",
                     ):
                         await db.exec_driver_sql(statement)
             async with engine.connect() as db:
@@ -266,14 +266,14 @@ async def test_default_reapplication_fences_columns_partition_leaves_and_future_
                         f"REVOKE SELECT(id),UPDATE(name) ON public.projects FROM {target}"
                     )
                     await db.exec_driver_sql(
-                        f"REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM {target}"
+                        f"REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM {target}"
                     )
                     await db.exec_driver_sql(
-                        f"REVOKE UPDATE(name) ON aap_workspace_v1.project_facts FROM {target}"
+                        f"REVOKE UPDATE(name) ON yoao_workspace_v1.project_facts FROM {target}"
                     )
                     await db.exec_driver_sql(
-                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA aap_workspace_v1 REVOKE ALL ON TABLES FROM {target}"
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA yoao_workspace_v1 REVOKE ALL ON TABLES FROM {target}"
                     )
                     await db.exec_driver_sql(
-                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA aap_workspace_v1 REVOKE ALL ON SEQUENCES FROM {target}"
+                        f"ALTER DEFAULT PRIVILEGES IN SCHEMA yoao_workspace_v1 REVOKE ALL ON SEQUENCES FROM {target}"
                     )

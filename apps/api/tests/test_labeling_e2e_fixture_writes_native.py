@@ -29,8 +29,8 @@ pytestmark = [
 ]
 
 _FIXTURE_CAPABILITIES = (
-    "aap_labeling_v1.e2e_fixture_command(jsonb)",
-    "aap_labeling_v1.prepare_filtering_rendering(jsonb)",
+    "yoao_labeling_v1.e2e_fixture_command(jsonb)",
+    "yoao_labeling_v1.prepare_filtering_rendering(jsonb)",
 )
 
 
@@ -92,7 +92,7 @@ async def test_fixture_defaults_and_caller_transaction_use_the_owner(test_engine
                 assert await db.scalar(
                     text(
                         "SELECT has_function_privilege(current_user, "
-                        "'aap_labeling_v1.e2e_fixture_command(jsonb)', 'EXECUTE')"
+                        "'yoao_labeling_v1.e2e_fixture_command(jsonb)', 'EXECUTE')"
                     )
                 )
                 for table in ("tasks", "task_batches", "annotations"):
@@ -243,7 +243,7 @@ async def test_fixture_defaults_and_caller_transaction_use_the_owner(test_engine
                 )
                 await db.execute(
                     text(
-                        "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:ids AS uuid[]))"
+                        "SELECT yoao_workspace_fixture_v1.delete_projects(CAST(:ids AS uuid[]))"
                     ),
                     {"ids": [project_id]},
                 )
@@ -251,7 +251,7 @@ async def test_fixture_defaults_and_caller_transaction_use_the_owner(test_engine
                     text("DELETE FROM users WHERE id=:id"), {"id": actor_id}
                 )
 
-        assert any("aap_labeling_v1.e2e_fixture_command" in sql for sql in statements)
+        assert any("yoao_labeling_v1.e2e_fixture_command" in sql for sql in statements)
         assert not any(
             sql.lstrip().startswith(
                 (
@@ -347,7 +347,7 @@ async def test_filtering_rendering_is_scoped_atomic_and_caller_transactional(
                 assert await db.scalar(
                     text(
                         "SELECT has_function_privilege(current_user, "
-                        "'aap_labeling_v1.prepare_filtering_rendering(jsonb)', 'EXECUTE')"
+                        "'yoao_labeling_v1.prepare_filtering_rendering(jsonb)', 'EXECUTE')"
                     )
                 )
                 for table in (
@@ -495,7 +495,7 @@ async def test_filtering_rendering_is_scoped_atomic_and_caller_transactional(
                 if project_ids:
                     await db.execute(
                         text(
-                            "SELECT aap_workspace_fixture_v1.delete_projects("
+                            "SELECT yoao_workspace_fixture_v1.delete_projects("
                             "CAST(:ids AS uuid[]))"
                         ),
                         {"ids": project_ids},

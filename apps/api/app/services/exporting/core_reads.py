@@ -49,40 +49,40 @@ def row_lock_query(model, predicate, limit, *, write):
     if model is Project:
         return select(
             func.unnest(
-                func.aap_workspace_v1.lock_project_references_for_update(identities)
+                func.yoao_workspace_v1.lock_project_references_for_update(identities)
             )
         )
     if model is TaskBatch:
-        locked = func.aap_labeling_v1.lock_batch_rows_for_core_read(
+        locked = func.yoao_labeling_v1.lock_batch_rows_for_core_read(
             identities, None, mode, True
         )
     elif model is Task:
         function = (
-            func.aap_labeling_v1.lock_task_rows_for_core_read
+            func.yoao_labeling_v1.lock_task_rows_for_core_read
             if write
-            else func.aap_labeling_v1.lock_task_rows_for_core_read_share
+            else func.yoao_labeling_v1.lock_task_rows_for_core_read_share
         )
         locked = function(identities, None, None)
     elif model is Annotation:
-        locked = func.aap_labeling_v1.lock_annotation_rows_for_core_read(
+        locked = func.yoao_labeling_v1.lock_annotation_rows_for_core_read(
             identities, None, None, mode, True
         )
     elif model is TaskDatasetItemLink:
         locked = (
-            func.aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(
+            func.yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(
                 identities, limit
             )
         )
     elif model is VideoSegment:
-        locked = func.aap_labeling_v1.lock_video_segment_ids_for_export_share(
+        locked = func.yoao_labeling_v1.lock_video_segment_ids_for_export_share(
             identities, limit
         )
     elif model is VideoTrackQualityRun:
-        locked = func.aap_labeling_v1.lock_video_quality_run_ids_for_export_share(
+        locked = func.yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(
             identities, limit
         )
     else:
-        locked = func.aap_labeling_v1.lock_scene_track_rows_for_core_read(
+        locked = func.yoao_labeling_v1.lock_scene_track_rows_for_core_read(
             identities, limit
         )
     return lock_ids(locked)

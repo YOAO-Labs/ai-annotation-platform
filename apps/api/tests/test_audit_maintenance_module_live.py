@@ -193,7 +193,7 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
 ):
     image = _image()
     maintenance = make_url(_required_env("AAP_MODULE_DATA_AUDIT_MAINTENANCE_URL"))
-    assert maintenance.username == "audit_maintenance_client"
+    assert maintenance.username == "yoao_audit_maintenance_client"
     assert maintenance.password and not maintenance.query
     assert (maintenance.host, maintenance.port, maintenance.database) == (
         test_engine.url.host,
@@ -338,7 +338,7 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT count(*) FROM aap_audit_v1.audit_events "
+                        "SELECT count(*) FROM yoao_audit_v1.audit_events "
                         "WHERE action='audit.archive' AND target_id=:partition"
                     ),
                     {"partition": partition_name},
@@ -392,7 +392,7 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
                     assert (
                         await db.scalar(
                             text(
-                                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                                "SELECT count(*) FROM yoao_audit_v1.audit_events "
                                 "WHERE action='audit.archive' AND target_id=:partition"
                             ),
                             {"partition": partition_name},

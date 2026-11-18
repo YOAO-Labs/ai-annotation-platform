@@ -25,7 +25,7 @@ async def is_fixture(db, source):
         return False
     owned = await db.scalar(
         text(
-            "SELECT aap_assets_v1.is_fixture_original_source("
+            "SELECT yoao_assets_v1.is_fixture_original_source("
             "CAST(:key AS text), CAST(:identity AS text))"
         ),
         {

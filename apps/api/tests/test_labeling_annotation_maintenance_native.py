@@ -67,14 +67,14 @@ async def test_maintenance_owner_keeps_cleanup_json_and_outer_rollback(test_engi
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_ANNOTATION_MAINTENANCE_URL",
-                "labeling_annotation_maintenance_client",
+                "yoao_labeling_annotation_maintenance_client",
             ),
             timeout=5,
             command_timeout=10,
         )
         assert (
             await connection.fetchval("SELECT current_user")
-            == "labeling_annotation_maintenance_client"
+            == "yoao_labeling_annotation_maintenance_client"
         )
 
         async def execute(payload):
@@ -88,7 +88,7 @@ async def test_maintenance_owner_keeps_cleanup_json_and_outer_rollback(test_engi
                             row[field] = row[field].upper()
                 payload = json.dumps(request)
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_maintenance_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_maintenance_command($1::jsonb)",
                 payload,
             )
 

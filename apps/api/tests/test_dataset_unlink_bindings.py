@@ -190,7 +190,7 @@ async def test_binding_uses_versioned_scope_and_leaves_commit_to_caller():
     }
     assert [event[0] for event in db.events] == ["flush", "scalar"]
     statement, params = db.events[1][1]
-    assert "aap_workspace_v1.unlink_dataset" in statement
+    assert "yoao_workspace_v1.unlink_dataset" in statement
     assert "public.dataset_unlink_operations" not in statement
     assert params == {
         "operation": command.operation_id,
@@ -251,6 +251,6 @@ async def test_preview_binding_is_read_only_and_validates_its_response():
 
     assert preview.will_delete_tasks == 5
     statement, params = db.events[0][1]
-    assert "aap_workspace_v1.preview_dataset_unlink" in statement
+    assert "yoao_workspace_v1.preview_dataset_unlink" in statement
     assert params == {"actor": ACTOR_ID, "dataset": DATASET_ID, "project": PROJECT_ID}
     assert db.commits == 0

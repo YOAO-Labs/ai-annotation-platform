@@ -19,9 +19,9 @@ _VERSIONS = Path(__file__).resolve().parents[1] / "alembic/versions"
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _NAMESPACES = {
     "workspace_membership_operation_receipts": "aap_workspace_membership_v1",
-    "identity_suspension_operation_receipts": "aap_identity_suspensions_v1",
-    "identity_deletion_operation_receipts": "aap_identity_deletions_v1",
-    "identity_offboarding_operation_receipts": "aap_identity_offboarding_v1",
+    "identity_suspension_operation_receipts": "yoao_identity_suspensions_v1",
+    "identity_deletion_operation_receipts": "yoao_identity_deletions_v1",
+    "identity_offboarding_operation_receipts": "yoao_identity_offboarding_v1",
     "workspace_owner_transfer_operation_receipts": "aap_workspace_owner_transfer_v1",
 }
 

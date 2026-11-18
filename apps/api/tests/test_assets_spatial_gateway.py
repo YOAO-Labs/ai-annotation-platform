@@ -93,7 +93,7 @@ async def test_local_spatial_read_uses_exact_owner_function_on_caller_session():
 
     assert result.scene == expected.scene
     statement, parameters = db.execute.await_args.args
-    assert "aap_assets_v1.get_spatial_scene" in str(statement)
+    assert "yoao_assets_v1.get_spatial_scene" in str(statement)
     assert parameters["actor_id"] == actor_id
     assert parameters["scene_id"] == scene_id
     db.commit.assert_not_awaited()
@@ -206,7 +206,7 @@ async def test_same_session_native_override_ignores_remote_catalog_configuration
     )
 
     assert result.scene.name == "local"
-    assert "aap_assets_v1.get_spatial_scene" in str(db.execute.await_args.args[0])
+    assert "yoao_assets_v1.get_spatial_scene" in str(db.execute.await_args.args[0])
 
 
 @pytest.mark.asyncio
@@ -255,7 +255,7 @@ async def test_explicit_atomic_preparation_uses_native_binding_without_commit(
     )
 
     assert result == expected
-    assert "aap_assets_v1.apply_pointcloud_preparation" in str(
+    assert "yoao_assets_v1.apply_pointcloud_preparation" in str(
         db.execute.await_args.args[0]
     )
     db.commit.assert_not_awaited()

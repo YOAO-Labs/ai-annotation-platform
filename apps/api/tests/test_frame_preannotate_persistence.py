@@ -124,7 +124,7 @@ async def frame_world(test_engine):
             )
             pending = await db.scalar(
                 text(
-                    "SELECT aap_assets_v1.require_accepted_video_frame("
+                    "SELECT yoao_assets_v1.require_accepted_video_frame("
                     "CAST(:actor AS uuid),CAST(:job AS uuid),CAST(:task AS uuid),"
                     "CAST(:input AS uuid),CAST(:plan AS text),CAST(:ordinal AS bigint))"
                 ),

@@ -29,7 +29,7 @@ async def _dataset_authority(db, dataset_id, *, lock=False):
     row = (
         await db.execute(
             text(
-                "SELECT * FROM aap_assets_v1.read_dataset_source_authority("
+                "SELECT * FROM yoao_assets_v1.read_dataset_source_authority("
                 "CAST(:dataset_id AS uuid), CAST(:lock AS boolean))"
             ),
             {"dataset_id": dataset_id, "lock": lock},

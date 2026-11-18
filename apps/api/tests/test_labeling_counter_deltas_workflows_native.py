@@ -351,7 +351,7 @@ async def test_real_lifecycle_http_writes_counter_deltas_without_project_privile
                 name
                 for name in _COUNTER_FUNCTIONS
                 for statement in statements
-                if f"aap_labeling_v1.{name}(" in statement
+                if f"yoao_labeling_v1.{name}(" in statement
             ]
             assert sorted(native_calls) == sorted(
                 {

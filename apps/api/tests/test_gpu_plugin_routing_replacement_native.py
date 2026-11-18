@@ -21,8 +21,8 @@ from tests.test_gpu_plugin_terminal_endpoint_native import _owner_connection
 from tests.test_inference_routing_native import _step as _routing_step
 
 
-_AUTH = "SELECT aap_inference_topology_v1.authorize_plugin_routing_replacement($1,$2,$3,$4,$5,$6)"
-_COMMAND = "SELECT aap_inference_topology_v1.command_plugin_installation($1,$2,$3,$4)"
+_AUTH = "SELECT yoao_inference_topology_v1.authorize_plugin_routing_replacement($1,$2,$3,$4,$5,$6)"
+_COMMAND = "SELECT yoao_inference_topology_v1.command_plugin_installation($1,$2,$3,$4)"
 
 
 async def _command(conn, registry, revision, action, evidence=None):
@@ -110,7 +110,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             )
             assert ordinary["status"] == "not_replacement"
             assert not await owner.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM aap_inference_routing_v1.controls WHERE id=$1)",
+                "SELECT EXISTS (SELECT 1 FROM yoao_inference_routing_v1.controls WHERE id=$1)",
                 control,
             )
         request = {
@@ -189,7 +189,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             revision = 7
             old_incarnation = uuid4()
             await owner.execute(
-                "UPDATE aap_inference_routing_v1.registry_state SET backend_incarnation=$2, continuity='ready' WHERE registry_id=$1",
+                "UPDATE yoao_inference_routing_v1.registry_state SET backend_incarnation=$2, continuity='ready' WHERE registry_id=$1",
                 registry,
                 old_incarnation,
             )
@@ -204,7 +204,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 )
                 assert epoch["status"] == "ok", epoch
                 before_control = await owner.fetchrow(
-                    "SELECT * FROM aap_inference_routing_v1.controls WHERE id=$1",
+                    "SELECT * FROM yoao_inference_routing_v1.controls WHERE id=$1",
                     control,
                 )
                 assert before_control["backend_incarnation"] == old_incarnation
@@ -218,7 +218,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 )
                 assert stolen["status"] == "rejected"
                 before_revision = await owner.fetchval(
-                    "SELECT config_revision FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+                    "SELECT config_revision FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
                     registry,
                 )
                 await owner.execute('SET ROLE "identity_api_consumer"')
@@ -231,7 +231,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 await owner.execute("RESET ROLE")
                 assert (
                     await owner.fetchval(
-                        "SELECT config_revision FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+                        "SELECT config_revision FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
                         registry,
                     )
                     == before_revision
@@ -275,16 +275,16 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             await tx.start()
             try:
                 await owner.execute(
-                    "UPDATE aap_inference_gpu_v1.installation_terminal_intents SET settled=false WHERE backend_registry_id=$1",
+                    "UPDATE yoao_inference_gpu_v1.installation_terminal_intents SET settled=false WHERE backend_registry_id=$1",
                     registry,
                 )
                 assert (await authorize())["status"] == "rejected"
             finally:
                 await tx.rollback()
             for mutation in (
-                "UPDATE aap_inference_gpu_v1.installation_terminal_intents SET generation=generation+100 WHERE backend_registry_id=$1",
-                "UPDATE aap_inference_gpu_v1.installation_terminal_intents SET control_epoch=control_epoch+100 WHERE backend_registry_id=$1",
-                "UPDATE aap_inference_gpu_v1.installation_terminal_intents SET request=jsonb_set(request,'{boot_id}',to_jsonb('unmatched-old-boot'::text)) WHERE backend_registry_id=$1",
+                "UPDATE yoao_inference_gpu_v1.installation_terminal_intents SET generation=generation+100 WHERE backend_registry_id=$1",
+                "UPDATE yoao_inference_gpu_v1.installation_terminal_intents SET control_epoch=control_epoch+100 WHERE backend_registry_id=$1",
+                "UPDATE yoao_inference_gpu_v1.installation_terminal_intents SET request=jsonb_set(request,'{boot_id}',to_jsonb('unmatched-old-boot'::text)) WHERE backend_registry_id=$1",
             ):
                 tx = owner.transaction()
                 await tx.start()
@@ -296,17 +296,17 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
 
             history_scope, history_attempt = uuid4(), uuid4()
             await owner.execute(
-                "INSERT INTO aap_inference_routing_v1.scopes "
+                "INSERT INTO yoao_inference_routing_v1.scopes "
                 "(id,command_sha256,registry_id,mode,owner,operation,config_revision,eligibility_revision,"
                 "authority_epoch,realm,state,closed,heartbeat_deadline) "
                 "SELECT $1,$2,registry_id,'direct','history-test','predict',config_revision,eligibility_revision,"
-                "authority_epoch,realm,'finished',true,now() FROM aap_inference_routing_v1.registry_state WHERE registry_id=$3",
+                "authority_epoch,realm,'finished',true,now() FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$3",
                 history_scope,
                 "a" * 64,
                 registry,
             )
             await owner.execute(
-                "INSERT INTO aap_inference_routing_v1.attempts "
+                "INSERT INTO yoao_inference_routing_v1.attempts "
                 "(id,scope_id,method,path,transport_identity_sha256,state,status_code) "
                 "VALUES ($1,$2,'POST','/predict',$3,'response',200)",
                 history_attempt,
@@ -314,11 +314,11 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 "b" * 64,
             )
             history_before = await owner.fetchval(
-                "SELECT row_to_json(s)::text FROM aap_inference_routing_v1.scopes s WHERE id=$1",
+                "SELECT row_to_json(s)::text FROM yoao_inference_routing_v1.scopes s WHERE id=$1",
                 history_scope,
             )
             attempt_before = await owner.fetchval(
-                "SELECT row_to_json(a)::text FROM aap_inference_routing_v1.attempts a WHERE id=$1",
+                "SELECT row_to_json(a)::text FROM yoao_inference_routing_v1.attempts a WHERE id=$1",
                 history_attempt,
             )
             for state, closed in (
@@ -330,7 +330,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 await tx.start()
                 try:
                     await owner.execute(
-                        "UPDATE aap_inference_routing_v1.scopes SET state=$2,closed=$3 WHERE id=$1",
+                        "UPDATE yoao_inference_routing_v1.scopes SET state=$2,closed=$3 WHERE id=$1",
                         history_scope,
                         state,
                         closed,
@@ -343,7 +343,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 await tx.start()
                 try:
                     await owner.execute(
-                        "UPDATE aap_inference_routing_v1.attempts SET state=$2,status_code=NULL WHERE id=$1",
+                        "UPDATE yoao_inference_routing_v1.attempts SET state=$2,status_code=NULL WHERE id=$1",
                         history_attempt,
                         state,
                     )
@@ -355,7 +355,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 await tx.start()
                 try:
                     await owner.execute(
-                        "INSERT INTO aap_inference_routing_v1.control_attempts "
+                        "INSERT INTO yoao_inference_routing_v1.control_attempts "
                         "(id,control_id,method,path,transport_identity_sha256,state) "
                         "VALUES ($1,$2,'POST','/control',$3,'uncertain')",
                         uuid4(),
@@ -368,10 +368,10 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             if not already_prepared:
                 other = uuid4()
                 await owner.execute(
-                    "INSERT INTO aap_inference_routing_v1.controls "
+                    "INSERT INTO yoao_inference_routing_v1.controls "
                     "(id,registry_id,kind,phase,new_epoch,challenge,config_revision,realm) "
                     "SELECT $1,registry_id,'epoch','prepared',$2,$3,config_revision,realm "
-                    "FROM aap_inference_routing_v1.registry_state WHERE registry_id=$4",
+                    "FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$4",
                     other,
                     uuid4(),
                     "c" * 64,
@@ -379,15 +379,15 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 )
                 assert (await authorize())["status"] == "rejected"
                 await owner.execute(
-                    "DELETE FROM aap_inference_routing_v1.controls WHERE id=$1", other
+                    "DELETE FROM yoao_inference_routing_v1.controls WHERE id=$1", other
                 )
 
             before_state = await owner.fetchrow(
-                "SELECT authority_epoch,backend_incarnation,config_revision FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+                "SELECT authority_epoch,backend_incarnation,config_revision FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
                 registry,
             )
             before_intent = await owner.fetchval(
-                "SELECT row_to_json(i)::text FROM aap_inference_gpu_v1.installation_terminal_intents i WHERE backend_registry_id=$1",
+                "SELECT row_to_json(i)::text FROM yoao_inference_gpu_v1.installation_terminal_intents i WHERE backend_registry_id=$1",
                 registry,
             )
             before_fence = await owner.fetchval(
@@ -399,7 +399,7 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             await owner.execute("RESET ROLE")
             assert result["status"] == "authorized", result
             after_control = await owner.fetchrow(
-                "SELECT * FROM aap_inference_routing_v1.controls WHERE id=$1", control
+                "SELECT * FROM yoao_inference_routing_v1.controls WHERE id=$1", control
             )
             assert (
                 after_control["kind"] == "epoch"
@@ -419,14 +419,14 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                     assert after_control[key] == before_control[key]
             assert (
                 await owner.fetchrow(
-                    "SELECT authority_epoch,backend_incarnation,config_revision FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+                    "SELECT authority_epoch,backend_incarnation,config_revision FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
                     registry,
                 )
                 == before_state
             )
             assert (
                 await owner.fetchval(
-                    "SELECT row_to_json(i)::text FROM aap_inference_gpu_v1.installation_terminal_intents i WHERE backend_registry_id=$1",
+                    "SELECT row_to_json(i)::text FROM yoao_inference_gpu_v1.installation_terminal_intents i WHERE backend_registry_id=$1",
                     registry,
                 )
                 == before_intent
@@ -440,21 +440,21 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             )
             assert (
                 await owner.fetchval(
-                    "SELECT row_to_json(s)::text FROM aap_inference_routing_v1.scopes s WHERE id=$1",
+                    "SELECT row_to_json(s)::text FROM yoao_inference_routing_v1.scopes s WHERE id=$1",
                     history_scope,
                 )
                 == history_before
             )
             assert (
                 await owner.fetchval(
-                    "SELECT row_to_json(a)::text FROM aap_inference_routing_v1.attempts a WHERE id=$1",
+                    "SELECT row_to_json(a)::text FROM yoao_inference_routing_v1.attempts a WHERE id=$1",
                     history_attempt,
                 )
                 == attempt_before
             )
             assert (await authorize())["status"] == "authorized"
             replay_control = await owner.fetchrow(
-                "SELECT * FROM aap_inference_routing_v1.controls WHERE id=$1", control
+                "SELECT * FROM yoao_inference_routing_v1.controls WHERE id=$1", control
             )
             for key in ("id", "new_epoch", "retired_epoch", "challenge", "phase"):
                 assert replay_control[key] == after_control[key]
@@ -478,24 +478,24 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
             )
             assert finished["status"] == "ok", finished
             completed_control = await owner.fetchval(
-                "SELECT row_to_json(c)::text FROM aap_inference_routing_v1.controls c WHERE id=$1",
+                "SELECT row_to_json(c)::text FROM yoao_inference_routing_v1.controls c WHERE id=$1",
                 control,
             )
             completed_state = await owner.fetchval(
-                "SELECT row_to_json(s)::text FROM aap_inference_routing_v1.registry_state s WHERE registry_id=$1",
+                "SELECT row_to_json(s)::text FROM yoao_inference_routing_v1.registry_state s WHERE registry_id=$1",
                 registry,
             )
             assert (await authorize())["status"] == "authorized"
             assert (
                 await owner.fetchval(
-                    "SELECT row_to_json(c)::text FROM aap_inference_routing_v1.controls c WHERE id=$1",
+                    "SELECT row_to_json(c)::text FROM yoao_inference_routing_v1.controls c WHERE id=$1",
                     control,
                 )
                 == completed_control
             )
             assert (
                 await owner.fetchval(
-                    "SELECT row_to_json(s)::text FROM aap_inference_routing_v1.registry_state s WHERE registry_id=$1",
+                    "SELECT row_to_json(s)::text FROM yoao_inference_routing_v1.registry_state s WHERE registry_id=$1",
                     registry,
                 )
                 == completed_state
@@ -508,10 +508,10 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
                 await authorize(container=wrong_container, cid=wrong_container_control)
             )["status"] == "rejected"
             for mutation in (
-                "UPDATE aap_inference_routing_v1.registry_state SET authority_epoch=gen_random_uuid() WHERE registry_id=$1",
-                "UPDATE aap_inference_routing_v1.registry_state SET backend_incarnation=gen_random_uuid() WHERE registry_id=$1",
-                "UPDATE aap_inference_routing_v1.registry_state SET continuity='unverified' WHERE registry_id=$1",
-                "UPDATE aap_inference_routing_v1.registry_state SET config_revision=config_revision+1 WHERE registry_id=$1",
+                "UPDATE yoao_inference_routing_v1.registry_state SET authority_epoch=gen_random_uuid() WHERE registry_id=$1",
+                "UPDATE yoao_inference_routing_v1.registry_state SET backend_incarnation=gen_random_uuid() WHERE registry_id=$1",
+                "UPDATE yoao_inference_routing_v1.registry_state SET continuity='unverified' WHERE registry_id=$1",
+                "UPDATE yoao_inference_routing_v1.registry_state SET config_revision=config_revision+1 WHERE registry_id=$1",
             ):
                 tx = owner.transaction()
                 await tx.start()
@@ -523,24 +523,24 @@ async def test_replacement_requires_exact_terminal_proof_and_preserves_routing(
     finally:
         async with _owner_connection(test_engine) as owner:
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.attempts WHERE scope_id IN "
-                "(SELECT id FROM aap_inference_routing_v1.scopes WHERE registry_id=$1)",
+                "DELETE FROM yoao_inference_routing_v1.attempts WHERE scope_id IN "
+                "(SELECT id FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1)",
                 registry,
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                "DELETE FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
                 registry,
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.plugin_replacement_bindings WHERE registry_id=$1",
+                "DELETE FROM yoao_inference_routing_v1.plugin_replacement_bindings WHERE registry_id=$1",
                 registry,
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+                "DELETE FROM yoao_inference_routing_v1.controls WHERE registry_id=$1",
                 registry,
             )
             await owner.execute(
-                "DELETE FROM aap_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=$1",
+                "DELETE FROM yoao_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=$1",
                 registry,
             )
         await _cleanup_backends(factory, ids)

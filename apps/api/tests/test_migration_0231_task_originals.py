@@ -195,7 +195,7 @@ async def test_restore_changes_only_current_bucket_and_identity(
         "bucket": "restored-annotations",
         "storage_identity": managed_storage_identity(endpoint, "restored-annotations"),
     }
-    await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await db.execute(
         update(TaskOriginal).where(TaskOriginal.id == owner.id).values(**mapped)
     )

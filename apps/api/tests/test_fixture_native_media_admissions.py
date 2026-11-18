@@ -50,7 +50,7 @@ async def test_native_admission_requires_exact_family_scope_and_operation_lock(
         },
     )
     query = text(
-        "SELECT aap_assets_v1.fixture_native_admission_current(:family,:run,:dataset)"
+        "SELECT yoao_assets_v1.fixture_native_admission_current(:family,:run,:dataset)"
     )
     scope = {"family": family, "run": run, "dataset": dataset}
     lock = text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))")
@@ -206,30 +206,30 @@ async def test_native_video_receipt_rejects_stale_and_neighbor_evidence(
         "SET state='admitted',job_id=:job,generation=1 WHERE operation_id=:operation"
     )
     await execute(
-        "INSERT INTO aap_assets_v1.fixture_native_media_sources "
+        "INSERT INTO yoao_assets_v1.fixture_native_media_sources "
         "(admission_token,source_operation_id,creation_id,run_id,dataset_id,item_id,"
         "family,job_id,job_generation,lease_token,source_snapshot,state) "
         "SELECT :token,:source,:creation,:run,:dataset,:item,'media',:job,1,:lease,"
-        "aap_assets_v1._media_source_snapshot(item),'open' FROM public.dataset_items item WHERE id=:item"
+        "yoao_assets_v1._media_source_snapshot(item),'open' FROM public.dataset_items item WHERE id=:item"
     )
     await execute(
-        "INSERT INTO aap_assets_v1.fixture_native_cache_writes "
+        "INSERT INTO yoao_assets_v1.fixture_native_cache_writes "
         "(id,run_id,dataset_id,item_id,family,job_id,job_generation,lease_token,creation_id,"
         "source_operation_id,object_key,sha256,size_bytes,state,etag,version_id) "
         "VALUES (:write,:run,:dataset,:item,'media',:job,1,:lease,:creation,:source,:key,"
         ":output_sha,99,'written','output-etag','output-version')"
     )
     receipt = text(
-        "SELECT aap_assets_v1.fixture_screenshot_output_receipt(:run,:dataset,:item,:key)"
+        "SELECT yoao_assets_v1.fixture_screenshot_output_receipt(:run,:dataset,:item,:key)"
     )
     assert await db_session.scalar(receipt, ids) is None
     await execute(
-        "UPDATE aap_assets_v1.fixture_native_cache_writes "
+        "UPDATE yoao_assets_v1.fixture_native_cache_writes "
         "SET state='verified' WHERE id=:write"
     )
     assert await db_session.scalar(receipt, ids) is None
     await execute(
-        "UPDATE aap_assets_v1.fixture_native_media_sources "
+        "UPDATE yoao_assets_v1.fixture_native_media_sources "
         "SET state='settled' WHERE source_operation_id=:source"
     )
     result = await db_session.scalar(receipt, ids)
@@ -358,7 +358,7 @@ async def test_dataset_media_retirement_scopes_missing_items_by_durable_creation
         "VALUES (:run,'creation',:creation,'neighbor-original','published',:creation,:admission,:item,:sha)"
     )
     await execute(
-        "INSERT INTO aap_assets_v1.fixture_native_cache_targets "
+        "INSERT INTO yoao_assets_v1.fixture_native_cache_targets "
         "(run_id,endpoint,bucket,storage_identity,receipt_sha256,birth_receipt,"
         "connection_id,location_id,binding_generation) "
         "VALUES (:run,'http://fixture.invalid','outputs',:sha,:sha,'sql-boundary-only',"
@@ -367,12 +367,14 @@ async def test_dataset_media_retirement_scopes_missing_items_by_durable_creation
     await execute(
         "UPDATE yoao_fixture_v1.fixture_runs SET state='sealing',sealed_at=now() WHERE id=:run"
     )
-    retired = text("SELECT aap_assets_v1.fixture_dataset_media_retired(:run,:dataset)")
+    retired = text("SELECT yoao_assets_v1.fixture_dataset_media_retired(:run,:dataset)")
     assert (
         await db_session.scalar(retired, {"run": ids["run"], "dataset": ids["dataset"]})
         is True
     )
     assert (
-        await db_session.scalar(retired, {"run": ids["run"], "dataset": ids["neighbor"]})
+        await db_session.scalar(
+            retired, {"run": ids["run"], "dataset": ids["neighbor"]}
+        )
         is False
     )

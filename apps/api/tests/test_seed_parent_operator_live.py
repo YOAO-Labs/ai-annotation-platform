@@ -60,11 +60,11 @@ _MEMBERS = {
     "qa": "reviewer",
     "viewer": "viewer",
 }
-_IDENTITY_SEED_FUNCTION = "aap_identity_v1.create_seed_persona_account(jsonb)"
+_IDENTITY_SEED_FUNCTION = "yoao_identity_v1.create_seed_persona_account(jsonb)"
 _WORKSPACE_SEED_FUNCTIONS = (
-    "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
-    "aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
-    "aap_workspace_v1.write_seed_members(jsonb)",
+    "yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
+    "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
+    "yoao_workspace_v1.write_seed_members(jsonb)",
 )
 _WRITE_MEMBERS = _WORKSPACE_SEED_FUNCTIONS[-1]
 _PRIVATE_TABLES = ("users", "projects", "project_members", "project_templates")
@@ -141,7 +141,7 @@ async def _assert_parent_operator_profile(test_engine) -> None:
                             "replace(pg_catalog.oidvectortypes(proc.proargtypes), ' ', '') || ')' "
                             "FROM pg_catalog.pg_proc AS proc "
                             "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                            "WHERE ns.nspname='aap_identity_v1' "
+                            "WHERE ns.nspname='yoao_identity_v1' "
                             "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                         )
                     )
@@ -172,12 +172,12 @@ async def _assert_parent_operator_profile(test_engine) -> None:
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_table_privilege(current_user, "
-                    "'aap_identity_v1.account_profiles', 'SELECT')"
+                    "'yoao_identity_v1.account_profiles', 'SELECT')"
                 )
             )
             for relation in (
-                "aap_workspace_v1.project_facts",
-                "aap_workspace_v1.project_member_facts",
+                "yoao_workspace_v1.project_facts",
+                "yoao_workspace_v1.project_member_facts",
             ):
                 assert await db.scalar(
                     text(
@@ -222,7 +222,7 @@ async def _assert_parent_operator_profile(test_engine) -> None:
                         "replace(pg_catalog.oidvectortypes(proc.proargtypes), ' ', '') || ')' "
                         "FROM pg_catalog.pg_proc AS proc "
                         "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                        "WHERE ns.nspname='aap_identity_v1' "
+                        "WHERE ns.nspname='yoao_identity_v1' "
                         "AND pg_catalog.has_function_privilege('identity_api_consumer', proc.oid, 'EXECUTE')"
                     )
                 )

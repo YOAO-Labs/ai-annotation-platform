@@ -191,7 +191,7 @@ async def test_real_bootstrap_cli_uses_only_operational_capabilities(
 ):
     _verify_postgres(test_engine.url)
     url = _role_url(
-        "AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL", "identity_provisioning_client"
+        "AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL", "yoao_identity_provisioning_client"
     )
     email = f"cli-{uuid.uuid4()}@example.test"
     password = "CliBootstrapFixture123"

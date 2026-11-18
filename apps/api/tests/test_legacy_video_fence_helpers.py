@@ -56,7 +56,7 @@ _WORKER_DSN = URL.create(
 ).render_as_string(hide_password=False)
 _RESULT_DSN = URL.create(
     "postgresql",
-    username="preannotation_result_client",
+    username="yoao_preannotation_result_client",
     password="result-secret",
     host="worker-postgres",
     port=5432,
@@ -64,7 +64,7 @@ _RESULT_DSN = URL.create(
 ).render_as_string(hide_password=False)
 _ROUTING_DSN = URL.create(
     "postgresql",
-    username="inference_routing_client",
+    username="yoao_inference_routing_client",
     password="routing-secret",
     host="worker-postgres",
     port=5432,
@@ -72,7 +72,7 @@ _ROUTING_DSN = URL.create(
 ).render_as_string(hide_password=False)
 _WRITER_DSN = URL.create(
     "postgresql",
-    username="labeling_video_writer_client",
+    username="yoao_labeling_video_writer_client",
     password="writer-secret",
     host="worker-postgres",
     port=5432,
@@ -164,9 +164,9 @@ async def test_stale_login_proof_accepts_only_authentication_denials(
         )
         assert {item["role"] for item in denied} == {
             "identity_api_consumer",
-            "preannotation_result_client",
-            "inference_routing_client",
-            "labeling_video_writer_client",
+            "yoao_preannotation_result_client",
+            "yoao_inference_routing_client",
+            "yoao_labeling_video_writer_client",
         }
 
 
@@ -337,9 +337,9 @@ def test_worker_database_inventory_observes_all_dsns_without_serializing_secrets
 
     assert {item.role for item in result} == {
         "identity_api_consumer",
-        "preannotation_result_client",
-        "inference_routing_client",
-        "labeling_video_writer_client",
+        "yoao_preannotation_result_client",
+        "yoao_inference_routing_client",
+        "yoao_labeling_video_writer_client",
     }
     assert {item.source_variable: item.secret_file for item in result} == {
         "DATABASE_URL": False,
@@ -416,9 +416,9 @@ def test_worker_write_selectors_bind_only_to_owned_media_and_s3_identities():
     assert selectors == {
         "database_roles": [
             "identity_api_consumer",
-            "inference_routing_client",
-            "labeling_video_writer_client",
-            "preannotation_result_client",
+            "yoao_inference_routing_client",
+            "yoao_labeling_video_writer_client",
+            "yoao_preannotation_result_client",
         ],
         "media_control_token": "present_and_bound_to_owned_media_peer",
         "s3_principal_id": "aapcln0123456789",
@@ -647,7 +647,7 @@ def test_fence_evidence_rejects_raw_credentials_and_connection_urls():
         "database_credentials": [
             {
                 "source_variable": "INFERENCE_ROUTING_DATABASE_URL",
-                "role": "inference_routing_client",
+                "role": "yoao_inference_routing_client",
             }
         ],
         "broker": {
@@ -777,9 +777,9 @@ def test_structured_local_fence_evidence_keeps_scope_and_broker_limits_explicit(
             {"role": role}
             for role in (
                 "identity_api_consumer",
-                "preannotation_result_client",
-                "inference_routing_client",
-                "labeling_video_writer_client",
+                "yoao_preannotation_result_client",
+                "yoao_inference_routing_client",
+                "yoao_labeling_video_writer_client",
             )
         ],
         "s3_revocation": {

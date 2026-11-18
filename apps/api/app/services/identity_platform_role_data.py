@@ -40,7 +40,7 @@ class IdentityPlatformRoleCommandData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_platform_roles_v1."
+                        "SELECT yoao_identity_platform_roles_v1."
                         "execute_platform_role_command(CAST(:command AS jsonb))"
                     ),
                     {

@@ -20,36 +20,36 @@ from tests.factory import create_project
 pytestmark = pytest.mark.asyncio
 
 _READ_SOURCE = text(
-    "SELECT aap_assets_v1.read_media_source("
+    "SELECT yoao_assets_v1.read_media_source("
     "CAST(:actor AS uuid), CAST(:item AS uuid), CAST(:task AS uuid))"
 )
 _READ_SUMMARIES = text(
-    "SELECT aap_assets_v1.read_media_summaries(CAST(:items AS uuid[]))"
+    "SELECT yoao_assets_v1.read_media_summaries(CAST(:items AS uuid[]))"
 )
 _READ_VIDEO_TOTALS = text(
-    "SELECT aap_assets_v1.read_video_media_totals(CAST(:items AS uuid[]))"
+    "SELECT yoao_assets_v1.read_video_media_totals(CAST(:items AS uuid[]))"
 )
 _ENSURE = text(
-    "SELECT aap_assets_v1.ensure_video_media("
+    "SELECT yoao_assets_v1.ensure_video_media("
     "CAST(:actor AS uuid), CAST(:item AS uuid), CAST(:task AS uuid), "
     "CAST(:selection AS jsonb))"
 )
 _REQUEST = text(
-    "SELECT aap_assets_v1.request_video_media("
+    "SELECT yoao_assets_v1.request_video_media("
     "CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:item AS uuid), "
     "CAST(:spec AS jsonb), CAST(:force AS boolean))"
 )
 _SCHEDULE = text(
-    "SELECT aap_assets_v1.schedule_video_media("
+    "SELECT yoao_assets_v1.schedule_video_media("
     "CAST(:operation AS uuid), CAST(:item AS uuid), CAST(:spec AS jsonb), "
     "CAST(:force AS boolean))"
 )
 _FAILURES = text(
-    "SELECT aap_assets_v1.read_video_failures("
+    "SELECT yoao_assets_v1.read_video_failures("
     "CAST(:actor AS uuid), CAST(:row_limit AS integer), CAST(:row_offset AS bigint))"
 )
 _READ_SAMPLES = text(
-    "SELECT aap_assets_v1.read_video_samples("
+    "SELECT yoao_assets_v1.read_video_samples("
     "CAST(:actor AS uuid), CAST(:item AS uuid), CAST(:task AS uuid), "
     "CAST(:chunk AS integer), CAST(:after_sample AS integer), "
     "CAST(:page_size AS integer))"

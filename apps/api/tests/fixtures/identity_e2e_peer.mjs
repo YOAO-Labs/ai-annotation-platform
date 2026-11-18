@@ -27,7 +27,7 @@ try {
   await client.query("BEGIN");
   const create = () =>
     client.query(
-      "SELECT aap_identity_fixture_v1.create_account($1::uuid,$2::text,$3::text,$4::text,$5::text) AS id",
+      "SELECT yoao_identity_fixture_v1.create_account($1::uuid,$2::text,$3::text,$4::text,$5::text) AS id",
       [input.peer_id, "peer-source@e2e.test", "原样 🚙", "opaque-fixture-hash", "employee"],
     );
   assert.equal((await create()).rows[0].id, input.peer_id);
@@ -35,7 +35,7 @@ try {
   await assert.rejects(create(), { code: "23505" });
   await client.query("ROLLBACK TO SAVEPOINT duplicate_account");
   const row = (
-    await client.query("SELECT * FROM aap_identity_fixture_v1.account_profiles WHERE id=$1::uuid", [
+    await client.query("SELECT * FROM yoao_identity_fixture_v1.account_profiles WHERE id=$1::uuid", [
       input.peer_id,
     ])
   ).rows[0];
@@ -56,7 +56,7 @@ try {
     assert.equal(
       (
         await client.query(
-          "SELECT aap_identity_fixture_v1.mark_manual_inactive($1::uuid,'2025-02-03T04:05:06Z'::timestamptz,$2::uuid) AS changed",
+          "SELECT yoao_identity_fixture_v1.mark_manual_inactive($1::uuid,'2025-02-03T04:05:06Z'::timestamptz,$2::uuid) AS changed",
           [input.peer_id, input.target_id],
         )
       ).rows[0].changed,
@@ -75,7 +75,7 @@ try {
   };
   await client.query("SAVEPOINT invalid_invitation");
   await assert.rejects(
-    client.query("SELECT aap_identity_fixture_v1.create_invitations($1::jsonb)", [
+    client.query("SELECT yoao_identity_fixture_v1.create_invitations($1::jsonb)", [
       JSON.stringify([{ ...invitation, unexpected: true }]),
     ]),
     { code: "22023" },
@@ -84,7 +84,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_identity_fixture_v1.create_invitations($1::jsonb) AS changed",
+        "SELECT yoao_identity_fixture_v1.create_invitations($1::jsonb) AS changed",
         [JSON.stringify([invitation])],
       )
     ).rows[0].changed,
@@ -93,7 +93,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_identity_fixture_v1.delete_reset_tokens($1::uuid[]) AS changed",
+        "SELECT yoao_identity_fixture_v1.delete_reset_tokens($1::uuid[]) AS changed",
         [[input.target_id]],
       )
     ).rows[0].changed,
@@ -102,7 +102,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_identity_fixture_v1.delete_organization_members($1::uuid[]) AS changed",
+        "SELECT yoao_identity_fixture_v1.delete_organization_members($1::uuid[]) AS changed",
         [[input.target_id]],
       )
     ).rows[0].changed,
@@ -111,7 +111,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_identity_fixture_v1.delete_invitations($1::uuid[]) AS changed",
+        "SELECT yoao_identity_fixture_v1.delete_invitations($1::uuid[]) AS changed",
         [[input.target_id, input.peer_id]],
       )
     ).rows[0].changed,
@@ -120,7 +120,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_identity_fixture_v1.delete_accounts(false,$1::text[]) AS changed",
+        "SELECT yoao_identity_fixture_v1.delete_accounts(false,$1::text[]) AS changed",
         [["peer-source@e2e.test"]],
       )
     ).rows[0].changed,

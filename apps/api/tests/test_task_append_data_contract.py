@@ -20,7 +20,7 @@ from app.db.models.user import User
 
 _APPEND_ITEMS = text(
     """
-    SELECT aap_labeling_v1.append_dataset_items(
+    SELECT yoao_labeling_v1.append_dataset_items(
         :dataset_id,
         :item_ids,
         :operation_id

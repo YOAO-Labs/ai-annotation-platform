@@ -32,13 +32,13 @@ from tests.test_assets_catalog_native import _call, _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _READ_CALIBRATIONS = text(
-    "SELECT aap_assets_v1.read_spatial_calibrations("
+    "SELECT yoao_assets_v1.read_spatial_calibrations("
     "CAST(:dataset_item_ids AS uuid[]), CAST(:include_history AS boolean), "
     "CAST(:after_item_id AS uuid), CAST(:after_revision AS integer), "
     "CAST(:page_size AS integer))"
 )
 _UPDATE_CALIBRATION = text(
-    "SELECT aap_assets_v1.update_spatial_calibration("
+    "SELECT yoao_assets_v1.update_spatial_calibration("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:camera_role AS text), "
     "CAST(:expected_revision AS integer), CAST(:expected_digest AS text), "
@@ -47,16 +47,16 @@ _UPDATE_CALIBRATION = text(
     "CAST(:audit_context AS jsonb))"
 )
 _RECORD_PROVENANCE = text(
-    "SELECT aap_assets_v1.record_spatial_calibration_provenance("
+    "SELECT yoao_assets_v1.record_spatial_calibration_provenance("
     "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
     "CAST(:entries AS jsonb))"
 )
 _READ_CAMERA_TARGET = text(
-    "SELECT aap_assets_v1.read_spatial_camera_target("
+    "SELECT yoao_assets_v1.read_spatial_camera_target("
     "CAST(:actor_id AS uuid),CAST(:task_id AS uuid),'camera_front')"
 )
 _LOCK_CALIBRATION_FACTS = text(
-    "SELECT aap_assets_v1.lock_spatial_calibration_facts("
+    "SELECT yoao_assets_v1.lock_spatial_calibration_facts("
     "CAST(:actor_id AS uuid), CAST(:task_id AS uuid), 'camera_front', "
     "CAST(:dataset_item_id AS uuid), CAST(:source_snapshot AS jsonb))"
 )

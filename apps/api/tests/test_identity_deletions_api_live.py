@@ -185,7 +185,9 @@ async def test_auth_only_deletion_api_bindings_and_public_contract(
                 before = await _account_state(maker, blocked_target.id)
                 async with maker.begin() as db:
                     await db.execute(
-                        text("GRANT SELECT ON public.users TO identity_deletion_client")
+                        text(
+                            "GRANT SELECT ON public.users TO yoao_identity_deletion_client"
+                        )
                     )
                 try:
                     misprivileged = await client.request(
@@ -208,7 +210,7 @@ async def test_auth_only_deletion_api_bindings_and_public_contract(
                     async with maker.begin() as db:
                         await db.execute(
                             text(
-                                "REVOKE SELECT ON public.users FROM identity_deletion_client"
+                                "REVOKE SELECT ON public.users FROM yoao_identity_deletion_client"
                             )
                         )
 

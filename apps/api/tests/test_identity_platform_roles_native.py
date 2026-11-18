@@ -66,7 +66,7 @@ def _platform_role_dsn() -> str:
         pytest.skip("Identity platform-role client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_platform_role_client"
+    assert parsed.username == "yoao_identity_platform_role_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
@@ -262,7 +262,7 @@ def test_frozen_identity_platform_role_artifacts_and_snapshot_order():
     assert artifact.index("platform_role_change_blocked") < artifact.index(
         "aap_identity_v1.super_admin_status("
     )
-    assert "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
+    assert "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
         role_grants
     )
     expected_functions = role_grants.split("expected_functions text[] := ARRAY[", 1)[
@@ -271,8 +271,8 @@ def test_frozen_identity_platform_role_artifacts_and_snapshot_order():
     assert expected_functions.index(
         "execute_platform_role_command"
     ) < expected_functions.index("platform_role_policy")
-    assert "identity_platform_role_client" in role_grants
-    assert "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
+    assert "yoao_identity_platform_role_client" in role_grants
+    assert "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
         lan_grants
     )
     assert "identity_platform_role_operation_receipts" in module_grants
@@ -533,7 +533,7 @@ async def test_preview_single_snapshot_counts_and_mutation_blocker_order(test_en
         async with maker() as session:
             workspace_raw = await session.scalar(
                 text(
-                    "SELECT aap_workspace_v1.identity_platform_role_facts(:target_id)"
+                    "SELECT yoao_workspace_v1.identity_platform_role_facts(:target_id)"
                 ),
                 {"target_id": target_id},
             )
@@ -542,7 +542,7 @@ async def test_preview_single_snapshot_counts_and_mutation_blocker_order(test_en
             )
             labeling_raw = await session.scalar(
                 text(
-                    "SELECT aap_labeling_v1.identity_platform_role_facts("
+                    "SELECT yoao_labeling_v1.identity_platform_role_facts("
                     ":target_id, CAST(:project_ids AS uuid[]))"
                 ),
                 {

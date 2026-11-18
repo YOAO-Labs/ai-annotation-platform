@@ -66,7 +66,7 @@ class DatasetUploadData(DatasetUploadDataPort):
 
     async def reserve(self, request: DatasetUploadReserve) -> DatasetUploadIntent:
         result = await self._call(
-            "SELECT aap_assets_v1.reserve_dataset_upload("
+            "SELECT yoao_assets_v1.reserve_dataset_upload("
             "CAST(:item AS uuid), CAST(:actor AS uuid), CAST(:dataset AS uuid), "
             ":file_name, :content_type)",
             {
@@ -96,7 +96,7 @@ class DatasetUploadData(DatasetUploadDataPort):
         self, *, actor_id: UUID, dataset_id: UUID, item_id: UUID
     ) -> DatasetUploadIntent:
         result = await self._call(
-            "SELECT aap_assets_v1.lock_dataset_upload("
+            "SELECT yoao_assets_v1.lock_dataset_upload("
             "CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid))",
             {"actor": actor_id, "dataset": dataset_id, "item": item_id},
             DatasetUploadIntent,
@@ -120,7 +120,7 @@ class DatasetUploadData(DatasetUploadDataPort):
     ) -> DatasetUploadDuplicate:
         content_hash = canonical_content_hash(content_hash)
         result = await self._call(
-            "SELECT aap_assets_v1.find_dataset_upload_duplicate("
+            "SELECT yoao_assets_v1.find_dataset_upload_duplicate("
             "CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid), "
             "CAST(:content_hash AS text))",
             {
@@ -140,7 +140,7 @@ class DatasetUploadData(DatasetUploadDataPort):
         self, request: DatasetUploadCompletion
     ) -> DatasetUploadAcceptance:
         result = await self._call(
-            "SELECT aap_assets_v1.complete_dataset_upload("
+            "SELECT yoao_assets_v1.complete_dataset_upload("
             "CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid), "
             "CAST(:publication AS uuid), CAST(:file_size AS bigint), "
             "CAST(:content_hash AS text), CAST(:width AS integer), "
@@ -170,7 +170,7 @@ class DatasetUploadData(DatasetUploadDataPort):
 
     async def discard(self, request: DatasetUploadDiscard) -> DatasetUploadIntent:
         result = await self._call(
-            "SELECT aap_assets_v1.discard_dataset_upload("
+            "SELECT yoao_assets_v1.discard_dataset_upload("
             "CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid), "
             "CAST(:reason AS text))",
             {

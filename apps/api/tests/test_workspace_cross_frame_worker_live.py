@@ -46,15 +46,15 @@ pytestmark = [
 
 _TASK_NAME = "app.workers.cross_frame_job.run_cross_frame_job"
 _WORKSPACE_FUNCTIONS = (
-    "aap_workspace_v1.read_project_row(uuid)",
-    "aap_workspace_v1.project_access_step(uuid,uuid,text)",
-    "aap_workspace_v1.lock_project_reference_nowait(uuid)",
-    "aap_workspace_v1.lock_project_member_reference(uuid,uuid,boolean)",
+    "yoao_workspace_v1.read_project_row(uuid)",
+    "yoao_workspace_v1.project_access_step(uuid,uuid,text)",
+    "yoao_workspace_v1.lock_project_reference_nowait(uuid)",
+    "yoao_workspace_v1.lock_project_member_reference(uuid,uuid,boolean)",
     "yoao_workspace_project_query_v1.project_query_policy()",
     "yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
 )
 _LABELING_COUNTER_FUNCTION = (
-    "aap_labeling_v1.write_project_counter_projection(uuid,jsonb)"
+    "yoao_labeling_v1.write_project_counter_projection(uuid,jsonb)"
 )
 
 
@@ -302,7 +302,7 @@ async def _dispatch_while_workspace_read_is_blocked(
                                     "AND client_addr=CAST(:client_address AS inet) "
                                     "AND wait_event_type='Lock' "
                                     "AND pg_catalog.strpos(query,"
-                                    "'aap_workspace_v1.lock_project_reference_nowait(')>0 "
+                                    "'yoao_workspace_v1.lock_project_reference_nowait(')>0 "
                                     "ORDER BY backend_start DESC LIMIT 1"
                                 ),
                                 {"client_address": client_address},
@@ -340,7 +340,7 @@ async def _dispatch_while_workspace_read_is_blocked(
     assert evidence["datname"] == test_engine.url.database
     assert evidence["client_addr"] == client_address
     assert evidence["wait_event_type"] == "Lock"
-    assert "aap_workspace_v1.lock_project_reference_nowait(" in evidence["query"]
+    assert "yoao_workspace_v1.lock_project_reference_nowait(" in evidence["query"]
     assert delivery.state == "SUCCESS", repr(result)
     ack = await _wait_broker_ack(sender, worker, delivery.id)
     return result, ack, evidence
@@ -351,7 +351,9 @@ def _identity_gateway_for_owned_auth(test_engine):
     from app.services.identity_gateway import IdentityGateway
 
     auth = make_url(
-        _module_role_url("AAP_MODULE_DATA_IDENTITY_AUTH_URL", "identity_auth_client")
+        _module_role_url(
+            "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "yoao_identity_auth_client"
+        )
     )
     assert (auth.host, auth.port, auth.database) == (
         test_engine.url.host,
@@ -610,7 +612,7 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
                     for key, value in database_identity.items()
                     if key != "query"
                 },
-                "capability": "aap_workspace_v1.lock_project_reference_nowait",
+                "capability": "yoao_workspace_v1.lock_project_reference_nowait",
             },
         )
         assert first_result is None
@@ -735,7 +737,7 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
             publication_url = (
                 _guard_role_url(
                     "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-                    "jobs_publication_client",
+                    "yoao_jobs_publication_client",
                     test_engine,
                 )
                 .set(drivername="postgresql")

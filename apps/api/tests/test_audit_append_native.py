@@ -109,7 +109,7 @@ async def test_owner_query_ignores_caller_temporary_type_shadowing(test_engine):
             await connection.execute(text("CREATE TYPE pg_temp.jsonb AS (value text)"))
             raw_reply = await connection.scalar(
                 text(
-                    "SELECT aap_audit_v1.query_events("
+                    "SELECT yoao_audit_v1.query_events("
                     "CAST(:request AS pg_catalog.jsonb))"
                 ),
                 {"request": request.model_dump_json(by_alias=True)},

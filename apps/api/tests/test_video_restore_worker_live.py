@@ -74,33 +74,37 @@ pytestmark = [
     ),
 ]
 
-_ROUTING_ROLE = "inference_routing_client"
-_RESTORE_ROLE = "video_restore_operator_client"
-_WRITER_ROLE = "labeling_video_writer_client"
+_ROUTING_ROLE = "yoao_inference_routing_client"
+_RESTORE_ROLE = "yoao_video_restore_operator_client"
+_WRITER_ROLE = "yoao_labeling_video_writer_client"
 _LEGACY_ROLE = "legacy_runtime"
 
 _EXECUTION_ROLES = (
     (
         "AAP_MODULE_DATA_INFERENCE_ENDPOINT_EXECUTION_URL",
-        "inference_endpoint_execution_client",
+        "yoao_inference_endpoint_execution_client",
         "execution",
     ),
     (
         "AAP_MODULE_DATA_INFERENCE_GPU_URL",
-        "inference_gpu_authority_client",
+        "yoao_inference_gpu_authority_client",
         "gpu_authority",
     ),
     (
         "AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL",
-        "inference_gpu_health_endpoint_client",
+        "yoao_inference_gpu_health_endpoint_client",
         "gpu_health_observation",
     ),
     (
         "AAP_MODULE_DATA_INFERENCE_GPU_CONTROL_ENDPOINT_URL",
-        "inference_gpu_control_endpoint_client",
+        "yoao_inference_gpu_control_endpoint_client",
         "gpu_control",
     ),
-    ("AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL", "inference_health_data_client", None),
+    (
+        "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL",
+        "yoao_inference_health_data_client",
+        None,
+    ),
 )
 
 
@@ -123,8 +127,8 @@ def _clone_role_dsn(environment: str, role: str, database: str) -> str:
 
 def _retarget_media_roles(monkeypatch, database: str) -> None:
     for environment, role in (
-        ("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL", "asset_media_control_client"),
-        ("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL", "asset_media_worker_client"),
+        ("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL", "yoao_asset_media_control_client"),
+        ("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL", "yoao_asset_media_worker_client"),
     ):
         monkeypatch.setenv(environment, _clone_role_dsn(environment, role, database))
 
@@ -138,8 +142,8 @@ async def _grant_worker_consumers(engine, monkeypatch):
             "expected_database": engine.url.database,
             "migration_role": "owner",
             "assets_owner": "assets_code",
-            "asset_media_control_role": "asset_media_control_client",
-            "asset_media_worker_role": "asset_media_worker_client",
+            "asset_media_control_role": "yoao_asset_media_control_client",
+            "asset_media_worker_role": "yoao_asset_media_worker_client",
         },
     )
     await _apply_lan_grants(engine, monkeypatch)
@@ -164,7 +168,7 @@ async def _grant_worker_consumers(engine, monkeypatch):
             "expected_database": engine.url.database,
             "migration_role": "owner",
             "inference_owner": "inference_code",
-            "inference_health_observation_role": "inference_health_observation_client",
+            "inference_health_observation_role": "yoao_inference_health_observation_client",
         },
     )
 
@@ -234,7 +238,7 @@ async def _video_state(engine, job_id: uuid.UUID) -> dict:
                     text(
                         "SELECT run_id::text,plan_digest,plan_document,writer_terminal,"
                         "writer_terminal_outcome,execution_retired FROM "
-                        "aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                        "yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -247,7 +251,7 @@ async def _video_state(engine, job_id: uuid.UUID) -> dict:
                 await connection.execute(
                     text(
                         "SELECT run_id::text,generation,state,route_request_id::text "
-                        "FROM aap_jobs_v1.video_executions WHERE job_id=:job"
+                        "FROM yoao_jobs_v1.video_executions WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -258,7 +262,7 @@ async def _video_state(engine, job_id: uuid.UUID) -> dict:
         route_receipt = await connection.scalar(
             text(
                 "SELECT to_jsonb(receipt)::text FROM "
-                "aap_inference_routing_v1.command_receipts AS receipt "
+                "yoao_inference_routing_v1.command_receipts AS receipt "
                 "WHERE id=CAST(:request AS uuid)"
             ),
             {"request": execution["route_request_id"]},
@@ -268,7 +272,7 @@ async def _video_state(engine, job_id: uuid.UUID) -> dict:
                 await connection.execute(
                     text(
                         "SELECT window_ordinal,checkpoint_id,manifest_digest,manifest "
-                        "FROM aap_jobs_v1.video_execution_windows WHERE job_id=:job "
+                        "FROM yoao_jobs_v1.video_execution_windows WHERE job_id=:job "
                         "ORDER BY window_ordinal"
                     ),
                     {"job": job_id},
@@ -282,7 +286,7 @@ async def _video_state(engine, job_id: uuid.UUID) -> dict:
                 await connection.execute(
                     text(
                         "SELECT window_ordinal,part_index,part_digest,part_bytes "
-                        "FROM aap_jobs_v1.video_execution_window_parts WHERE job_id=:job "
+                        "FROM yoao_jobs_v1.video_execution_window_parts WHERE job_id=:job "
                         "ORDER BY window_ordinal,part_index"
                     ),
                     {"job": job_id},
@@ -295,7 +299,7 @@ async def _video_state(engine, job_id: uuid.UUID) -> dict:
             await connection.execute(
                 text(
                     "SELECT to_jsonb(receipt)::text FROM "
-                    "aap_labeling_v1.video_writer_receipts AS receipt "
+                    "yoao_labeling_v1.video_writer_receipts AS receipt "
                     "WHERE job_id=:job"
                 ),
                 {"job": job_id},
@@ -329,7 +333,7 @@ async def _routing_receipt_digest(engine, request_id: str) -> str:
         receipt = await connection.scalar(
             text(
                 "SELECT to_jsonb(receipt)::text FROM "
-                "aap_inference_routing_v1.command_receipts AS receipt "
+                "yoao_inference_routing_v1.command_receipts AS receipt "
                 "WHERE id=CAST(:request AS uuid)"
             ),
             {"request": request_id},
@@ -345,7 +349,7 @@ async def _route_intent_rows(engine, job_id: uuid.UUID) -> list[dict]:
                 await connection.execute(
                     text(
                         "SELECT generation,scope_id::text,state FROM "
-                        "aap_jobs_v1.video_execution_route_intents WHERE job_id=:job "
+                        "yoao_jobs_v1.video_execution_route_intents WHERE job_id=:job "
                         "ORDER BY generation"
                     ),
                     {"job": job_id},
@@ -604,10 +608,8 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                         async with source_media.sessions.begin() as health_db:
                             health_service = MLBackendService(health_db)
                             assert await health_service.check_health(registry_id)
-                            selected = (
-                                await health_service.get_tracker_backend_for_capabilities(
-                                    project_id, ["sam2_video"]
-                                )
+                            selected = await health_service.get_tracker_backend_for_capabilities(
+                                project_id, ["sam2_video"]
                             )
                             assert selected is not None and selected.id == registry_id
 
@@ -666,13 +668,15 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                 assert reconciled.result.phase == "completed"
                 assert backend.controller.phase == "bound"
                 original_incarnation = str(backend.controller.backend_incarnation)
-                source_execution_owner, source_execution_url, source_execution_token = (
-                    await _start_clone_execution_owner(
-                        tmp_path / "source-execution",
-                        source_routing_dsn,
-                        source_database,
-                        monkeypatch,
-                    )
+                (
+                    source_execution_owner,
+                    source_execution_url,
+                    source_execution_token,
+                ) = await _start_clone_execution_owner(
+                    tmp_path / "source-execution",
+                    source_routing_dsn,
+                    source_database,
+                    monkeypatch,
                 )
 
                 source_environment = _worker_env_with_writer(
@@ -711,7 +715,7 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                             await db.execute(
                                 text(
                                     "SELECT plan_digest,plan_document FROM "
-                                    "aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                                    "yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                                 ),
                                 {"job": job_id},
                             )
@@ -724,7 +728,7 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                             await db.execute(
                                 text(
                                     "SELECT run_id,generation FROM "
-                                    "aap_jobs_v1.video_executions WHERE job_id=:job"
+                                    "yoao_jobs_v1.video_executions WHERE job_id=:job"
                                 ),
                                 {"job": job_id},
                             )
@@ -738,7 +742,7 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                                 text(
                                     "SELECT authority_epoch::text,"
                                     "backend_incarnation::text "
-                                    "FROM aap_inference_routing_v1.registry_state "
+                                    "FROM yoao_inference_routing_v1.registry_state "
                                     "WHERE registry_id=:registry"
                                 ),
                                 {"registry": registry_id},
@@ -957,7 +961,9 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                         )
                         health_patch.setenv(
                             "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL",
-                            target_observation_url.render_as_string(hide_password=False),
+                            target_observation_url.render_as_string(
+                                hide_password=False
+                            ),
                         )
                         async with AsyncExitStack() as health_stack:
                             await select_binding(
@@ -978,13 +984,15 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                     target_owner_server, target_owner_url = await _start_routing_owner(
                         target_owner_runtime, target_routing_token
                     )
-                    target_execution_owner, target_execution_url, target_execution_token = (
-                        await _start_clone_execution_owner(
-                            tmp_path / "target-execution",
-                            target_routing_dsn,
-                            restored_database,
-                            monkeypatch,
-                        )
+                    (
+                        target_execution_owner,
+                        target_execution_url,
+                        target_execution_token,
+                    ) = await _start_clone_execution_owner(
+                        tmp_path / "target-execution",
+                        target_routing_dsn,
+                        restored_database,
+                        monkeypatch,
                     )
                     target_environment = _worker_env_with_writer(
                         database_url=target_legacy_dsn,

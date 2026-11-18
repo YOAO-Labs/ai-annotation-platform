@@ -33,7 +33,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_core_read_client"
+_ROLE = "yoao_labeling_core_read_client"
 _PRIVATE_TABLES = (
     "tasks",
     "task_batches",
@@ -178,7 +178,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
         for relation in _PUBLIC_RELATIONS:
             assert (
                 await connection.fetchval(
-                    f"SELECT pg_catalog.count(*) FROM aap_labeling_v1.{relation}"
+                    f"SELECT pg_catalog.count(*) FROM yoao_labeling_v1.{relation}"
                 )
                 is not None
             )
@@ -193,24 +193,24 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 async with connection.transaction():
                     await connection.execute(
-                        f"UPDATE aap_labeling_v1.{relation} "
+                        f"UPDATE yoao_labeling_v1.{relation} "
                         f"SET {column} = {column} WHERE id = $1",
                         row_id,
                     )
 
         task_row = await connection.fetchrow(
-            "SELECT project_id, batch_id FROM aap_labeling_v1.task_rows WHERE id = $1",
+            "SELECT project_id, batch_id FROM yoao_labeling_v1.task_rows WHERE id = $1",
             task_id,
         )
         assert (task_row["project_id"], task_row["batch_id"]) == (project_id, batch_id)
         batch_row = await connection.fetchrow(
-            "SELECT project_id, status FROM aap_labeling_v1.batch_rows WHERE id = $1",
+            "SELECT project_id, status FROM yoao_labeling_v1.batch_rows WHERE id = $1",
             batch_id,
         )
         assert (batch_row["project_id"], batch_row["status"]) == (project_id, "active")
         annotation_row = await connection.fetchrow(
             "SELECT task_id, source, version, geometry "
-            "FROM aap_labeling_v1.annotation_rows WHERE id = $1",
+            "FROM yoao_labeling_v1.annotation_rows WHERE id = $1",
             annotation_id,
         )
         assert (annotation_row["task_id"], annotation_row["source"]) == (
@@ -221,27 +221,27 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
         assert json.loads(annotation_row["geometry"])["x"] == 0.1
         assert (
             await connection.fetchval(
-                "SELECT user_id FROM aap_labeling_v1.task_lock_rows WHERE id = $1",
+                "SELECT user_id FROM yoao_labeling_v1.task_lock_rows WHERE id = $1",
                 lock_id,
             )
             == actor_id
         )
         assert (
             await connection.fetchval(
-                "SELECT dataset_item_id FROM aap_labeling_v1.task_dataset_item_link_rows "
+                "SELECT dataset_item_id FROM yoao_labeling_v1.task_dataset_item_link_rows "
                 "WHERE id = $1",
                 link_id,
             )
             == item_id
         )
         draft_row = await connection.fetchrow(
-            "SELECT id, task_id FROM aap_labeling_v1.annotation_draft_rows WHERE id = $1",
+            "SELECT id, task_id FROM yoao_labeling_v1.annotation_draft_rows WHERE id = $1",
             draft_id,
         )
         assert (draft_row["id"], draft_row["task_id"]) == (draft_id, task_id)
         segment_row = await connection.fetchrow(
             "SELECT dataset_item_id, start_frame, end_frame "
-            "FROM aap_labeling_v1.video_segment_rows WHERE id = $1",
+            "FROM yoao_labeling_v1.video_segment_rows WHERE id = $1",
             segment_id,
         )
         assert (
@@ -251,7 +251,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
         ) == (item_id, 0, 1)
         tracker_job_row = await connection.fetchrow(
             "SELECT task_id, segment_id, model_key "
-            "FROM aap_labeling_v1.video_tracker_job_rows WHERE id = $1",
+            "FROM yoao_labeling_v1.video_tracker_job_rows WHERE id = $1",
             tracker_job_id,
         )
         assert (
@@ -261,7 +261,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
         ) == (task_id, segment_id, "core-read-test")
         ordered_task_ids = sorted((task_id, ordered_task_id), reverse=True)
         ordered_task_rows = await connection.fetch(
-            "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1)",
+            "SELECT id FROM yoao_labeling_v1.lock_task_rows_for_core_read($1)",
             ordered_task_ids,
         )
         assert [row["id"] for row in ordered_task_rows] == sorted(ordered_task_ids)
@@ -282,67 +282,67 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                     await transaction.rollback()
 
             await assert_nowait_conflicts(
-                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'update', false)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'update', false)",
                 (task_id,),
                 [
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'update', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'update', true)",
                         (task_id,),
                     ),
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'share', true)",
                         (task_id,),
                     ),
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1)",
+                        "SELECT id FROM yoao_labeling_v1.lock_task_rows_for_core_read($1)",
                         (ordered_task_ids,),
                     ),
                 ],
             )
             await assert_nowait_conflicts(
-                "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', false)",
+                "SELECT id FROM yoao_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', false)",
                 ([batch_id], project_id),
                 [
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', true)",
                         ([batch_id], project_id),
                     ),
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'share', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'share', true)",
                         ([batch_id], project_id),
                     ),
                 ],
             )
             await assert_nowait_conflicts(
-                "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', false)",
+                "SELECT id FROM yoao_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', false)",
                 ([annotation_id], task_id, project_id),
                 [
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
                         ([annotation_id], task_id, project_id),
                     ),
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'share', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'share', true)",
                         ([annotation_id], task_id, project_id),
                     ),
                 ],
             )
             await assert_nowait_conflicts(
-                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_task_rows($1, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_active_learning_feedback_task_rows($1, $2)",
                 (project_id, [task_id]),
                 [
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'update', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'update', true)",
                         (task_id,),
                     )
                 ],
             )
             await assert_nowait_conflicts(
-                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_annotation_rows($1)",
+                "SELECT id FROM yoao_labeling_v1.lock_active_learning_feedback_annotation_rows($1)",
                 ([task_id],),
                 [
                     (
-                        "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
+                        "SELECT id FROM yoao_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
                         ([annotation_id], task_id, project_id),
                     )
                 ],
@@ -351,7 +351,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             segment_holder_transaction = holder.transaction()
             await segment_holder_transaction.start()
             locked_segment = await holder.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_video_segment_for_core_read($1, $2)",
                 segment_id,
                 item_id,
             )
@@ -362,7 +362,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             )
             waiting_segment = asyncio.create_task(
                 connection.fetchrow(
-                    "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                    "SELECT id FROM yoao_labeling_v1.lock_video_segment_for_core_read($1, $2)",
                     segment_id,
                     item_id,
                 )
@@ -393,59 +393,59 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
                     await asyncio.gather(waiting_segment, return_exceptions=True)
 
             locked_task = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'share', true)",
                 task_id,
             )
             project_scoped_task = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'share', true, $2)",
                 task_id,
                 project_id,
             )
             foreign_project_task = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'share', true, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'share', true, $2)",
                 task_id,
                 uuid.uuid4(),
             )
             locked_id_only_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_rows_for_core_read($1)",
                 [task_id],
             )
             locked_batch_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
                 [task_id],
                 project_id,
                 batch_id,
             )
             foreign_project_batch_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
                 [task_id],
                 uuid.uuid4(),
                 batch_id,
             )
             foreign_batch_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
+                "SELECT id FROM yoao_labeling_v1.lock_task_rows_for_core_read($1, $2, $3)",
                 [task_id],
                 project_id,
                 uuid.uuid4(),
             )
             locked_batch = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', true)",
+                "SELECT id FROM yoao_labeling_v1.lock_batch_rows_for_core_read($1, $2, 'update', true)",
                 [batch_id],
                 project_id,
             )
             locked_annotation = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
+                "SELECT id FROM yoao_labeling_v1.lock_annotation_rows_for_core_read($1, $2, $3, 'update', true)",
                 [annotation_id],
                 task_id,
                 project_id,
             )
             locked_segment = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_video_segment_for_core_read($1, $2)",
                 segment_id,
                 item_id,
             )
             foreign_item_segment = await connection.fetchrow(
-                "SELECT id FROM aap_labeling_v1.lock_video_segment_for_core_read($1, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_video_segment_for_core_read($1, $2)",
                 segment_id,
                 uuid.uuid4(),
             )
@@ -461,12 +461,12 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             assert locked_segment["id"] == segment_id
             assert foreign_item_segment is None
             feedback_tasks = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_task_rows($1, $2)",
+                "SELECT id FROM yoao_labeling_v1.lock_active_learning_feedback_task_rows($1, $2)",
                 project_id,
                 [task_id],
             )
             feedback_annotations = await connection.fetch(
-                "SELECT id FROM aap_labeling_v1.lock_active_learning_feedback_annotation_rows($1)",
+                "SELECT id FROM yoao_labeling_v1.lock_active_learning_feedback_annotation_rows($1)",
                 [task_id],
             )
             assert [row["id"] for row in feedback_tasks] == [task_id]
@@ -474,7 +474,7 @@ async def test_core_rows_are_readable_only_through_fixed_relations(test_engine):
             with pytest.raises(asyncpg.PostgresError) as invalid_mode:
                 async with connection.transaction():
                     await connection.fetchrow(
-                        "SELECT id FROM aap_labeling_v1.lock_task_for_core_read($1, 'delete', false)",
+                        "SELECT id FROM yoao_labeling_v1.lock_task_for_core_read($1, 'delete', false)",
                         task_id,
                     )
             assert invalid_mode.value.sqlstate == "22023"

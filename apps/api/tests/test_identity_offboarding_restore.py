@@ -233,9 +233,9 @@ async def test_restored_offboarding_receipt_replays_and_populated_downgrade_refu
         await _assert_exact_identity_functions(
             restored_identity_dsn,
             {
-                "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
-                "aap_identity_offboarding_v1.offboarding_policy()",
-                "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
+                "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)",
+                "yoao_identity_offboarding_v1.offboarding_policy()",
+                "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
             },
         )
         restored_manager = _manager(restored_identity_dsn, auth_dsn(clone), secret)

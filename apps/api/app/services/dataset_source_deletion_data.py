@@ -24,7 +24,7 @@ class DatasetSourceDeletionData:
         item_argument = "CAST(:item AS uuid), " if command.item_id is not None else ""
         payload = await self.db.scalar(
             text(
-                f"SELECT aap_assets_v1.{function}(CAST(:operation AS uuid), "
+                f"SELECT yoao_assets_v1.{function}(CAST(:operation AS uuid), "
                 f"CAST(:actor AS uuid), CAST(:dataset AS uuid), {item_argument}:bucket, CAST(:audit AS jsonb))"
             ),
             {

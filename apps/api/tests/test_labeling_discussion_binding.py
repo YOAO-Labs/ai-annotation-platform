@@ -51,7 +51,7 @@ async def test_native_rows_stay_session_bound_and_refresh_through_public_project
         service = AnnotationCommentService(session)
         attach, refresh = service._attach, service.refresh
         model_type = AnnotationComment
-        relation = "aap_labeling_v1.annotation_comment_facts"
+        relation = "yoao_labeling_v1.annotation_comment_facts"
     else:
         row = AnnotationFeedbackRow(
             id=uuid.uuid4(),
@@ -79,7 +79,7 @@ async def test_native_rows_stay_session_bound_and_refresh_through_public_project
         service = FeedbackService(session)
         attach, refresh = service._attach, service.refresh
         model_type = AnnotationFeedback
-        relation = "aap_labeling_v1.annotation_feedback_facts"
+        relation = "yoao_labeling_v1.annotation_feedback_facts"
 
     loaded = await attach(row)
     assert inspect(loaded).session is session.sync_session
@@ -133,16 +133,16 @@ async def test_feedback_list_query_aliases_public_rows_and_keeps_page_order():
     sql = str(session.statement.compile(dialect=postgresql.dialect()))
 
     assert rows == [] and cursor is None
-    assert "FROM aap_labeling_v1.annotation_feedback_facts AS feedback_origin" in sql
-    assert "JOIN aap_labeling_v1.annotation_feedback_facts AS feedback_parent" in sql
-    assert "JOIN aap_labeling_v1.annotation_feedback_facts AS feedback_root" in sql
-    assert "FROM aap_labeling_v1.annotation_feedback_facts " in sql
+    assert "FROM yoao_labeling_v1.annotation_feedback_facts AS feedback_origin" in sql
+    assert "JOIN yoao_labeling_v1.annotation_feedback_facts AS feedback_parent" in sql
+    assert "JOIN yoao_labeling_v1.annotation_feedback_facts AS feedback_root" in sql
+    assert "FROM yoao_labeling_v1.annotation_feedback_facts " in sql
     assert "feedback_root.is_active IS true" in sql
-    assert "FROM aap_labeling_v1.task_rows AS root_task" in sql
-    assert "FROM aap_labeling_v1.annotation_rows AS root_annotation" in sql
-    assert "aap_labeling_v1.annotation_feedback_facts.task_id IN" in sql
-    assert sql.count("FROM aap_labeling_v1.annotation_feedback_facts") == 2
-    assert sql.count("JOIN aap_labeling_v1.annotation_feedback_facts") == 2
-    assert "ORDER BY aap_labeling_v1.annotation_feedback_facts.created_at DESC" in sql
-    assert "aap_labeling_v1.annotation_feedback_facts.id DESC" in sql
+    assert "FROM yoao_labeling_v1.task_rows AS root_task" in sql
+    assert "FROM yoao_labeling_v1.annotation_rows AS root_annotation" in sql
+    assert "yoao_labeling_v1.annotation_feedback_facts.task_id IN" in sql
+    assert sql.count("FROM yoao_labeling_v1.annotation_feedback_facts") == 2
+    assert sql.count("JOIN yoao_labeling_v1.annotation_feedback_facts") == 2
+    assert "ORDER BY yoao_labeling_v1.annotation_feedback_facts.created_at DESC" in sql
+    assert "yoao_labeling_v1.annotation_feedback_facts.id DESC" in sql
     assert "public.annotation_feedbacks" not in sql

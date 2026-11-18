@@ -50,36 +50,36 @@ pytestmark = [
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBE = ROOT / "apps/api/tests/fixtures/identity_seed_selection_probe.py"
-_SCALE_ADMIN = "aap_identity_v1.read_scale_seed_super_admin()"
-_SCALE_ANNOTATOR = "aap_identity_v1.read_scale_seed_annotator(uuid[])"
+_SCALE_ADMIN = "yoao_identity_v1.read_scale_seed_super_admin()"
+_SCALE_ANNOTATOR = "yoao_identity_v1.read_scale_seed_annotator(uuid[])"
 _SELECTION_FUNCTIONS = {
     _SCALE_ADMIN,
     _SCALE_ANNOTATOR,
-    "aap_identity_v1.read_first_seed_account()",
+    "yoao_identity_v1.read_first_seed_account()",
 }
 _IMAGE_IMPORT_FUNCTIONS = {
-    "aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
-    "aap_assets_v1.append_operator_items(uuid,uuid,jsonb)",
-    "aap_assets_v1.begin_operator_auxiliary(jsonb)",
-    "aap_assets_v1.open_operator_storage_operation(uuid)",
-    "aap_assets_v1.record_operator_original_prepared(uuid,jsonb)",
-    "aap_assets_v1.mark_operator_original_writing(uuid)",
-    "aap_assets_v1.record_operator_original_written(uuid,jsonb)",
-    "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
-    "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
-    "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
-    "aap_assets_v1.publish_operator_item_original(jsonb)",
+    "yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
+    "yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)",
+    "yoao_assets_v1.begin_operator_auxiliary(jsonb)",
+    "yoao_assets_v1.open_operator_storage_operation(uuid)",
+    "yoao_assets_v1.record_operator_original_prepared(uuid,jsonb)",
+    "yoao_assets_v1.mark_operator_original_writing(uuid)",
+    "yoao_assets_v1.record_operator_original_written(uuid,jsonb)",
+    "yoao_assets_v1.record_operator_original_verified(uuid,jsonb)",
+    "yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
+    "yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
+    "yoao_assets_v1.publish_operator_item_original(jsonb)",
 }
 _PRIVATE_SCALE_FIXTURE_FUNCTIONS = (
-    "aap_workspace_v1.create_scale_seed_project(uuid,text)",
-    "aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)",
-    "aap_workspace_v1.guard_scale_seed_cleanup(text)",
-    "aap_workspace_v1.delete_scale_seed_projects(text,uuid[])",
-    "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)",
-    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
-    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
-    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
-    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+    "yoao_workspace_v1.create_scale_seed_project(uuid,text)",
+    "yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)",
+    "yoao_workspace_v1.guard_scale_seed_cleanup(text)",
+    "yoao_workspace_v1.delete_scale_seed_projects(text,uuid[])",
+    "yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)",
+    "yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+    "yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+    "yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+    "yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
 )
 
 
@@ -154,7 +154,7 @@ async def _assert_identity_selection_profile(test_engine) -> None:
                 )
                 == 0
             )
-            assert await _function_set(db, "legacy_runtime", "aap_identity_v1") == (
+            assert await _function_set(db, "legacy_runtime", "yoao_identity_v1") == (
                 set(_IDENTITY_CONSUMER_FUNCTIONS) | _SELECTION_FUNCTIONS
             )
             for signature in _IMAGE_IMPORT_FUNCTIONS:
@@ -176,7 +176,7 @@ async def _assert_identity_selection_profile(test_engine) -> None:
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_table_privilege(current_user, "
-                    "'aap_identity_v1.account_profiles', 'SELECT')"
+                    "'yoao_identity_v1.account_profiles', 'SELECT')"
                 )
             )
             assert not await db.scalar(
@@ -194,7 +194,7 @@ async def _assert_identity_selection_profile(test_engine) -> None:
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_table_privilege(current_user, "
-                    "'aap_workspace_v1.project_member_facts', 'SELECT')"
+                    "'yoao_workspace_v1.project_member_facts', 'SELECT')"
                 )
             )
     finally:
@@ -202,7 +202,7 @@ async def _assert_identity_selection_profile(test_engine) -> None:
 
     async with test_engine.connect() as db:
         assert await _function_set(
-            db, "identity_api_consumer", "aap_identity_v1"
+            db, "identity_api_consumer", "yoao_identity_v1"
         ) == set(_IDENTITY_CONSUMER_FUNCTIONS)
         for signature in _SELECTION_FUNCTIONS:
             assert not await db.scalar(
@@ -464,21 +464,21 @@ async def _finish_cli_task(task: asyncio.Task) -> None:
 async def _install_selector_gate(test_engine, application_name: str) -> str:
     suffix = uuid.uuid4().hex[:12]
     original_name = f"read_scale_seed_annotator_original_{suffix}"
-    wrapper = "aap_identity_v1.read_scale_seed_annotator(uuid[])"
-    original = f"aap_identity_v1.{original_name}(uuid[])"
-    body = f"""CREATE FUNCTION aap_identity_v1.read_scale_seed_annotator(p_candidate_ids uuid[])
+    wrapper = "yoao_identity_v1.read_scale_seed_annotator(uuid[])"
+    original = f"yoao_identity_v1.{original_name}(uuid[])"
+    body = f"""CREATE FUNCTION yoao_identity_v1.read_scale_seed_annotator(p_candidate_ids uuid[])
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $selector_gate$
 BEGIN
     PERFORM pg_catalog.set_config('application_name', '{application_name}', true);
     PERFORM pg_catalog.pg_sleep(10);
-    RETURN aap_identity_v1.{original_name}(p_candidate_ids);
+    RETURN yoao_identity_v1.{original_name}(p_candidate_ids);
 END
 $selector_gate$"""
     async with test_engine.begin() as db:
         await db.execute(
             text(
-                "ALTER FUNCTION aap_identity_v1.read_scale_seed_annotator(uuid[]) "
+                "ALTER FUNCTION yoao_identity_v1.read_scale_seed_annotator(uuid[]) "
                 f"RENAME TO {original_name}"
             )
         )
@@ -493,7 +493,7 @@ async def _remove_selector_gate(test_engine, original: str) -> None:
         await db.execute(
             text(
                 "DROP FUNCTION IF EXISTS "
-                "aap_identity_v1.read_scale_seed_annotator(uuid[]) RESTRICT"
+                "yoao_identity_v1.read_scale_seed_annotator(uuid[]) RESTRICT"
             )
         )
         await db.execute(
@@ -997,7 +997,7 @@ async def test_installed_identity_seed_selection_consumers(
                     with pytest.raises(DBAPIError) as forbidden:
                         await db.scalar(
                             text(
-                                "SELECT aap_identity_v1.read_scale_seed_annotator(ARRAY[]::uuid[])"
+                                "SELECT yoao_identity_v1.read_scale_seed_annotator(ARRAY[]::uuid[])"
                             )
                         )
                     assert forbidden.value.orig.sqlstate == "42501"

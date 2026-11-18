@@ -69,7 +69,7 @@ async def test_account_values_preserve_raw_facts_and_caller_flush_policy(
     with pytest.raises(FrozenInstanceError):
         actor.role = "super_admin"
     query, bindings = db.scalar.await_args.args
-    assert f"aap_identity_v1.lock_accounts_{mode}(" in str(query)
+    assert f"yoao_identity_v1.lock_accounts_{mode}(" in str(query)
     assert bindings == {
         "account_ids": [uuid.UUID(int=1), _ACTOR_ID],
         "nowait": False,
@@ -179,7 +179,7 @@ async def test_accepted_key_retains_caller_transaction_and_flush_policy(
     )
     assert result is authorized
     statement, bindings = db.scalar.await_args.args
-    assert "aap_identity_v1.check_accepted_api_key(" in str(statement)
+    assert "yoao_identity_v1.check_accepted_api_key(" in str(statement)
     assert bindings == {
         "actor_id": _ACTOR_ID,
         "api_key_id": key_id,

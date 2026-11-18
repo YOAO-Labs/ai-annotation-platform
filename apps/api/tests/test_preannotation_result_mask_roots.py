@@ -16,7 +16,7 @@ ROOTS_SQL = ROOT / "apps/api/alembic/sql/0231_preannotation_result_mask_roots.sq
 
 async def _native_call(db, operation: str, payload: dict):
     result = await db.execute(
-        text(f"SELECT aap_labeling_v1.{operation}(CAST(:payload AS jsonb))"),
+        text(f"SELECT yoao_labeling_v1.{operation}(CAST(:payload AS jsonb))"),
         {"payload": json.dumps(payload)},
     )
     return result.scalar_one()
@@ -144,11 +144,11 @@ async def test_pending_payload_root_blocks_native_mask_gc_claim(db_session):
         await db_session.execute(
             text(
                 "SELECT "
-                "aap_labeling_v1._mask_gc_root_entry_live("
+                "yoao_labeling_v1._mask_gc_root_entry_live("
                 "'batch_result_payloads', :payload_id, NULL, true), "
-                "aap_labeling_v1._mask_gc_root_entry_live("
+                "yoao_labeling_v1._mask_gc_root_entry_live("
                 "'predictions', 'legacy-root', NULL, false), "
-                "aap_labeling_v1._mask_gc_root_entry_live("
+                "yoao_labeling_v1._mask_gc_root_entry_live("
                 "'predictions', 'expired-root', "
                 "pg_catalog.clock_timestamp() - interval '1 second', false)"
             ),
@@ -265,7 +265,7 @@ async def test_terminal_bundle_states_release_payload_roots(db_session):
 
         live = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1._mask_gc_root_entry_live("
+                "SELECT yoao_labeling_v1._mask_gc_root_entry_live("
                 "'batch_result_payloads', :payload_id, NULL, false)"
             ),
             {"payload_id": str(payload_id)},

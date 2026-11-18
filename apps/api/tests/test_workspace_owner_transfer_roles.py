@@ -100,7 +100,7 @@ async def test_owner_transfer_client_has_exact_functions_and_no_raw_access(test_
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.projects LIMIT 1",
             "SELECT * FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
-            "SELECT aap_identity_v1.lock_accounts_update('{}'::uuid[], false)",
+            "SELECT yoao_identity_v1.lock_accounts_update('{}'::uuid[], false)",
             "SELECT yoao_workspace_membership_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
             "SELECT yoao_workspace_owner_transfer_v1._failure(400, 'null'::jsonb, false)",
             "CREATE TEMP TABLE workspace_owner_transfer_forbidden(id integer)",
@@ -119,7 +119,9 @@ async def test_owner_transfer_readiness_rejects_raw_table_grant(test_engine):
     try:
         async with owner_engine.begin() as connection:
             await connection.execute(
-                text("GRANT SELECT ON public.users TO yoao_workspace_owner_transfer_client")
+                text(
+                    "GRANT SELECT ON public.users TO yoao_workspace_owner_transfer_client"
+                )
             )
         with pytest.raises(OwnerTransferUnavailable):
             await OwnerTransferPostgresData(dsn).owner_transfer_policy()

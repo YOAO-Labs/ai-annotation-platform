@@ -21,31 +21,31 @@ pytestmark = pytest.mark.asyncio
 
 _SCHEMA = "aap-assets-connections/v1"
 _LIST = text(
-    "SELECT aap_assets_v1.list_storage_connections("
+    "SELECT yoao_assets_v1.list_storage_connections("
     "CAST(:actor_id AS uuid), CAST(:after_created_at AS timestamptz), "
     "CAST(:after_id AS uuid), CAST(:page_size AS integer))"
 )
 _READ = text(
-    "SELECT aap_assets_v1.read_storage_connection("
+    "SELECT yoao_assets_v1.read_storage_connection("
     "CAST(:actor_id AS uuid), CAST(:connection_id AS uuid))"
 )
 _POLICY = text(
-    "SELECT aap_assets_v1.read_storage_connection_policy("
+    "SELECT yoao_assets_v1.read_storage_connection_policy("
     "CAST(:actor_id AS uuid), CAST(:fallback_allowlist AS jsonb))"
 )
 _CAPTURE = text(
-    "SELECT aap_assets_v1.capture_storage_connection("
+    "SELECT yoao_assets_v1.capture_storage_connection("
     "CAST(:actor_id AS uuid), CAST(:connection_id AS uuid), CAST(:access AS text))"
 )
 _CREATE = text(
-    "SELECT aap_assets_v1.create_storage_connection("
+    "SELECT yoao_assets_v1.create_storage_connection("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:intent AS jsonb), CAST(:config AS jsonb), CAST(:secret_enc AS text), "
     "CAST(:policy_digest AS text), CAST(:fallback_allowlist AS jsonb), "
     "CAST(:audit_context AS jsonb))"
 )
 _UPDATE = text(
-    "SELECT aap_assets_v1.update_storage_connection_authorized("
+    "SELECT yoao_assets_v1.update_storage_connection_authorized("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:connection_id AS uuid), CAST(:intent AS jsonb), CAST(:config AS jsonb), "
     "CAST(:secret_enc AS text), CAST(:source_snapshot AS text), "
@@ -53,12 +53,12 @@ _UPDATE = text(
     "CAST(:audit_context AS jsonb), NULL::uuid, '{}'::text[], NULL::jsonb)"
 )
 _DELETE = text(
-    "SELECT aap_assets_v1.delete_storage_connection("
+    "SELECT yoao_assets_v1.delete_storage_connection("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:connection_id AS uuid), CAST(:audit_context AS jsonb))"
 )
 _RECEIPT = text(
-    "SELECT aap_assets_v1.read_storage_connection_receipt("
+    "SELECT yoao_assets_v1.read_storage_connection_receipt("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), CAST(:action AS text), "
     "CAST(:connection_id AS uuid), CAST(:intent AS jsonb))"
 )
@@ -669,7 +669,7 @@ async def test_native_connection_delete_retains_import_snapshot_and_fences_new_i
 
     later_import = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1.prepare_dataset_import("
+            "SELECT yoao_assets_v1.prepare_dataset_import("
             "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), CAST(:connection_id AS uuid))"
         ),
         {
@@ -707,7 +707,7 @@ async def test_native_connection_receipt_failure_rolls_back_connection_and_audit
     try:
         async with test_engine.begin() as owner:
             await owner.exec_driver_sql(
-                f"CREATE FUNCTION aap_assets_v1.{function_name}() "
+                f"CREATE FUNCTION yoao_assets_v1.{function_name}() "
                 "RETURNS trigger LANGUAGE plpgsql AS $probe$ "
                 "BEGIN RAISE EXCEPTION USING ERRCODE='22000', "
                 "MESSAGE='native storage connection receipt failure probe'; "
@@ -716,7 +716,7 @@ async def test_native_connection_receipt_failure_rolls_back_connection_and_audit
             await owner.exec_driver_sql(
                 f"CREATE TRIGGER {trigger_name} BEFORE INSERT "
                 "ON public.storage_connection_operations FOR EACH ROW "
-                f"EXECUTE FUNCTION aap_assets_v1.{function_name}()"
+                f"EXECUTE FUNCTION yoao_assets_v1.{function_name}()"
             )
             trigger_created = True
             policy = _data(
@@ -777,7 +777,7 @@ async def test_native_connection_receipt_failure_rolls_back_connection_and_audit
                 f"DROP TRIGGER {trigger_name} ON public.storage_connection_operations"
             )
             await owner.exec_driver_sql(
-                f"DROP FUNCTION aap_assets_v1.{function_name}()"
+                f"DROP FUNCTION yoao_assets_v1.{function_name}()"
             )
             trigger_created = False
     finally:
@@ -788,7 +788,7 @@ async def test_native_connection_receipt_failure_rolls_back_connection_and_audit
                     "ON public.storage_connection_operations"
                 )
                 await owner.exec_driver_sql(
-                    f"DROP FUNCTION IF EXISTS aap_assets_v1.{function_name}()"
+                    f"DROP FUNCTION IF EXISTS yoao_assets_v1.{function_name}()"
                 )
         async with maker.begin() as owner:
             await owner.execute(

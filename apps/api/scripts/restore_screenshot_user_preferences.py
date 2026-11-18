@@ -61,7 +61,7 @@ async def restore(user_id: UUID, preferences_file: Path) -> None:
                 )
             updated = await connection.scalar(
                 text(
-                    "SELECT aap_identity_v1.replace_fixture_preferences("
+                    "SELECT yoao_identity_v1.replace_fixture_preferences("
                     ":user_id, CAST(:preferences AS jsonb))"
                 ),
                 {

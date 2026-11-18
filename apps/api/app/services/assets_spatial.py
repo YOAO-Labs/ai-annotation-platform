@@ -219,7 +219,7 @@ class AssetsSpatialGateway:
         try:
             fixture = await self.db.scalar(
                 text(
-                    "SELECT aap_assets_v1.is_fixture_spatial_dataset(CAST(:dataset AS uuid))"
+                    "SELECT yoao_assets_v1.is_fixture_spatial_dataset(CAST(:dataset AS uuid))"
                 ),
                 {"dataset": item.dataset_id},
             )
@@ -246,7 +246,7 @@ class AssetsSpatialGateway:
                     if operation == "begin":
                         raw = await current.scalar(
                             text(
-                                "SELECT aap_assets_v1.begin_spatial_calibration_original("
+                                "SELECT yoao_assets_v1.begin_spatial_calibration_original("
                                 "CAST(:preparation AS uuid), CAST(:item AS uuid), CAST(:key AS text))"
                             ),
                             {
@@ -260,7 +260,7 @@ class AssetsSpatialGateway:
                         return inner.permit
                     result = await current.scalar(
                         text(
-                            "SELECT aap_assets_v1.finish_spatial_calibration_original("
+                            "SELECT yoao_assets_v1.finish_spatial_calibration_original("
                             "CAST(:creation AS uuid), CAST(:operation AS uuid))"
                         ),
                         {
@@ -386,7 +386,7 @@ class AssetsSpatialGateway:
         }
         reply, remote = await self._catalog._call(
             operation,
-            f"SELECT aap_assets_v1.{operation}({placeholders})",
+            f"SELECT yoao_assets_v1.{operation}({placeholders})",
             parameters,
             b"" if same_session_native else _encode_request(request),
             result_type,
@@ -868,7 +868,7 @@ class AssetsSpatialGateway:
     async def lock_scene_source_references(self, scene_ids: list[uuid.UUID]) -> bool:
         result = await self.db.scalar(
             text(
-                "SELECT aap_assets_v1.lock_scene_source_references(CAST(:ids AS uuid[]))"
+                "SELECT yoao_assets_v1.lock_scene_source_references(CAST(:ids AS uuid[]))"
             ),
             {"ids": scene_ids},
         )

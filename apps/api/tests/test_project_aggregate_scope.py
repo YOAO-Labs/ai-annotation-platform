@@ -64,7 +64,7 @@ def test_non_manager_scope_is_membership_only(platform_role):
     clause = task_project_scope(_user(platform_role), project_roles=(ANNOTATOR_ROLE,))
     sql = _sql(clause)
     assert clause is not None
-    assert "aap_workspace_v1.actor_project_memberships" in sql
+    assert "yoao_workspace_v1.actor_project_memberships" in sql
     assert "workspace_member_facts.role" in sql
     assert "projects.owner_id" not in sql
     # Strict membership contract: active account, known platform role, pairing.
@@ -92,7 +92,7 @@ def test_project_admin_scope_includes_owned_and_membership_projects():
         _user("project_admin"), Project.id, project_roles=(REVIEWER_ROLE,)
     )
     sql = _sql(clause)
-    assert "aap_workspace_v1.actor_project_memberships" in sql
+    assert "yoao_workspace_v1.actor_project_memberships" in sql
     assert "workspace_owned_project_facts.owner_id" in sql
 
 
@@ -125,7 +125,7 @@ def test_role_filters_are_explicit():
 
 def test_membership_helpers_filter_by_role():
     user = _user("employee")
-    assert "aap_workspace_v1.actor_project_memberships" in _sql(
+    assert "yoao_workspace_v1.actor_project_memberships" in _sql(
         membership_project_ids(user)
     )
     assert "workspace_member_facts.role" in _sql(
@@ -148,9 +148,9 @@ def test_async_job_query_gates_export_results():
     )
     sql = _sql(stmt)
     assert "async_jobs.kind" in sql
-    assert "aap_workspace_v1.actor_project_memberships" in sql
+    assert "yoao_workspace_v1.actor_project_memberships" in sql
     # Both the ownership scope and the export-capability scope are present.
-    assert sql.count("aap_workspace_v1.actor_project_memberships") >= 2
+    assert sql.count("yoao_workspace_v1.actor_project_memberships") >= 2
 
 
 def test_membership_helpers_require_known_active_account():
@@ -190,7 +190,7 @@ from sqlalchemy import select
 actor = SimpleNamespace(id=uuid.uuid4(), role='employee')
 for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor), project_member_facts(), project_facts(), project_counter_facts(), project_rows()):
     sql = str(select(relation))
-    assert 'aap_workspace' in sql or 'aap_labeling_v1.project_catalog_counters' in sql
+    assert 'aap_workspace' in sql or 'yoao_labeling_v1.project_catalog_counters' in sql
 print('ok')
 """
     result = subprocess.run(

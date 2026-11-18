@@ -89,7 +89,7 @@ async def test_generic_creation_uses_closed_view_without_snapshot_column(db_sess
     assert len(inserts) == 2
     for statement in inserts:
         lowered = statement.lower()
-        assert lowered.startswith("insert into aap_jobs_v1.async_job_creation ")
+        assert lowered.startswith("insert into yoao_jobs_v1.async_job_creation ")
         for absent in (
             "execution_snapshot_id",
             "last_progress_at",
@@ -126,11 +126,12 @@ async def test_owner_binding_materializes_on_read_lock_and_idempotent_rows(db_se
     assert "last_progress_at" not in sa_inspect(read).unloaded
     assert "progress_observation" not in sa_inspect(read).unloaded
     lowered = [statement.lower() for statement in statements]
-    assert any("aap_jobs_v1.read_job(" in statement for statement in lowered)
+    assert any("yoao_jobs_v1.read_job(" in statement for statement in lowered)
     assert any(
-        "aap_jobs_v1.read_job_execution_snapshot(" in statement for statement in lowered
+        "yoao_jobs_v1.read_job_execution_snapshot(" in statement
+        for statement in lowered
     )
-    assert any("aap_jobs_v1.read_job_progress(" in statement for statement in lowered)
+    assert any("yoao_jobs_v1.read_job_progress(" in statement for statement in lowered)
     _assert_no_private_jobs_read(statements)
 
     locked = await db_session.scalar(

@@ -27,7 +27,7 @@ _LISTENERS_INSTALLED = "aap_labeling_source_less_batch_counter_listeners"
 _COUNTER_FIELDS = ("total_tasks", "completed_tasks", "review_tasks")
 _COUNTER_FIELD_SET = frozenset(_COUNTER_FIELDS)
 _WRITE_BATCH_COUNTERS = text(
-    "SELECT aap_labeling_v1.task_maintenance_command(CAST(:request AS jsonb))"
+    "SELECT yoao_labeling_v1.task_maintenance_command(CAST(:request AS jsonb))"
 )
 
 

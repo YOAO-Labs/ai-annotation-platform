@@ -54,7 +54,7 @@ def test_db_url():
     oid = _required_env("AAP_MODULE_DATA_PG_DATABASE_OID")
     assert re.fullmatch(r"[1-9][0-9]*", oid)
     assert owner_url.username == "owner"
-    assert operator_url.username == "asset_operator_client"
+    assert operator_url.username == "yoao_asset_operator_client"
     for url in (owner_url, operator_url):
         assert url.drivername == "postgresql+asyncpg"
         assert url.host == "127.0.0.1" and not url.query
@@ -241,15 +241,15 @@ async def test_image_import_identity_behavior(
         async with operator.connect() as connection:
             assert (
                 await connection.scalar(text("SELECT session_user"))
-                == "asset_operator_client"
+                == "yoao_asset_operator_client"
             )
             assert (
                 await connection.scalar(text("SELECT current_user"))
-                == "asset_operator_client"
+                == "yoao_asset_operator_client"
             )
             for query in (
                 "SELECT id FROM public.users LIMIT 1",
-                "SELECT id FROM aap_identity_v1.account_profiles LIMIT 1",
+                "SELECT id FROM yoao_identity_v1.account_profiles LIMIT 1",
                 "SELECT id FROM public.storage_locations LIMIT 1",
                 "SELECT purpose FROM public.storage_bindings LIMIT 1",
             ):
@@ -500,7 +500,7 @@ async def test_image_import_identity_behavior(
                     .mappings()
                     .all()
                 )
-            assert audit.login_name == "asset_operator_client"
+            assert audit.login_name == "yoao_asset_operator_client"
             assert dataset.created_by in candidates
             assert dataset.file_count == len(expected_names)
             assert [row["file_name"] for row in rows] == expected_names

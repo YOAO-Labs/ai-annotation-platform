@@ -1123,7 +1123,7 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
         async with maker.begin() as db:
             revoked_at = datetime.now(UTC) + timedelta(days=8)
             await db.execute(
-                text("SELECT aap_identity_v1.revoke_jti(CAST(:jti AS uuid), :until)"),
+                text("SELECT yoao_identity_v1.revoke_jti(CAST(:jti AS uuid), :until)"),
                 {"jti": actor_jti, "until": revoked_at},
             )
         revoked_actor_replay = await asyncio.to_thread(

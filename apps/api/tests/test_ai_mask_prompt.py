@@ -79,7 +79,7 @@ async def test_resolver_replaces_authorized_locator_without_exposing_object_key(
     assert prepared["mask_prompt"]["rle"] == RLE
     assert prepared["mask_prompt"]["source_annotation_id"] == str(annotation.id)
     assert "object_key" not in prepared["mask_prompt"]
-    assert "aap_labeling_v1.annotation_rows" in str(db.execute.await_args.args[0])
+    assert "yoao_labeling_v1.annotation_rows" in str(db.execute.await_args.args[0])
     validate.assert_awaited_once()
     load.assert_awaited_once()
 

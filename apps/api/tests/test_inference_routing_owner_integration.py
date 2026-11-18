@@ -44,8 +44,8 @@ pytestmark = [
     ),
 ]
 
-_ROUTING_SCHEMA = "aap_inference_routing_v1"
-_ROUTING_ROLE = "inference_routing_client"
+_ROUTING_SCHEMA = "yoao_inference_routing_v1"
+_ROUTING_ROLE = "yoao_inference_routing_client"
 _ROUTING_STEP = f"{_ROUTING_SCHEMA}.routing_step"
 _COMMAND_PATH = "/v1/routes/command"
 _STATUS_PATH = "/v1/routes/status"
@@ -404,35 +404,35 @@ async def _cleanup_world(owner, world: dict, receipt_ids: list[uuid.UUID]) -> No
         registry_id = world["registry_id"]
         pool_id = world["pool_id"]
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.control_attempts "
-            "WHERE control_id IN (SELECT id FROM aap_inference_routing_v1.controls "
+            "DELETE FROM yoao_inference_routing_v1.control_attempts "
+            "WHERE control_id IN (SELECT id FROM yoao_inference_routing_v1.controls "
             "WHERE registry_id=$1)",
             registry_id,
         )
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.attempts "
-            "WHERE scope_id IN (SELECT id FROM aap_inference_routing_v1.scopes "
+            "DELETE FROM yoao_inference_routing_v1.attempts "
+            "WHERE scope_id IN (SELECT id FROM yoao_inference_routing_v1.scopes "
             "WHERE registry_id=$1)",
             registry_id,
         )
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+            "DELETE FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
             registry_id,
         )
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+            "DELETE FROM yoao_inference_routing_v1.controls WHERE registry_id=$1",
             registry_id,
         )
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+            "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
             receipt_ids,
         )
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.weights WHERE registry_id=$1",
+            "DELETE FROM yoao_inference_routing_v1.weights WHERE registry_id=$1",
             registry_id,
         )
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+            "DELETE FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
             registry_id,
         )
         await owner.execute(
@@ -635,7 +635,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         assert acquired.state == replayed_acquire.state == "committed"
         assert acquired.result.id == replayed_acquire.result.id
         receipt_count = await owner.fetchval(
-            "SELECT count(*) FROM aap_inference_routing_v1.command_receipts"
+            "SELECT count(*) FROM yoao_inference_routing_v1.command_receipts"
         )
         runtime = await routing_client.runtime(
             make_routing_runtime_request([world["registry_id"]])
@@ -644,13 +644,13 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         assert runtime.registries[0].continuity == "ready"
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.command_receipts"
+                "SELECT count(*) FROM yoao_inference_routing_v1.command_receipts"
             )
             == receipt_count
         )
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
                 world["registry_id"],
             )
             == 1
@@ -758,7 +758,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         assert replayed_begin.result.headers == began.result.headers
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.attempts "
+                "SELECT count(*) FROM yoao_inference_routing_v1.attempts "
                 "WHERE id=$1 AND scope_id=$2",
                 attempt_id,
                 acquired.result.id,
@@ -823,7 +823,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
             monkeypatch.setattr(settings, name, value)
         before_api_receipts = set(
             await owner.fetchval(
-                "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
             )
         )
         try:
@@ -874,7 +874,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         finally:
             after_api_receipts = set(
                 await owner.fetchval(
-                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             receipt_ids.extend(after_api_receipts - before_api_receipts)
@@ -978,14 +978,14 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         assert recovered.result.phase == "completed"
         assert (
             await owner.fetchval(
-                "SELECT state FROM aap_inference_routing_v1.control_attempts WHERE id=$1",
+                "SELECT state FROM yoao_inference_routing_v1.control_attempts WHERE id=$1",
                 control_attempt,
             )
             == "reconciled"
         )
         assert (
             await owner.fetchval(
-                "SELECT recovered_kind FROM aap_inference_routing_v1.controls WHERE id=$1",
+                "SELECT recovered_kind FROM yoao_inference_routing_v1.controls WHERE id=$1",
                 control_id,
             )
             == "unload"
@@ -1062,13 +1062,13 @@ async def test_scoped_inference_logins_enforce_identity_and_capabilities(test_en
     suffix = uuid.uuid4().hex
     try:
         for capability, schema, functions in (
-            ("route", "aap_inference_routing_v1", routing_functions),
-            ("health", "aap_inference_health_observation_v1", health_functions),
+            ("route", "yoao_inference_routing_v1", routing_functions),
+            ("health", "yoao_inference_health_observation_v1", health_functions),
         ):
             role = f"fixture_{capability}_{suffix}"
             password = uuid.uuid4().hex
             await owner.execute(
-                f'CREATE ROLE "{role}" LOGIN NOINHERIT PASSWORD \'{password}\''
+                f"CREATE ROLE \"{role}\" LOGIN NOINHERIT PASSWORD '{password}'"
             )
             roles.append(role)
             passwords.append(password)
@@ -1100,11 +1100,11 @@ async def test_scoped_inference_logins_enforce_identity_and_capabilities(test_en
             try:
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await connection.fetch(
-                        "SELECT * FROM aap_inference_routing_v1.authority_secret"
+                        "SELECT * FROM yoao_inference_routing_v1.authority_secret"
                     )
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await connection.fetchval(
-                        "SELECT aap_inference_health_observation_v1.health_observation_policy()"
+                        "SELECT yoao_inference_health_observation_v1.health_observation_policy()"
                     )
                 async with connection.transaction():
                     with pytest.raises(RoutingUnavailable):
@@ -1117,17 +1117,17 @@ async def test_scoped_inference_logins_enforce_identity_and_capabilities(test_en
             try:
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await connection.fetch(
-                        "SELECT * FROM aap_inference_health_observation_v1.observation_secret"
+                        "SELECT * FROM yoao_inference_health_observation_v1.observation_secret"
                     )
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await connection.fetchval(
-                        "SELECT aap_inference_routing_v1.routing_policy()"
+                        "SELECT yoao_inference_routing_v1.routing_policy()"
                     )
             finally:
                 await connection.close()
             await owner.execute(
                 "GRANT EXECUTE ON FUNCTION "
-                "aap_inference_health_observation_v1.health_observation_policy() "
+                "yoao_inference_health_observation_v1.health_observation_policy() "
                 f'TO "{roles[0]}"'
             )
             assert await routing.readiness() is False

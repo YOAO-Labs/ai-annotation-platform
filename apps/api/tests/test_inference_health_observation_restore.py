@@ -52,13 +52,13 @@ async def _native_state(engine):
     try:
         key = await connection.fetchrow(
             "SELECT singleton,pg_catalog.encode(public.digest(secret,'sha256'),'hex') AS fingerprint "
-            "FROM aap_inference_health_observation_v1.observation_secret"
+            "FROM yoao_inference_health_observation_v1.observation_secret"
         )
         functions = await connection.fetch(
             "SELECT pg_catalog.pg_get_functiondef(p.oid) AS definition, "
             "pg_catalog.pg_get_userbyid(p.proowner) AS owner,p.proacl::text AS acl,p.proconfig AS settings "
             "FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace "
-            "WHERE n.nspname IN ('aap_inference_health_observation_v1','aap_inference_health_data_v1') ORDER BY n.nspname,p.proname"
+            "WHERE n.nspname IN ('yoao_inference_health_observation_v1','yoao_inference_health_data_v1') ORDER BY n.nspname,p.proname"
         )
         assert len(functions) == 16
         assert all(row["owner"] == "inference_code" for row in functions)

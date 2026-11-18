@@ -25,7 +25,9 @@ pytestmark = [
 ]
 
 
-async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(test_engine):
+async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
+    test_engine,
+):
     sessions = async_sessionmaker(test_engine, expire_on_commit=False)
     async with private_owned_suite() as suite:
         run = suite.new_run("jobspub" + uuid.uuid4().hex[:8])
@@ -33,7 +35,7 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
         async with sessions() as db:
             dataset_id = await db.scalar(
                 text(
-                    "SELECT item.dataset_id FROM aap_labeling_v1.task_rows AS task "
+                    "SELECT item.dataset_id FROM yoao_labeling_v1.task_rows AS task "
                     "JOIN public.dataset_items AS item ON item.id=task.dataset_item_id "
                     "WHERE task.id=:task"
                 ),
@@ -48,13 +50,17 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
         item_id = uuid.UUID(response.json()["item_id"])
         async with sessions() as db:
             try:
-                original = await image_pyramid_originals.pin(db, "dataset_item", item_id)
+                original = await image_pyramid_originals.pin(
+                    db, "dataset_item", item_id
+                )
                 source = image_pyramid_originals.receipt(original)
                 delegation = image_pyramid_originals.system_authorization(
                     "dataset_item", item_id, original
                 )
 
-                async def prepare(delivery_id, *, target=item_id, queue="image-pyramid"):
+                async def prepare(
+                    delivery_id, *, target=item_id, queue="image-pyramid"
+                ):
                     envelope = json.loads(
                         encode_dispatch_request(
                             "app.workers.image_pyramid.generate_image_pyramid",
@@ -106,7 +112,9 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
                         await db.scalar(
-                            text("SELECT aap_jobs_v1.prepare_media_delivery(CAST(:request AS jsonb))"),
+                            text(
+                                "SELECT yoao_jobs_v1.prepare_media_delivery(CAST(:request AS jsonb))"
+                            ),
                             {"request": json.dumps(private_override)},
                         )
                 output_id, other_output_id = uuid.uuid4(), uuid.uuid4()
@@ -129,11 +137,15 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                         "options": {"queue": "media"},
                     },
                 }
-                mismatched_outputs["envelope"]["execution_id"] = mismatched_outputs["delivery_id"]
+                mismatched_outputs["envelope"]["execution_id"] = mismatched_outputs[
+                    "delivery_id"
+                ]
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
                         await db.scalar(
-                            text("SELECT aap_jobs_v1.prepare_media_delivery(CAST(:request AS jsonb))"),
+                            text(
+                                "SELECT yoao_jobs_v1.prepare_media_delivery(CAST(:request AS jsonb))"
+                            ),
                             {"request": json.dumps(mismatched_outputs)},
                         )
                 await db.execute(
@@ -145,49 +157,78 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                     {"delivery": first_id},
                 )
                 entered = await db.scalar(
-                    text("SELECT aap_jobs_v1.begin_fixture_media_publication(:delivery,:nonce)"),
+                    text(
+                        "SELECT yoao_jobs_v1.begin_fixture_media_publication(:delivery,:nonce)"
+                    ),
                     {"delivery": first_id, "nonce": uuid.uuid4()},
                 )
                 assert entered["state"] == "entered"
                 assert not await db.scalar(
                     text(
-                        "SELECT aap_jobs_v1.fixture_media_publication_accepted("
+                        "SELECT yoao_jobs_v1.fixture_media_publication_accepted("
                         ":run,:delivery,:digest)"
                     ),
-                    {"run": run.run_id, "delivery": first_id, "digest": first.payload_digest},
+                    {
+                        "run": run.run_id,
+                        "delivery": first_id,
+                        "digest": first.payload_digest,
+                    },
                 )
                 await fixture_run_ownership.seal(db, run.run_id, family="owned")
                 for delivery_id, receipt in ((first_id, first), (second_id, second)):
-                    assert await db.scalar(
-                        text(
-                            "SELECT aap_jobs_v1.retire_fixture_media_publication("
-                            ":run,:delivery,:digest)"
-                        ),
-                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt.payload_digest},
-                    ) == "blocked"
+                    assert (
+                        await db.scalar(
+                            text(
+                                "SELECT yoao_jobs_v1.retire_fixture_media_publication("
+                                ":run,:delivery,:digest)"
+                            ),
+                            {
+                                "run": run.run_id,
+                                "delivery": delivery_id,
+                                "digest": receipt.payload_digest,
+                            },
+                        )
+                        == "blocked"
+                    )
                     assert not await db.scalar(
                         text(
-                            "SELECT aap_jobs_v1.fixture_media_publication_retired("
+                            "SELECT yoao_jobs_v1.fixture_media_publication_retired("
                             ":run,:delivery,:digest)"
                         ),
-                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt.payload_digest},
+                        {
+                            "run": run.run_id,
+                            "delivery": delivery_id,
+                            "digest": receipt.payload_digest,
+                        },
                     )
-                    assert await db.scalar(
-                        text(
-                            "SELECT aap_jobs_v1.fixture_media_publication_retirement_outcome("
-                            ":run,:delivery,:digest)"
-                        ),
-                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt.payload_digest},
-                    ) is None
+                    assert (
+                        await db.scalar(
+                            text(
+                                "SELECT yoao_jobs_v1.fixture_media_publication_retirement_outcome("
+                                ":run,:delivery,:digest)"
+                            ),
+                            {
+                                "run": run.run_id,
+                                "delivery": delivery_id,
+                                "digest": receipt.payload_digest,
+                            },
+                        )
+                        is None
+                    )
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
                         await prepare(uuid.uuid4())
-                async with test_engine.connect() as waiting, test_engine.connect() as observer:
-                    waiting_pid = await waiting.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
+                async with (
+                    test_engine.connect() as waiting,
+                    test_engine.connect() as observer,
+                ):
+                    waiting_pid = await waiting.scalar(
+                        text("SELECT pg_catalog.pg_backend_pid()")
+                    )
                     pending = asyncio.create_task(
                         waiting.scalar(
                             text(
-                                "SELECT aap_jobs_v1.fixture_media_publication_accepted("
+                                "SELECT yoao_jobs_v1.fixture_media_publication_accepted("
                                 ":run,:delivery,:digest)"
                             ),
                             {
@@ -211,7 +252,9 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                             if blocked:
                                 break
                             await asyncio.sleep(0.01)
-                        assert blocked, "worker acceptance did not wait for the publisher fence"
+                        assert blocked, (
+                            "worker acceptance did not wait for the publisher fence"
+                        )
                     finally:
                         await db.rollback()
                         accepted = await asyncio.wait_for(pending, 3)
@@ -220,27 +263,37 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                 await db.rollback()
         async with sessions() as db:
             for delivery_id, receipt in ((first_id, first), (second_id, second)):
-                assert await db.scalar(
-                    text("SELECT aap_jobs_v1.fixture_media_delivery(:delivery)"),
-                    {"delivery": delivery_id},
-                ) is None
+                assert (
+                    await db.scalar(
+                        text("SELECT yoao_jobs_v1.fixture_media_delivery(:delivery)"),
+                        {"delivery": delivery_id},
+                    )
+                    is None
+                )
                 params = {
                     "run": run.run_id,
                     "delivery": delivery_id,
                     "digest": receipt.payload_digest,
                 }
                 assert not await db.scalar(
-                    text("SELECT aap_jobs_v1.fixture_media_publication_accepted(:run,:delivery,:digest)"),
+                    text(
+                        "SELECT yoao_jobs_v1.fixture_media_publication_accepted(:run,:delivery,:digest)"
+                    ),
                     params,
                 )
                 assert not await db.scalar(
-                    text("SELECT aap_jobs_v1.fixture_media_publication_retired(:run,:delivery,:digest)"),
-                    params,
-                )
-                assert await db.scalar(
                     text(
-                        "SELECT aap_jobs_v1.fixture_media_publication_retirement_outcome("
-                        ":run,:delivery,:digest)"
+                        "SELECT yoao_jobs_v1.fixture_media_publication_retired(:run,:delivery,:digest)"
                     ),
                     params,
-                ) is None
+                )
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT yoao_jobs_v1.fixture_media_publication_retirement_outcome("
+                            ":run,:delivery,:digest)"
+                        ),
+                        params,
+                    )
+                    is None
+                )

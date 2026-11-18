@@ -81,7 +81,7 @@ async def test_row_lock_functions_have_fixed_definer_and_exact_row_abi(db_sessio
             await db_session.scalar(
                 text(
                     "SELECT pg_catalog.has_function_privilege("
-                    "'jobs_lifecycle_client', "
+                    "'yoao_jobs_lifecycle_client', "
                     "CAST(:signature AS regprocedure), 'EXECUTE')"
                 ),
                 {"signature": f"{function}(uuid)"},
@@ -220,7 +220,7 @@ async def test_update_lock_waits_and_returns_the_committed_current_row(test_engi
         def observe_lock_query(
             _connection, _cursor, statement, _parameters, _context, _many
         ):
-            if "aap_jobs_v1.read_job_for_update(" in statement.lower():
+            if "yoao_jobs_v1.read_job_for_update(" in statement.lower():
                 lock_query_sent.set()
 
         event.listen(engine, "before_cursor_execute", observe_lock_query)
@@ -363,7 +363,7 @@ async def test_lock_query_preserves_autoflush_and_read_only_transaction_rules(
     row = await db_session.scalar(job_lock_statement(target_id, mode="share_nowait"))
     assert row is not None and row.id == target_id
     assert await db_session.scalar(
-        text("SELECT payload FROM aap_jobs_v1.read_job(CAST(:id AS uuid))"),
+        text("SELECT payload FROM yoao_jobs_v1.read_job(CAST(:id AS uuid))"),
         {"id": default_pending.id},
     ) == {"pending": "default"}
 

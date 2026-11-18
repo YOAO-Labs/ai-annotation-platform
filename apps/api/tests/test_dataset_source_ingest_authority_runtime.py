@@ -45,7 +45,7 @@ pytestmark = [
 ]
 
 ROOT = Path(__file__).resolve().parents[3]
-FUNCTION = "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)"
+FUNCTION = "yoao_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)"
 
 
 def _entries():
@@ -157,7 +157,7 @@ async def ordinary_source_stack(test_engine, app_module, monkeypatch, tmp_path):
     source_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
     api_url = make_url(_required_env("DATABASE_URL"))
     target = (test_engine.url.host, test_engine.url.port, test_engine.url.database)
-    assert source_url.username == "asset_source_client"
+    assert source_url.username == "yoao_asset_source_client"
     assert (source_url.host, source_url.port, source_url.database) == target
     assert (api_url.host, api_url.port, api_url.database) == target
     assert source_url.database.startswith("aap_wt_") and source_url.database.endswith(

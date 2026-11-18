@@ -14,7 +14,7 @@ try {
   await client.connect();
   assert.equal(
     (await client.query("SELECT current_user AS role")).rows[0].role,
-    "workspace_dataset_unlink_client",
+    "yoao_workspace_dataset_unlink_client",
   );
   await assert.rejects(client.query("SELECT id FROM public.projects LIMIT 1"), { code: "42501" });
   await assert.rejects(client.query("DELETE FROM public.tasks WHERE false"), { code: "42501" });
@@ -22,7 +22,7 @@ try {
   const before = (await client.query(tx)).rows[0];
   const preview = (
     await client.query(
-      "SELECT aap_workspace_v1.preview_dataset_unlink($1::uuid,$2::uuid,$3::uuid) AS reply",
+      "SELECT yoao_workspace_v1.preview_dataset_unlink($1::uuid,$2::uuid,$3::uuid) AS reply",
       [command.actor_id, command.dataset_id, command.project_id],
     )
   ).rows[0].reply;
@@ -35,7 +35,7 @@ try {
   });
   const raw = (
     await client.query(
-      "SELECT aap_workspace_v1.unlink_dataset($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::text,$6::jsonb)::text AS reply",
+      "SELECT yoao_workspace_v1.unlink_dataset($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::text,$6::jsonb)::text AS reply",
       [
         command.operation_id,
         command.actor_id,

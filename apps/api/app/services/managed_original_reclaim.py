@@ -194,7 +194,7 @@ async def _target(db, context):
         return None, list(dict.fromkeys(blockers + ["reclaim_configuration_changed"]))
     fixture_scope = await db.scalar(
         text(
-            "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+            "SELECT yoao_assets_v1.classify_fixture_original_reclaim("
             "CAST(:creation AS uuid), CAST(:identity AS text))"
         ),
         {"creation": creation["id"], "identity": saved.storage_identity},

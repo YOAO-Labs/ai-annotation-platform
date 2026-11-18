@@ -184,7 +184,7 @@ async def test_auth_only_admin_password_api_binding_and_credential_preservation(
                     await db.execute(
                         text(
                             "GRANT SELECT ON public.users "
-                            "TO identity_admin_password_client"
+                            "TO yoao_identity_admin_password_client"
                         )
                     )
                 try:
@@ -214,7 +214,7 @@ async def test_auth_only_admin_password_api_binding_and_credential_preservation(
                         await db.execute(
                             text(
                                 "REVOKE SELECT ON public.users "
-                                "FROM identity_admin_password_client"
+                                "FROM yoao_identity_admin_password_client"
                             )
                         )
 

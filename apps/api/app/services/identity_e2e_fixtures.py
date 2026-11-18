@@ -41,7 +41,7 @@ _fixture_profile = Table(
         )
         for field in ACCOUNT_PROFILE_FIELDS
     ),
-    schema="aap_identity_fixture_v1",
+    schema="yoao_identity_fixture_v1",
 )
 
 
@@ -98,7 +98,7 @@ class IdentityE2EFixtures:
         await self.db.flush()
         created_id = await self.db.scalar(
             text(
-                "SELECT aap_identity_fixture_v1.create_account("
+                "SELECT yoao_identity_fixture_v1.create_account("
                 "CAST(:id AS uuid),CAST(:email AS text),CAST(:name AS text),"
                 "CAST(:password_hash AS text),CAST(:role AS text))"
             ),
@@ -127,7 +127,7 @@ class IdentityE2EFixtures:
         changed = int(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_fixture_v1.mark_manual_inactive("
+                    "SELECT yoao_identity_fixture_v1.mark_manual_inactive("
                     "CAST(:user_id AS uuid),CAST(:disabled_at AS timestamptz),"
                     "CAST(:disabled_by AS uuid))"
                 ),
@@ -156,7 +156,7 @@ class IdentityE2EFixtures:
         return int(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_fixture_v1.create_invitations("
+                    "SELECT yoao_identity_fixture_v1.create_invitations("
                     "CAST(:invitations AS jsonb))"
                 ),
                 {"invitations": payload},

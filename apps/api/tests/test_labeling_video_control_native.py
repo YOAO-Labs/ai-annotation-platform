@@ -46,7 +46,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_video_control_client"
+_ROLE = "yoao_labeling_video_control_client"
 
 
 async def test_candidate_accept_uses_owner_and_preserves_outer_rollback(test_engine):
@@ -117,7 +117,7 @@ async def test_candidate_accept_uses_owner_and_preserves_outer_rollback(test_eng
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={
                 ("video_control_command", "jsonb"),
                 ("video_segment_lifecycle_command", "jsonb"),
@@ -131,7 +131,7 @@ async def test_candidate_accept_uses_owner_and_preserves_outer_rollback(test_eng
 
         async def execute(payload):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.video_control_command($1::jsonb)", payload
+                "SELECT yoao_labeling_v1.video_control_command($1::jsonb)", payload
             )
 
         client = VideoControlDataClient(execute)
@@ -291,7 +291,7 @@ async def test_worker_video_controls_keep_locks_and_caller_commit(test_engine):
         second_connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={
                 ("video_control_command", "jsonb"),
                 ("video_segment_lifecycle_command", "jsonb"),
@@ -305,7 +305,7 @@ async def test_worker_video_controls_keep_locks_and_caller_commit(test_engine):
         async def client_for(conn):
             async def execute(payload):
                 return await conn.fetchval(
-                    "SELECT aap_labeling_v1.video_control_command($1::jsonb)",
+                    "SELECT yoao_labeling_v1.video_control_command($1::jsonb)",
                     payload,
                 )
 
@@ -511,7 +511,7 @@ async def test_video_segment_lifecycle_uses_owner_and_preserves_outer_transactio
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={
                 ("video_control_command", "jsonb"),
                 ("video_segment_lifecycle_command", "jsonb"),
@@ -528,7 +528,7 @@ async def test_video_segment_lifecycle_uses_owner_and_preserves_outer_transactio
 
         async def execute(payload):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.video_segment_lifecycle_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.video_segment_lifecycle_command($1::jsonb)",
                 payload,
             )
 
@@ -637,7 +637,7 @@ async def test_video_segment_lifecycle_uses_owner_and_preserves_outer_transactio
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_MASK_EDIT_URL",
-                "labeling_mask_edit_client",
+                "yoao_labeling_mask_edit_client",
             ),
             timeout=5,
             command_timeout=10,
@@ -646,7 +646,7 @@ async def test_video_segment_lifecycle_uses_owner_and_preserves_outer_transactio
 
             async def mask_execute(payload):
                 return await mask_connection.fetchval(
-                    "SELECT aap_labeling_v1.mask_edit_command($1::jsonb)", payload
+                    "SELECT yoao_labeling_v1.mask_edit_command($1::jsonb)", payload
                 )
 
             mask_client = MaskEditDataClient(mask_execute)

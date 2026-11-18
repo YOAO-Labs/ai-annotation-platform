@@ -136,7 +136,7 @@ async def _world(db, actor, *, member_count: int = 1, predict_mode: str = "appen
     claimed = _assert_ok(
         await _native(
             db,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "claim_batch_result_execution",
             base_scope
             | {
@@ -179,7 +179,7 @@ async def _world(db, actor, *, member_count: int = 1, predict_mode: str = "appen
         staged = _assert_ok(
             await _native(
                 db,
-                "aap_jobs_v1",
+                "yoao_jobs_v1",
                 "stage_batch_result_members",
                 lease_scope
                 | {
@@ -193,7 +193,7 @@ async def _world(db, actor, *, member_count: int = 1, predict_mode: str = "appen
         staged = _assert_ok(
             await _native(
                 db,
-                "aap_jobs_v1",
+                "yoao_jobs_v1",
                 "stage_batch_result_members",
                 lease_scope
                 | {
@@ -206,7 +206,7 @@ async def _world(db, actor, *, member_count: int = 1, predict_mode: str = "appen
     assert staged is not None
     assert staged["progress"]["selection_cursor"] == member_count
     started = _assert_ok(
-        await _native(db, "aap_jobs_v1", "start_batch_result_execution", lease_scope)
+        await _native(db, "yoao_jobs_v1", "start_batch_result_execution", lease_scope)
     )
     assert started["progress"]["next_ordinal"] == 1
     return project, tasks, job_id, base_scope, lease_scope, scopes
@@ -216,7 +216,7 @@ async def _start_member(db, lease_scope, ordinal: int):
     return _assert_ok(
         await _native(
             db,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "start_batch_result_member",
             lease_scope | {"ordinal": ordinal},
         )
@@ -237,7 +237,7 @@ async def _begin_and_put_raw(
     opened = _assert_ok(
         await _native(
             db,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "begin_batch_result",
             lease_scope
             | {
@@ -259,7 +259,7 @@ async def _begin_and_put_raw(
         for part_index, part in enumerate(parts):
             reply = await _native(
                 db,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "put_batch_result_part",
                 lease_scope
                 | {
@@ -313,7 +313,7 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
     first = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "claim_batch_result_execution",
             scope
             | {
@@ -368,10 +368,10 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
         )
     page = old_lease | {"after_ordinal": 0, "members": member_values, "complete": True}
     accepted = _assert_ok(
-        await _native(db_session, "aap_jobs_v1", "stage_batch_result_members", page)
+        await _native(db_session, "yoao_jobs_v1", "stage_batch_result_members", page)
     )
     replay = _assert_ok(
-        await _native(db_session, "aap_jobs_v1", "stage_batch_result_members", page)
+        await _native(db_session, "yoao_jobs_v1", "stage_batch_result_members", page)
     )
     assert replay["progress"] == accepted["progress"]
 
@@ -382,13 +382,13 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
         {"job": job_id},
     )
     expired_replay = _assert_ok(
-        await _native(db_session, "aap_jobs_v1", "stage_batch_result_members", page)
+        await _native(db_session, "yoao_jobs_v1", "stage_batch_result_members", page)
     )
     assert expired_replay["progress"] == accepted["progress"]
     second = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "claim_batch_result_execution",
             scope
             | {
@@ -402,7 +402,7 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
     assert new_lease["generation"] == old_lease["generation"] + 1
     stale = await _native(
         db_session,
-        "aap_jobs_v1",
+        "yoao_jobs_v1",
         "heartbeat_batch_result_execution",
         old_lease | {"lease_seconds": 30},
     )
@@ -410,7 +410,7 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
 
     _assert_ok(
         await _native(
-            db_session, "aap_jobs_v1", "start_batch_result_execution", new_lease
+            db_session, "yoao_jobs_v1", "start_batch_result_execution", new_lease
         )
     )
     started_member = await _start_member(db_session, new_lease, 1)
@@ -426,7 +426,7 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
     skipped = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "skip_batch_result_member",
             new_lease | {"ordinal": 1, "reason": "cancelled_before_capture"},
         )
@@ -434,7 +434,7 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
     assert skipped["progress"]["next_ordinal"] == 2
     blocked = await _native(
         db_session,
-        "aap_jobs_v1",
+        "yoao_jobs_v1",
         "start_batch_result_member",
         new_lease | {"ordinal": 2},
     )
@@ -442,7 +442,7 @@ async def test_selection_replay_lease_takeover_and_cooperative_cancel(
     finished = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "finish_batch_result_execution",
             new_lease
             | {
@@ -462,7 +462,7 @@ async def test_empty_selection_is_a_valid_completed_execution(db_session, super_
     started = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "read_batch_result_execution",
             {
                 "job_id": lease_scope["job_id"],
@@ -480,7 +480,7 @@ async def test_empty_selection_is_a_valid_completed_execution(db_session, super_
     finished = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "finish_batch_result_execution",
             lease_scope
             | {"status": "completed", "error_code": None, "result_extra": {}},
@@ -497,7 +497,7 @@ async def test_hundred_member_selection_accepts_empty_final_page(
     read = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "read_batch_result_execution",
             {
                 "job_id": lease_scope["job_id"],
@@ -548,7 +548,7 @@ async def test_setup_failure_can_finish_before_selection_is_complete(
     claimed = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "claim_batch_result_execution",
             scope
             | {
@@ -561,7 +561,7 @@ async def test_setup_failure_can_finish_before_selection_is_complete(
     failed = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "finish_batch_result_execution",
             _lease_scope(claimed["lease"])
             | {"status": "failed", "error_code": "ValueError", "result_extra": {}},
@@ -613,7 +613,7 @@ async def test_missing_task_manifest_member_can_be_frozen_and_failed(
     claimed = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "claim_batch_result_execution",
             scope
             | {
@@ -663,7 +663,7 @@ async def test_missing_task_manifest_member_can_be_frozen_and_failed(
     _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "stage_batch_result_members",
             lease_scope
             | {
@@ -675,13 +675,13 @@ async def test_missing_task_manifest_member_can_be_frozen_and_failed(
     )
     _assert_ok(
         await _native(
-            db_session, "aap_jobs_v1", "start_batch_result_execution", lease_scope
+            db_session, "yoao_jobs_v1", "start_batch_result_execution", lease_scope
         )
     )
     failed_member = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "finish_batch_result_failure",
             lease_scope
             | {
@@ -696,7 +696,7 @@ async def test_missing_task_manifest_member_can_be_frozen_and_failed(
     finished = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "finish_batch_result_execution",
             lease_scope
             | {"status": "failed", "error_code": "task_missing", "result_extra": {}},
@@ -728,7 +728,7 @@ async def test_complete_raw_bytes_survive_mask_root_fence_at_seal(
     _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "begin_batch_result",
             lease_scope
             | {
@@ -766,7 +766,7 @@ async def test_complete_raw_bytes_survive_mask_root_fence_at_seal(
     put = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "put_batch_result_part",
             lease_scope
             | {
@@ -787,7 +787,7 @@ async def test_complete_raw_bytes_survive_mask_root_fence_at_seal(
     assert put["payload"]["prediction_id"]
     sealed = await _native(
         db_session,
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         "seal_batch_result",
         lease_scope | {"ordinal": 1, "stage": "raw"},
     )
@@ -795,7 +795,7 @@ async def test_complete_raw_bytes_survive_mask_root_fence_at_seal(
     snapshot = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "read_batch_result",
             {
                 "job_id": str(job_id),
@@ -824,7 +824,7 @@ async def test_complete_raw_bytes_survive_mask_root_fence_at_seal(
     captured = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "seal_batch_result",
             lease_scope | {"ordinal": 1, "stage": "raw"},
         )
@@ -841,7 +841,7 @@ async def test_complete_raw_bytes_survive_mask_root_fence_at_seal(
     failed = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "finish_batch_result_execution",
             lease_scope
             | {
@@ -952,14 +952,16 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
             "segmentation": {"format": "polygons"},
         }
         raw_bodies.append(
-            json.dumps(body, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+            json.dumps(
+                body, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            ).encode()
         )
     raw_digest, _ = _bundle_digest(str(job_id), 1, "a" * 64, "raw", raw_bodies)
     context = {"pipeline_stages": {}, "gpu_arbiter_failures": [], "total_cost": "0"}
     begun = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "begin_batch_result",
             lease_scope
             | {
@@ -979,7 +981,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         put = _assert_ok(
             await _native(
                 db_session,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "put_batch_result_part",
                 lease_scope
                 | {
@@ -999,7 +1001,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     raw_sealed = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "seal_batch_result",
             lease_scope | {"ordinal": 1, "stage": "raw"},
         )
@@ -1018,16 +1020,18 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         body = json.loads(body_bytes)
         (normalized,) = await normalize_batch_prediction_masks(
             db_session,
-            (ApplyPredictionResultRequest(
-                task_id=task.id,
-                project_id=task.project_id,
-                ml_backend_id=None,
-                result=body["result"],
-                write_scope=restore_write_scope(body["write_scope"]),
-                pipeline_extra=body["pipeline_extra"],
-                model_provenance=body["model_provenance"],
-                token_meta=body["token_meta"],
-            ),),
+            (
+                ApplyPredictionResultRequest(
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    ml_backend_id=None,
+                    result=body["result"],
+                    write_scope=restore_write_scope(body["write_scope"]),
+                    pipeline_extra=body["pipeline_extra"],
+                    model_provenance=body["model_provenance"],
+                    token_meta=body["token_meta"],
+                ),
+            ),
         )
         body["result"] = normalized.result
         prepared_bodies.append(
@@ -1041,7 +1045,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "begin_batch_result",
             lease_scope
             | {
@@ -1061,7 +1065,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         put = _assert_ok(
             await _native(
                 db_session,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "put_batch_result_part",
                 lease_scope
                 | {
@@ -1084,7 +1088,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     ready = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "seal_batch_result",
             lease_scope | {"ordinal": 1, "stage": "prepared"},
         )
@@ -1094,7 +1098,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "lock_batch_result_write",
             lease_scope
             | {
@@ -1149,7 +1153,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
             await insert_predictions(wrong_first=True)
             await _native(
                 db_session,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "finish_batch_result_write",
                 lease_scope
                 | {
@@ -1174,7 +1178,6 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         == 1
     )
 
-
     writer = PredictionService(db_session)
     for body_bytes, metadata in zip(prepared_bodies, raw_meta, strict=True):
         body = json.loads(body_bytes)
@@ -1189,7 +1192,9 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
             token_meta=body["token_meta"],
             batch_result_identity=BatchResultPredictionIdentity(
                 uuid.UUID(metadata["prediction_id"]),
-                datetime.fromisoformat(metadata["prediction_created_at"].replace("Z", "+00:00")),
+                datetime.fromisoformat(
+                    metadata["prediction_created_at"].replace("Z", "+00:00")
+                ),
             ),
         )
         await writer._persist_prediction_result(request, task, request.result)
@@ -1197,13 +1202,18 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     with pytest.raises(DBAPIError) as rejected_metadata:
         async with db_session.begin_nested():
             await db_session.execute(
-                text("UPDATE public.prediction_metas SET extra = extra - 'inference_runtime' "
-                     "WHERE prediction_id = :prediction_id"),
+                text(
+                    "UPDATE public.prediction_metas SET extra = extra - 'inference_runtime' "
+                    "WHERE prediction_id = :prediction_id"
+                ),
                 {"prediction_id": uuid.UUID(raw_meta[0]["prediction_id"])},
             )
             await _native(
-                db_session, "aap_labeling_v1", "finish_batch_result_write",
-                lease_scope | {
+                db_session,
+                "yoao_labeling_v1",
+                "finish_batch_result_write",
+                lease_scope
+                | {
                     "ordinal": 1,
                     "result_id": begun["result"]["result_id"],
                     "prepared_digest": prepared_digest,
@@ -1214,7 +1224,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     applied = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "finish_batch_result_write",
             lease_scope
             | {
@@ -1230,7 +1240,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     replay = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "finish_batch_result_write",
             lease_scope
             | {
@@ -1246,7 +1256,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     proof = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "batch_result_commit_proof",
             {"result_id": begun["result"]["result_id"]},
         )
@@ -1256,7 +1266,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
         receipt_reply = _assert_ok(
             await _native(
                 db_session,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "read_batch_result",
                 base_scope
                 | {
@@ -1276,7 +1286,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     finished = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "finish_batch_result_execution",
             lease_scope
             | {
@@ -1317,7 +1327,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     history = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "read_batch_result_execution",
             base_scope | {"after_ordinal": 0, "limit": 100},
         )
@@ -1327,7 +1337,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     reference = _assert_ok(
         await _native(
             db_session,
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             "batch_result_execution_referenced",
             base_scope,
         )
@@ -1341,7 +1351,7 @@ async def test_final_writer_proves_multi_result_prediction_rows_and_receipts(
     retained_receipt = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "read_batch_result",
             base_scope
             | {

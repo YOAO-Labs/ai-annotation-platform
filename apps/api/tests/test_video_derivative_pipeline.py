@@ -146,7 +146,6 @@ async def test_unsettled_claim_is_not_retried(monkeypatch):
     assert claim.await_count == 1
 
 
-
 async def test_newer_metadata_attempt_prevents_old_publication(world, db_session):
     old, _ = await core.prepare(db_session, world.item.id, world.authority, "metadata")
     token = await objects.claim(db_session, old)
@@ -373,7 +372,9 @@ async def real_video(test_engine, tmp_path, monkeypatch):
 async def test_real_active_output_claim_survives_expiry(real_video, monkeypatch):
     context = real_video
     async with context.factory() as db:
-        output, _ = await core.prepare(db, context.item_id, context.authority, "metadata")
+        output, _ = await core.prepare(
+            db, context.item_id, context.authority, "metadata"
+        )
         identifier = output.id
         await db.commit()
 
@@ -470,7 +471,7 @@ async def test_real_registered_original_native_generation_and_complete_readback(
             native = (
                 await db.execute(
                     text(
-                        "SELECT path,state,device,inode FROM aap_assets_v1.media_native_stages "
+                        "SELECT path,state,device,inode FROM yoao_assets_v1.media_native_stages "
                         "WHERE output_kind='video_output' AND output_id=:id"
                     ),
                     {"id": output.id},

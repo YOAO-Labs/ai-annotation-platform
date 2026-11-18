@@ -238,7 +238,7 @@ async def test_combined_selector_uses_statement_start_snapshot(
 
     def gate(_connection, _cursor, statement, parameters, _context, _many):
         if "read_scale_seed_annotator" in statement:
-            assert "aap_workspace_v1.project_member_facts" in statement
+            assert "yoao_workspace_v1.project_member_facts" in statement
             statement = (
                 f"WITH aap_seed_gate AS MATERIALIZED (SELECT pg_catalog.pg_advisory_lock({key})) "
                 + statement

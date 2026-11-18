@@ -284,7 +284,7 @@ async def test_explicit_owner_restore_preserves_nested_proof_for_run_and_tombsto
             original["endpoint_url"], "training-restored"
         ),
     }
-    await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await db.execute(update(Run).where(Run.id == row.id).values(storage_ref=mapped))
     await db.execute(
         update(Deletion)
@@ -305,7 +305,7 @@ async def test_explicit_owner_restore_preserves_nested_proof_for_run_and_tombsto
             await db.execute(
                 update(Run).where(Run.id == row.id).values(storage_ref=changed)
             )
-    await db.execute(text("SET LOCAL aap.restore_training_storage='off'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='off'"))
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with db.begin_nested():
             await db.execute(
@@ -342,7 +342,7 @@ async def test_runtime_role_cannot_forge_owner_restore_marker(owned_db):
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with db.begin_nested():
             await db.execute(text(f"SET LOCAL ROLE {quoted}"))
-            await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+            await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
             await db.execute(
                 update(Run).where(Run.id == identifier).values(storage_ref=changed)
             )

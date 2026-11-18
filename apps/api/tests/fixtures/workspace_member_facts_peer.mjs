@@ -18,14 +18,14 @@ try {
     code: "42501",
   });
   await assert.rejects(
-    client.query("UPDATE aap_workspace_v1.project_member_facts SET role='viewer' WHERE false"),
+    client.query("UPDATE yoao_workspace_v1.project_member_facts SET role='viewer' WHERE false"),
     { code: "42501" },
   );
   await client.query("BEGIN READ ONLY");
   const tx = "SELECT pg_backend_pid() AS pid,txid_current()::text AS xid";
   const before = (await client.query(tx)).rows[0];
   const result = await client.query(
-    "SELECT id,project_id,user_id,role,assigned_by,assigned_at,version,updated_at,weekly_target FROM aap_workspace_v1.project_member_facts WHERE id=$1::uuid",
+    "SELECT id,project_id,user_id,role,assigned_by,assigned_at,version,updated_at,weekly_target FROM yoao_workspace_v1.project_member_facts WHERE id=$1::uuid",
     [input.membership_id],
   );
   assert.equal(result.rows.length, 1);

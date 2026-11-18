@@ -65,7 +65,7 @@ pytestmark = [
 
 ROOT = Path(__file__).resolve().parents[3]
 _VERSIONS = Path(__file__).resolve().parents[1] / "alembic/versions"
-_WRITER_ROLE = "labeling_video_writer_client"
+_WRITER_ROLE = "yoao_labeling_video_writer_client"
 _WRITER_FUNCTIONS = {("video_writer_step", "text, text")}
 
 
@@ -109,11 +109,11 @@ def _grant_variables(database: str) -> dict[str, str]:
         "audit_owner": "audit_code",
         "settings_owner": "settings_code",
         "notifications_owner": "notifications_code",
-        "workflow_role": "append_client",
-        "asset_cleanup_role": "asset_cleanup_client",
-        "mask_gc_role": "labeling_mask_gc_client",
-        "inference_registry_ingress_role": "inference_registry_ingress_client",
-        "inference_routing_role": "inference_routing_client",
+        "workflow_role": "yoao_append_client",
+        "asset_cleanup_role": "yoao_asset_cleanup_client",
+        "mask_gc_role": "yoao_labeling_mask_gc_client",
+        "inference_registry_ingress_role": "yoao_inference_registry_ingress_client",
+        "inference_routing_role": "yoao_inference_routing_client",
     }
 
 
@@ -296,7 +296,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "SELECT run_id::text,plan_digest,"
                         "plan_document::text AS plan_document,"
                         "writer_terminal,writer_terminal_outcome,execution_retired "
-                        "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                        "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -312,7 +312,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "pg_catalog.encode(public.digest(lease_token_hash,'sha256'),"
                         "'hex') AS lease_token_fingerprint,"
                         "lease_expires_at,state,realm,route_request_id::text "
-                        "FROM aap_jobs_v1.video_executions WHERE job_id=:job"
+                        "FROM yoao_jobs_v1.video_executions WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -326,7 +326,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                     text(
                         "SELECT window_ordinal,checkpoint_id,manifest_digest,"
                         "manifest::text AS manifest "
-                        "FROM aap_jobs_v1.video_execution_windows "
+                        "FROM yoao_jobs_v1.video_execution_windows "
                         "WHERE job_id=:job ORDER BY window_ordinal"
                     ),
                     {"job": job_id},
@@ -340,7 +340,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                 await connection.execute(
                     text(
                         "SELECT window_ordinal,part_index,part_digest,part_bytes "
-                        "FROM aap_jobs_v1.video_execution_window_parts "
+                        "FROM yoao_jobs_v1.video_execution_window_parts "
                         "WHERE job_id=:job ORDER BY window_ordinal,part_index"
                     ),
                     {"job": job_id},
@@ -356,7 +356,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "SELECT generation,window_ordinal,window_digest,mode,state,"
                         "capture_id::text,seed_input_digest,predecessor_checkpoint_digest,"
                         "raw_response_digest "
-                        "FROM aap_jobs_v1.video_execution_window_attempts "
+                        "FROM yoao_jobs_v1.video_execution_window_attempts "
                         "WHERE job_id=:job ORDER BY generation,window_ordinal"
                     ),
                     {"job": job_id},
@@ -371,7 +371,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                     text(
                         "SELECT capture_id::text,generation,window_ordinal,manifest_digest,"
                         "manifest::text AS manifest,state "
-                        "FROM aap_jobs_v1.video_execution_captures "
+                        "FROM yoao_jobs_v1.video_execution_captures "
                         "WHERE job_id=:job ORDER BY window_ordinal"
                     ),
                     {"job": job_id},
@@ -386,8 +386,8 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                     text(
                         "SELECT capture.capture_id::text,part.part_index,part.part_digest,"
                         "part.part_bytes "
-                        "FROM aap_jobs_v1.video_execution_capture_parts AS part "
-                        "JOIN aap_jobs_v1.video_execution_captures AS capture "
+                        "FROM yoao_jobs_v1.video_execution_capture_parts AS part "
+                        "JOIN yoao_jobs_v1.video_execution_captures AS capture "
                         "ON capture.capture_id=part.capture_id WHERE capture.job_id=:job "
                         "ORDER BY capture.window_ordinal,part.part_index"
                     ),
@@ -403,7 +403,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                     text(
                         "SELECT plan_digest,context_span_digest,"
                         "closed_generation,closed_at "
-                        "FROM aap_jobs_v1.video_execution_span_closures WHERE job_id=:job "
+                        "FROM yoao_jobs_v1.video_execution_span_closures WHERE job_id=:job "
                         "ORDER BY context_span_digest"
                     ),
                     {"job": job_id},
@@ -489,7 +489,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                 await connection.execute(
                     text(
                         "SELECT to_jsonb(receipt)::text FROM "
-                        "aap_labeling_v1.video_writer_receipts AS receipt "
+                        "yoao_labeling_v1.video_writer_receipts AS receipt "
                         "WHERE receipt.job_id=:job"
                     ),
                     {"job": job_id},
@@ -525,10 +525,10 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "FROM pg_catalog.pg_proc AS proc "
                         "JOIN pg_catalog.pg_namespace AS namespace "
                         "ON namespace.oid=proc.pronamespace "
-                        "WHERE (namespace.nspname='aap_labeling_v1' AND "
+                        "WHERE (namespace.nspname='yoao_labeling_v1' AND "
                         "(proc.proname='video_writer_step' OR "
                         "pg_catalog.left(proc.proname,14)='_video_writer_')) "
-                        "OR (namespace.nspname='aap_jobs_v1' AND "
+                        "OR (namespace.nspname='yoao_jobs_v1' AND "
                         "proc.proname='video_writer_authority') "
                         "ORDER BY namespace.nspname,proc.proname,"
                         "pg_catalog.pg_get_function_identity_arguments(proc.oid)"
@@ -547,9 +547,9 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "relation.relacl::text AS acl FROM pg_catalog.pg_class AS relation "
                         "JOIN pg_catalog.pg_namespace AS namespace "
                         "ON namespace.oid=relation.relnamespace WHERE "
-                        "(namespace.nspname='aap_labeling_v1' AND "
+                        "(namespace.nspname='yoao_labeling_v1' AND "
                         "relation.relname='video_writer_receipts') OR "
-                        "(namespace.nspname='aap_jobs_v1' AND relation.relname IN ("
+                        "(namespace.nspname='yoao_jobs_v1' AND relation.relname IN ("
                         "'video_executions','video_execution_journals',"
                         "'video_execution_windows','video_execution_window_parts',"
                         "'video_execution_window_attempts','video_execution_captures',"
@@ -576,7 +576,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "pg_catalog.pg_get_userbyid(namespace.nspowner) AS owner,"
                         "namespace.nspacl::text AS acl "
                         "FROM pg_catalog.pg_namespace AS namespace "
-                        "WHERE namespace.nspname IN ('aap_labeling_v1','aap_jobs_v1') "
+                        "WHERE namespace.nspname IN ('yoao_labeling_v1','yoao_jobs_v1') "
                         "ORDER BY namespace.nspname"
                     )
                 )
@@ -592,7 +592,7 @@ async def _snapshot(engine, job_id: uuid.UUID) -> dict:
                         "authority.cluster_identifier::text,"
                         "database.oid::text AS local_oid,"
                         "database.datname AS local_name "
-                        "FROM aap_jobs_v1.video_execution_authority AS authority "
+                        "FROM yoao_jobs_v1.video_execution_authority AS authority "
                         "CROSS JOIN pg_catalog.pg_database AS database "
                         "WHERE authority.singleton AND database.datname=current_database()"
                     )
@@ -705,7 +705,7 @@ async def _assert_writer_role_profile(dsn: str) -> None:
         assert database == make_url(dsn).database
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions=_WRITER_FUNCTIONS,
             role=_WRITER_ROLE,
         )
@@ -834,7 +834,7 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
             _role_dsn(restored_database)
         ).policy()
         assert restored_policy.functions == (
-            "aap_labeling_v1.video_writer_step(text,text)",
+            "yoao_labeling_v1.video_writer_step(text,text)",
         )
         with pytest.raises(VideoWriterFailure) as status_error:
             await restored_manager.status(

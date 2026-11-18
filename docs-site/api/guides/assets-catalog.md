@@ -51,7 +51,7 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 ## 数据与凭据
 
-原生入口位于 `aap_assets_v1`：`list_catalog_datasets`、`get_catalog_dataset`、`list_catalog_items`、`create_catalog_dataset`、`update_catalog_dataset`。冻结 SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0211_dataset_catalog.*`。写入和 `dataset_catalog_operations` 回执共用一项调用方事务；函数不自行提交，不执行 S3 或 broker 操作。
+原生入口位于 `yoao_assets_v1`：`list_catalog_datasets`、`get_catalog_dataset`、`list_catalog_items`、`create_catalog_dataset`、`update_catalog_dataset`。冻结 SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0211_dataset_catalog.*`。写入和 `dataset_catalog_operations` 回执共用一项调用方事务；函数不自行提交，不执行 S3 或 broker 操作。
 
 先完成常规模块 owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。目录 LOGIN 只能执行目录、关联与空间素材的 29 项公开能力；不能读取业务表、视图、序列或 Identity/Workspace/Labeling schema。Assets 函数 owner 通过 Identity 当前账号合同检查权限，并通过 Workspace/Labeling 的版本化只读投影组合关联结果。当前主 API 仍使用迁移期宽权限角色。
 
@@ -80,7 +80,7 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 项目关联的数据集每行仅含 `id,display_id,name,data_type,linked_at,items_count,tasks_in_project`。条目计数包含全部素材；任务计数只包括路径项目下通过 `Task.dataset_item_id` 直接引用素材的 Task，不按状态过滤，不回退 secondary 或旧 `primary_lidar` 链接。时间使用 UTC ISO 字符串和 `+00:00`，结果按关联时间倒序并以关联 UUID 消除同时间歧义。
 
-原生入口为 `aap_assets_v1.list_dataset_projects(uuid,uuid)` 与 `list_project_datasets(uuid,uuid)`；SQL 和冻结 schema 位于 `0212_asset_association_reads.*`。Identity 提供最小账号事实，Workspace 提供配置/当前可见性，Labeling 通过 Assets 的来源投影做整组计数；消费者不读取其他 owner 的私有表，也不传输大批素材 UUID。一次顶层 SQL 语句的快照同时决定权限、关联、配置和计数；正在执行的读取按该快照完成，后续请求看到已提交的撤权或关联代次变化。
+原生入口为 `yoao_assets_v1.list_dataset_projects(uuid,uuid)` 与 `list_project_datasets(uuid,uuid)`；SQL 和冻结 schema 位于 `0212_asset_association_reads.*`。Identity 提供最小账号事实，Workspace 提供配置/当前可见性，Labeling 通过 Assets 的来源投影做整组计数；消费者不读取其他 owner 的私有表，也不传输大批素材 UUID。一次顶层 SQL 语句的快照同时决定权限、关联、配置和计数；正在执行的读取按该快照完成，后续请求看到已提交的撤权或关联代次变化。
 
 新业务错误码为 `invalid_request,account_not_active,invalid_account_role,project_missing,invalid_project_role,incompatible_project_role`。错误 schema、错父级或重复 UUID 会明确失败，不返回部分列表。两个读取沿用同一传输预算、服务停服失败和本地/远程选择规则。
 

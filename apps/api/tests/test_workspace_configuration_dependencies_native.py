@@ -50,7 +50,7 @@ async def test_backend_enablement_respects_caller_rollback(test_engine):
         project_id, pool_id = project.id, pool.id
         native = await _call(
             session,
-            "SELECT aap_inference_v1.enable_workspace_project_backend"
+            "SELECT yoao_inference_v1.enable_workspace_project_backend"
             "(CAST(:project AS uuid), CAST(:registry AS uuid))",
             {"project": project_id, "registry": registry.id},
         )
@@ -133,7 +133,7 @@ async def test_identity_org_scope_ignores_role_and_excludes_soft_deleted_members
             visible = await _call(
                 session,
                 """
-                SELECT aap_identity_v1.workspace_configuration_org_scope(
+                SELECT yoao_identity_v1.workspace_configuration_org_scope(
                     CAST(:actor AS uuid), CAST(:organization AS uuid)
                 )
                 """,
@@ -142,7 +142,7 @@ async def test_identity_org_scope_ignores_role_and_excludes_soft_deleted_members
             hidden = await _call(
                 session,
                 """
-                SELECT aap_identity_v1.workspace_configuration_org_scope(
+                SELECT yoao_identity_v1.workspace_configuration_org_scope(
                     CAST(:actor AS uuid), CAST(:organization AS uuid)
                 )
                 """,
@@ -253,7 +253,7 @@ async def test_assets_dataset_facts_return_only_linked_datasets_and_scene_presen
             facts = await _call(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_configuration_datasets(
+                SELECT yoao_assets_v1.workspace_configuration_datasets(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -419,7 +419,7 @@ async def test_labeling_video_facts_count_active_blockers_and_distinct_items(
             facts = await _call(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_configuration_video_facts(
+                SELECT yoao_labeling_v1.workspace_configuration_video_facts(
                     CAST(:project AS uuid)
                 )
                 """,
@@ -524,7 +524,7 @@ async def test_inference_backend_enablement_matches_legacy_noop_and_missing_pool
             first = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.enable_workspace_project_backend(
+                SELECT yoao_inference_v1.enable_workspace_project_backend(
                     CAST(:project AS uuid), CAST(:registry AS uuid)
                 )
                 """,
@@ -568,7 +568,7 @@ async def test_inference_backend_enablement_matches_legacy_noop_and_missing_pool
             second = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.enable_workspace_project_backend(
+                SELECT yoao_inference_v1.enable_workspace_project_backend(
                     CAST(:project AS uuid), CAST(:registry AS uuid)
                 )
                 """,
@@ -577,7 +577,7 @@ async def test_inference_backend_enablement_matches_legacy_noop_and_missing_pool
             missing_pool = await _call(
                 session,
                 """
-                SELECT aap_inference_v1.enable_workspace_project_backend(
+                SELECT yoao_inference_v1.enable_workspace_project_backend(
                     CAST(:project AS uuid), CAST(:registry AS uuid)
                 )
                 """,

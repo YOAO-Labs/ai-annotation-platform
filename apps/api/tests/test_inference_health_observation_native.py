@@ -19,18 +19,18 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_health_observation_v1"
+_SCHEMA = "yoao_inference_health_observation_v1"
 _POLICY = f"{_SCHEMA}.health_observation_policy()"
 _CAPTURE = f"{_SCHEMA}.capture_health_observation_subject"
 _OPEN = f"{_SCHEMA}.open_health_observation_subject"
 _SEAL = f"{_SCHEMA}.seal_health_observation"
 _VERIFY = f"{_SCHEMA}.verify_health_observation"
 _KEY_TABLE = f"{_SCHEMA}.observation_secret"
-_ENDPOINT_SCHEMA = "aap_inference_backend_endpoint_v1"
+_ENDPOINT_SCHEMA = "yoao_inference_backend_endpoint_v1"
 _ENDPOINT_CAPTURE = f"{_ENDPOINT_SCHEMA}.capture_backend_endpoint_subject"
 _ENDPOINT_PROTOCOL = "aap-inference-backend-endpoint/v1"
-_ORIGIN_ROLE = "inference_health_origin_client"
-_PROVIDER_ROLE = "inference_health_observation_client"
+_ORIGIN_ROLE = "yoao_inference_health_origin_client"
+_PROVIDER_ROLE = "yoao_inference_health_observation_client"
 _API_ROLE = "legacy_runtime"
 _FUNCTIONS = (
     f"{_SCHEMA}.health_observation_policy()",

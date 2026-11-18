@@ -218,7 +218,7 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     assert "DELETE FROM" not in support + artifact
     assert "audit_logs" not in support + artifact
     assert (
-        "aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])"
+        "yoao_workspace_v1.identity_brief_project_roles(uuid,uuid[])"
         in compact_module_grants
     )
     assert "GRANTSELECT(id,project_id,user_id,role)" in compact_module_grants

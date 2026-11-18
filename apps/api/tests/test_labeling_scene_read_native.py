@@ -32,7 +32,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_scene_read_client"
+_ROLE = "yoao_labeling_scene_read_client"
 
 
 async def test_scene_reads_use_the_single_function_only_owner_capability(test_engine):
@@ -85,7 +85,7 @@ async def test_scene_reads_use_the_single_function_only_owner_capability(test_en
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("scene_read_query", "jsonb")},
             role=_ROLE,
         )
@@ -100,7 +100,7 @@ async def test_scene_reads_use_the_single_function_only_owner_capability(test_en
         ):
             with pytest.raises(asyncpg.PostgresError) as invalid_request:
                 await connection.fetchval(
-                    "SELECT aap_labeling_v1.scene_read_query($1::jsonb)",
+                    "SELECT yoao_labeling_v1.scene_read_query($1::jsonb)",
                     json.dumps(malformed),
                 )
             assert invalid_request.value.sqlstate == "22023"
@@ -109,7 +109,7 @@ async def test_scene_reads_use_the_single_function_only_owner_capability(test_en
 
         async def execute(request_json: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.scene_read_query($1::jsonb)",
+                "SELECT yoao_labeling_v1.scene_read_query($1::jsonb)",
                 request_json,
             )
 

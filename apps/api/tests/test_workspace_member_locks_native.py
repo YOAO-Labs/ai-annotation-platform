@@ -124,7 +124,7 @@ async def test_assignment_member_cache_matches_legacy(test_engine, cache, autofl
                     owner_steps.append(
                         "locked_members" if _parameters[-1] else "primer"
                     )
-                elif "aap_identity_v1.lock_accounts_share" in lowered:
+                elif "yoao_identity_v1.lock_accounts_share" in lowered:
                     owner_steps.append("accounts")
                 if "project_member_rows(" in lowered or (
                     "select " in lowered and "from project_members" in lowered
@@ -337,7 +337,7 @@ async def test_bad_scalar_reply_rolls_back_prior_caller_write(
 
                 async def corrupt(statement, *args, **kwargs):
                     result = await scalar(statement, *args, **kwargs)
-                    if "aap_workspace_v1.lock_project_member_reference" in str(
+                    if "yoao_workspace_v1.lock_project_member_reference" in str(
                         statement
                     ):
                         return str(result) if wrong_type else uuid.uuid4()
@@ -435,7 +435,7 @@ async def test_bad_bulk_scope_rolls_back_prior_caller_write(
 
                 async def corrupt(statement, *args, **kwargs):
                     value = await scalar(statement, *args, **kwargs)
-                    if "aap_workspace_v1.project_member_rows" in str(statement):
+                    if "yoao_workspace_v1.project_member_rows" in str(statement):
                         rows = json.loads(value)
                         if corruption == "duplicate":
                             rows.append(rows[0])
@@ -496,10 +496,10 @@ async def test_member_native_functions_have_exact_owner_and_grants(test_engine):
                 for role, expected in (
                     ("identity_api_consumer", True),
                     ("legacy_runtime", True),
-                    ("append_client", False),
+                    ("yoao_append_client", False),
                     ("assets_code", False),
                     ("inference_code", False),
-                    ("workspace_project_deletion_client", False),
+                    ("yoao_workspace_project_deletion_client", False),
                 ):
                     assert (
                         await db.scalar(

@@ -19,7 +19,7 @@ try {
   }
   await client.query("BEGIN");
   const account = (
-    await client.query("SELECT aap_identity_v1.create_seed_persona_account($1::jsonb) AS reply", [
+    await client.query("SELECT yoao_identity_v1.create_seed_persona_account($1::jsonb) AS reply", [
       {
         schema: "aap-identity-seed-persona/v1",
         account_id: accountId,
@@ -37,7 +37,7 @@ try {
     email,
   });
   const result = (
-    await client.query("SELECT aap_workspace_v1.write_seed_members($1::jsonb) AS reply", [
+    await client.query("SELECT yoao_workspace_v1.write_seed_members($1::jsonb) AS reply", [
       {
         schema: "aap-workspace-seed-members/v1",
         operations: [
@@ -73,7 +73,7 @@ try {
   assert.ok(result.results.every((reply) => Number.isFinite(Date.parse(reply.updated_at))));
   const fact = (
     await client.query(
-      "SELECT role,version,weekly_target FROM aap_workspace_v1.project_member_facts WHERE id=$1",
+      "SELECT role,version,weekly_target FROM yoao_workspace_v1.project_member_facts WHERE id=$1",
       [memberId],
     )
   ).rows[0];
@@ -82,7 +82,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT count(*)::int AS count FROM aap_identity_v1.account_profiles WHERE id=$1",
+        "SELECT count(*)::int AS count FROM yoao_identity_v1.account_profiles WHERE id=$1",
         [accountId],
       )
     ).rows[0].count,
@@ -91,7 +91,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT count(*)::int AS count FROM aap_workspace_v1.project_member_facts WHERE id=$1",
+        "SELECT count(*)::int AS count FROM yoao_workspace_v1.project_member_facts WHERE id=$1",
         [memberId],
       )
     ).rows[0].count,

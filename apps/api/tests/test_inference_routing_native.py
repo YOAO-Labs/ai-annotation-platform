@@ -20,8 +20,8 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_routing_v1"
-_ROLE = "inference_routing_client"
+_SCHEMA = "yoao_inference_routing_v1"
+_ROLE = "yoao_inference_routing_client"
 _POLICY = f"{_SCHEMA}.routing_policy()"
 _STEP = f"{_SCHEMA}.routing_step"
 _REGISTRY_FIELDS = {
@@ -158,27 +158,28 @@ async def _seed(owner):
 async def _cleanup(owner, world) -> None:
     registry_id = world["registry_id"]
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.control_attempts WHERE control_id IN "
-        "(SELECT id FROM aap_inference_routing_v1.controls WHERE registry_id=$1)",
+        "DELETE FROM yoao_inference_routing_v1.control_attempts WHERE control_id IN "
+        "(SELECT id FROM yoao_inference_routing_v1.controls WHERE registry_id=$1)",
         registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.attempts WHERE scope_id IN "
-        "(SELECT id FROM aap_inference_routing_v1.scopes WHERE registry_id=$1)",
+        "DELETE FROM yoao_inference_routing_v1.attempts WHERE scope_id IN "
+        "(SELECT id FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1)",
         registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.scopes WHERE registry_id=$1", registry_id
+        "DELETE FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1", registry_id
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+        "DELETE FROM yoao_inference_routing_v1.controls WHERE registry_id=$1",
         registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.weights WHERE registry_id=$1", registry_id
+        "DELETE FROM yoao_inference_routing_v1.weights WHERE registry_id=$1",
+        registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+        "DELETE FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
         registry_id,
     )
     await owner.execute(
@@ -276,7 +277,7 @@ async def test_epoch_without_control_auth_does_not_leave_an_unrecoverable_hold(
         }
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.controls WHERE registry_id=$1",
                 world["registry_id"],
             )
             == 0
@@ -312,7 +313,7 @@ async def test_terminal_drain_uses_scoped_native_unload_control(test_engine):
     try:
         registry_id = world["registry_id"]
         await owner.execute(
-            "UPDATE aap_inference_routing_v1.registry_state "
+            "UPDATE yoao_inference_routing_v1.registry_state "
             "SET continuity='ready', backend_incarnation=$2 WHERE registry_id=$1",
             registry_id,
             uuid.uuid4(),
@@ -389,7 +390,7 @@ async def test_terminal_drain_uses_scoped_native_unload_control(test_engine):
         try:
             if request_ids:
                 await owner.execute(
-                    "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                    "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
                     request_ids,
                 )
             await _cleanup(owner, world)
@@ -434,7 +435,7 @@ async def test_scope_cannot_issue_a_management_operation_token(test_engine):
             assert reply["reason"] == "invalid_command"
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
                 world["registry_id"],
             )
             == 0
@@ -588,14 +589,14 @@ async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scope
     try:
         state = await owner.fetchrow(
             """SELECT config_revision, eligibility_revision, authority_epoch, realm
-               FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1""",
+               FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1""",
             registry_id,
         )
         assert state is not None
 
         async def add_scope(scope_id, state_name, *, closed, seconds):
             await owner.execute(
-                """INSERT INTO aap_inference_routing_v1.scopes (
+                """INSERT INTO yoao_inference_routing_v1.scopes (
                        id, command_sha256, registry_id, pool_id, project_id, mode,
                        owner, operation, generation, config_revision, eligibility_revision,
                        authority_epoch, realm, state, closed, heartbeat_deadline
@@ -634,7 +635,7 @@ async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scope
             (active_attempt_id, active_attempt_scope_id, "active", None),
         ):
             await owner.execute(
-                """INSERT INTO aap_inference_routing_v1.attempts (
+                """INSERT INTO yoao_inference_routing_v1.attempts (
                        id, scope_id, method, path, transport_identity_sha256,
                        state, status_code, reason
                    ) VALUES ($1, $2, 'POST', '/predict', repeat('b', 64), $3, NULL, $4)""",
@@ -646,7 +647,7 @@ async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scope
 
         control_id = uuid.uuid4()
         await owner.execute(
-            """INSERT INTO aap_inference_routing_v1.controls (
+            """INSERT INTO yoao_inference_routing_v1.controls (
                    id, registry_id, kind, phase, new_epoch, retired_epoch, challenge,
                    backend_incarnation, config_revision, realm, expected_topology
                ) VALUES ($1, $2, 'unload', 'prepared', NULL, NULL, repeat('c', 64),
@@ -657,7 +658,7 @@ async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scope
             state["realm"],
         )
         expired_before = await owner.fetchrow(
-            "SELECT state, updated_at FROM aap_inference_routing_v1.scopes WHERE id=$1",
+            "SELECT state, updated_at FROM yoao_inference_routing_v1.scopes WHERE id=$1",
             expired_reserved_id,
         )
 
@@ -686,7 +687,7 @@ async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scope
             }
         ]
         expired_after = await owner.fetchrow(
-            "SELECT state, updated_at FROM aap_inference_routing_v1.scopes WHERE id=$1",
+            "SELECT state, updated_at FROM yoao_inference_routing_v1.scopes WHERE id=$1",
             expired_reserved_id,
         )
         assert expired_after == expired_before
@@ -757,7 +758,7 @@ async def test_stateful_endpoint_capture_keeps_routing_shape_and_auth_revision(
         async with caller.transaction():
             captured = json.loads(
                 await caller.fetchval(
-                    "SELECT aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
+                    "SELECT yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
                     "$1::uuid,$2::uuid,'execution',$3::text)",
                     registry_id,
                     request_id,
@@ -769,7 +770,7 @@ async def test_stateful_endpoint_capture_keeps_routing_shape_and_auth_revision(
             {key: value for key, value in binding.items() if key != "capability"}
         )
         open_sql = (
-            "SELECT aap_inference_backend_endpoint_v1.open_execution_endpoint("
+            "SELECT yoao_inference_backend_endpoint_v1.open_execution_endpoint("
             "$1::text,$2::uuid,$3::uuid,$4::text)"
         )
         opened = json.loads(

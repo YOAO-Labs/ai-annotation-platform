@@ -166,7 +166,7 @@ def _scope_for(plan) -> dict:
 async def _native_valid(db, *, plan: dict, facts: VideoExecutionInputFacts, scope):
     result = await db.scalar(
         text(
-            "SELECT aap_jobs_v1._video_checkpoint_plan_valid("
+            "SELECT yoao_jobs_v1._video_checkpoint_plan_valid("
             "CAST(:plan AS jsonb),CAST(:facts AS jsonb),:job_id,CAST(:scope AS jsonb))"
         ),
         {

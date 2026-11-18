@@ -27,7 +27,7 @@ from tests.test_video_deletion_retirement_native import _seed_unretired
 
 ROOT = Path(__file__).resolve().parents[3]
 _ROLE = "identity_api_consumer"
-_CALL = "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+_CALL = "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
 _NODE = ROOT / "apps/jobs/conformance/node/fixture_cleanup_acceptance.mjs"
 
 pytestmark = [
@@ -204,7 +204,7 @@ async def _workspace_guard_definition(engine):
         return await connection.scalar(
             text(
                 "SELECT pg_catalog.pg_get_functiondef("
-                "'aap_workspace_fixture_v1.guard_project_cleanup(uuid[])'::regprocedure)"
+                "'yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])'::regprocedure)"
             )
         )
 
@@ -246,7 +246,7 @@ async def _assert_contract(test_engine, owner_role):
                     "pg_catalog.acldefault('f',p.proowner))) acl "
                     "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') "
                     "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n "
-                    "ON n.oid=p.pronamespace WHERE n.nspname='aap_jobs_v1' "
+                    "ON n.oid=p.pronamespace WHERE n.nspname='yoao_jobs_v1' "
                     "AND p.proname='delete_fixture_project_jobs'"
                 ),
                 {"owner_role": owner_role},
@@ -446,7 +446,7 @@ async def test_fixture_cleanup_rejects_malformed_workspace_guard_replies_rollbac
                 await owner.execute(
                     text(
                         "CREATE OR REPLACE FUNCTION "
-                        "aap_workspace_fixture_v1.guard_project_cleanup(p_project_ids uuid[]) "
+                        "yoao_workspace_fixture_v1.guard_project_cleanup(p_project_ids uuid[]) "
                         "RETURNS jsonb LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER "
                         "SET search_path = pg_catalog, pg_temp SET TimeZone TO 'UTC' "
                         "SET DateStyle TO 'ISO, YMD' "
@@ -488,7 +488,7 @@ async def _video_fixture_snapshot(connection, fixture):
             {"id": fixture["job_id"]},
         ),
         "journal": (
-            "SELECT pg_catalog.to_jsonb(item) FROM aap_jobs_v1.video_execution_journals item WHERE item.job_id=:id",
+            "SELECT pg_catalog.to_jsonb(item) FROM yoao_jobs_v1.video_execution_journals item WHERE item.job_id=:id",
             {"id": fixture["job_id"]},
         ),
         "input_scope": (
@@ -569,7 +569,7 @@ async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
         ),
         pytest.param(
             "0331_jobs_filter_fixtures.sql",
-            "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes(CAST(:complete AS uuid),CAST(:failed AS uuid))",
+            "SELECT yoao_jobs_v1.set_filter_fixture_job_outcomes(CAST(:complete AS uuid),CAST(:failed AS uuid))",
             {"complete": uuid.uuid4(), "failed": uuid.uuid4()},
             "Jobs fixture initialization requires a test database",
             id="filter-outcomes",
@@ -608,9 +608,10 @@ async def test_fixture_cleanup_frozen_function_rejects_actual_non_test_database(
             for statement in sql.split("-- aap-statement-break"):
                 if statement.strip():
                     await db.exec_driver_sql(statement.strip())
+        historical_call = call.replace("yoao_jobs_v1.", "aap_jobs_v1.")
         async with probe.begin() as db:
             with pytest.raises(DBAPIError) as rejected:
-                await db.scalar(text(call), parameters)
+                await db.scalar(text(historical_call), parameters)
             assert _sqlstate(rejected.value) == "42501"
             assert message in str(rejected.value.orig)
         record_property(

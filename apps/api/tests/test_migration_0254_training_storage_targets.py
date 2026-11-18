@@ -74,7 +74,7 @@ async def test_schema_two_retains_responsibility_and_blocks_restore_and_downgrad
         with pytest.raises(RuntimeError, match="prevent destructive"):
             await connection.run_sync(lambda sync: migration(sync).downgrade())
         await nested.rollback()
-    await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     with pytest.raises(IntegrityError, match="immutable"):
         async with db.begin_nested():
             await db.execute(

@@ -40,7 +40,7 @@ class IdentityRecoveryCommandData:
                 await self.db.flush()
             raw = await self.db.scalar(
                 text(
-                    "SELECT aap_identity_recovery_v1.read_registration_status(CAST(:fallbacks AS jsonb))"
+                    "SELECT yoao_identity_recovery_v1.read_registration_status(CAST(:fallbacks AS jsonb))"
                 ),
                 {"fallbacks": validated.model_dump_json()},
             )
@@ -72,7 +72,7 @@ class IdentityRecoveryCommandData:
             return _json_value(
                 await self.db.scalar(
                     text(
-                        f"SELECT aap_identity_recovery_v1.{function}(CAST(:command AS jsonb))"
+                        f"SELECT yoao_identity_recovery_v1.{function}(CAST(:command AS jsonb))"
                     ),
                     {
                         "command": json.dumps(

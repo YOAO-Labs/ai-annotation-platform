@@ -55,7 +55,7 @@ async def test_retained_storage_outbox_keeps_wire_and_resweeps_after_ack(test_en
                     await session.execute(
                         text(
                             "SELECT operation_id, asset_id, bucket, prefix, created_at "
-                            "FROM aap_assets_v1.pending_storage_deletions_v2("
+                            "FROM yoao_assets_v1.pending_storage_deletions_v2("
                             ":bucket, NULL::timestamptz, NULL::uuid, NULL::uuid, 10)"
                         ),
                         {"bucket": "media-cache-test"},
@@ -77,7 +77,7 @@ async def test_retained_storage_outbox_keeps_wire_and_resweeps_after_ack(test_en
 
             acknowledged = await session.scalar(
                 text(
-                    "SELECT aap_assets_v1.complete_storage_deletion("
+                    "SELECT yoao_assets_v1.complete_storage_deletion("
                     ":operation_id, :asset_id)"
                 ),
                 {"operation_id": operation_id, "asset_id": asset_id},
@@ -87,7 +87,7 @@ async def test_retained_storage_outbox_keeps_wire_and_resweeps_after_ack(test_en
                 await session.scalars(
                     text(
                         "SELECT operation_id FROM "
-                        "aap_assets_v1.pending_storage_deletions_v2("
+                        "yoao_assets_v1.pending_storage_deletions_v2("
                         ":bucket, NULL::timestamptz, NULL::uuid, NULL::uuid, 10)"
                     ),
                     {"bucket": "media-cache-test"},
@@ -106,7 +106,7 @@ async def test_retained_storage_outbox_keeps_wire_and_resweeps_after_ack(test_en
             replay = await session.scalars(
                 text(
                     "SELECT operation_id FROM "
-                    "aap_assets_v1.pending_storage_deletions_v2("
+                    "yoao_assets_v1.pending_storage_deletions_v2("
                     ":bucket, NULL::timestamptz, NULL::uuid, NULL::uuid, 10)"
                 ),
                 {"bucket": "media-cache-test"},
@@ -115,7 +115,7 @@ async def test_retained_storage_outbox_keeps_wire_and_resweeps_after_ack(test_en
             assert (
                 await session.scalar(
                     text(
-                        "SELECT aap_assets_v1.complete_storage_deletion("
+                        "SELECT yoao_assets_v1.complete_storage_deletion("
                         ":operation_id, :asset_id)"
                     ),
                     {"operation_id": operation_id, "asset_id": asset_id},
@@ -184,7 +184,7 @@ async def test_whole_pyramid_claim_waits_for_task_thumbnail_and_ack_replays(
             blocked = _reply(
                 await session.scalar(
                     text(
-                        "SELECT aap_assets_v1.claim_image_garbage("
+                        "SELECT yoao_assets_v1.claim_image_garbage("
                         "CAST(:worker_id AS uuid), :lease_seconds, :batch_size)"
                     ),
                     {
@@ -212,7 +212,7 @@ async def test_whole_pyramid_claim_waits_for_task_thumbnail_and_ack_replays(
             claimed = _reply(
                 await session.scalar(
                     text(
-                        "SELECT aap_assets_v1.claim_image_garbage("
+                        "SELECT yoao_assets_v1.claim_image_garbage("
                         "CAST(:worker_id AS uuid), :lease_seconds, :batch_size)"
                     ),
                     {
@@ -228,7 +228,7 @@ async def test_whole_pyramid_claim_waits_for_task_thumbnail_and_ack_replays(
             assert items[0]["prefix"] == prefix
             lease_token = uuid.UUID(items[0]["lease_token"])
             complete_sql = text(
-                "SELECT aap_assets_v1.complete_image_garbage("
+                "SELECT yoao_assets_v1.complete_image_garbage("
                 "CAST(:garbage_id AS uuid), CAST(:lease_token AS uuid))"
             )
             parameters = {"garbage_id": garbage_id, "lease_token": lease_token}
@@ -303,7 +303,9 @@ async def test_project_delete_queues_whole_pyramid_prefix_before_removing_asset(
             await session.flush()
 
             deleted = await session.scalar(
-                text("SELECT aap_assets_v1.delete_project_owned_records (:project_id)"),
+                text(
+                    "SELECT yoao_assets_v1.delete_project_owned_records (:project_id)"
+                ),
                 {"project_id": project_id},
             )
             assert deleted == 1

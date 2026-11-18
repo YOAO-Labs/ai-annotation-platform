@@ -268,7 +268,7 @@ async def test_fixture_auxiliary_retirement_rolls_back_and_reclaims_only_its_run
             with pytest.raises(DBAPIError) as denied:
                 async with session.begin_nested():
                     await session.execute(
-                        text("SET LOCAL aap.restore_training_storage = 'on'")
+                        text("SET LOCAL yoao.restore_training_storage = 'on'")
                     )
                     await session.execute(
                         text(

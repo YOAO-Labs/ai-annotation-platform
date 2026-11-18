@@ -28,12 +28,12 @@ from tests.test_assets_images_execution import (
 pytestmark = pytest.mark.asyncio
 
 _READ_GENERATION = text(
-    "SELECT aap_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
     "CAST(:generation AS integer), CAST(:profile_version AS text))"
 )
 _CLAIM_GARBAGE = text(
-    "SELECT aap_assets_v1.claim_image_garbage(CAST(:worker_id AS uuid), "
+    "SELECT yoao_assets_v1.claim_image_garbage(CAST(:worker_id AS uuid), "
     ":lease_seconds, :batch_size)"
 )
 

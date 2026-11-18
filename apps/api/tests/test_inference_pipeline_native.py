@@ -24,8 +24,8 @@ pytestmark = [
     ),
 ]
 
-_POLICY = "aap_inference_pipelines_v1.pipeline_policy()"
-_STEP = "aap_inference_pipelines_v1.pipeline_step"
+_POLICY = "yoao_inference_pipelines_v1.pipeline_policy()"
+_STEP = "yoao_inference_pipelines_v1.pipeline_step"
 _PIPELINE_COLUMNS = [
     "id",
     "scope",
@@ -308,7 +308,7 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
         cleanup = await _connect_inference(test_engine)
         try:
             await cleanup.execute(
-                "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                "DELETE FROM yoao_inference_pipelines_v1.operation_receipts "
                 "WHERE operation_id = $1::uuid",
                 operation_id,
             )
@@ -410,7 +410,7 @@ async def test_inference_pipeline_delete_retains_success_after_selected_row_disa
         cleanup = await _connect_inference(test_engine)
         try:
             await cleanup.execute(
-                "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                "DELETE FROM yoao_inference_pipelines_v1.operation_receipts "
                 "WHERE operation_id = $1::uuid",
                 operation_id,
             )
@@ -465,7 +465,7 @@ async def test_restricted_owner_rejects_null_stages_without_persisting(test_engi
             assert await connection.fetchval("SELECT current_user = session_user")
             assert (
                 await connection.fetchval("SELECT current_user")
-                == "inference_pipelines_client"
+                == "yoao_inference_pipelines_client"
             )
         finally:
             await connection.close()
@@ -490,7 +490,7 @@ async def test_restricted_owner_rejects_null_stages_without_persisting(test_engi
             assert after == before
             assert not await db.scalar(
                 text(
-                    "SELECT EXISTS(SELECT 1 FROM aap_inference_pipelines_v1.operation_receipts "
+                    "SELECT EXISTS(SELECT 1 FROM yoao_inference_pipelines_v1.operation_receipts "
                     "WHERE operation_id=:id)"
                 ),
                 {"id": command.operation_id},
@@ -500,7 +500,7 @@ async def test_restricted_owner_rejects_null_stages_without_persisting(test_engi
             if seed_operation is not None:
                 await db.execute(
                     text(
-                        "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                        "DELETE FROM yoao_inference_pipelines_v1.operation_receipts "
                         "WHERE operation_id=:id"
                     ),
                     {"id": seed_operation},

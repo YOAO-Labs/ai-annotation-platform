@@ -584,7 +584,7 @@ async def _assert_published_rows(engine, entries: list[dict[str, Any]]) -> None:
                             "receipt.request_digest,receipt.outcome,receipt.status "
                             "AS receipt_status "
                             "FROM public.video_tracker_jobs AS job "
-                            "JOIN aap_labeling_v1.video_writer_receipts AS receipt "
+                            "JOIN yoao_labeling_v1.video_writer_receipts AS receipt "
                             "ON receipt.job_id=job.id WHERE job.id=:job"
                         ),
                         {"job": entry["job_id"]},

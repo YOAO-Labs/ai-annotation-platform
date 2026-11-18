@@ -23,7 +23,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "inference_pool_reference_client"
+_ROLE = "yoao_inference_pool_reference_client"
 _FUNCTIONS = {("ai_mask_pool_reference_row", "uuid")}
 
 
@@ -58,7 +58,7 @@ async def test_pool_reference_reads_empty_pool_in_caller_transaction_and_hides_t
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_inference_v1",
+            schema="yoao_inference_v1",
             functions=_FUNCTIONS,
             role=_ROLE,
         )
@@ -68,7 +68,7 @@ async def test_pool_reference_reads_empty_pool_in_caller_transaction_and_hides_t
             "SELECT pg_catalog.pg_current_xact_id()::text"
         )
         row = await connection.fetchrow(
-            "SELECT * FROM aap_inference_v1.ai_mask_pool_reference_row($1::uuid)",
+            "SELECT * FROM yoao_inference_v1.ai_mask_pool_reference_row($1::uuid)",
             pool_id,
         )
         assert row is not None
@@ -88,7 +88,7 @@ async def test_pool_reference_reads_empty_pool_in_caller_transaction_and_hides_t
         assert row["legacy_instance_id"] is None
         assert (
             await connection.fetchrow(
-                "SELECT * FROM aap_inference_v1.ai_mask_pool_reference_row($1::uuid)",
+                "SELECT * FROM yoao_inference_v1.ai_mask_pool_reference_row($1::uuid)",
                 uuid.uuid4(),
             )
             is None

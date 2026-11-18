@@ -80,21 +80,21 @@ async def test_discussion_and_task_event_owner_keep_rows_and_retry_semantics(
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_DISCUSSION_URL",
-                "labeling_discussion_client",
+                "yoao_labeling_discussion_client",
             ),
             timeout=5,
             command_timeout=10,
         )
         assert await connection.fetchval("SELECT current_user") == (
-            "labeling_discussion_client"
+            "yoao_labeling_discussion_client"
         )
         assert await connection.fetchval(
             "SELECT has_function_privilege(current_user, "
-            "'aap_labeling_v1.discussion_command(jsonb)', 'EXECUTE')"
+            "'yoao_labeling_v1.discussion_command(jsonb)', 'EXECUTE')"
         )
         assert await connection.fetchval(
             "SELECT has_function_privilege(current_user, "
-            "'aap_labeling_v1.task_event_command(jsonb)', 'EXECUTE')"
+            "'yoao_labeling_v1.task_event_command(jsonb)', 'EXECUTE')"
         )
         for table in (
             "public.annotation_comments",
@@ -110,12 +110,12 @@ async def test_discussion_and_task_event_owner_keep_rows_and_retry_semantics(
 
         async def discussion_call(payload: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.discussion_command($1::jsonb)", payload
+                "SELECT yoao_labeling_v1.discussion_command($1::jsonb)", payload
             )
 
         async def event_call(payload: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.task_event_command($1::jsonb)", payload
+                "SELECT yoao_labeling_v1.task_event_command($1::jsonb)", payload
             )
 
         discussions = LabelingDiscussionDataClient(discussion_call)
@@ -183,7 +183,7 @@ async def test_discussion_and_task_event_owner_keep_rows_and_retry_semantics(
         assert [row.id for row in locked_lineage.feedbacks] == [feedback_id]
         assert (
             await connection.fetchval(
-                "SELECT count(*) FROM aap_labeling_v1.annotation_comment_facts "
+                "SELECT count(*) FROM yoao_labeling_v1.annotation_comment_facts "
                 "WHERE id = $1",
                 comment_id,
             )
@@ -191,7 +191,7 @@ async def test_discussion_and_task_event_owner_keep_rows_and_retry_semantics(
         )
         assert (
             await connection.fetchval(
-                "SELECT count(*) FROM aap_labeling_v1.annotation_feedback_facts "
+                "SELECT count(*) FROM yoao_labeling_v1.annotation_feedback_facts "
                 "WHERE id = $1",
                 feedback_id,
             )
@@ -243,7 +243,7 @@ async def test_discussion_and_task_event_owner_keep_rows_and_retry_semantics(
         )
         assert (
             await connection.fetchval(
-                "SELECT is_active FROM aap_labeling_v1.annotation_comment_facts "
+                "SELECT is_active FROM yoao_labeling_v1.annotation_comment_facts "
                 "WHERE id = $1",
                 comment_id,
             )

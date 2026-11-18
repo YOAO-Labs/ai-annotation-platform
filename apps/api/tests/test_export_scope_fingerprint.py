@@ -49,12 +49,14 @@ async def test_fingerprint_uses_public_rows_and_preserves_scope(worker_db):
         # removes this temporary role and its grants, including on assertion failure.
         await db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
         await db.execute(
-            text(f'GRANT USAGE ON SCHEMA aap_labeling_v1, aap_workspace_v1 TO "{role}"')
+            text(
+                f'GRANT USAGE ON SCHEMA yoao_labeling_v1, yoao_workspace_v1 TO "{role}"'
+            )
         )
         await db.execute(
             text(
-                "GRANT SELECT ON aap_labeling_v1.annotation_rows, "
-                "aap_labeling_v1.task_rows, aap_workspace_v1.project_facts "
+                "GRANT SELECT ON yoao_labeling_v1.annotation_rows, "
+                "yoao_labeling_v1.task_rows, yoao_workspace_v1.project_facts "
                 f'TO "{role}"'
             )
         )

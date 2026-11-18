@@ -164,7 +164,7 @@ async def _born_dataset_scope_matches(
     return bool(
         await db.scalar(
             text(
-                "SELECT aap_assets_v1.fence_cross_frame_job_dataset_scope("
+                "SELECT yoao_assets_v1.fence_cross_frame_job_dataset_scope("
                 ":job, :project, :actor, CAST(:payload AS jsonb))"
             ),
             {

@@ -534,7 +534,7 @@ async def test_rolling_invitation_quota_boundary_is_inclusive_and_actor_scoped(
     await db_session.flush()
     reached = await db_session.scalar(
         text(
-            "SELECT aap_identity_invitations_v1.invitation_quota_reached(:actor_id, :now, 1)"
+            "SELECT yoao_identity_invitations_v1.invitation_quota_reached(:actor_id, :now, 1)"
         ),
         {"actor_id": actor.id, "now": now},
     )

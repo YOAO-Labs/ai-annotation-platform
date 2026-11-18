@@ -26,19 +26,19 @@ async def test_auth_readiness_rejects_only_missing_actor_context_capability(
             await session.execute(
                 text(
                     "REVOKE EXECUTE ON FUNCTION "
-                    "aap_identity_v1.read_actor_context(uuid,text) FROM identity_auth_client"
+                    "yoao_identity_v1.read_actor_context(uuid,text) FROM yoao_identity_auth_client"
                 )
             )
         async with maker() as session:
             assert (
                 await session.scalar(
                     text(
-                        "SELECT bool_and(has_function_privilege('identity_auth_client', capability, 'EXECUTE')) "
+                        "SELECT bool_and(has_function_privilege('yoao_identity_auth_client', capability, 'EXECUTE')) "
                         "FROM unnest(ARRAY["
-                        "'aap_identity_v1.authentication_policy()',"
-                        "'aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)',"
-                        "'aap_identity_v1.read_api_key_candidates(text,uuid,integer)',"
-                        "'aap_identity_v1.confirm_api_key_principal(uuid,text)'"
+                        "'yoao_identity_v1.authentication_policy()',"
+                        "'yoao_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)',"
+                        "'yoao_identity_v1.read_api_key_candidates(text,uuid,integer)',"
+                        "'yoao_identity_v1.confirm_api_key_principal(uuid,text)'"
                         "]) AS required(capability)"
                     )
                 )
@@ -53,7 +53,7 @@ async def test_auth_readiness_rejects_only_missing_actor_context_capability(
             await session.execute(
                 text(
                     "GRANT EXECUTE ON FUNCTION "
-                    "aap_identity_v1.read_actor_context(uuid,text) TO identity_auth_client"
+                    "yoao_identity_v1.read_actor_context(uuid,text) TO yoao_identity_auth_client"
                 )
             )
     assert (await data.authentication_policy())["issuer"] == "aap-identity/v1"
@@ -81,7 +81,7 @@ async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
             )
             zero = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, :role)",
+                "SELECT yoao_identity_v1.read_actor_context(:id, :role)",
                 id=actor_id,
                 role="super_admin",
             )
@@ -106,7 +106,7 @@ async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
         async with maker() as session:
             null_target = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, :role)",
+                "SELECT yoao_identity_v1.read_actor_context(:id, :role)",
                 id=actor_id,
                 role="super_admin",
             )
@@ -114,22 +114,22 @@ async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
 
             absent = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, :role)",
+                "SELECT yoao_identity_v1.read_actor_context(:id, :role)",
                 id=uuid.uuid4(),
                 role="super_admin",
             )
             invalid_id = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(NULL::uuid, 'super_admin')",
+                "SELECT yoao_identity_v1.read_actor_context(NULL::uuid, 'super_admin')",
             )
             invalid_role = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, NULL::text)",
+                "SELECT yoao_identity_v1.read_actor_context(:id, NULL::text)",
                 id=actor_id,
             )
             unsupported_role = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, 'historic_role')",
+                "SELECT yoao_identity_v1.read_actor_context(:id, 'historic_role')",
                 id=actor_id,
             )
             assert absent["error"]["code"] == "credential_invalid"
@@ -145,7 +145,7 @@ async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
         async with maker() as session:
             stale_role = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, 'super_admin')",
+                "SELECT yoao_identity_v1.read_actor_context(:id, 'super_admin')",
                 id=actor_id,
             )
             assert stale_role["error"]["code"] == "credential_invalid"
@@ -160,7 +160,7 @@ async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
         async with maker() as session:
             inactive = await _call(
                 session,
-                "SELECT aap_identity_v1.read_actor_context(:id, 'super_admin')",
+                "SELECT yoao_identity_v1.read_actor_context(:id, 'super_admin')",
                 id=actor_id,
             )
             assert inactive["error"]["code"] == "credential_invalid"

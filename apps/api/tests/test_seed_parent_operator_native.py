@@ -322,7 +322,7 @@ async def test_capture_memberships(
 
     def executed(_conn, _cursor, sql, _params, _context, _many):
         if re.search(
-            r"\bfrom\s+(?:public\.)?projects\b|aap_workspace_v1\.project_facts",
+            r"\bfrom\s+(?:public\.)?projects\b|yoao_workspace_v1\.project_facts",
             sql,
             re.I,
         ):

@@ -18,18 +18,18 @@ try {
   }
   await client.query("BEGIN");
   const projectId = (
-    await client.query("SELECT aap_workspace_v1.create_scale_seed_project($1,$2) AS result", [
+    await client.query("SELECT yoao_workspace_v1.create_scale_seed_project($1,$2) AS result", [
       input.owner_id,
       marker,
     ])
   ).rows[0].result;
-  await client.query("SELECT aap_labeling_v1.write_project_counter_projection($1,$2::jsonb)", [
+  await client.query("SELECT yoao_labeling_v1.write_project_counter_projection($1,$2::jsonb)", [
     projectId,
     { total_tasks: 17 },
   ]);
   const fact = (
     await client.query(
-      "SELECT p.display_id,p.type_key,c.total_tasks FROM aap_workspace_v1.project_facts p JOIN aap_labeling_v1.project_catalog_counters c ON c.project_id=p.id WHERE p.id=$1",
+      "SELECT p.display_id,p.type_key,c.total_tasks FROM yoao_workspace_v1.project_facts p JOIN yoao_labeling_v1.project_catalog_counters c ON c.project_id=p.id WHERE p.id=$1",
       [projectId],
     )
   ).rows[0];
@@ -38,7 +38,7 @@ try {
   for (const count of [1, 0]) {
     assert.equal(
       (
-        await client.query("SELECT aap_workspace_v1.ensure_scale_seed_member($1,$2,$3) AS result", [
+        await client.query("SELECT yoao_workspace_v1.ensure_scale_seed_member($1,$2,$3) AS result", [
           projectId,
           input.annotator_id,
           input.owner_id,
@@ -48,7 +48,7 @@ try {
     );
   }
   assert.deepEqual(
-    (await client.query("SELECT aap_workspace_v1.guard_scale_seed_cleanup($1) AS result", [marker]))
+    (await client.query("SELECT yoao_workspace_v1.guard_scale_seed_cleanup($1) AS result", [marker]))
       .rows[0].result,
     {
       schema: "aap-workspace-scale-seed/v1",
@@ -68,7 +68,7 @@ try {
     assert.deepEqual(
       (
         await client.query(
-          "SELECT aap_assets_v1.guard_scale_seed_dataset_cleanup($1,$2) AS result",
+          "SELECT yoao_assets_v1.guard_scale_seed_dataset_cleanup($1,$2) AS result",
           [datasetId, phase],
         )
       ).rows[0].result,
@@ -84,20 +84,20 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_workspace_v1.delete_scale_seed_projects($1,$2::uuid[]) AS result",
+        "SELECT yoao_workspace_v1.delete_scale_seed_projects($1,$2::uuid[]) AS result",
         [marker, [projectId]],
       )
     ).rows[0].result,
     1,
   );
   const rollbackId = (
-    await client.query("SELECT aap_workspace_v1.create_scale_seed_project($1,$2) AS result", [
+    await client.query("SELECT yoao_workspace_v1.create_scale_seed_project($1,$2) AS result", [
       input.owner_id,
       marker,
     ])
   ).rows[0].result;
   const second = (
-    await client.query("SELECT display_id FROM aap_workspace_v1.project_facts WHERE id=$1", [
+    await client.query("SELECT display_id FROM yoao_workspace_v1.project_facts WHERE id=$1", [
       rollbackId,
     ])
   ).rows[0].display_id;
@@ -106,7 +106,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT count(*)::int AS count FROM aap_workspace_v1.project_facts WHERE name=$1",
+        "SELECT count(*)::int AS count FROM yoao_workspace_v1.project_facts WHERE name=$1",
         [marker],
       )
     ).rows[0].count,

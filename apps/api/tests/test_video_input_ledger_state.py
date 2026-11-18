@@ -31,7 +31,7 @@ async def test_video_state_compiles_and_native_capture_hash_matches_python_and_n
     scope = vector["scope"]
     digest = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._video_input_selection_seed(CAST(:job AS uuid),CAST(:actor AS uuid),"
+            "SELECT yoao_assets_v1._video_input_selection_seed(CAST(:job AS uuid),CAST(:actor AS uuid),"
             "CAST(:project AS uuid),CAST(:selection AS jsonb),2,2)"
         ),
         {
@@ -50,7 +50,7 @@ async def test_video_state_compiles_and_native_capture_hash_matches_python_and_n
         }
         digest = await db_session.scalar(
             text(
-                "SELECT aap_assets_v1._video_input_capture_digest(:previous,pg_catalog.jsonb_populate_record("
+                "SELECT yoao_assets_v1._video_input_capture_digest(:previous,pg_catalog.jsonb_populate_record("
                 "NULL::public.asset_accepted_video_members,CAST(:row AS jsonb)))"
             ),
             {"previous": digest, "row": json.dumps(row, ensure_ascii=False)},
@@ -65,7 +65,7 @@ async def test_native_video_shapes_reject_malformed_source_sampling_and_blob(
     plan = json.loads(VECTOR.read_text())["members"][0]["input"]["plan"]
     assert await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._video_input_plan_shape_valid(CAST(:plan AS jsonb))"
+            "SELECT yoao_assets_v1._video_input_plan_shape_valid(CAST(:plan AS jsonb))"
         ),
         {"plan": json.dumps(plan)},
     )
@@ -73,7 +73,7 @@ async def test_native_video_shapes_reject_malformed_source_sampling_and_blob(
         blob = {**plan["input"]["blob"], "version_id": version}
         assert not await db_session.scalar(
             text(
-                "SELECT aap_assets_v1._video_input_blob_valid(CAST(:blob AS jsonb),false)"
+                "SELECT yoao_assets_v1._video_input_blob_valid(CAST(:blob AS jsonb),false)"
             ),
             {"blob": json.dumps(blob)},
         )
@@ -86,7 +86,7 @@ async def test_native_video_shapes_reject_malformed_source_sampling_and_blob(
         changed["input"][path] = bad
         assert not await db_session.scalar(
             text(
-                "SELECT aap_assets_v1._video_input_plan_shape_valid(CAST(:plan AS jsonb))"
+                "SELECT yoao_assets_v1._video_input_plan_shape_valid(CAST(:plan AS jsonb))"
             ),
             {"plan": json.dumps(changed)},
         )
@@ -101,7 +101,7 @@ async def test_native_video_shapes_reject_malformed_source_sampling_and_blob(
         changed["input"]["video"][key] = bad
         assert not await db_session.scalar(
             text(
-                "SELECT aap_assets_v1._video_input_plan_shape_valid(CAST(:plan AS jsonb))"
+                "SELECT yoao_assets_v1._video_input_plan_shape_valid(CAST(:plan AS jsonb))"
             ),
             {"plan": json.dumps(changed)},
         )
@@ -110,7 +110,7 @@ async def test_native_video_shapes_reject_malformed_source_sampling_and_blob(
         selection["execution_scope"] = bad
         assert not await db_session.scalar(
             text(
-                "SELECT aap_assets_v1._video_input_selection_valid(CAST(:selection AS jsonb))"
+                "SELECT yoao_assets_v1._video_input_selection_valid(CAST(:selection AS jsonb))"
             ),
             {"selection": json.dumps(selection)},
         )

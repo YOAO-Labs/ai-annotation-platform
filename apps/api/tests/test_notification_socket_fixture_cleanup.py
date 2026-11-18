@@ -20,7 +20,7 @@ def test_socket_fixture_cleanup_preserves_audited_users_until_database_teardown(
 
     assert "DELETE FROM users WHERE users.id IN (__[POSTCOMPILE_id_1])" in sql
     assert (
-        "AND NOT (EXISTS (SELECT 1 FROM aap_audit_v1.audit_events AS audit_events "
+        "AND NOT (EXISTS (SELECT 1 FROM yoao_audit_v1.audit_events AS audit_events "
         "WHERE audit_events.actor_id = users.id))"
     ) in sql
     assert "public.audit_logs" not in sql

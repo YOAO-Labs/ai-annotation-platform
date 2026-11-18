@@ -57,7 +57,7 @@ async def test_labeling_acl_removes_columns_partitions_sequences_and_defaults(
                         f"GRANT SELECT (id), UPDATE (status) ON public.tasks TO {target}",
                         f"GRANT SELECT ON {leaf} TO {target}",
                         f"GRANT USAGE,SELECT,UPDATE ON public.display_seq_batches TO {target}",
-                        f"GRANT UPDATE (status) ON aap_labeling_v1.task_rows TO {target}",
+                        f"GRANT UPDATE (status) ON yoao_labeling_v1.task_rows TO {target}",
                         f"ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO {target}",
                         f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {target}",
                         f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {target}",
@@ -102,18 +102,18 @@ async def test_labeling_acl_removes_columns_partitions_sequences_and_defaults(
                 await connection.exec_driver_sql(f"SET LOCAL ROLE {ROLE}")
                 assert (
                     await connection.scalar(
-                        text("SELECT aap_labeling_v1.next_batch_display_id()")
+                        text("SELECT yoao_labeling_v1.next_batch_display_id()")
                     )
                 ).startswith("BT-")
                 await connection.exec_driver_sql(
-                    "SELECT id FROM aap_labeling_v1.task_rows LIMIT 1"
+                    "SELECT id FROM yoao_labeling_v1.task_rows LIMIT 1"
                 )
                 for statement in (
                     "SELECT id FROM public.tasks LIMIT 1",
                     f"SELECT id FROM {leaf} LIMIT 1",
                     "SELECT secret FROM public.mask_gc_write_permit_secrets",
                     "SELECT nextval('public.display_seq_batches')",
-                    "UPDATE aap_labeling_v1.task_rows SET status='pending' WHERE false",
+                    "UPDATE yoao_labeling_v1.task_rows SET status='pending' WHERE false",
                 ):
                     async with connection.begin_nested() as savepoint:
                         with pytest.raises(DBAPIError) as rejected:

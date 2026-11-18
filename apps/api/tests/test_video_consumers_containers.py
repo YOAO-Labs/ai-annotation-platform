@@ -1101,12 +1101,12 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
         )
     control_db = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     worker_db = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
-        "asset_media_worker_client",
+        "yoao_asset_media_worker_client",
         test_engine,
     )
     resources = _verified_resource_manifest(test_engine, control_db)
@@ -1289,7 +1289,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
         _verify_consumer_environment(
             control_id,
             role="control",
-            database_user="asset_media_control_client",
+            database_user="yoao_asset_media_control_client",
             s3_access=control_s3_access,
             s3_secret=control_s3_secret,
         )
@@ -1332,7 +1332,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
         _verify_consumer_environment(
             media_worker_id,
             role="worker",
-            database_user="asset_media_worker_client",
+            database_user="yoao_asset_media_worker_client",
             s3_access=worker_s3_access,
             s3_secret=worker_s3_secret,
         )

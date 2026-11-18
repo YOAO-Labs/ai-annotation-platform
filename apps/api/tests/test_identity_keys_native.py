@@ -487,7 +487,7 @@ async def test_jwt_generation_expiry_and_revocation_are_fenced(test_engine):
         async with maker.begin() as session:
             await session.execute(
                 text(
-                    "SELECT aap_identity_v1.revoke_jti("
+                    "SELECT yoao_identity_v1.revoke_jti("
                     "CAST(:jti AS uuid), :retain_until)"
                 ),
                 {

@@ -555,7 +555,7 @@ async def test_manifest_and_tracker_claimers_progress_only_their_owner_lane(
     legacy = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.claim_accepted_video_input("
+                "SELECT yoao_assets_v1.claim_accepted_video_input("
                 "CAST(:worker AS uuid),NULL,CAST(:lease AS integer))"
             ),
             {"worker": uuid.uuid4(), "lease": 60},
@@ -615,7 +615,7 @@ async def test_manifest_and_tracker_claimers_progress_only_their_owner_lane(
 
     manifest_sweep = _reply(
         await db_session.scalar(
-            text("SELECT aap_assets_v1.sweep_accepted_video_inputs(10)")
+            text("SELECT yoao_assets_v1.sweep_accepted_video_inputs(10)")
         )
     )
     assert manifest_sweep["ok"] is True

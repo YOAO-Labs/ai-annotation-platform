@@ -114,11 +114,11 @@ class WorkspaceCeleryWorker:
         self._api_database_url = self._api_consumer_url()
         self._result_database_url = self._role_dsn(
             "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
-            "preannotation_result_client",
+            "yoao_preannotation_result_client",
         )
         self._export_execution_database_url = (
             self._role_dsn(
-                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "export_execution_client"
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "yoao_export_execution_client"
             )
             if export_execution
             else None
@@ -237,11 +237,11 @@ class WorkspaceCeleryWorker:
         self._api_database_url = self._api_consumer_url()
         self._result_database_url = self._role_dsn(
             "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
-            "preannotation_result_client",
+            "yoao_preannotation_result_client",
         )
         if self._export_execution_database_url is not None:
             self._export_execution_database_url = self._role_dsn(
-                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "export_execution_client"
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "yoao_export_execution_client"
             )
         self._redis_url = self._redis_owner_url.render_as_string(hide_password=False)
 

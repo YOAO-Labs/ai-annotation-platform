@@ -39,30 +39,30 @@ pytestmark = pytest.mark.skipif(
 
 ROOT = Path(__file__).resolve().parents[3]
 _PROVISIONING_FUNCTIONS = (
-    "aap_identity_v1.read_provisioning_account(text)",
-    "aap_identity_v1.create_provisioning_account(jsonb)",
+    "yoao_identity_v1.read_provisioning_account(text)",
+    "yoao_identity_v1.create_provisioning_account(jsonb)",
 )
 _IDENTITY_CONSUMER_FUNCTIONS = (
-    "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
-    "aap_identity_v1.read_actor_facts(uuid)",
-    "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
-    "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
-    "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
-    "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
-    "aap_identity_v1.is_jti_revoked(uuid)",
-    "aap_identity_v1.get_credential_generation(uuid)",
+    "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+    "yoao_identity_v1.read_actor_facts(uuid)",
+    "yoao_identity_v1.lock_accounts_share(uuid[],boolean)",
+    "yoao_identity_v1.lock_accounts_update(uuid[],boolean)",
+    "yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+    "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+    "yoao_identity_v1.is_jti_revoked(uuid)",
+    "yoao_identity_v1.get_credential_generation(uuid)",
 )
 _WORKSPACE_FUNCTIONS = (
-    "aap_workspace_v1.read_import_project(text)",
-    "aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)",
-    "aap_workspace_v1.lock_project_manager(uuid,uuid)",
+    "yoao_workspace_v1.read_import_project(text)",
+    "yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)",
+    "yoao_workspace_v1.lock_project_manager(uuid,uuid)",
 )
 _ASSETS_FUNCTIONS = (
-    "aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)",
-    "aap_assets_v1.append_operator_items(uuid,uuid,jsonb)",
-    "aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)",
-    "aap_assets_v1.recount_operator_items(uuid,uuid)",
-    "aap_assets_v1.read_operator_items(uuid,uuid,integer)",
+    "yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)",
+    "yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)",
+    "yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb)",
+    "yoao_assets_v1.recount_operator_items(uuid,uuid)",
+    "yoao_assets_v1.read_operator_items(uuid,uuid,integer)",
 )
 _EMPTY_TABLES = (
     "users",
@@ -209,7 +209,7 @@ async def _assert_operational_role(test_engine) -> None:
                             "FROM pg_catalog.pg_proc AS proc "
                             "JOIN pg_catalog.pg_namespace AS ns "
                             "ON ns.oid=proc.pronamespace "
-                            "WHERE ns.nspname='aap_identity_v1' "
+                            "WHERE ns.nspname='yoao_identity_v1' "
                             "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                         )
                     )
@@ -705,7 +705,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
 
         missing_capability_name = "workspace-import-missing-" + uuid.uuid4().hex[:8]
         create_signature = (
-            "aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)"
+            "yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)"
         )
         revoked = False
         try:

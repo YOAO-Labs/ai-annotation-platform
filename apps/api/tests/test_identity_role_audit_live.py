@@ -39,17 +39,17 @@ pytestmark = [
 ]
 
 _AUDIT_VIEWS = {
-    "aap_identity_audit_v1.account_roles",
-    "aap_identity_audit_v1.invitation_facts",
-    "aap_identity_audit_v1.schema_capabilities",
-    "aap_workspace_audit_v1.project_facts",
-    "aap_workspace_audit_v1.project_member_facts",
-    "aap_workspace_audit_v1.schema_capabilities",
-    "aap_labeling_audit_v1.task_facts",
-    "aap_labeling_audit_v1.task_batch_facts",
-    "aap_labeling_audit_v1.annotation_facts",
-    "aap_labeling_audit_v1.task_lock_facts",
-    "aap_labeling_audit_v1.schema_capabilities",
+    "yoao_identity_audit_v1.account_roles",
+    "yoao_identity_audit_v1.invitation_facts",
+    "yoao_identity_audit_v1.schema_capabilities",
+    "yoao_workspace_audit_v1.project_facts",
+    "yoao_workspace_audit_v1.project_member_facts",
+    "yoao_workspace_audit_v1.schema_capabilities",
+    "yoao_labeling_audit_v1.task_facts",
+    "yoao_labeling_audit_v1.task_batch_facts",
+    "yoao_labeling_audit_v1.annotation_facts",
+    "yoao_labeling_audit_v1.task_lock_facts",
+    "yoao_labeling_audit_v1.schema_capabilities",
 }
 _READ_ONLY_TABLES = {"alembic_version"}
 _IDENTITY_API_FUNCTIONS = {
@@ -63,8 +63,8 @@ _IDENTITY_API_FUNCTIONS = {
     "get_credential_generation(uuid)",
 }
 _IDENTITY_API_VIEWS = {
-    "aap_identity_v1.account_profiles",
-    "aap_identity_v1.invitation_audit_targets",
+    "yoao_identity_v1.account_profiles",
+    "yoao_identity_v1.invitation_audit_targets",
 }
 
 
@@ -88,7 +88,7 @@ async def _function_set(db, role: str, schema: str) -> set[str]:
 
 async def _identity_api_profile(engine) -> tuple[set[str], set[str]]:
     async with engine.connect() as db:
-        functions = await _function_set(db, "identity_api_consumer", "aap_identity_v1")
+        functions = await _function_set(db, "identity_api_consumer", "yoao_identity_v1")
         views = {
             view
             for view in _IDENTITY_API_VIEWS
@@ -101,7 +101,7 @@ async def _identity_api_profile(engine) -> tuple[set[str], set[str]]:
             )
         }
     assert functions == {
-        f"aap_identity_v1.{signature}" for signature in _IDENTITY_API_FUNCTIONS
+        f"yoao_identity_v1.{signature}" for signature in _IDENTITY_API_FUNCTIONS
     }
     assert views == _IDENTITY_API_VIEWS
     return functions, views
@@ -368,7 +368,8 @@ async def _assert_runtime_acl(
                             "ON namespace.oid=relation.relnamespace "
                             "WHERE namespace.nspname IN ("
                             "'aap_identity_audit_v1','aap_workspace_audit_v1',"
-                            "'aap_labeling_audit_v1') "
+                            "'aap_labeling_audit_v1','yoao_identity_audit_v1',"
+                            "'yoao_workspace_audit_v1','yoao_labeling_audit_v1') "
                             "AND pg_catalog.has_table_privilege("
                             "'legacy_runtime',relation.oid,'SELECT')"
                         )
@@ -384,19 +385,19 @@ async def _assert_runtime_acl(
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_schema_privilege("
-                    "'legacy_runtime','aap_identity_audit_v1','USAGE')"
+                    "'legacy_runtime','yoao_identity_audit_v1','USAGE')"
                 )
             )
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_schema_privilege("
-                    "'legacy_runtime','aap_workspace_audit_v1','USAGE')"
+                    "'legacy_runtime','yoao_workspace_audit_v1','USAGE')"
                 )
             )
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_schema_privilege("
-                    "'legacy_runtime','aap_labeling_audit_v1','USAGE')"
+                    "'legacy_runtime','yoao_labeling_audit_v1','USAGE')"
                 )
             )
             for view in _AUDIT_VIEWS:
@@ -500,8 +501,8 @@ async def _wait_for_backend_exit(historical, backend_pid: int) -> None:
 
 async def _install_report_gate(historical, tag: str) -> tuple[str, str]:
     suffix = uuid.uuid4().hex[:12]
-    original = f"aap_identity_audit_v1.account_roles_before_gate_{suffix}"
-    function = f"aap_identity_audit_v1.role_audit_pause_once_{suffix}"
+    original = f"yoao_identity_audit_v1.account_roles_before_gate_{suffix}"
+    function = f"yoao_identity_audit_v1.role_audit_pause_once_{suffix}"
     body = f"""CREATE FUNCTION {function}() RETURNS boolean
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $role_audit_gate$
@@ -517,24 +518,24 @@ $role_audit_gate$"""
     async with historical.begin() as db:
         await db.execute(
             text(
-                "ALTER VIEW aap_identity_audit_v1.account_roles "
+                "ALTER VIEW yoao_identity_audit_v1.account_roles "
                 f"RENAME TO {original.split('.')[-1]}"
             )
         )
         await db.execute(text(body))
         await db.execute(
             text(
-                "CREATE VIEW aap_identity_audit_v1.account_roles AS "
+                "CREATE VIEW yoao_identity_audit_v1.account_roles AS "
                 "SELECT original.id,original.role,original.is_active "
                 f"FROM {original} AS original WHERE {function}()"
             )
         )
         await db.execute(
-            text("REVOKE ALL ON aap_identity_audit_v1.account_roles FROM PUBLIC")
+            text("REVOKE ALL ON yoao_identity_audit_v1.account_roles FROM PUBLIC")
         )
         await db.execute(
             text(
-                "GRANT SELECT ON aap_identity_audit_v1.account_roles TO legacy_runtime"
+                "GRANT SELECT ON yoao_identity_audit_v1.account_roles TO legacy_runtime"
             )
         )
     return original, function
@@ -542,7 +543,9 @@ $role_audit_gate$"""
 
 async def _remove_report_gate(historical, original: str, function: str) -> None:
     async with historical.begin() as db:
-        await db.execute(text("DROP VIEW aap_identity_audit_v1.account_roles RESTRICT"))
+        await db.execute(
+            text("DROP VIEW yoao_identity_audit_v1.account_roles RESTRICT")
+        )
         await db.execute(text(f"ALTER VIEW {original} RENAME TO account_roles"))
         await db.execute(text(f"DROP FUNCTION IF EXISTS {function}()"))
 
@@ -720,7 +723,7 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                 async with historical.begin() as db:
                     await db.execute(
                         text(
-                            "REVOKE SELECT ON aap_identity_audit_v1.account_roles "
+                            "REVOKE SELECT ON yoao_identity_audit_v1.account_roles "
                             "FROM legacy_runtime"
                         )
                     )
@@ -740,7 +743,7 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                     await _assert_runtime_acl(
                         historical,
                         installed=True,
-                        excluded_view="aap_identity_audit_v1.account_roles",
+                        excluded_view="yoao_identity_audit_v1.account_roles",
                     )
                     assert await _source_snapshot(historical) == before
                     assert await _revision(historical) == "0171"
@@ -748,7 +751,7 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                     async with historical.begin() as db:
                         await db.execute(
                             text(
-                                "GRANT SELECT ON aap_identity_audit_v1.account_roles "
+                                "GRANT SELECT ON yoao_identity_audit_v1.account_roles "
                                 "TO legacy_runtime"
                             )
                         )
@@ -900,7 +903,7 @@ async def test_installed_role_audit_current_workspace_denial_and_recovery(
                 async with test_engine.begin() as db:
                     await db.execute(
                         text(
-                            f"REVOKE SELECT ON aap_workspace_audit_v1.project_member_facts FROM {role}"
+                            f"REVOKE SELECT ON yoao_workspace_audit_v1.project_member_facts FROM {role}"
                         )
                     )
                 try:
@@ -915,7 +918,7 @@ async def test_installed_role_audit_current_workspace_denial_and_recovery(
                     async with test_engine.begin() as db:
                         await db.execute(
                             text(
-                                f"GRANT SELECT ON aap_workspace_audit_v1.project_member_facts TO {role}"
+                                f"GRANT SELECT ON yoao_workspace_audit_v1.project_member_facts TO {role}"
                             )
                         )
                 recovered = await _audit_cli(cli, "--max-rows", "1000")

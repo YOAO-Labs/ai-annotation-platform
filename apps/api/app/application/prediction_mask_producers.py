@@ -26,7 +26,7 @@ async def prediction_mask_producer(execution, ordinal):
     async with execution.session_factory() as db:
         admitted = await db.scalar(
             text(
-                "SELECT aap_jobs_v1.begin_prediction_mask_producer(CAST(:scope AS jsonb), :ordinal, :id)"
+                "SELECT yoao_jobs_v1.begin_prediction_mask_producer(CAST(:scope AS jsonb), :ordinal, :id)"
             ),
             {
                 "scope": _json_text(execution._values()),
@@ -46,7 +46,7 @@ async def prediction_mask_producer(execution, ordinal):
     else:
         async with execution.session_factory() as db:
             settled = await db.scalar(
-                text("SELECT aap_jobs_v1.finish_prediction_mask_producer(:id)"),
+                text("SELECT yoao_jobs_v1.finish_prediction_mask_producer(:id)"),
                 {"id": producer_id},
             )
             if settled is not True:

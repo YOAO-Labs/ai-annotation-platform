@@ -18,11 +18,11 @@ try {
     "SELECT count(*)::int AS count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' AND has_function_privilege(current_user,p.oid,'EXECUTE')",
   );
   assert.equal(functions.rows[0].count, 32);
-  const project = await client.query("SELECT id FROM aap_workspace_v1.project_facts WHERE id=$1", [
+  const project = await client.query("SELECT id FROM yoao_workspace_v1.project_facts WHERE id=$1", [
     input.project_id,
   ]);
   assert.equal(project.rows[0].id, input.project_id);
-  await client.query("SELECT aap_workspace_v1.lock_project_reference($1)", [input.project_id]);
+  await client.query("SELECT yoao_workspace_v1.lock_project_reference($1)", [input.project_id]);
   await client.query("SAVEPOINT denied");
   await assert.rejects(client.query("SELECT id FROM public.projects LIMIT 1"), { code: "42501" });
   await client.query("ROLLBACK TO SAVEPOINT denied");

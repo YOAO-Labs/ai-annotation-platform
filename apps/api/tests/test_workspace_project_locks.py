@@ -29,7 +29,7 @@ async def test_project_set_lock_preserves_flush_and_exact_borrowed_call(autoflus
         events.append("flush")
 
     async def scalar(statement, parameters):
-        assert "aap_workspace_v1.lock_project_references_for_update" in str(statement)
+        assert "yoao_workspace_v1.lock_project_references_for_update" in str(statement)
         assert parameters == {"project_ids": ids}
         events.append("scalar")
         return ids

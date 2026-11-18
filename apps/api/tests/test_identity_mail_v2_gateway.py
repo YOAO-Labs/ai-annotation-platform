@@ -232,9 +232,9 @@ def test_embedded_gateway_closes_each_short_session_before_smtp(monkeypatch):
     factory = FakeSessionFactory(
         lambda sql, params: (
             json.dumps(settings_payload)
-            if "aap_settings_v1.mail_delivery_policy" in sql
+            if "yoao_settings_v1.mail_delivery_policy" in sql
             else json.dumps(_lease_reply(_command(params)["worker_id"]))
-            if "aap_identity_mail_v2.claim_mail" in sql
+            if "yoao_identity_mail_v2.claim_mail" in sql
             else json.dumps(_mail_reply(_command(params)))
         )
     )

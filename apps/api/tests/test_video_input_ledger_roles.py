@@ -22,20 +22,20 @@ async def test_video_role_matrix_exposes_exact_caller_capabilities_without_table
     db_session,
 ):
     roles = {
-        "append_client": {"workflow"},
-        "asset_media_control_client": {"control"},
-        "asset_media_worker_client": {"worker", "system"},
-        "asset_cleanup_client": {"cleanup"},
+        "yoao_append_client": {"workflow"},
+        "yoao_asset_media_control_client": {"control"},
+        "yoao_asset_media_worker_client": {"worker", "system"},
+        "yoao_asset_cleanup_client": {"cleanup"},
         "labeling_code": {"labeling"},
         "identity_code": set(),
         "workspace_code": set(),
         "jobs_code": set(),
         "learning_code": set(),
-        "asset_image_worker_client": set(),
+        "yoao_asset_image_worker_client": set(),
     }
     for role, permitted in roles.items():
         for name, definition in c.OPERATIONS.items():
-            signature = f"aap_assets_v1.{name}({','.join(definition.sql_types)})"
+            signature = f"yoao_assets_v1.{name}({','.join(definition.sql_types)})"
             granted = await db_session.scalar(
                 text(
                     "SELECT pg_catalog.has_function_privilege(:role,:signature,'EXECUTE')"
@@ -78,7 +78,7 @@ async def test_video_role_matrix_exposes_exact_caller_capabilities_without_table
         await db_session.scalar(
             text(
                 "SELECT pg_catalog.pg_get_userbyid(proowner) FROM pg_catalog.pg_proc WHERE oid="
-                "'aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)'::regprocedure"
+                "'yoao_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)'::regprocedure"
             )
         )
         == "assets_code"
@@ -87,7 +87,7 @@ async def test_video_role_matrix_exposes_exact_caller_capabilities_without_table
         await db_session.scalar(
             text(
                 "SELECT pg_catalog.pg_get_userbyid(proowner) FROM pg_catalog.pg_proc WHERE oid="
-                "'aap_labeling_v1.accepted_video_input_referenced(uuid)'::regprocedure"
+                "'yoao_labeling_v1.accepted_video_input_referenced(uuid)'::regprocedure"
             )
         )
         == "labeling_code"
@@ -98,7 +98,7 @@ async def test_video_control_and_worker_execute_through_real_owner_boundaries(
     db_session,
 ):
     actor, _, _, _, header, _ = await _captured(db_session)
-    await db_session.execute(text("SET LOCAL ROLE asset_media_control_client"))
+    await db_session.execute(text("SET LOCAL ROLE yoao_asset_media_control_client"))
     try:
         member = (await _page(db_session, header)).members[0]
         receipt = await _call(
@@ -113,7 +113,7 @@ async def test_video_control_and_worker_execute_through_real_owner_boundaries(
     finally:
         await db_session.execute(text("RESET ROLE"))
     assert receipt.member.state == "preparing"
-    await db_session.execute(text("SET LOCAL ROLE asset_media_worker_client"))
+    await db_session.execute(text("SET LOCAL ROLE yoao_asset_media_worker_client"))
     try:
         claimed = await _call(
             db_session,
@@ -136,7 +136,7 @@ async def test_video_control_and_worker_execute_through_real_owner_boundaries(
         assert failed.status == "failed"
     finally:
         await db_session.execute(text("RESET ROLE"))
-    await db_session.execute(text("SET LOCAL ROLE asset_media_control_client"))
+    await db_session.execute(text("SET LOCAL ROLE yoao_asset_media_control_client"))
     try:
         sealed = await _call(
             db_session,

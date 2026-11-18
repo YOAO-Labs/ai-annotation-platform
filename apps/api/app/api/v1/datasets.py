@@ -1086,7 +1086,7 @@ async def _schedule_media_backfill(
         )
     execution_id = str(job.id)
     queue = await db.scalar(
-        text("SELECT aap_jobs_v1.fixture_media_backfill_route(:job_id)"),
+        text("SELECT yoao_jobs_v1.fixture_media_backfill_route(:job_id)"),
         {"job_id": job.id},
     )
     dispatch_args = [str(job.id)]

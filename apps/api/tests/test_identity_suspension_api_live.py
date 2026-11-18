@@ -234,7 +234,7 @@ async def test_auth_only_suspension_api_bindings_and_public_credential_lifecycle
                 async with maker.begin() as db:
                     await db.execute(
                         text(
-                            "GRANT SELECT ON public.users TO identity_suspension_client"
+                            "GRANT SELECT ON public.users TO yoao_identity_suspension_client"
                         )
                     )
                 try:
@@ -257,7 +257,7 @@ async def test_auth_only_suspension_api_bindings_and_public_credential_lifecycle
                         await db.execute(
                             text(
                                 "REVOKE SELECT ON public.users "
-                                "FROM identity_suspension_client"
+                                "FROM yoao_identity_suspension_client"
                             )
                         )
 

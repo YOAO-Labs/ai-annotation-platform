@@ -134,7 +134,7 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
     owner = await _connect(test_engine)
     receipts = set(
         await owner.fetchval(
-            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     runtime = None
@@ -392,13 +392,13 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
             )
             assert (
                 await owner.fetchval(
-                    "SELECT count(*) FROM aap_inference_routing_v1.controls WHERE registry_id=$1 AND kind='unload'",
+                    "SELECT count(*) FROM yoao_inference_routing_v1.controls WHERE registry_id=$1 AND kind='unload'",
                     registry_id,
                 )
                 == 0
             )
             rows = await owner.fetch(
-                "SELECT s.id,s.state,s.closed,a.state AS attempt_state,a.status_code FROM aap_inference_routing_v1.scopes s JOIN aap_inference_routing_v1.attempts a ON a.scope_id=s.id WHERE s.registry_id=$1 AND s.operation='gpu:unload' ORDER BY a.created_at",
+                "SELECT s.id,s.state,s.closed,a.state AS attempt_state,a.status_code FROM yoao_inference_routing_v1.scopes s JOIN yoao_inference_routing_v1.attempts a ON a.scope_id=s.id WHERE s.registry_id=$1 AND s.operation='gpu:unload' ORDER BY a.created_at",
                 registry_id,
             )
             assert len(rows) == 2 and rows[0]["id"] != rows[1]["id"]
@@ -428,11 +428,11 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
         try:
             after = set(
                 await owner.fetchval(
-                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
                 list(after - receipts),
             )
             await _cleanup(owner, world)

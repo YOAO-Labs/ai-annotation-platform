@@ -25,7 +25,7 @@ async def test_pool_wait_times_out_then_retries_with_original_transaction_settin
     owner = await _connect(test_engine)
     world = await _seed(owner)
     locker = await _connect(test_engine)
-    client = await _connect(test_engine, role="inference_routing_client")
+    client = await _connect(test_engine, role="yoao_inference_routing_client")
     lock_transaction = locker.transaction()
     try:
         await lock_transaction.start()

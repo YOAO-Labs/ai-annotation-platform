@@ -170,7 +170,7 @@ async def test_nowait_reference_function_has_exact_owner_and_application_grants(
 ):
     async with _world(test_engine) as (owner, _api, _world_data, _url):
         async with owner() as db:
-            signature = "aap_workspace_v1.lock_project_reference_nowait(uuid)"
+            signature = "yoao_workspace_v1.lock_project_reference_nowait(uuid)"
             row = (
                 await db.execute(
                     text(
@@ -183,10 +183,10 @@ async def test_nowait_reference_function_has_exact_owner_and_application_grants(
             for role, expected in (
                 ("identity_api_consumer", True),
                 ("legacy_runtime", True),
-                ("append_client", False),
+                ("yoao_append_client", False),
                 ("assets_code", False),
                 ("inference_code", False),
-                ("workspace_project_deletion_client", False),
+                ("yoao_workspace_project_deletion_client", False),
             ):
                 assert (
                     await db.scalar(
@@ -222,7 +222,7 @@ async def test_wrong_reference_scope_rolls_back_callers_prior_write(
                     result = await scalar(statement, *args, **kwargs)
                     return (
                         uuid.uuid4()
-                        if "aap_workspace_v1.lock_project_reference_nowait"
+                        if "yoao_workspace_v1.lock_project_reference_nowait"
                         in str(statement)
                         else result
                     )

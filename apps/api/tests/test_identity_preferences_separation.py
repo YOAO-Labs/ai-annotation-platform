@@ -48,7 +48,7 @@ async def test_changed_preferences_coexist_with_authority_but_fence_security(
             async with maker() as reader:
                 account = await reader.scalar(
                     text(
-                        "SELECT aap_identity_v1.lock_accounts_share("
+                        "SELECT yoao_identity_v1.lock_accounts_share("
                         "CAST(:ids AS uuid[]), true)"
                     ),
                     {"ids": [actor_id]},
@@ -103,7 +103,7 @@ async def test_account_creation_initializes_separate_preferences(test_engine, mo
         function = "create_provisioning_account"
     async with test_engine.connect() as connection:
         result = await connection.scalar(
-            text(f"SELECT aap_identity_v1.{function}(CAST(:request AS jsonb))"),
+            text(f"SELECT yoao_identity_v1.{function}(CAST(:request AS jsonb))"),
             {"request": json.dumps(payload)},
         )
         assert result["account_id"] == str(account_id)

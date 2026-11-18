@@ -46,8 +46,8 @@ pytestmark = [
 
 ROOT = Path(__file__).resolve().parents[3]
 _SEED_FUNCTIONS = (
-    "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
-    "aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
+    "yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
+    "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
 )
 _LEGACY_PROJECT_NAME = "点云联合标注 (dev)"
 _LEGACY_DATASET_NAME = "pc-scene-dev"

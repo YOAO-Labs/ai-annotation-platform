@@ -25,7 +25,7 @@ def _dsn() -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_suspension_client"
+    assert parsed.username == "yoao_identity_suspension_client"
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -34,7 +34,7 @@ async def test_identity_suspension_login_has_only_its_two_functions():
     connection = await asyncpg.connect(_dsn())
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "identity_suspension_client"
+            "yoao_identity_suspension_client"
         )
         rows = await connection.fetch(
             """
@@ -61,7 +61,7 @@ async def test_identity_suspension_login_has_only_its_two_functions():
                     AND dependency.deptype = 'e'
               )
               AND (
-                  pg_catalog.left(namespace.nspname,4)='aap_'
+                  (pg_catalog.left(namespace.nspname,4)='aap_' OR pg_catalog.left(namespace.nspname,5)='yoao_')
                   OR function.prosecdef
                   OR EXISTS (
                       SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
@@ -80,16 +80,16 @@ async def test_identity_suspension_login_has_only_its_two_functions():
             """
         )
         assert {row["signature"] for row in rows} == {
-            "aap_identity_suspensions_v1.suspension_policy()",
-            "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
+            "yoao_identity_suspensions_v1.suspension_policy()",
+            "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
         }
         assert await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_suspensions_v1', 'USAGE')"
+            "'yoao_identity_suspensions_v1', 'USAGE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_suspensions_v1', 'CREATE')"
+            "'yoao_identity_suspensions_v1', 'CREATE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')"
@@ -104,7 +104,7 @@ async def test_identity_suspension_login_has_only_its_two_functions():
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
                 WHERE namespace.nspname NOT IN (
                     'pg_catalog','information_schema',
-                    'aap_identity_suspensions_v1','public'
+                    'yoao_identity_suspensions_v1','public'
                 )
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -165,14 +165,14 @@ async def test_identity_suspension_login_has_only_its_two_functions():
         )
 
         policy = await connection.fetchval(
-            "SELECT aap_identity_suspensions_v1.suspension_policy()"
+            "SELECT yoao_identity_suspensions_v1.suspension_policy()"
         )
         assert json.loads(policy) == {
             "schema": "aap-identity-suspensions-policy/v1",
             "policy": "aap-identity-suspensions/v1",
         }
         malformed = await connection.fetchval(
-            "SELECT aap_identity_suspensions_v1.execute_suspension_command('{}'::jsonb)"
+            "SELECT yoao_identity_suspensions_v1.execute_suspension_command('{}'::jsonb)"
         )
         assert json.loads(malformed) == {
             "schema": "aap-identity-suspensions-native/v1",
@@ -185,7 +185,7 @@ async def test_identity_suspension_login_has_only_its_two_functions():
         }
         for value in (None, "null", "[]", "1", '"scalar"'):
             invalid = await connection.fetchval(
-                "SELECT aap_identity_suspensions_v1.execute_suspension_command($1::jsonb)",
+                "SELECT yoao_identity_suspensions_v1.execute_suspension_command($1::jsonb)",
                 value,
             )
             assert json.loads(invalid) == {
@@ -201,8 +201,8 @@ async def test_identity_suspension_login_has_only_its_two_functions():
         forbidden = (
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.identity_suspension_operation_receipts LIMIT 1",
-            "SELECT aap_workspace_v1.lock_identity_suspension_scope(NULL::uuid,NULL::uuid,'suspend_account')",
-            "SELECT aap_audit_v1.record_identity_suspension_event('user.reactivate','{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb)",
+            "SELECT yoao_workspace_v1.lock_identity_suspension_scope(NULL::uuid,NULL::uuid,'suspend_account')",
+            "SELECT yoao_audit_v1.record_identity_suspension_event('user.reactivate','{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb)",
             "CREATE TEMP TABLE suspension_forbidden(id integer)",
             "SET ROLE identity_code",
         )
@@ -232,7 +232,7 @@ async def test_suspension_policy_rejects_an_extra_security_definer_function():
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO identity_suspension_client"
+                    "TO yoao_identity_suspension_client"
                 )
             )
 
@@ -252,25 +252,25 @@ async def test_suspension_policy_rejects_an_extra_security_definer_function():
     [
         (
             "AAP_MODULE_DATA_IDENTITY_SUSPENSION_URL",
-            "identity_suspension_client",
+            "yoao_identity_suspension_client",
             SuspensionPostgresData,
             "suspension_policy",
         ),
         (
             "AAP_MODULE_DATA_IDENTITY_DIRECTORY_URL",
-            "identity_directory_client",
+            "yoao_identity_directory_client",
             DirectoryPostgresData,
             "directory_policy",
         ),
         (
             "AAP_MODULE_DATA_IDENTITY_ADMIN_PASSWORD_URL",
-            "identity_admin_password_client",
+            "yoao_identity_admin_password_client",
             AdminPasswordPostgresData,
             "admin_password_policy",
         ),
         (
             "AAP_MODULE_DATA_IDENTITY_PLATFORM_ROLE_URL",
-            "identity_platform_role_client",
+            "yoao_identity_platform_role_client",
             PlatformRolePostgresData,
             "platform_role_policy",
         ),
@@ -394,7 +394,7 @@ async def test_public_invoker_helper_cannot_write_suspension_receipts():
             await owner.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO identity_suspension_client"
+                    "TO yoao_identity_suspension_client"
                 )
             )
         connection = await asyncpg.connect(_dsn())

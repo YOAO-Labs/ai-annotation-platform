@@ -54,7 +54,7 @@ class SqlAlchemyInputDatabase:
             async with self.db.begin_nested():
                 raw = await self.db.scalar(
                     text(
-                        f"SELECT aap_assets_v1.{operation}({', '.join(placeholders)})"
+                        f"SELECT yoao_assets_v1.{operation}({', '.join(placeholders)})"
                     ),
                     parameters,
                 )
@@ -244,7 +244,7 @@ async def attach_annotation_input_source(
     """Pin accepted evidence before consuming its PredictionMeta provenance."""
     result = await _call_pin_operation(
         db,
-        "SELECT aap_labeling_v1.attach_annotation_input_source(CAST(:annotation AS uuid), CAST(:input AS uuid), CAST(:sha256 AS text))",
+        "SELECT yoao_labeling_v1.attach_annotation_input_source(CAST(:annotation AS uuid), CAST(:input AS uuid), CAST(:sha256 AS text))",
         {"annotation": annotation_id, "input": input_id, "sha256": sha256},
         _PinAttachReceipt,
         {"annotation_id": annotation_id, "input_id": input_id, "sha256": sha256},
@@ -258,7 +258,7 @@ async def copy_annotation_input_sources(
     """Retain source evidence for sibling/derived rows in the original transaction."""
     result = await _call_pin_operation(
         db,
-        "SELECT aap_labeling_v1.copy_annotation_input_sources(CAST(:source AS uuid), CAST(:target AS uuid))",
+        "SELECT yoao_labeling_v1.copy_annotation_input_sources(CAST(:source AS uuid), CAST(:target AS uuid))",
         {"source": source_annotation_id, "target": target_annotation_id},
         _PinCopyReceipt,
         {

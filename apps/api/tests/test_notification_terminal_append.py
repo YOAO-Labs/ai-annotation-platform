@@ -389,7 +389,7 @@ async def test_terminal_append_interoperates_when_frozen_0214_writer_wins(
         await frozen.begin()
         frozen_id = await frozen.scalar(
             text(
-                "SELECT aap_notifications_v1.create_job_terminal_notification("
+                "SELECT yoao_notifications_v1.create_job_terminal_notification("
                 ":user_id, :job_id, 'completed', "
                 "CAST(:payload AS pg_catalog.jsonb))"
             ),
@@ -449,7 +449,7 @@ async def test_terminal_append_interoperates_when_python_writer_wins(
             async with maker() as db:
                 result = await db.scalar(
                     text(
-                        "SELECT aap_notifications_v1.create_job_terminal_notification("
+                        "SELECT yoao_notifications_v1.create_job_terminal_notification("
                         ":user_id, :job_id, 'completed', "
                         "CAST(:payload AS pg_catalog.jsonb))"
                     ),
@@ -522,7 +522,7 @@ async def test_terminal_sql_failure_preserves_job_transition(
     async def fail_in_sql(self, _request):
         try:
             return await self.session.scalar(
-                text("SELECT aap_notifications_v1.__missing_terminal_append_probe__()")
+                text("SELECT yoao_notifications_v1.__missing_terminal_append_probe__()")
             )
         except DBAPIError as exc:
             sqlstates.append(getattr(exc.orig, "sqlstate", None))

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from yoao_assets_video_inputs import selection as contract
+from tests.frozen_namespaces import historical
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql/0224_video_input_selection.sql"
@@ -23,7 +24,7 @@ def _migration():
 
 
 def test_video_selection_artifact_matches_portable_contract():
-    assert json.loads(SCHEMA.read_text()) == contract.contract_document()
+    assert json.loads(SCHEMA.read_text()) == historical(contract.contract_document())
     assert (
         json.loads(
             (
@@ -56,7 +57,7 @@ def test_video_selection_migration_installs_only_new_labeling_projections():
     for name, definition in contract.OPERATIONS.items():
         assert "aap_labeling_v1." + name in created
         assert contract.contract_document()["x-native"][name]["signature"].startswith(
-            "aap_labeling_v1."
+            "yoao_labeling_v1."
         )
 
 

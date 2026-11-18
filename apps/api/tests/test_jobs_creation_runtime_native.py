@@ -39,7 +39,7 @@ pytestmark = [
 ROOT = Path(__file__).resolve().parents[3]
 _CONSUMER_ROLE = "identity_api_consumer"
 _LAN_GRANTS = ROOT / "infra/docker/lan-production-grants.sql"
-_VIDEO_SUMMARY = "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)"
+_VIDEO_SUMMARY = "yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)"
 
 
 async def _lan_runtime(test_engine):
@@ -70,8 +70,8 @@ async def _assert_jobs_creation_privileges(engine) -> None:
                     "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','INSERT'),"
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE'),"
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE'),"
-                    "pg_catalog.has_table_privilege(current_user,'aap_jobs_v1.async_job_creation','SELECT'),"
-                    "pg_catalog.has_table_privilege(current_user,'aap_jobs_v1.async_job_creation','INSERT'),"
+                    "pg_catalog.has_table_privilege(current_user,'yoao_jobs_v1.async_job_creation','SELECT'),"
+                    "pg_catalog.has_table_privilege(current_user,'yoao_jobs_v1.async_job_creation','INSERT'),"
                     "pg_catalog.has_function_privilege(current_user,:summary,'EXECUTE')"
                 ),
                 {"summary": _VIDEO_SUMMARY},
@@ -97,7 +97,7 @@ async def _creation_view_row(connection, job_id: uuid.UUID):
                     "SELECT id,kind,project_id,retained_project_id,user_id,status,"
                     "progress_pct,payload,result,error_message,celery_task_id,"
                     "started_at,completed_at,created_at,updated_at "
-                    "FROM aap_jobs_v1.async_job_creation WHERE id=:id"
+                    "FROM yoao_jobs_v1.async_job_creation WHERE id=:id"
                 ),
                 {"id": job_id},
             )
@@ -192,7 +192,7 @@ async def test_lan_jobs_creation_facade_view_and_video_summary_preserve_transact
             with pytest.raises(DBAPIError) as rejected:
                 await connection.execute(
                     text(
-                        "INSERT INTO aap_jobs_v1.async_job_creation "
+                        "INSERT INTO yoao_jobs_v1.async_job_creation "
                         "(id,kind,status,progress_pct,payload,result) "
                         "VALUES (:id,'export','completed',100,'{}','{}')"
                     ),
@@ -427,7 +427,7 @@ async def test_local_runtime_reapplication_clears_async_job_column_insert(
                 assert await connection.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege(current_user,"
-                        "'aap_jobs_v1.async_job_creation','INSERT')"
+                        "'yoao_jobs_v1.async_job_creation','INSERT')"
                     )
                 )
                 assert await connection.scalar(

@@ -15,7 +15,7 @@ from tests.test_assets_catalog_native import _call, _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _READ_POSE_PAIRS = text(
-    "SELECT aap_assets_v1.read_spatial_pose_pairs(CAST(:pairs AS jsonb))"
+    "SELECT yoao_assets_v1.read_spatial_pose_pairs(CAST(:pairs AS jsonb))"
 )
 _SCENE_ID = "abcdefab-cdef-4abc-8def-abcdefabcdef"
 

@@ -393,7 +393,7 @@ def _verify_api_container(
         and observed_database_url.port == 5432
         and observed_database_url.database == database_url.database
         and observed_database_url.password == database_url.password
-        and observed_auth_url.username == "identity_auth_client"
+        and observed_auth_url.username == "yoao_identity_auth_client"
         and observed_auth_url.host == _POSTGRES_ALIAS
         and observed_auth_url.port == 5432
         and observed_auth_url.database == auth_url.database
@@ -518,7 +518,7 @@ asyncio.run(main())
         ) from None
     if not (
         payload.get("database_role") == "identity_api_consumer"
-        and payload.get("auth_role") == "identity_auth_client"
+        and payload.get("auth_role") == "yoao_identity_auth_client"
         and payload.get("database") == payload.get("auth_database")
         and payload.get("package_is_installed") is True
         and "/site-packages/" in payload.get("package_origin", "")
@@ -633,7 +633,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
     )
     auth_database_url = _role_url(
         "AAP_MODULE_DATA_IDENTITY_AUTH_URL",
-        "identity_auth_client",
+        "yoao_identity_auth_client",
         test_engine,
         internal_network=True,
     )
@@ -950,7 +950,9 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
         record_property("labeling_cold_api_image_identity", artifact["identity"])
         record_property("labeling_cold_api_source_revision", artifact["source_commit"])
         record_property("labeling_cold_api_database_role", "identity_api_consumer")
-        record_property("labeling_cold_api_identity_auth_role", "identity_auth_client")
+        record_property(
+            "labeling_cold_api_identity_auth_role", "yoao_identity_auth_client"
+        )
         record_property(
             "labeling_cold_api_package_origin", runtime_probe["package_origin"]
         )

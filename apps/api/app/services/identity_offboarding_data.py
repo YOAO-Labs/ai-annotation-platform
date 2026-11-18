@@ -39,7 +39,7 @@ class IdentityOffboardingCommandData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        f"SELECT aap_identity_offboarding_v1.{function}"
+                        f"SELECT yoao_identity_offboarding_v1.{function}"
                         "(CAST(:command AS jsonb))"
                     ),
                     {

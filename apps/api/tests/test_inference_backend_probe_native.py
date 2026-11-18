@@ -19,10 +19,10 @@ pytestmark = [
     ),
 ]
 
-_POLICY = "aap_inference_backend_probe_v1.backend_probe_policy()"
-_OPEN = "aap_inference_backend_probe_v1.open_backend_probe_subject"
-_WORKSPACE_BACKEND = "aap_inference_v1.workspace_configuration_backend"
-_KEY_TABLE = "aap_inference_backend_probe_v1.probe_secret"
+_POLICY = "yoao_inference_backend_probe_v1.backend_probe_policy()"
+_OPEN = "yoao_inference_backend_probe_v1.open_backend_probe_subject"
+_WORKSPACE_BACKEND = "yoao_inference_v1.workspace_configuration_backend"
+_KEY_TABLE = "yoao_inference_backend_probe_v1.probe_secret"
 
 
 def _owner_dsn(test_engine) -> str:
@@ -102,7 +102,7 @@ async def test_probe_subject_preserves_uncommitted_snapshot_and_rejects_rollback
 ):
     await assert_owned_test_database(test_engine)
     origin = await _connect(test_engine)
-    probe = await _connect(test_engine, role="inference_backend_probe_client")
+    probe = await _connect(test_engine, role="yoao_inference_backend_probe_client")
     registry_id = uuid.uuid4()
     original = {
         "id": str(registry_id),
@@ -142,8 +142,8 @@ async def test_probe_subject_preserves_uncommitted_snapshot_and_rejects_rollback
             "subject_protocol": "aap-inference-backend-probe-subject/v1",
             "origin_transaction": "in_progress",
             "functions": [
-                "aap_inference_backend_probe_v1.backend_probe_policy()",
-                "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+                "yoao_inference_backend_probe_v1.backend_probe_policy()",
+                "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
             ],
             "ready": True,
         }
@@ -197,7 +197,7 @@ async def test_probe_snapshot_does_not_lock_or_reread_rotated_registry(test_engi
         await seeder.close()
     origin = await _connect(test_engine)
     locker = await _connect(test_engine)
-    probe = await _connect(test_engine, role="inference_backend_probe_client")
+    probe = await _connect(test_engine, role="yoao_inference_backend_probe_client")
     origin_transaction = origin.transaction()
     locker_transaction = locker.transaction()
     origin_started = locker_started = False
@@ -260,7 +260,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
 ):
     await assert_owned_test_database(test_engine)
     connection = await _connect(test_engine)
-    probe = await _connect(test_engine, role="inference_backend_probe_client")
+    probe = await _connect(test_engine, role="yoao_inference_backend_probe_client")
     try:
         signatures = await connection.fetch(
             """SELECT namespace.nspname || '.' || function.proname || '(' ||
@@ -268,16 +268,16 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
                FROM pg_catalog.pg_proc AS function
                JOIN pg_catalog.pg_namespace AS namespace
                  ON namespace.oid = function.pronamespace
-               WHERE namespace.nspname = 'aap_inference_backend_probe_v1'
+               WHERE namespace.nspname = 'yoao_inference_backend_probe_v1'
                  AND function.prokind = 'f'
                  AND pg_catalog.has_function_privilege(
-                     'inference_backend_probe_client', function.oid, 'EXECUTE'
+                     'yoao_inference_backend_probe_client', function.oid, 'EXECUTE'
                  )
                ORDER BY signature"""
         )
         assert [row["signature"] for row in signatures] == [
-            "aap_inference_backend_probe_v1.backend_probe_policy()",
-            "aap_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)",
+            "yoao_inference_backend_probe_v1.backend_probe_policy()",
+            "yoao_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)",
         ]
         function_metadata = await connection.fetch(
             """SELECT namespace.nspname || '.' || function.proname || '(' ||
@@ -297,7 +297,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
                FROM pg_catalog.pg_proc AS function
                JOIN pg_catalog.pg_namespace AS namespace
                  ON namespace.oid = function.pronamespace
-               WHERE namespace.nspname = 'aap_inference_backend_probe_v1'
+               WHERE namespace.nspname = 'yoao_inference_backend_probe_v1'
                  AND function.prokind = 'f'
                ORDER BY signature"""
         )
@@ -312,7 +312,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
         assert (
             await connection.fetchval(
                 "SELECT pg_catalog.has_table_privilege("
-                "'inference_backend_probe_client', $1, 'SELECT')",
+                "'yoao_inference_backend_probe_client', $1, 'SELECT')",
                 _KEY_TABLE,
             )
             is False
@@ -320,7 +320,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
         assert (
             await connection.fetchval(
                 "SELECT pg_catalog.has_table_privilege("
-                "'inference_backend_probe_client', 'public.ml_backend_registry', 'SELECT')"
+                "'yoao_inference_backend_probe_client', 'public.ml_backend_registry', 'SELECT')"
             )
             is False
         )
@@ -328,7 +328,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
             await connection.fetchval(
                 "SELECT pg_catalog.has_function_privilege("
                 "'workspace_code', $1, 'EXECUTE')",
-                "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+                "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
             )
             is False
         )
@@ -354,21 +354,21 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
         assert (
             await connection.fetchval(
                 "SELECT pg_catalog.pg_has_role("
-                "'inference_backend_probe_client', 'inference_code', 'MEMBER')"
+                "'yoao_inference_backend_probe_client', 'inference_code', 'MEMBER')"
             )
             is False
         )
         assert (
             await connection.fetchval(
                 "SELECT pg_catalog.has_database_privilege("
-                "'inference_backend_probe_client', current_database(), 'CREATE')"
+                "'yoao_inference_backend_probe_client', current_database(), 'CREATE')"
             )
             is False
         )
         assert (
             await connection.fetchval(
                 "SELECT pg_catalog.has_database_privilege("
-                "'inference_backend_probe_client', current_database(), 'TEMP')"
+                "'yoao_inference_backend_probe_client', current_database(), 'TEMP')"
             )
             is False
         )
@@ -377,7 +377,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
             f"SELECT secret FROM {_KEY_TABLE}",
             "SELECT auth_token FROM public.ml_backend_registry LIMIT 1",
             "CREATE TEMP TABLE backend_probe_forbidden(id integer)",
-            "CREATE TABLE aap_inference_backend_probe_v1.forbidden(id integer)",
+            "CREATE TABLE yoao_inference_backend_probe_v1.forbidden(id integer)",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await probe.execute(statement)

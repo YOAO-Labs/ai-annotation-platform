@@ -221,8 +221,7 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                         f"GRANT UPDATE (name) ON {probe}.probe_rows TO {role}",
                         f"GRANT USAGE ON SEQUENCE {probe}.probe_seq TO {role}",
                         f"GRANT EXECUTE ON FUNCTION {probe}.probe_read() TO {role}",
-                        f"CREATE TABLE {neighbor}.probe_rows "
-                        "(id integer, name text)",
+                        f"CREATE TABLE {neighbor}.probe_rows (id integer, name text)",
                         f"GRANT USAGE ON SCHEMA {neighbor} TO {role}",
                     ],
                 )
@@ -230,9 +229,7 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     "assets_owner": "assets_code",
                     "asset_catalog_role": role,
                 }
-                before = await _catalog_state(
-                    owner_engine, role, probe, neighbor
-                )
+                before = await _catalog_state(owner_engine, role, probe, neighbor)
                 assert dict(before) == {
                     "usage": True,
                     "create": True,
@@ -345,10 +342,10 @@ async def _catalog_state(engine, role: str, probe: str, neighbor: str):
                 'SELECT,INSERT,UPDATE,REFERENCES'
             ) AS neighbor_column_access,
             pg_catalog.has_schema_privilege(
-                :role, 'aap_assets_v1', 'USAGE') AS approved_usage,
+                :role, 'yoao_assets_v1', 'USAGE') AS approved_usage,
             pg_catalog.has_function_privilege(
                 :role,
-                'aap_assets_v1.list_catalog_datasets'
+                'yoao_assets_v1.list_catalog_datasets'
                 '(uuid,text,text,boolean,integer,bigint)',
                 'EXECUTE') AS approved_function
         """,
@@ -380,7 +377,7 @@ async def test_audit_read_rejects_new_namespace_schema_usage(
                 [
                     f"GRANT USAGE ON SCHEMA {probe} TO {role}",
                     # A deficit the rejecting install would repair only on commit.
-                    f"REVOKE SELECT ON aap_audit_v1.audit_events FROM {role}",
+                    f"REVOKE SELECT ON yoao_audit_v1.audit_events FROM {role}",
                 ],
             )
             before = await _audit_state(owner_engine, role, probe)
@@ -403,9 +400,9 @@ async def test_audit_read_rejects_new_namespace_schema_usage(
             SELECT
                 pg_catalog.to_regnamespace(:probe) IS NULL AS probe_absent,
                 pg_catalog.has_schema_privilege(
-                    :role, 'aap_audit_v1', 'USAGE') AS audit_usage,
+                    :role, 'yoao_audit_v1', 'USAGE') AS audit_usage,
                 pg_catalog.has_table_privilege(
-                    :role, 'aap_audit_v1.audit_events', 'SELECT') AS audit_read
+                    :role, 'yoao_audit_v1.audit_events', 'SELECT') AS audit_read
             """,
             role=role,
             probe=probe,
@@ -425,9 +422,9 @@ async def _audit_state(engine, role: str, probe: str):
             pg_catalog.has_schema_privilege(
                 :role, :probe, 'USAGE') AS probe_usage,
             pg_catalog.has_schema_privilege(
-                :role, 'aap_audit_v1', 'USAGE') AS audit_usage,
+                :role, 'yoao_audit_v1', 'USAGE') AS audit_usage,
             pg_catalog.has_table_privilege(
-                :role, 'aap_audit_v1.audit_events', 'SELECT') AS audit_read
+                :role, 'yoao_audit_v1.audit_events', 'SELECT') AS audit_read
         """,
         role=role,
         probe=probe,
@@ -615,7 +612,7 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                     SELECT
                         pg_catalog.has_function_privilege(
                             :role,
-                            'aap_identity_v1.read_actor_facts(uuid)',
+                            'yoao_identity_v1.read_actor_facts(uuid)',
                             'EXECUTE') AS read_actor,
                         (
                             SELECT count(*)
@@ -657,7 +654,7 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
 async def test_identity_deactivation_classifies_new_namespace_as_module(
     owner_engine, migration_url
 ):
-    role = "identity_deactivation_client"
+    role = "yoao_identity_deactivation_client"
     probe = f"yoao_n5s_{_suffix()}_v1"
     function = f"{probe}.probe_policy()"
     variables = {
@@ -665,8 +662,8 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
         "audit_owner": "audit_code",
         "notifications_owner": "notifications_code",
         "identity_deactivation_role": role,
-        "identity_deactivation_operator_role": "identity_deactivation_operator",
-        "notification_publish_role": "notification_publish_client",
+        "identity_deactivation_operator_role": "yoao_identity_deactivation_operator",
+        "notification_publish_role": "yoao_notification_publish_client",
     }
     baseline = await _apply(
         migration_url, "identity-deactivation-grants.sql", variables
@@ -703,11 +700,11 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
             SELECT
                 pg_catalog.has_function_privilege(
                     :role,
-                    'aap_identity_deactivation_v1.deactivation_policy()',
+                    'yoao_identity_deactivation_v1.deactivation_policy()',
                     'EXECUTE') AS policy,
                 pg_catalog.has_function_privilege(
                     :role,
-                    'aap_identity_deactivation_v1'
+                    'yoao_identity_deactivation_v1'
                     '.execute_deactivation_command(jsonb)',
                     'EXECUTE') AS command
             """,
@@ -736,21 +733,16 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                 await _execute(
                     owner_engine,
                     [
-                        f"CREATE TABLE {lan_probe}.probe_rows "
-                        "(id integer, name text)",
+                        f"CREATE TABLE {lan_probe}.probe_rows (id integer, name text)",
                         f"CREATE SEQUENCE {lan_probe}.probe_seq",
                         f"GRANT USAGE, CREATE ON SCHEMA {lan_probe} TO {role}",
                         f"GRANT SELECT, INSERT, UPDATE "
                         f"ON {lan_probe}.probe_rows TO {role}",
-                        f"GRANT SELECT (name) "
-                        f"ON {lan_probe}.probe_rows TO {role}",
-                        f"GRANT USAGE ON SEQUENCE "
-                        f"{lan_probe}.probe_seq TO {role}",
+                        f"GRANT SELECT (name) ON {lan_probe}.probe_rows TO {role}",
+                        f"GRANT USAGE ON SEQUENCE {lan_probe}.probe_seq TO {role}",
                     ],
                 )
-                lan_before = await _lan_workspace_state(
-                    owner_engine, role, lan_probe
-                )
+                lan_before = await _lan_workspace_state(owner_engine, role, lan_probe)
                 assert dict(lan_before) == {
                     "create": True,
                     "table_access": True,
@@ -763,9 +755,7 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                     {"application_role": role, "asset_cleanup_role": cleanup},
                 )
                 assert lan.returncode == 0, lan.stderr
-                lan_after = await _lan_workspace_state(
-                    owner_engine, role, lan_probe
-                )
+                lan_after = await _lan_workspace_state(owner_engine, role, lan_probe)
                 assert dict(lan_after) == {
                     "create": False,
                     "table_access": False,
@@ -797,26 +787,21 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                                 f"ON {profile_probe}.probe_rows TO {role}",
                                 f"GRANT USAGE ON SEQUENCE "
                                 f"{profile_probe}.probe_seq TO {role}",
-                                f"GRANT EXECUTE ON FUNCTION {function} "
-                                f"TO {role}",
-                                f"CREATE TABLE {other_probe}.probe_rows "
-                                "(id integer)",
-                                f"GRANT USAGE ON SCHEMA {other_probe} "
-                                f"TO {role}",
-                                f"GRANT SELECT ON {other_probe}.probe_rows "
-                                f"TO {role}",
+                                f"GRANT EXECUTE ON FUNCTION {function} TO {role}",
+                                f"CREATE TABLE {other_probe}.probe_rows (id integer)",
+                                f"GRANT USAGE ON SCHEMA {other_probe} TO {role}",
+                                f"GRANT SELECT ON {other_probe}.probe_rows TO {role}",
                                 # Mirror the existing profile setup: broad
                                 # legacy grants that the profile must remove.
                                 f"GRANT SELECT(id), UPDATE(name) "
                                 f"ON public.projects TO {role}",
-                                f"GRANT SELECT ON aap_workspace_v1"
+                                f"GRANT SELECT ON yoao_workspace_v1"
                                 ".project_catalog_configs "
                                 f"TO {role}",
                                 f"GRANT EXECUTE ON FUNCTION "
-                                "aap_workspace_v1._project_delete_failure(text) "
+                                "yoao_workspace_v1._project_delete_failure(text) "
                                 f"TO {role}",
-                                f"GRANT CREATE ON SCHEMA aap_workspace_v1 "
-                                f"TO {role}",
+                                f"GRANT CREATE ON SCHEMA yoao_workspace_v1 TO {role}",
                             ],
                         )
                         before = await _workspace_state(
@@ -874,10 +859,10 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                             """
                             SELECT
                                 pg_catalog.has_schema_privilege(
-                                    :role, 'aap_workspace_v1',
+                                    :role, 'yoao_workspace_v1',
                                     'CREATE') AS create,
                                 pg_catalog.has_table_privilege(
-                                    :role, 'aap_workspace_v1.project_facts',
+                                    :role, 'yoao_workspace_v1.project_facts',
                                     'SELECT') AS facts_read,
                                 pg_catalog.has_table_privilege(
                                     :role, 'public.projects',
@@ -896,20 +881,14 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                         }
                         denied = await _psql(
                             migration_url,
-                            sql=(
-                                f"SELECT count(*) "
-                                f"FROM {profile_probe}.probe_rows;"
-                            ),
+                            sql=(f"SELECT count(*) FROM {profile_probe}.probe_rows;"),
                             username=role,
                             password=password,
                         )
                         _assert_insufficient_privilege(denied)
                         retained = await _psql(
                             migration_url,
-                            sql=(
-                                f"SELECT count(*) "
-                                f"FROM {other_probe}.probe_rows;"
-                            ),
+                            sql=(f"SELECT count(*) FROM {other_probe}.probe_rows;"),
                             username=role,
                             password=password,
                         )

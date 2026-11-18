@@ -432,7 +432,7 @@ async def _assert_sql_role_is_narrow(raw_url: str, username: str, table: str):
             await connection.rollback()
             with pytest.raises(DBAPIError) as denied_foreign:
                 await connection.execute(
-                    text("SELECT aap_identity_v1.read_actor_facts(NULL::uuid)")
+                    text("SELECT yoao_identity_v1.read_actor_facts(NULL::uuid)")
                 )
             assert getattr(denied_foreign.value.orig, "sqlstate", None) == "42501"
             await connection.rollback()
@@ -560,12 +560,12 @@ async def _delete_objects(client, bucket: str, prefixes: list[str]) -> None:
 async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tmp_path):
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     worker_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
-        "asset_media_worker_client",
+        "yoao_asset_media_worker_client",
         test_engine,
     )
     if not (
@@ -614,12 +614,12 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
 
     await _assert_sql_role_is_narrow(
         control_url.render_as_string(hide_password=False),
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         "public.dataset_items",
     )
     await _assert_sql_role_is_narrow(
         worker_url.render_as_string(hide_password=False),
-        "asset_media_worker_client",
+        "yoao_asset_media_worker_client",
         "public.asset_media_jobs",
     )
 

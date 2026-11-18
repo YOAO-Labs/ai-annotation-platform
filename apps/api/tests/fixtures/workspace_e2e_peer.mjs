@@ -42,14 +42,14 @@ try {
   }
   await client.query("BEGIN");
   const created = (
-    await client.query("SELECT aap_workspace_fixture_v1.create_project($1::jsonb) AS result", [
+    await client.query("SELECT yoao_workspace_fixture_v1.create_project($1::jsonb) AS result", [
       project,
     ])
   ).rows[0].result;
   assert.equal(created, project.id);
   const row = (
     await client.query(
-      "SELECT name,scene_mode,tool_bindings FROM aap_workspace_v1.project_facts WHERE id=$1",
+      "SELECT name,scene_mode,tool_bindings FROM yoao_workspace_v1.project_facts WHERE id=$1",
       [project.id],
     )
   ).rows[0];
@@ -60,7 +60,7 @@ try {
   });
   assert.equal(
     (
-      await client.query("SELECT aap_workspace_fixture_v1.create_templates($1::jsonb) AS result", [
+      await client.query("SELECT yoao_workspace_fixture_v1.create_templates($1::jsonb) AS result", [
         JSON.stringify([template]),
       ])
     ).rows[0].result,
@@ -68,7 +68,7 @@ try {
   );
   await client.query("SAVEPOINT invalid_record");
   await assert.rejects(
-    client.query("SELECT aap_workspace_fixture_v1.create_project($1::jsonb)", [
+    client.query("SELECT yoao_workspace_fixture_v1.create_project($1::jsonb)", [
       { ...project, unexpected: true },
     ]),
     { code: "22023" },
@@ -77,7 +77,7 @@ try {
   assert.deepEqual(
     (
       await client.query(
-        "SELECT aap_workspace_fixture_v1.guard_project_cleanup($1::uuid[]) AS result",
+        "SELECT yoao_workspace_fixture_v1.guard_project_cleanup($1::uuid[]) AS result",
         [[project.id]],
       )
     ).rows[0].result,
@@ -85,7 +85,7 @@ try {
   );
   assert.equal(
     (
-      await client.query("SELECT aap_workspace_fixture_v1.delete_projects($1::uuid[]) AS result", [
+      await client.query("SELECT yoao_workspace_fixture_v1.delete_projects($1::uuid[]) AS result", [
         [project.id],
       ])
     ).rows[0].result,
@@ -94,21 +94,21 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_workspace_fixture_v1.delete_templates(false,$1::text[]) AS result",
+        "SELECT yoao_workspace_fixture_v1.delete_templates(false,$1::text[]) AS result",
         [[template.display_id]],
       )
     ).rows[0].result,
     1,
   );
   const rollbackProject = { ...project, id: randomUUID() };
-  await client.query("SELECT aap_workspace_fixture_v1.create_project($1::jsonb)", [
+  await client.query("SELECT yoao_workspace_fixture_v1.create_project($1::jsonb)", [
     rollbackProject,
   ]);
   await client.query("ROLLBACK");
   assert.equal(
     (
       await client.query(
-        "SELECT count(*)::int AS count FROM aap_workspace_v1.project_facts WHERE id=$1",
+        "SELECT count(*)::int AS count FROM yoao_workspace_v1.project_facts WHERE id=$1",
         [rollbackProject.id],
       )
     ).rows[0].count,
@@ -117,7 +117,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT count(*)::int AS count FROM aap_workspace_v1.project_facts WHERE id=$1",
+        "SELECT count(*)::int AS count FROM yoao_workspace_v1.project_facts WHERE id=$1",
         [project.id],
       )
     ).rows[0].count,
@@ -126,7 +126,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT count(*)::int AS count FROM aap_workspace_fixture_v1.templates WHERE id=$1",
+        "SELECT count(*)::int AS count FROM yoao_workspace_fixture_v1.templates WHERE id=$1",
         [template.id],
       )
     ).rows[0].count,

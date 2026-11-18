@@ -124,7 +124,7 @@ async def test_existing_job_cannot_be_adopted_and_birth_cannot_be_forged(worker_
             await db.execute(insert, {**scope, "born": True})
     assert await db.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope(id,kind,payload,project_id,user_id) "
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope(id,kind,payload,project_id,user_id) "
             "FROM public.async_jobs WHERE id=:id"
         ),
         {"id": job.id},
@@ -230,7 +230,7 @@ async def test_retained_job_id_cannot_be_reused_by_jobs_owner_update(worker_db):
             )
     value = await db.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope(id,kind,payload,project_id,user_id) "
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope(id,kind,payload,project_id,user_id) "
             "FROM public.async_jobs WHERE id=:id"
         ),
         {"id": other},
@@ -403,10 +403,13 @@ async def test_fixed_snapshot_admission_and_cleanup_fail_closed(worker_db):
             published=True,
         )
         await ownership.seal(registration, run_id, family="scale")
-        assert await registration.scalar(
-            text("SELECT aap_assets_v1.seal_fixture_run_without_media(:run)"),
-            {"run": run_id},
-        ) is True
+        assert (
+            await registration.scalar(
+                text("SELECT yoao_assets_v1.seal_fixture_run_without_media(:run)"),
+                {"run": run_id},
+            )
+            is True
+        )
         await ownership.guard_dataset_jobs(registration, [dataset.id])
         await registration.commit()
         with pytest.raises(ContentError, match="image_export_isolation_unsupported"):
@@ -439,7 +442,7 @@ async def test_fixed_snapshot_admission_and_cleanup_fail_closed(worker_db):
             async with snapshot.begin_nested():
                 await snapshot.execute(
                     text(
-                        "SELECT aap_jobs_v1.guard_fixture_dataset_jobs(CAST(:ids AS uuid[]))"
+                        "SELECT yoao_jobs_v1.guard_fixture_dataset_jobs(CAST(:ids AS uuid[]))"
                     ),
                     {"ids": [dataset.id]},
                 )

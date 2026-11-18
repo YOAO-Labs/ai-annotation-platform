@@ -29,7 +29,7 @@ from tests.test_project_owned_cleanup_contract import _seed as _seed_base
 pytestmark = pytest.mark.asyncio
 
 _DELETE_PROJECT = text(
-    "SELECT aap_workspace_v1.delete_project("
+    "SELECT yoao_workspace_v1.delete_project("
     ":operation_id, :actor_id, :project_id, CAST(:audit_context AS jsonb))"
 ).bindparams(
     bindparam("operation_id", type_=PGUUID(as_uuid=True)),
@@ -774,7 +774,7 @@ async def test_scoped_client_deletes_only_through_project_delete_coordinator(
     role, target = make_url(role_url), test_engine.url
     if (
         role.drivername != "postgresql+asyncpg"
-        or role.username != "append_client"
+        or role.username != "yoao_append_client"
         or role.host != target.host
         or role.port != target.port
         or role.database != target.database
@@ -788,11 +788,13 @@ async def test_scoped_client_deletes_only_through_project_delete_coordinator(
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with engine.connect() as client:
-            assert await client.scalar(text("SELECT current_user")) == "append_client"
+            assert (
+                await client.scalar(text("SELECT current_user")) == "yoao_append_client"
+            )
             for private in (
                 "SELECT id FROM public.projects LIMIT 1",
-                "SELECT aap_labeling_v1.delete_project_owned_records(CAST(:id AS uuid))",
-                "SELECT aap_identity_v1.lock_audit_actor(CAST(:id AS uuid))",
+                "SELECT yoao_labeling_v1.delete_project_owned_records(CAST(:id AS uuid))",
+                "SELECT yoao_identity_v1.lock_audit_actor(CAST(:id AS uuid))",
             ):
                 with pytest.raises(DBAPIError) as denied:
                     await client.execute(text(private), {"id": fixture["project_id"]})
@@ -839,7 +841,7 @@ async def test_scoped_client_deletes_only_through_project_delete_coordinator(
             input="""\
 BEGIN;
 SELECT current_user || '|' || session_user;
-SELECT aap_workspace_v1.delete_project(
+SELECT yoao_workspace_v1.delete_project(
     :'operation_id'::uuid, :'actor_id'::uuid, :'project_id'::uuid, NULL::jsonb);
 COMMIT;
 """,
@@ -851,7 +853,7 @@ COMMIT;
         )
         assert native.returncode == 0, "native scoped project-deletion replay failed"
         identity, frozen = native.stdout.splitlines()
-        assert identity == "append_client|append_client"
+        assert identity == "yoao_append_client|yoao_append_client"
         assert json.loads(frozen) == result
         async with maker() as owner:
             assert all(count == 0 for count in (await _counts(owner, fixture)).values())

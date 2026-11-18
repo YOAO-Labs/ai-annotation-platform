@@ -18,15 +18,15 @@ from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _READ_TASK = text(
-    "SELECT aap_labeling_v1.read_video_input_task_source("
+    "SELECT yoao_labeling_v1.read_video_input_task_source("
     "CAST(:task_id AS uuid),CAST(:actor_id AS uuid))"
 )
 _LOCK_TASK = text(
-    "SELECT aap_labeling_v1.lock_video_input_task_source("
+    "SELECT yoao_labeling_v1.lock_video_input_task_source("
     "CAST(:task_id AS uuid),CAST(:actor_id AS uuid),CAST(:expected_binding AS jsonb))"
 )
 _PROJECT_JOB = text(
-    "SELECT aap_jobs_v1.project_video_input_job("
+    "SELECT yoao_jobs_v1.project_video_input_job("
     "CAST(:job_id AS uuid),CAST(:task_id AS uuid),CAST(:actor_id AS uuid),"
     "CAST(:project_id AS uuid),CAST(:selection AS jsonb),"
     "CAST(:selection_digest AS text),CAST(:require_active AS boolean))"

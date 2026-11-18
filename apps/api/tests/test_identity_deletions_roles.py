@@ -22,7 +22,7 @@ def _dsn() -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_deletion_client"
+    assert parsed.username == "yoao_identity_deletion_client"
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -31,7 +31,7 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
     connection = await asyncpg.connect(_dsn())
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "identity_deletion_client"
+            "yoao_identity_deletion_client"
         )
         rows = await connection.fetch(
             """
@@ -58,7 +58,7 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
                     AND dependency.deptype = 'e'
               )
               AND (
-                  pg_catalog.left(namespace.nspname,4)='aap_'
+                  (pg_catalog.left(namespace.nspname,4)='aap_' OR pg_catalog.left(namespace.nspname,5)='yoao_')
                   OR function.prosecdef
                   OR EXISTS (
                       SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
@@ -79,16 +79,16 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
             """
         )
         assert [row["signature"] for row in rows] == [
-            "aap_identity_deletions_v1.deletion_policy()",
-            "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
+            "yoao_identity_deletions_v1.deletion_policy()",
+            "yoao_identity_deletions_v1.execute_deletion_command(jsonb)",
         ]
         assert await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_deletions_v1', 'USAGE')"
+            "'yoao_identity_deletions_v1', 'USAGE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_deletions_v1', 'CREATE')"
+            "'yoao_identity_deletions_v1', 'CREATE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')"
@@ -103,7 +103,7 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
                 WHERE namespace.nspname NOT IN (
                     'pg_catalog','information_schema',
-                    'aap_identity_deletions_v1','public'
+                    'yoao_identity_deletions_v1','public'
                 )
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -164,7 +164,7 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
         )
 
         policy = await connection.fetchval(
-            "SELECT aap_identity_deletions_v1.deletion_policy()"
+            "SELECT yoao_identity_deletions_v1.deletion_policy()"
         )
         assert json.loads(policy) == {
             "schema": "aap-identity-deletions-policy/v1",
@@ -172,7 +172,7 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
         }
         for value in (None, "null", "[]", "1", '"scalar"', "{}"):
             result = await connection.fetchval(
-                "SELECT aap_identity_deletions_v1.execute_deletion_command($1::jsonb)",
+                "SELECT yoao_identity_deletions_v1.execute_deletion_command($1::jsonb)",
                 value,
             )
             assert json.loads(result) == {
@@ -190,9 +190,9 @@ async def test_identity_deletion_login_has_only_its_two_functions_and_no_raw_acc
             "SELECT * FROM public.tasks LIMIT 1",
             "SELECT * FROM public.task_locks LIMIT 1",
             "SELECT * FROM public.identity_deletion_operation_receipts LIMIT 1",
-            "SELECT aap_workspace_v1.lock_identity_deletion_scope(NULL::uuid,NULL::uuid)",
-            "SELECT aap_labeling_v1.identity_deletion_work(NULL::uuid)",
-            "SELECT aap_audit_v1.record_identity_deletion_event('{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb)",
+            "SELECT yoao_workspace_v1.lock_identity_deletion_scope(NULL::uuid,NULL::uuid)",
+            "SELECT yoao_labeling_v1.identity_deletion_work(NULL::uuid)",
+            "SELECT yoao_audit_v1.record_identity_deletion_event('{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb)",
             "CREATE TEMP TABLE deletion_forbidden(id integer)",
             "SET ROLE identity_code",
         )
@@ -222,7 +222,7 @@ async def test_deletion_policy_rejects_an_extra_security_definer_function():
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO identity_deletion_client"
+                    "TO yoao_identity_deletion_client"
                 )
             )
 
@@ -262,7 +262,7 @@ async def test_public_invoker_cannot_write_deletion_receipts():
             await owner.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO identity_deletion_client"
+                    "TO yoao_identity_deletion_client"
                 )
             )
 

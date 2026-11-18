@@ -110,7 +110,7 @@ def _request(
 async def _execute(session: AsyncSession, request: dict | list | str | None) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_sessions_v1.execute_session_command(CAST(:request AS jsonb))"
+            "SELECT yoao_identity_sessions_v1.execute_session_command(CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(request)},
     )
@@ -172,13 +172,14 @@ def test_frozen_native_session_artifacts_and_receipt_owner_grants():
     assert "identity_session_operation_receipts" in native_schema
     assert "request_scope, result, audit_id" in module_grants
     assert "record_identity_session_event" in module_grants
-    assert "identity_session_role=identity_session_client" in session_grants
-    assert session_grants.count("aap_identity_sessions_v1.session_policy()") == 2
+    assert "identity_session_role=yoao_identity_session_client" in session_grants
+    assert session_grants.count("yoao_identity_sessions_v1.session_policy()") == 2
     assert (
-        session_grants.count("aap_identity_sessions_v1.read_login_candidate(text)") == 2
+        session_grants.count("yoao_identity_sessions_v1.read_login_candidate(text)")
+        == 2
     )
     assert (
-        session_grants.count("aap_identity_sessions_v1.execute_session_command(jsonb)")
+        session_grants.count("yoao_identity_sessions_v1.execute_session_command(jsonb)")
         == 2
     )
     assert "identity_auth_role" not in session_grants
@@ -206,7 +207,7 @@ async def test_login_receipt_rollback_and_replay_never_rewinds_user_or_audit(
                 {"id": fixture["actor_id"]},
             )
             candidate = await session.scalar(
-                text("SELECT aap_identity_sessions_v1.read_login_candidate(:email)"),
+                text("SELECT yoao_identity_sessions_v1.read_login_candidate(:email)"),
                 {"email": email},
             )
             assert candidate["item"] == {
@@ -761,7 +762,7 @@ async def test_login_checks_password_before_inactive_and_verification_gates(
                 {"id": fixture["actor_id"]},
             )
             candidate = await session.scalar(
-                text("SELECT aap_identity_sessions_v1.read_login_candidate(:email)"),
+                text("SELECT yoao_identity_sessions_v1.read_login_candidate(:email)"),
                 {"email": email},
             )
             assert candidate["item"]["actor_id"] == str(fixture["actor_id"])

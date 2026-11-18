@@ -30,19 +30,19 @@ pytestmark = [
 
 def _psql_peer(scope, claim, read):
     url = make_url(os.environ["AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"])
-    assert url.username == "preannotation_result_client"
+    assert url.username == "yoao_preannotation_result_client"
     _verify_postgres(url)
     environment = {**os.environ, "PGPASSWORD": url.password or ""}
     sql = r"""
 BEGIN;
 SELECT current_user || '|' || session_user || '|' || current_database();
-SELECT aap_jobs_v1.claim_batch_result_execution(:'claim'::jsonb) AS claimed \gset
+SELECT yoao_jobs_v1.claim_batch_result_execution(:'claim'::jsonb) AS claimed \gset
 SELECT :'claimed';
-SELECT aap_jobs_v1.read_batch_result_execution(
+SELECT yoao_jobs_v1.read_batch_result_execution(
     :'scope'::jsonb || '{"after_ordinal":0,"limit":100}'::jsonb
 );
-SELECT aap_labeling_v1.read_batch_result(:'read'::jsonb);
-SELECT aap_jobs_v1.release_batch_result_execution(
+SELECT yoao_labeling_v1.read_batch_result(:'read'::jsonb);
+SELECT yoao_jobs_v1.release_batch_result_execution(
     :'scope'::jsonb || pg_catalog.jsonb_build_object(
         'generation', (:'claimed'::jsonb) #> '{data,lease,generation}',
         'lease_token', (:'claimed'::jsonb) #> '{data,lease,lease_token}'
@@ -111,7 +111,7 @@ async def test_native_peer_takes_over_saved_results_without_changing_write_ident
         lines, database = await asyncio.to_thread(_psql_peer, scope, claim, read)
         assert (
             lines[0]
-            == f"preannotation_result_client|preannotation_result_client|{database}"
+            == f"yoao_preannotation_result_client|yoao_preannotation_result_client|{database}"
         )
         assert len(lines) == 5
         claimed = c.decode_reply(

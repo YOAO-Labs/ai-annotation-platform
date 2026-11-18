@@ -110,9 +110,11 @@ async def test_private_table_and_column_grants_stay_closed_on_reapplication(
             {row[0] for row in rows}
         )
         assert all(not table and not column for _, table, column in rows), rows
-        await db.execute(text("SELECT * FROM aap_identity_v1.account_profiles LIMIT 0"))
         await db.execute(
-            text("SELECT * FROM aap_identity_fixture_v1.account_profiles LIMIT 0")
+            text("SELECT * FROM yoao_identity_v1.account_profiles LIMIT 0")
+        )
+        await db.execute(
+            text("SELECT * FROM yoao_identity_fixture_v1.account_profiles LIMIT 0")
         )
     for sql in (
         "SELECT password_hash FROM users LIMIT 0",

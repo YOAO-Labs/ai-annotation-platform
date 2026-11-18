@@ -48,7 +48,7 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
     dsn = _dsn(
         test_engine,
         "AAP_MODULE_DATA_LABELING_EDITING_URL",
-        "labeling_editing_client",
+        "yoao_labeling_editing_client",
     )
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_ids, project_ids, task_ids = [], [], []
@@ -109,13 +109,13 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert (
             await connection.fetchval("SELECT current_user")
-            == "labeling_editing_client"
+            == "yoao_labeling_editing_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions=_EDITING_FUNCTIONS,
-            role="labeling_editing_client",
+            role="yoao_labeling_editing_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.annotations LIMIT 1")
@@ -127,7 +127,7 @@ async def test_function_only_bulk_edit_preserves_transaction_and_attribute_evide
 
         async def execute(request_json):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_bulk_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_bulk_command($1::jsonb)",
                 request_json,
             )
 

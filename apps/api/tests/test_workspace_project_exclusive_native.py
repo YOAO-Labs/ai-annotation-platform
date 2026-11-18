@@ -55,7 +55,7 @@ pytestmark = [
 
 def _configure_api_auth(test_engine, monkeypatch):
     auth = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_AUTH_URL"])
-    assert auth.username == "identity_auth_client"
+    assert auth.username == "yoao_identity_auth_client"
     assert (auth.host, auth.port, auth.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -80,22 +80,22 @@ async def test_api_login_has_only_explicit_public_lock_and_same_transaction(
             assert (
                 await metadata.execute(
                     text(
-                        "SELECT pg_get_userbyid(proowner),prosecdef FROM pg_proc WHERE oid='aap_workspace_v1.lock_project_row(uuid,boolean)'::regprocedure"
+                        "SELECT pg_get_userbyid(proowner),prosecdef FROM pg_proc WHERE oid='yoao_workspace_v1.lock_project_row(uuid,boolean)'::regprocedure"
                     )
                 )
             ).one() == ("workspace_code", True)
             for role, expected in (
                 ("identity_api_consumer", True),
                 ("legacy_runtime", True),
-                ("append_client", False),
-                ("workspace_project_deletion_client", False),
-                ("workspace_project_maintenance_client", False),
-                ("workspace_configuration_client", False),
+                ("yoao_append_client", False),
+                ("yoao_workspace_project_deletion_client", False),
+                ("yoao_workspace_project_maintenance_client", False),
+                ("yoao_workspace_configuration_client", False),
             ):
                 assert (
                     await metadata.scalar(
                         text(
-                            "SELECT has_function_privilege(:role,'aap_workspace_v1.lock_project_row(uuid,boolean)','EXECUTE')"
+                            "SELECT has_function_privilege(:role,'yoao_workspace_v1.lock_project_row(uuid,boolean)','EXECUTE')"
                         ),
                         {"role": role},
                     )
@@ -103,7 +103,7 @@ async def test_api_login_has_only_explicit_public_lock_and_same_transaction(
                 )
             assert not await metadata.scalar(
                 text(
-                    "SELECT EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='aap_workspace_v1.lock_project_row(uuid,boolean)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')"
+                    "SELECT EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='yoao_workspace_v1.lock_project_row(uuid,boolean)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')"
                 )
             )
         async with api() as db:
@@ -181,7 +181,7 @@ async def test_bad_lock_scope_rolls_back_prior_caller_write(test_engine, monkeyp
 
                 async def wrong_scope(statement, *args, **kwargs):
                     raw = await scalar(statement, *args, **kwargs)
-                    if "aap_workspace_v1.lock_project_row" in str(statement):
+                    if "yoao_workspace_v1.lock_project_row" in str(statement):
                         return {**raw, "project_id": str(uuid.uuid4())}
                     return raw
 
@@ -211,7 +211,7 @@ async def test_null_native_arguments_remain_database_errors(test_engine, null_id
             with pytest.raises(DBAPIError) as caught:
                 await db.scalar(
                     text(
-                        "SELECT aap_workspace_v1.lock_project_row(CAST(:id AS uuid),CAST(:nowait AS boolean))"
+                        "SELECT yoao_workspace_v1.lock_project_row(CAST(:id AS uuid),CAST(:nowait AS boolean))"
                     ),
                     {
                         "id": None if null_id else world["project_id"],
@@ -253,7 +253,7 @@ async def test_waiting_mode_preserves_snapshot_isolation_serialization_error(
             await db.execute(text(f"SET TRANSACTION ISOLATION LEVEL {isolation}"))
             await db.scalar(
                 text(
-                    "SELECT aap_workspace_v1.project_access_step(CAST(:actor AS uuid),CAST(:project AS uuid),'read_project_row')"
+                    "SELECT yoao_workspace_v1.project_access_step(CAST(:actor AS uuid),CAST(:project AS uuid),'read_project_row')"
                 ),
                 {"actor": world["member_id"], "project": world["project_id"]},
             )
@@ -411,7 +411,7 @@ async def test_waiting_native_snapshot_includes_the_committed_counter_update(
             pending = asyncio.create_task(
                 db.scalar(
                     text(
-                        "SELECT aap_workspace_v1.lock_project_row(CAST(:id AS uuid),false)"
+                        "SELECT yoao_workspace_v1.lock_project_row(CAST(:id AS uuid),false)"
                     ),
                     {"id": world["project_id"]},
                 )

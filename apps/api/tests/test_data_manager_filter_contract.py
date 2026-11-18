@@ -91,17 +91,17 @@ def test_feedback_filter_correlates_to_the_public_task_row(field, value):
         compile_filter({"field": field, "op": "eq", "value": value})
     )
     sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "FROM aap_labeling_v1.annotation_feedback_facts" in sql
-    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" in sql
-    assert "FROM aap_labeling_v1.annotation_feedback_facts, " not in sql
+    assert "FROM yoao_labeling_v1.annotation_feedback_facts" in sql
+    assert "annotation_feedback_facts.task_id = yoao_labeling_v1.task_rows.id" in sql
+    assert "FROM yoao_labeling_v1.annotation_feedback_facts, " not in sql
     assert "public.annotation_feedbacks" not in sql
 
 
 def test_activity_feedback_read_correlates_to_the_public_task_row():
     statement = select(task_row.id, _last_activity_at_expr())
     sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" in sql
-    assert "FROM aap_labeling_v1.annotation_feedback_facts, " not in sql
+    assert "annotation_feedback_facts.task_id = yoao_labeling_v1.task_rows.id" in sql
+    assert "FROM yoao_labeling_v1.annotation_feedback_facts, " not in sql
     assert "public.annotation_feedbacks" not in sql
 
 
@@ -131,11 +131,13 @@ def test_issue_filter_correlates_to_the_current_annotation(field, use_alias):
         {"field": field, "op": "gt", "value": 0}, entity, project=_project()
     )
     sql = str(select(entity.id).where(condition).compile(dialect=postgresql.dialect()))
-    table = "candidate" if use_alias else "aap_labeling_v1.annotation_rows"
+    table = "candidate" if use_alias else "yoao_labeling_v1.annotation_rows"
     assert f"annotation_feedback_facts.annotation_id = {table}.id" in sql
-    assert "FROM aap_labeling_v1.annotation_rows" in sql
-    assert "FROM aap_labeling_v1.annotation_feedback_facts" in sql
-    assert "annotation_feedback_facts.task_id = aap_labeling_v1.task_rows.id" not in sql
+    assert "FROM yoao_labeling_v1.annotation_rows" in sql
+    assert "FROM yoao_labeling_v1.annotation_feedback_facts" in sql
+    assert (
+        "annotation_feedback_facts.task_id = yoao_labeling_v1.task_rows.id" not in sql
+    )
 
 
 @pytest.mark.parametrize("compiler", [compile_filter, compile_entity_filter])

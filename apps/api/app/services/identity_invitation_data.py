@@ -39,7 +39,7 @@ class IdentityInvitationCommandData:
         raw = _json_value(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_invitations_v1.prepare_invitation_command("
+                    "SELECT yoao_identity_invitations_v1.prepare_invitation_command("
                     "CAST(:command AS jsonb))"
                 ),
                 {"command": command.model_dump_json(by_alias=True)},
@@ -53,7 +53,7 @@ class IdentityInvitationCommandData:
         raw = _json_value(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_invitations_v1.apply_invitation_command("
+                    "SELECT yoao_identity_invitations_v1.apply_invitation_command("
                     "CAST(:command AS jsonb))"
                 ),
                 {"command": command.model_dump_json(by_alias=True)},

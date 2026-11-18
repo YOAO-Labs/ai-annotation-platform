@@ -13,14 +13,14 @@ const schema = "aap-workspace-project-maintenance/v1";
 const displayId = `P-NU-${randomUUID().slice(0, 10)}`;
 const projectId = randomUUID();
 const lookup = async () =>
-  (await client.query("SELECT aap_workspace_v1.read_import_project($1) AS reply", [displayId]))
+  (await client.query("SELECT yoao_workspace_v1.read_import_project($1) AS reply", [displayId]))
     .rows[0].reply;
 
 try {
   await client.connect();
   assert.equal(
     (await client.query("SELECT current_user AS role")).rows[0].role,
-    "workspace_project_maintenance_client",
+    "yoao_workspace_project_maintenance_client",
   );
   assert.deepEqual(await lookup(), {
     schema,
@@ -30,7 +30,7 @@ try {
   await client.query("BEGIN");
   const created = (
     await client.query(
-      "SELECT aap_workspace_v1.create_import_project($1,$2,$3,$4,$5::jsonb) AS reply",
+      "SELECT yoao_workspace_v1.create_import_project($1,$2,$3,$4,$5::jsonb) AS reply",
       [projectId, displayId, "Node 项目", input.owner_id, { lidar_box_3d: {} }],
     )
   ).rows[0].reply;
@@ -38,7 +38,7 @@ try {
   assert.deepEqual(await lookup(), created);
   const written = (
     await client.query(
-      "SELECT aap_workspace_v1.write_point_cloud_quality_config($1,$2::jsonb) AS reply",
+      "SELECT yoao_workspace_v1.write_point_cloud_quality_config($1,$2::jsonb) AS reply",
       [input.project_id, { config_revision: 2 }],
     )
   ).rows[0].reply;

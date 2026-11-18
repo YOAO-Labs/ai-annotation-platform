@@ -59,7 +59,7 @@ async def test_video_bbox_owner_is_transactional_and_fences_sources(test_engine)
     dsn = _dsn(
         test_engine,
         "AAP_MODULE_DATA_LABELING_EDITING_URL",
-        "labeling_editing_client",
+        "yoao_labeling_editing_client",
     )
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_ids: list[uuid.UUID] = []
@@ -118,20 +118,20 @@ async def test_video_bbox_owner_is_transactional_and_fences_sources(test_engine)
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert (
             await connection.fetchval("SELECT current_user")
-            == "labeling_editing_client"
+            == "yoao_labeling_editing_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions=_FUNCTIONS,
-            role="labeling_editing_client",
+            role="yoao_labeling_editing_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.annotations LIMIT 1")
 
         async def execute(request_json):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.video_bbox_editing_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.video_bbox_editing_command($1::jsonb)",
                 request_json,
             )
 

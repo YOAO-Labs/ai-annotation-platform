@@ -517,7 +517,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
                 max_rows=MAX_PREDICTIONS,
                 lock=lock,
                 lock_query=core_reads.lock_ids(
-                    func.aap_labeling_v1.lock_prediction_rows_for_core_read_share(
+                    func.yoao_labeling_v1.lock_prediction_rows_for_core_read_share(
                         project_id, identities, MAX_PREDICTIONS + 1
                     )
                 ),
@@ -572,7 +572,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
                 max_rows=MAX_ANNOTATIONS,
                 lock=lock,
                 lock_query=core_reads.lock_ids(
-                    func.aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(
+                    func.yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(
                         list(track_ids), MAX_ANNOTATIONS + 1
                     )
                 ),

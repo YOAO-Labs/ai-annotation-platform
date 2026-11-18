@@ -24,7 +24,7 @@ SQL = ROOT / "apps/api/alembic/sql/0229_mask_gc.sql"
 
 async def _native_call(db, operation: str, payload: dict):
     result = await db.execute(
-        text(f"SELECT aap_labeling_v1.{operation}(CAST(:payload AS jsonb))"),
+        text(f"SELECT yoao_labeling_v1.{operation}(CAST(:payload AS jsonb))"),
         {"payload": json.dumps(payload)},
     )
     return result.scalar_one()
@@ -182,7 +182,7 @@ async def test_terminal_epoch_rejects_stale_root_and_allows_live_root_copy(
     db_session.add(source)
     await db_session.flush()
     await db_session.execute(
-        text("SELECT set_config('aap.mask_gc_write_permit', '', true)")
+        text("SELECT set_config('yoao.mask_gc_write_permit', '', true)")
     )
     copied = _annotation(task, user.id, key)
     db_session.add(copied)

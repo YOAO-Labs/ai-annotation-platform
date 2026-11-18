@@ -18,7 +18,7 @@ from yoao_inference.registry_ingress import RegistrySeedFacts
 from yoao_inference_contract.topology import PoolFacts
 from app.db.models.ml_backend_registry import MLBackendRegistry
 
-_NATIVE = "aap_inference_registry_ingress_v1."
+_NATIVE = "yoao_inference_registry_ingress_v1."
 _STAGES = "aap_inference_registry_ingress_stages"
 _BASELINES = "aap_inference_registry_ingress_extra_baselines"
 _SEED_IDENTITY_FIELDS = (
@@ -29,13 +29,13 @@ _SEED_BY_URL = text(
     "SELECT "
     + _SEED_IDENTITY_FIELDS
     + " FROM "
-    + "aap_inference_topology_v1.seed_registry_by_url(:url)"
+    + "yoao_inference_topology_v1.seed_registry_by_url(:url)"
 )
 _SEED_CREATE = text(
     "SELECT "
     + _SEED_IDENTITY_FIELDS
     + " FROM "
-    + "aap_inference_topology_v1.create_seed_registry(:registry_id,:name,:url,:marker)"
+    + "yoao_inference_topology_v1.create_seed_registry(:registry_id,:name,:url,:marker)"
 )
 
 

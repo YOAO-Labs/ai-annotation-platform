@@ -49,7 +49,7 @@ from app.services.labeling_core_read_relations import (
     video_tracker_job_row,
 )
 
-_COMMAND = text("SELECT aap_labeling_v1.e2e_fixture_command(CAST(:request AS jsonb))")
+_COMMAND = text("SELECT yoao_labeling_v1.e2e_fixture_command(CAST(:request AS jsonb))")
 _FILTERING_RENDER = text(
     f"SELECT {LABELING_E2E_FILTERING_RENDER_FUNCTION}(CAST(:request AS jsonb))"
 )

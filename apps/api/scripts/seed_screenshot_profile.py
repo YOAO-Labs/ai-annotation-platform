@@ -1086,7 +1086,7 @@ async def finalize_screenshot_seed_timestamps(
 async def _screenshot_output_receipt(db, run_id, dataset, item, key):
     return await db.scalar(
         text(
-            "SELECT aap_assets_v1.fixture_screenshot_output_receipt("
+            "SELECT yoao_assets_v1.fixture_screenshot_output_receipt("
             ":run, :dataset, :item, :key)"
         ),
         {
@@ -1157,7 +1157,7 @@ async def _verify_screenshot_output(
     if video_intent is not None:
         owned_write = await db.scalar(
             text(
-                "SELECT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_cache_writes "
+                "SELECT EXISTS (SELECT 1 FROM yoao_assets_v1.fixture_native_cache_writes "
                 "WHERE id=:write AND run_id=:run AND dataset_id=:dataset "
                 "AND item_id=:item AND family='media' AND job_id=:job "
                 "AND job_generation=:generation AND state='verified')"
@@ -1401,7 +1401,7 @@ async def prepare_screenshot_seed_media(
                     )
                 owned = await db.scalar(
                     text(
-                        "SELECT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                        "SELECT EXISTS (SELECT 1 FROM yoao_assets_v1.fixture_native_media_jobs "
                         "WHERE family='media' AND job_id=:job AND run_id=:run "
                         "AND dataset_id=:dataset AND item_id=:item "
                         "AND job_kind='video_metadata' AND owner_kind='dataset_item' "
@@ -1602,7 +1602,7 @@ async def prepare_screenshot_seed_media(
         await asyncio.sleep(2)
 
     reader = await db.scalar(
-        text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"),
+        text("SELECT yoao_assets_v1.fixture_native_reader_identity(:run)"),
         {"run": run_id},
     )
     await db.commit()

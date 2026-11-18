@@ -26,14 +26,14 @@ try {
     await assert.rejects(client.query(`SELECT id FROM public.${table} LIMIT 1`), { code: "42501" });
   }
   await assert.rejects(
-    client.query("UPDATE aap_workspace_v1.project_facts SET name=name WHERE id=$1::uuid", [
+    client.query("UPDATE yoao_workspace_v1.project_facts SET name=name WHERE id=$1::uuid", [
       input.project_id,
     ]),
     { code: "42501" },
   );
   await assert.rejects(
     client.query(
-      "UPDATE aap_labeling_v1.project_catalog_counters " +
+      "UPDATE yoao_labeling_v1.project_catalog_counters " +
         "SET project_id=project_id WHERE project_id=$1::uuid",
       [input.project_id],
     ),
@@ -44,7 +44,7 @@ try {
   const transaction = "SELECT pg_backend_pid() AS pid,txid_current()::text AS xid";
   const before = (await client.query(transaction)).rows[0];
   const workspace = await client.query(
-    "SELECT * FROM aap_workspace_v1.project_facts WHERE id=$1::uuid",
+    "SELECT * FROM yoao_workspace_v1.project_facts WHERE id=$1::uuid",
     [input.project_id],
   );
   assert.equal(workspace.rows.length, 1);
@@ -53,7 +53,7 @@ try {
   assert.equal(workspace.rows[0].owner_id, input.owner_id);
 
   const counters = await client.query(
-    "SELECT * FROM aap_labeling_v1.project_catalog_counters WHERE project_id=$1::uuid",
+    "SELECT * FROM yoao_labeling_v1.project_catalog_counters WHERE project_id=$1::uuid",
     [input.project_id],
   );
   assert.equal(counters.rows.length, 1);
@@ -69,8 +69,8 @@ try {
             counters.review_tasks,
             counters.in_progress_tasks,
             counters.batch_summary
-       FROM aap_workspace_v1.project_facts AS project
-       JOIN aap_labeling_v1.project_catalog_counters AS counters
+       FROM yoao_workspace_v1.project_facts AS project
+       JOIN yoao_labeling_v1.project_catalog_counters AS counters
          ON counters.project_id=project.id
       WHERE project.id=$1::uuid`,
     [input.project_id],

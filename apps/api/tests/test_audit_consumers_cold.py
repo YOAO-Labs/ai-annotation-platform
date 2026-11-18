@@ -88,10 +88,10 @@ async def _consumers(
             assert marker and marker.startswith("identity-module-restore:")
     api_url = api_host.set(host=cold._POSTGRES_ALIAS, port=5432, database=database)
     auth_url = cold._role_url(
-        "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "identity_auth_client", test_engine
+        "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "yoao_identity_auth_client", test_engine
     ).set(host=cold._POSTGRES_ALIAS, port=5432, database=database)
     append_url = make_url(
-        _role_url("AAP_MODULE_DATA_AUDIT_APPEND_URL", "audit_append_client")
+        _role_url("AAP_MODULE_DATA_AUDIT_APPEND_URL", "yoao_audit_append_client")
     ).set(host=cold._POSTGRES_ALIAS, port=5432, database=database)
     broker = redis_url.render_as_string(hide_password=False)
     key = cold._required("AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY")
@@ -298,7 +298,7 @@ asyncio.run(main())
             for name, container in [("api", api), ("worker", worker)]
         }
         assert probes["api"]["role"] == "identity_api_consumer"
-        assert probes["worker"]["role"] == "audit_append_client"
+        assert probes["worker"]["role"] == "yoao_audit_append_client"
         assert all(
             p["database"] == database
             and p["installed"]
@@ -360,7 +360,7 @@ async def _event_count(engine, request_id):
     async with engine.connect() as db:
         return await db.scalar(
             text(
-                "SELECT count(*) FROM aap_audit_v1.audit_events WHERE request_id=:rid"
+                "SELECT count(*) FROM yoao_audit_v1.audit_events WHERE request_id=:rid"
             ),
             {"rid": request_id},
         )
@@ -648,7 +648,7 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                         await control.execute(text("SELECT pg_stat_clear_snapshot()"))
                         if await control.scalar(
                             text(
-                                "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND NOT l.granted AND l.classid=:high AND l.objid=:low AND a.usename='audit_append_client'"
+                                "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND NOT l.granted AND l.classid=:high AND l.objid=:low AND a.usename='yoao_audit_append_client'"
                             ),
                             {"high": lock >> 32, "low": lock & 0xFFFFFFFF},
                         ):
@@ -762,7 +762,7 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                         row = (
                             await db.execute(
                                 text(
-                                    "SELECT actor_id,action FROM aap_audit_v1.audit_events WHERE request_id=:rid"
+                                    "SELECT actor_id,action FROM yoao_audit_v1.audit_events WHERE request_id=:rid"
                                 ),
                                 {"rid": payload["request_id"]},
                             )

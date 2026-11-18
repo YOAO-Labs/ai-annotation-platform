@@ -18,13 +18,14 @@ from app.db.models.api_key import ApiKey
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.training_datasets import bind_training_authority
+from tests.frozen_namespaces import historical
 from tests.test_training_authority_contract import (
     cleanup_authority_rows,
     seed_authority_rows,
 )
 
 _SCOPES = frozenset({"datasets:read", "annotations:read"})
-_FUNCTION = "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])"
+_FUNCTION = "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])"
 
 
 def test_accepted_key_sql_descriptor_matches_the_portable_contract():
@@ -33,7 +34,7 @@ def test_accepted_key_sql_descriptor_matches_the_portable_contract():
         / "alembic/sql/0285_identity_accepted_api_key.schema.json"
     )
     expected = accepted_api_key_schema()
-    assert json.loads(path.read_text()) == expected
+    assert json.loads(path.read_text()) == historical(expected)
     from importlib.resources import files
 
     assert (
@@ -70,7 +71,7 @@ async def test_accepted_key_invalid_arguments_keep_native_error_and_aborted_tran
         with pytest.raises(DBAPIError) as rejected:
             await caller.scalar(
                 text(
-                    "SELECT aap_identity_v1.check_accepted_api_key(CAST(:actor AS uuid), CAST(:key AS uuid), CAST(:scopes AS text[]))"
+                    "SELECT yoao_identity_v1.check_accepted_api_key(CAST(:actor AS uuid), CAST(:key AS uuid), CAST(:scopes AS text[]))"
                 ),
                 arguments,
             )
@@ -262,9 +263,9 @@ async def test_learning_owner_calls_only_the_key_capability_without_identity_tab
                 {"fn": _FUNCTION},
             )
             for role in (
-                "identity_auth_client",
+                "yoao_identity_auth_client",
                 "yoao_identity_key_client",
-                "append_client",
+                "yoao_append_client",
             ):
                 assert not await caller.scalar(
                     text(

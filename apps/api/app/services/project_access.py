@@ -53,11 +53,11 @@ from app.services.project_workspace import (
 from app.services.workspace_project_query_data import WorkspaceProjectQueryData
 
 _WORKSPACE_PROJECT_ACCESS_STEP = text(
-    "SELECT aap_workspace_v1.project_access_step("
+    "SELECT yoao_workspace_v1.project_access_step("
     "CAST(:actor_id AS uuid), CAST(:project_id AS uuid), CAST(:phase AS text))"
 )
 _WORKSPACE_PROJECT_READ = text(
-    "SELECT aap_workspace_v1.read_project_row(CAST(:project_id AS uuid))"
+    "SELECT yoao_workspace_v1.read_project_row(CAST(:project_id AS uuid))"
 )
 _WORKSPACE_PROJECT_ACCESS_STEP_SCHEMA = "aap-workspace-project-access-step/v1"
 
@@ -369,7 +369,7 @@ async def lock_creation_project_manager(
     with db.no_autoflush:
         payload = await db.scalar(
             text(
-                "SELECT aap_workspace_v1.lock_project_manager("
+                "SELECT yoao_workspace_v1.lock_project_manager("
                 "CAST(:actor_id AS uuid), CAST(:project_id AS uuid))"
             ),
             {"actor_id": actor_id, "project_id": project_id},

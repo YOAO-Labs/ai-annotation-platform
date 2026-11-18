@@ -552,7 +552,7 @@ async def _wait_export_build_gate(test_engine, worker, world, gate_pid) -> dict:
                     await db.execute(
                         text(
                             "SELECT state, checkpoint, generation, business_backend_pid, ever_entered "
-                            "FROM aap_export_v1.executions WHERE job_id=:job AND project_id=:project"
+                            "FROM yoao_export_v1.executions WHERE job_id=:job AND project_id=:project"
                         ),
                         {"job": world["job_id"], "project": world["project_id"]},
                     )
@@ -721,22 +721,16 @@ async def _wait_failure_delivery_ack(
     while asyncio.get_running_loop().time() < deadline:
         last_state = await asyncio.to_thread(lambda: result.state)
         if last_state == "FAILURE":
-            snapshot = await asyncio.to_thread(
-                _unacked_snapshot, sender, worker.queue
-            )
+            snapshot = await asyncio.to_thread(_unacked_snapshot, sender, worker.queue)
             owned_unacked = _owned_unacked(snapshot, worker.queue, task_id)
             inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
             active = await asyncio.to_thread(inspect.active)
             reserved = await asyncio.to_thread(inspect.reserved)
             active_tasks = [
-                task
-                for tasks in (active or {}).values()
-                for task in tasks or []
+                task for tasks in (active or {}).values() for task in tasks or []
             ]
             reserved_tasks = [
-                task
-                for tasks in (reserved or {}).values()
-                for task in tasks or []
+                task for tasks in (reserved or {}).values() for task in tasks or []
             ]
             outstanding = [
                 task
@@ -776,8 +770,7 @@ async def _wait_failure_delivery_ack(
                 }
         await asyncio.sleep(0.25)
     raise AssertionError(
-        "Failed export was not acknowledged by the broker: "
-        f"{last_observation}"
+        f"Failed export was not acknowledged by the broker: {last_observation}"
     )
 
 
@@ -876,7 +869,7 @@ async def _retire_owned_export_executions(test_engine, project_id, owned_bundles
                     (
                         await db.execute(
                             text(
-                                "SELECT DISTINCT execution_id FROM aap_jobs_v1.dispatch_intents "
+                                "SELECT DISTINCT execution_id FROM yoao_jobs_v1.dispatch_intents "
                                 "WHERE job_id=:job ORDER BY execution_id"
                             ),
                             {"job": job_id},
@@ -885,7 +878,7 @@ async def _retire_owned_export_executions(test_engine, project_id, owned_bundles
                 )
                 if not execution_ids or not await db.scalar(
                     text(
-                        "SELECT aap_jobs_v1.retire_job_publications("
+                        "SELECT yoao_jobs_v1.retire_job_publications("
                         ":job, CAST(:executions AS text[]))"
                     ),
                     {"job": job_id, "executions": execution_ids},
@@ -893,7 +886,7 @@ async def _retire_owned_export_executions(test_engine, project_id, owned_bundles
                     await transaction.rollback()
                     return False
                 if not await db.scalar(
-                    text("SELECT aap_export_v1.retire_execution(:job, :project)"),
+                    text("SELECT yoao_export_v1.retire_execution(:job, :project)"),
                     {"job": job_id, "project": project_id},
                 ):
                     await transaction.rollback()
@@ -1023,7 +1016,7 @@ async def test_export_recovers_after_worker_loss(
     publication_url = (
         _guard_role_url(
             "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-            "jobs_publication_client",
+            "yoao_jobs_publication_client",
             test_engine,
         )
         .set(drivername="postgresql")
@@ -1170,17 +1163,21 @@ async def test_export_recovers_after_worker_loss(
         assert "download_url_path" not in revoked_outcome["job"]["result"]
         async with test_engine.connect() as db:
             revoked_execution = (
-                await db.execute(
-                    text(
-                        "SELECT state, checkpoint, generation, ever_entered FROM aap_export_v1.executions "
-                        "WHERE job_id=:job AND project_id=:project"
-                    ),
-                    {
-                        "job": world["revoked_job_id"],
-                        "project": world["project_id"],
-                    },
+                (
+                    await db.execute(
+                        text(
+                            "SELECT state, checkpoint, generation, ever_entered FROM yoao_export_v1.executions "
+                            "WHERE job_id=:job AND project_id=:project"
+                        ),
+                        {
+                            "job": world["revoked_job_id"],
+                            "project": world["project_id"],
+                        },
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
         assert revoked_execution["state"] == "settled"
         assert revoked_execution["checkpoint"] == "settled"
         assert revoked_execution["generation"] == 1

@@ -115,17 +115,17 @@ async def test_dispatch_without_private_jobs_read(world, db_session, monkeypatch
     attempt_id, job_id = world.attempt.id, world.attempt.async_job_id
     await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
     await db_session.execute(
-        text(f'GRANT USAGE ON SCHEMA public, aap_jobs_v1 TO "{role}"')
+        text(f'GRANT USAGE ON SCHEMA public, yoao_jobs_v1 TO "{role}"')
     )
     await db_session.execute(
         text(f'GRANT SELECT, UPDATE ON public.sample_evaluation_attempts TO "{role}"')
     )
     await db_session.execute(
         text(
-            "GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
-            "aap_jobs_v1.read_job_execution_snapshot(uuid), "
-            "aap_jobs_v1.read_job_progress(uuid), "
-            f'aap_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
+            "GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), "
+            "yoao_jobs_v1.read_job_execution_snapshot(uuid), "
+            "yoao_jobs_v1.read_job_progress(uuid), "
+            f'yoao_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
         )
     )
     published = []

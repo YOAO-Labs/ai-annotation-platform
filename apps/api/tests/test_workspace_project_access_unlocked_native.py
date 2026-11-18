@@ -45,7 +45,7 @@ async def test_read_only_api_login_uses_same_transaction_without_authority_locks
             actions = []
 
             def capture(_conn, _cursor, statement, parameters, _context, _many):
-                if "aap_identity_v1.read_actor_facts" in statement:
+                if "yoao_identity_v1.read_actor_facts" in statement:
                     actions.append("actor_status")
                 elif "project_query_policy()" in statement:
                     actions.append("policy")

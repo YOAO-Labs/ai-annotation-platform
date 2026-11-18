@@ -158,27 +158,27 @@ async def _answers(engine, world) -> dict:
         async with connection.transaction():
             return {
                 "evaluation_target": await connection.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                    "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
                     world["target_registry_id"],
                 ),
                 "evaluation_other": await connection.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                    "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
                     world["other_registry_id"],
                 ),
                 "evaluation_missing": await connection.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                    "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
                     world["missing_registry_id"],
                 ),
                 "running_target": await connection.fetchval(
-                    "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                    "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
                     world["target_registry_id"],
                 ),
                 "running_other": await connection.fetchval(
-                    "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                    "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
                     world["other_registry_id"],
                 ),
                 "running_missing": await connection.fetchval(
-                    "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                    "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
                     world["missing_registry_id"],
                 ),
             }
@@ -216,7 +216,7 @@ async def _assert_clone_identity(engine, database: str, ownership: str) -> None:
                 text(
                     "SELECT current_user, current_database(), "
                     "pg_catalog.has_schema_privilege(current_user, "
-                    "'aap_learning_v1', 'CREATE')"
+                    "'yoao_learning_v1', 'CREATE')"
                 )
             )
         ).one()
@@ -262,7 +262,7 @@ async def _assert_copied_authority_quarantined(engine) -> None:
     """Copied routing state stays bound to its source database, without rebinding."""
     async with engine.connect() as connection:
         assert await connection.scalar(
-            text("SELECT aap_inference_routing_v1._routing_secret() IS NULL")
+            text("SELECT yoao_inference_routing_v1._routing_secret() IS NULL")
         )
 
 
@@ -277,9 +277,12 @@ async def _initialize_fresh_source(test_engine, admin, engine) -> None:
     )
 
     async with engine.connect() as connection:
-        assert await connection.scalar(
-            text("SELECT pg_catalog.to_regclass('public.alembic_version')")
-        ) is None
+        assert (
+            await connection.scalar(
+                text("SELECT pg_catalog.to_regclass('public.alembic_version')")
+            )
+            is None
+        )
     database = engine.url.database
     await _revoke_public_temp(admin, test_engine, database)
     migration = _alembic(engine.url, "upgrade", "head")
@@ -293,7 +296,7 @@ async def _initialize_fresh_source(test_engine, admin, engine) -> None:
     assert await _database_head(engine) == await _database_head(test_engine)
     async with engine.connect() as connection:
         assert await connection.scalar(
-            text("SELECT aap_inference_routing_v1._routing_secret() IS NOT NULL")
+            text("SELECT yoao_inference_routing_v1._routing_secret() IS NOT NULL")
         )
 
 
@@ -599,14 +602,14 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                 await mutation.execute("SET LOCAL ROLE inference_code")
                 assert (
                     await mutation.fetchval(
-                        "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                        "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
                         world["target_registry_id"],
                     )
                     is True
                 )
                 assert (
                     await mutation.fetchval(
-                        "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                        "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
                         world["target_registry_id"],
                     )
                     == 2
@@ -619,21 +622,21 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                 await mutation.execute("SET LOCAL ROLE inference_code")
                 assert (
                     await mutation.fetchval(
-                        "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                        "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
                         world["target_registry_id"],
                     )
                     is False
                 )
                 assert (
                     await mutation.fetchval(
-                        "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                        "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
                         world["other_registry_id"],
                     )
                     is True
                 )
                 assert (
                     await mutation.fetchval(
-                        "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                        "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
                         world["target_registry_id"],
                     )
                     == 2

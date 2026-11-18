@@ -55,7 +55,7 @@ async def video_control_command(db: AsyncSession, request: VideoControlCommand):
     if db.autoflush:
         await db.flush()
     statement = (
-        "SELECT aap_labeling_v1.video_segment_lifecycle_command(CAST(:request AS jsonb))"
+        "SELECT yoao_labeling_v1.video_segment_lifecycle_command(CAST(:request AS jsonb))"
         if isinstance(
             request,
             (
@@ -68,7 +68,7 @@ async def video_control_command(db: AsyncSession, request: VideoControlCommand):
                 UnassignVideoSegment,
             ),
         )
-        else "SELECT aap_labeling_v1.video_control_command(CAST(:request AS jsonb))"
+        else "SELECT yoao_labeling_v1.video_control_command(CAST(:request AS jsonb))"
     )
 
     async def execute(payload: str):

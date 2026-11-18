@@ -169,11 +169,11 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                 await _denied(reader, f"SELECT id FROM public.{table}")
             await _denied(
                 reader,
-                "UPDATE aap_identity_audit_v1.account_roles SET role='viewer' WHERE false",
+                "UPDATE yoao_identity_audit_v1.account_roles SET role='viewer' WHERE false",
             )
             await _denied(
                 reader,
-                "UPDATE aap_labeling_audit_v1.task_facts "
+                "UPDATE yoao_labeling_audit_v1.task_facts "
                 "SET status='pending' WHERE false",
             )
             async with reader.connect() as db:
@@ -181,7 +181,7 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                     (
                         await db.execute(
                             text(
-                                "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace,'aap_labeling_audit_v1'::regnamespace) ORDER BY oid"
+                                "SELECT oid FROM pg_class WHERE relnamespace IN ('yoao_identity_audit_v1'::regnamespace,'yoao_workspace_audit_v1'::regnamespace,'yoao_labeling_audit_v1'::regnamespace) ORDER BY oid"
                             )
                         )
                     )
@@ -204,7 +204,7 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                 assert (
                     await db.execute(
                         text(
-                            "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace,'aap_labeling_audit_v1'::regnamespace) ORDER BY oid"
+                            "SELECT oid FROM pg_class WHERE relnamespace IN ('yoao_identity_audit_v1'::regnamespace,'yoao_workspace_audit_v1'::regnamespace,'yoao_labeling_audit_v1'::regnamespace) ORDER BY oid"
                         )
                     )
                 ).scalars().all() == view_ids
@@ -219,13 +219,13 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                 allowed = (
                     await db.scalars(
                         text(
-                            "SELECT n.nspname||'.'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' AND c.relkind='v' AND has_table_privilege('identity_api_consumer',c.oid,'SELECT')"
+                            "SELECT n.nspname||'.'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE (n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' OR n.nspname ~ '^yoao_identity(_[a-z0-9]+)*_v[0-9]+$') AND c.relkind='v' AND has_table_privilege('identity_api_consumer',c.oid,'SELECT')"
                         )
                     )
                 ).all()
                 assert set(allowed) == {
-                    "aap_identity_v1.account_profiles",
-                    "aap_identity_v1.invitation_audit_targets",
+                    "yoao_identity_v1.account_profiles",
+                    "yoao_identity_v1.invitation_audit_targets",
                 }
                 functions = set(
                     (
@@ -234,21 +234,21 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                                 "SELECT n.nspname||'.'||p.proname||'('||"
                                 "replace(pg_catalog.oidvectortypes(p.proargtypes),' ','')||')' "
                                 "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                                "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                                "WHERE (n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' OR n.nspname ~ '^yoao_identity(_[a-z0-9]+)*_v[0-9]+$') "
                                 "AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
                             )
                         )
                     ).all()
                 )
                 assert functions == {
-                    "aap_identity_v1.read_actor_facts(uuid)",
-                    "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
-                    "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
-                    "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
-                    "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
-                    "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
-                    "aap_identity_v1.is_jti_revoked(uuid)",
-                    "aap_identity_v1.get_credential_generation(uuid)",
+                    "yoao_identity_v1.read_actor_facts(uuid)",
+                    "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+                    "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+                    "yoao_identity_v1.lock_accounts_share(uuid[],boolean)",
+                    "yoao_identity_v1.lock_accounts_update(uuid[],boolean)",
+                    "yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+                    "yoao_identity_v1.is_jti_revoked(uuid)",
+                    "yoao_identity_v1.get_credential_generation(uuid)",
                 }
             arguments = {
                 "run_id": "snapshot",
@@ -347,7 +347,7 @@ async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, i
     from tests.test_workspace_consumer_profile_native import _grants
 
     installer = ROOT / "infra/docker/workspace-role-audit-grants.sql"
-    relation = "aap_workspace_audit_v1.project_facts"
+    relation = "yoao_workspace_audit_v1.project_facts"
     async with audit_reader(test_engine) as (reader, role):
         async with test_engine.begin() as db:
             definition = await db.scalar(
@@ -364,7 +364,7 @@ async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, i
                 await db.execute(text(f"ALTER VIEW {relation} OWNER TO identity_code"))
             elif invalid == "extra_relation":
                 await db.execute(
-                    text("CREATE TABLE aap_workspace_audit_v1.unexpected(id uuid)")
+                    text("CREATE TABLE yoao_workspace_audit_v1.unexpected(id uuid)")
                 )
         try:
             options = (
@@ -396,7 +396,7 @@ async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, i
                     )
                 if invalid == "extra_relation":
                     await db.execute(
-                        text("DROP TABLE aap_workspace_audit_v1.unexpected")
+                        text("DROP TABLE yoao_workspace_audit_v1.unexpected")
                     )
             recovered = await _grants(test_engine, installer, role)
             assert recovered.returncode == 0, recovered.stderr
@@ -411,7 +411,7 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
     from tests.test_workspace_consumer_profile_native import _grants
 
     installer = ROOT / "infra/docker/labeling-role-audit-grants.sql"
-    relation = "aap_labeling_audit_v1.task_facts"
+    relation = "yoao_labeling_audit_v1.task_facts"
     async with audit_reader(test_engine) as (reader, role):
         async with test_engine.begin() as db:
             definition = await db.scalar(
@@ -433,7 +433,7 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
                 await db.execute(text(f"ALTER VIEW {relation} OWNER TO identity_code"))
             elif invalid == "extra_relation":
                 await db.execute(
-                    text("CREATE TABLE aap_labeling_audit_v1.unexpected(id uuid)")
+                    text("CREATE TABLE yoao_labeling_audit_v1.unexpected(id uuid)")
                 )
         try:
             options = {"labeling_owner": "labeling_code"}
@@ -466,7 +466,7 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
                     )
                 if invalid == "extra_relation":
                     await db.execute(
-                        text("DROP TABLE aap_labeling_audit_v1.unexpected")
+                        text("DROP TABLE yoao_labeling_audit_v1.unexpected")
                     )
             recovered = await _grants(
                 test_engine, installer, role, labeling_owner="labeling_code"
@@ -483,7 +483,7 @@ async def test_normal_workspace_profile_revokes_explicit_audit_grants(test_engin
         async with test_engine.begin() as db:
             await db.execute(
                 text(
-                    f"GRANT SELECT (id) ON aap_workspace_audit_v1.project_facts TO {role}"
+                    f"GRANT SELECT (id) ON yoao_workspace_audit_v1.project_facts TO {role}"
                 )
             )
         applied = await _grants(
@@ -493,17 +493,17 @@ async def test_normal_workspace_profile_revokes_explicit_audit_grants(test_engin
         async with test_engine.connect() as db:
             assert not await db.scalar(
                 text(
-                    "SELECT has_schema_privilege(:role,'aap_workspace_audit_v1','USAGE')"
+                    "SELECT has_schema_privilege(:role,'yoao_workspace_audit_v1','USAGE')"
                 ),
                 {"role": role},
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_any_column_privilege(:role,'aap_workspace_audit_v1.project_facts','SELECT')"
+                    "SELECT has_any_column_privilege(:role,'yoao_workspace_audit_v1.project_facts','SELECT')"
                 ),
                 {"role": role},
             )
-        await _denied(reader, "SELECT id FROM aap_workspace_audit_v1.project_facts")
+        await _denied(reader, "SELECT id FROM yoao_workspace_audit_v1.project_facts")
 
 
 async def test_historical_workspace_audit_preserves_diagnostic_nulls(test_engine):
@@ -532,14 +532,14 @@ async def test_historical_workspace_audit_preserves_diagnostic_nulls(test_engine
                 assert (
                     await db.execute(
                         text(
-                            "SELECT owner_id,status FROM aap_workspace_audit_v1.project_facts"
+                            "SELECT owner_id,status FROM yoao_workspace_audit_v1.project_facts"
                         )
                     )
                 ).one() == (None, None)
                 assert (
                     await db.execute(
                         text(
-                            "SELECT project_id,user_id,role FROM aap_workspace_audit_v1.project_member_facts"
+                            "SELECT project_id,user_id,role FROM yoao_workspace_audit_v1.project_member_facts"
                         )
                     )
                 ).one() == (None, None, None)
@@ -564,7 +564,7 @@ async def test_historical_profile_tracks_preparation_and_node(
                 view_ids = (
                     await db.scalars(
                         text(
-                            "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace,'aap_labeling_audit_v1'::regnamespace) ORDER BY oid"
+                            "SELECT oid FROM pg_class WHERE relnamespace IN ('yoao_identity_audit_v1'::regnamespace,'yoao_workspace_audit_v1'::regnamespace,'yoao_labeling_audit_v1'::regnamespace) ORDER BY oid"
                         )
                     )
                 ).all()
@@ -616,7 +616,7 @@ async def test_historical_profile_tracks_preparation_and_node(
                 assert (
                     await db.scalars(
                         text(
-                            "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace,'aap_labeling_audit_v1'::regnamespace) ORDER BY oid"
+                            "SELECT oid FROM pg_class WHERE relnamespace IN ('yoao_identity_audit_v1'::regnamespace,'yoao_workspace_audit_v1'::regnamespace,'yoao_labeling_audit_v1'::regnamespace) ORDER BY oid"
                         )
                     )
                 ).all() == view_ids

@@ -47,7 +47,7 @@ class LabelingTaskMaintenanceService:
         async def execute(payload: str):
             return await self.db.scalar(
                 text(
-                    "SELECT aap_labeling_v1.task_maintenance_command("
+                    "SELECT yoao_labeling_v1.task_maintenance_command("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": payload},

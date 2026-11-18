@@ -242,7 +242,7 @@ async def capture_managed_original_retirements(
                     classification = (
                         await db.scalar(
                             text(
-                                "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+                                "SELECT yoao_assets_v1.classify_fixture_original_reclaim("
                                 "CAST(:creation AS uuid), CAST(:identity AS text))"
                             ),
                             {
@@ -355,7 +355,7 @@ async def capture_fixture_auxiliary_retirements(db, *, dataset_id, fixture_run_i
         await shared(db, owner.bucket, owner.object_key)
         classification = await db.scalar(
             text(
-                "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+                "SELECT yoao_assets_v1.classify_fixture_original_reclaim("
                 "CAST(:creation AS uuid), CAST(:identity AS text))"
             ),
             {"creation": creation.id, "identity": owner.storage_identity},

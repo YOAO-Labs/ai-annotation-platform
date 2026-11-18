@@ -397,7 +397,11 @@ async def run_outputs(identifiers, *, propagate_failure=False):
             if execution is None:
                 async with factory() as scope:
                     fixture_owned = await scope.scalar(
-                        select(func.aap_assets_v1.fixture_media_owner_exists("video_output", identifier))
+                        select(
+                            func.yoao_assets_v1.fixture_media_owner_exists(
+                                "video_output", identifier
+                            )
+                        )
                     )
                 if fixture_owned:
                     raise RuntimeError("fixture_media_scope_untracked")
@@ -431,7 +435,9 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                         RuntimeError("fixture_media_scope_mismatch")
                     )
                 try:
-                    await execution.record_video_attempt(claimed.output.id, claimed.token)
+                    await execution.record_video_attempt(
+                        claimed.output.id, claimed.token
+                    )
                 except BaseException as exc:
                     raise storage_access.mark_unsettled(exc)
             key = originals.encoded(
@@ -461,7 +467,6 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                 native_stage = NativeStage(
                                     admission, permit, "video_output", claimed.output.id
                                 )
-
 
                             async def guard(revision, claimed=claimed):
                                 async with factory() as fresh:
@@ -566,7 +571,9 @@ async def run_outputs(identifiers, *, propagate_failure=False):
             storage_access.mark_unsettled(disposal_failure)
             if failure is not None:
                 originals._raise_drain_failure(
-                    failure, disposal_failure, "Video derivative and engine disposal failed"
+                    failure,
+                    disposal_failure,
+                    "Video derivative and engine disposal failed",
                 )
             raise
 
@@ -646,6 +653,8 @@ async def run_legacy(
             storage_access.mark_unsettled(disposal_failure)
             if failure is not None:
                 originals._raise_drain_failure(
-                    failure, disposal_failure, "Video derivative and engine disposal failed"
+                    failure,
+                    disposal_failure,
+                    "Video derivative and engine disposal failed",
                 )
             raise

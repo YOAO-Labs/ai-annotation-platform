@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 
 const protocol = "aap-identity-provisioning/v1";
-const clientRole = "identity_provisioning_client";
+const clientRole = "yoao_identity_provisioning_client";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function fail() {
@@ -282,16 +282,16 @@ function roleProbeSql() {
       "has_table_privilege(current_user, 'public.audit_logs', 'UPDATE') OR " +
       "has_table_privilege(current_user, 'public.audit_logs', 'DELETE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_schema_privilege(current_user, 'public', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_identity_v1', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_identity_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_audit_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_identity_sessions_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_v1', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_audit_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_sessions_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_keys_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_database_privilege(current_user, current_database(), 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_database_privilege(current_user, current_database(), 'TEMP') THEN 'true' ELSE 'false' END || '|' ||",
     "(SELECT count(*)::text FROM pg_catalog.pg_proc AS proc " +
       "JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = proc.pronamespace " +
-      "WHERE namespace.nspname = 'aap_identity_v1' " +
+      "WHERE namespace.nspname = 'yoao_identity_v1' " +
       "AND has_function_privilege(current_user, proc.oid, 'EXECUTE'));",
   ].join("\n");
 }
@@ -300,9 +300,9 @@ function functionSql(operation, request) {
   const encoded = Buffer.from(stringifyStrict(request), "utf8").toString("hex");
   if (operation === "lookup") {
     const email = Buffer.from(request.email, "utf8").toString("hex");
-    return `SELECT aap_identity_v1.read_provisioning_account(convert_from(decode('${email}', 'hex'), 'UTF8'));`;
+    return `SELECT yoao_identity_v1.read_provisioning_account(convert_from(decode('${email}', 'hex'), 'UTF8'));`;
   }
-  return `SELECT aap_identity_v1.create_provisioning_account(convert_from(decode('${encoded}', 'hex'), 'UTF8')::jsonb);`;
+  return `SELECT yoao_identity_v1.create_provisioning_account(convert_from(decode('${encoded}', 'hex'), 'UTF8')::jsonb);`;
 }
 
 function buildSql(input) {
@@ -315,10 +315,10 @@ function buildSql(input) {
       "SELECT id FROM public.audit_logs LIMIT 0;",
       "UPDATE public.users SET password_hash = 'forbidden-probe' WHERE false;",
       `CREATE TABLE public.${probeTable} (id integer);`,
-      `CREATE TABLE aap_identity_v1.${probeTable} (id integer);`,
+      `CREATE TABLE yoao_identity_v1.${probeTable} (id integer);`,
       `CREATE TEMP TABLE ${probeTable} (id integer);`,
-      "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], true);",
-      "SELECT aap_identity_sessions_v1.read_login_candidate('forbidden@example.test');",
+      "SELECT yoao_identity_v1.lock_accounts_share(ARRAY[]::uuid[], true);",
+      "SELECT yoao_identity_sessions_v1.read_login_candidate('forbidden@example.test');",
       "SET ROLE identity_code;",
       "SET ROLE audit_code;",
     ];

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.frozen_namespaces import historical
+
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql"
 MIGRATION = ROOT / "apps/api/alembic/versions/0229_mask_gc.py"
@@ -61,9 +63,8 @@ def test_revision_uses_one_new_native_artifact():
 def test_current_native_schema_matches_the_portable_gc_contract():
     from yoao_labeling_mask_gc.contract import contract_document
 
-    assert (
-        json.loads((SQL / "0234_mask_gc.schema.json").read_text())
-        == contract_document()
+    assert json.loads((SQL / "0234_mask_gc.schema.json").read_text()) == historical(
+        contract_document()
     )
 
 
@@ -79,14 +80,14 @@ def test_every_native_function_has_an_explicit_public_revoke():
         if statement.startswith("REVOKE ALL ON FUNCTION")
     )
     assert {
-        "aap_labeling_v1.read_mask_write_epochs(jsonb)",
-        "aap_labeling_v1.begin_mask_content_write(jsonb)",
-        "aap_labeling_v1.lock_mask_write_epochs(jsonb)",
-        "aap_labeling_v1.claim_mask_gc_sweep(jsonb)",
-        "aap_labeling_v1.stage_mask_gc_page(jsonb)",
-        "aap_labeling_v1.claim_mask_gc_deletes(jsonb)",
-        "aap_labeling_v1.finish_mask_gc_delete(jsonb)",
-        "aap_labeling_v1.read_mask_gc_progress(jsonb)",
+        "yoao_labeling_v1.read_mask_write_epochs(jsonb)",
+        "yoao_labeling_v1.begin_mask_content_write(jsonb)",
+        "yoao_labeling_v1.lock_mask_write_epochs(jsonb)",
+        "yoao_labeling_v1.claim_mask_gc_sweep(jsonb)",
+        "yoao_labeling_v1.stage_mask_gc_page(jsonb)",
+        "yoao_labeling_v1.claim_mask_gc_deletes(jsonb)",
+        "yoao_labeling_v1.finish_mask_gc_delete(jsonb)",
+        "yoao_labeling_v1.read_mask_gc_progress(jsonb)",
     } <= set(signatures)
 
 
@@ -124,7 +125,7 @@ def test_empty_downgrade_removes_triggers_functions_then_native_tables(monkeypat
     emitted = _record_operations(monkeypatch, module)
     monkeypatch.setattr(module.op, "get_bind", lambda: bind)
     monkeypatch.setattr(
-        module, "_new_function_signatures", lambda: ["aap_labeling_v1._helper()"]
+        module, "_new_function_signatures", lambda: ["yoao_labeling_v1._helper()"]
     )
     monkeypatch.setattr(
         module, "_DOWNGRADE_GUARDS", {"epochs": "SELECT count(*) FROM epochs"}
@@ -138,7 +139,7 @@ def test_empty_downgrade_removes_triggers_functions_then_native_tables(monkeypat
         statement.startswith("DROP TRIGGER IF EXISTS") for statement in statements[:-1]
     )
     assert (
-        statements[-1] == "DROP FUNCTION IF EXISTS aap_labeling_v1._helper() RESTRICT"
+        statements[-1] == "DROP FUNCTION IF EXISTS yoao_labeling_v1._helper() RESTRICT"
     )
     dropped_tables = [
         item[1][0]

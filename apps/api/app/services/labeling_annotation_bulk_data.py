@@ -52,7 +52,7 @@ async def annotation_bulk_command(db: AsyncSession, request: AnnotationBulkComma
     async def execute(request_json: str):
         return await db.scalar(
             text(
-                "SELECT aap_labeling_v1.annotation_bulk_command(CAST(:request AS jsonb))"
+                "SELECT yoao_labeling_v1.annotation_bulk_command(CAST(:request AS jsonb))"
             ),
             {"request": request_json},
         )

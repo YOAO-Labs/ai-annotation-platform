@@ -42,7 +42,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 
 _BATCH_CONTROL_SQL = text(
-    "SELECT aap_labeling_v1.batch_control_command(CAST(:request AS jsonb))"
+    "SELECT yoao_labeling_v1.batch_control_command(CAST(:request AS jsonb))"
 )
 
 

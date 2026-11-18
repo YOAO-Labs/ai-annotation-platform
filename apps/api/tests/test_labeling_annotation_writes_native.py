@@ -72,16 +72,16 @@ async def test_annotation_writes_and_create_receipts_follow_the_callers_transact
         dsn = _dsn(
             test_engine,
             "AAP_MODULE_DATA_LABELING_ANNOTATION_WRITE_URL",
-            "labeling_annotation_write_client",
+            "yoao_labeling_annotation_write_client",
         )
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert await connection.fetchval("SELECT current_user") == (
-            "labeling_annotation_write_client"
+            "yoao_labeling_annotation_write_client"
         )
 
         async def call(request_json):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_write_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_write_command($1::jsonb)",
                 request_json,
             )
 

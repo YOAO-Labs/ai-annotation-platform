@@ -149,7 +149,7 @@ async def _assert_single_pipeline_and_receipt(
                     text(
                         "SELECT operation_id, actor_id, operation, target_id, "
                         "request, resource_id FROM "
-                        "aap_inference_pipelines_v1.operation_receipts "
+                        "yoao_inference_pipelines_v1.operation_receipts "
                         "WHERE operation_id = :operation_id"
                     ),
                     {"operation_id": command.operation_id},
@@ -253,7 +253,7 @@ async def _cleanup_recovery_world(
         if operation_id is not None:
             await connection.execute(
                 text(
-                    "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                    "DELETE FROM yoao_inference_pipelines_v1.operation_receipts "
                     "WHERE operation_id = :operation_id"
                 ),
                 {"operation_id": operation_id},
@@ -275,7 +275,7 @@ async def _cleanup_recovery_world(
             for resource_id in owned_pipeline_ids:
                 await connection.execute(
                     text(
-                        "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                        "DELETE FROM yoao_inference_pipelines_v1.operation_receipts "
                         "WHERE resource_id = :resource_id"
                     ),
                     {"resource_id": resource_id},

@@ -31,7 +31,7 @@ _PENDING = "aap_workspace_seed_project_pending"
 _EXPIRE_TIME = "aap_workspace_seed_project_expire_time"
 _FIELDS = frozenset(MEDIA_SEED_PROJECT_PROJECTION_FIELDS)
 _WRITE = text(
-    "SELECT aap_workspace_v1.write_seed_project_projection(CAST(:project_id AS uuid), CAST(:patch AS jsonb))"
+    "SELECT yoao_workspace_v1.write_seed_project_projection(CAST(:project_id AS uuid), CAST(:patch AS jsonb))"
 )
 
 
@@ -66,7 +66,7 @@ async def create_media_seed_project(
     await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.create_media_seed_project("
+            "SELECT yoao_workspace_v1.create_media_seed_project("
             "CAST(:project_id AS uuid),CAST(:display_id AS text),CAST(:name AS text),"
             "CAST(:owner_id AS uuid),CAST(:kind AS text),CAST(:tool_bindings AS jsonb))"
         ),

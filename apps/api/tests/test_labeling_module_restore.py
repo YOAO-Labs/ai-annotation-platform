@@ -45,10 +45,10 @@ pytestmark = [
     ),
 ]
 
-_LABELING_SCHEMA = "aap_labeling_v1"
+_LABELING_SCHEMA = "yoao_labeling_v1"
 _LABELING_SCHEMAS = (_LABELING_SCHEMA, "yoao_labeling_class_query_v1")
-_ANNOTATION_WRITE_ROLE = "labeling_annotation_write_client"
-_CORE_READ_ROLE = "labeling_core_read_client"
+_ANNOTATION_WRITE_ROLE = "yoao_labeling_annotation_write_client"
+_CORE_READ_ROLE = "yoao_labeling_core_read_client"
 _ANNOTATION_WRITE_FUNCTIONS = {
     ("annotation_statistics_command", "jsonb"),
     ("scene_track_domain_command", "jsonb"),
@@ -199,14 +199,14 @@ async def _labeling_business_snapshot(
         task_json = await connection.scalar(
             text(
                 "SELECT pg_catalog.to_jsonb(task)::text "
-                "FROM aap_labeling_v1.task_rows AS task WHERE task.id=:id"
+                "FROM yoao_labeling_v1.task_rows AS task WHERE task.id=:id"
             ),
             {"id": task_id},
         )
         annotation_json = await connection.scalar(
             text(
                 "SELECT pg_catalog.to_jsonb(annotation)::text "
-                "FROM aap_labeling_v1.annotation_rows AS annotation "
+                "FROM yoao_labeling_v1.annotation_rows AS annotation "
                 "WHERE annotation.id=:id"
             ),
             {"id": annotation_id},
@@ -237,7 +237,7 @@ async def _labeling_business_snapshot(
 def _annotation_write_client(connection) -> AnnotationWriteDataClient:
     async def execute(request_json: str):
         return await connection.fetchval(
-            "SELECT aap_labeling_v1.annotation_write_command($1::jsonb)",
+            "SELECT yoao_labeling_v1.annotation_write_command($1::jsonb)",
             request_json,
         )
 
@@ -479,12 +479,12 @@ async def test_current_labeling_module_state_survives_owned_restore(
         role_connections.append(core_reader)
         assert await core_reader.fetchval("SELECT current_user") == _CORE_READ_ROLE
         task_row = await core_reader.fetchrow(
-            "SELECT project_id, status FROM aap_labeling_v1.task_rows WHERE id=$1",
+            "SELECT project_id, status FROM yoao_labeling_v1.task_rows WHERE id=$1",
             task_id,
         )
         annotation_row = await core_reader.fetchrow(
             "SELECT task_id, class_name, geometry FROM "
-            "aap_labeling_v1.annotation_rows WHERE id=$1",
+            "yoao_labeling_v1.annotation_rows WHERE id=$1",
             annotation_id,
         )
         assert (task_row["project_id"], task_row["status"]) == (

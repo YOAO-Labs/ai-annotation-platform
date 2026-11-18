@@ -101,7 +101,7 @@ async def test_native_column_contract_owner_and_grants_match_database(test_engin
                 for role, expected in [
                     ("identity_api_consumer", True),
                     ("legacy_runtime", True),
-                    ("append_client", False),
+                    ("yoao_append_client", False),
                     ("inference_code", False),
                     ("yoao_workspace_membership_client", False),
                 ]:
@@ -156,8 +156,8 @@ async def test_factories_keep_owner_columns_and_full_native_row_order():
     assert project_facts() is not project_facts()
     assert project_rows() is not project_rows()
     sql = str(select(project_rows()))
-    assert "aap_workspace_v1.project_facts" in sql
-    assert "aap_labeling_v1.project_catalog_counters" in sql
+    assert "yoao_workspace_v1.project_facts" in sql
+    assert "yoao_labeling_v1.project_catalog_counters" in sql
     assert "public.projects" not in sql
 
 

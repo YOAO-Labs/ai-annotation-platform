@@ -325,7 +325,7 @@ async def _owned_test_rows(maker, actor_id, operation_ids, prefix):
         )
         receipt_count = await db.scalar(
             text(
-                "SELECT count(*) FROM aap_inference_pipelines_v1.operation_receipts "
+                "SELECT count(*) FROM yoao_inference_pipelines_v1.operation_receipts "
                 "WHERE operation_id = ANY(CAST(:operation_ids AS uuid[]))"
             ),
             {"operation_ids": [str(value) for value in operation_ids]},
@@ -518,7 +518,7 @@ async def test_inference_pipeline_container_image_replay_restart_and_local_profi
                 async with maker.begin() as db:
                     await db.execute(
                         text(
-                            "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                            "DELETE FROM yoao_inference_pipelines_v1.operation_receipts "
                             "WHERE operation_id = ANY(CAST(:operation_ids AS uuid[]))"
                         ),
                         {"operation_ids": [str(value) for value in operation_ids]},

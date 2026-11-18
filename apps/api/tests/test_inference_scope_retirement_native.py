@@ -27,8 +27,8 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_routing_v1"
-_ROLE = "inference_routing_client"
+_SCHEMA = "yoao_inference_routing_v1"
+_ROLE = "yoao_inference_routing_client"
 _RETIREMENT_STEP = f"{_SCHEMA}.scope_retirement_step"
 
 
@@ -112,7 +112,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         epoch = uuid.uuid4()
         incarnation = uuid.uuid4()
         await owner.execute(
-            """UPDATE aap_inference_routing_v1.registry_state
+            """UPDATE yoao_inference_routing_v1.registry_state
                SET authority_epoch=$2, backend_incarnation=$3,
                    continuity='ready', epoch_key=public.gen_random_bytes(32)
                WHERE registry_id=$1""",
@@ -189,7 +189,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
 
         exp = _admission_exp(active["headers"]["X-YOAO-Route-Admission"])
         recorded_highwater = await owner.fetchval(
-            """SELECT admission_expires_at FROM aap_inference_routing_v1.scopes
+            """SELECT admission_expires_at FROM yoao_inference_routing_v1.scopes
                WHERE id=$1""",
             scope_id,
         )
@@ -274,7 +274,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         assert status["context"] is None
 
         other_capability = await owner.fetchval(
-            "SELECT aap_inference_routing_v1._routing_scope_capability($1)",
+            "SELECT yoao_inference_routing_v1._routing_scope_capability($1)",
             unrelated_scope_id,
         )
         async with client.transaction():
@@ -370,7 +370,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         assert draining["context"] == context
         assert (
             await owner.fetchval(
-                """SELECT count(*) FROM aap_inference_routing_v1.attempts
+                """SELECT count(*) FROM yoao_inference_routing_v1.attempts
                WHERE scope_id=$1 AND state IN ('active','uncertain')""",
                 scope_id,
             )
@@ -417,13 +417,13 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         assert completed["context"] is None
         assert (
             await owner.fetchval(
-                """SELECT state FROM aap_inference_routing_v1.scopes WHERE id=$1""",
+                """SELECT state FROM yoao_inference_routing_v1.scopes WHERE id=$1""",
                 scope_id,
             )
             == "reconciled"
         )
         states = await owner.fetch(
-            """SELECT id, state, status_code FROM aap_inference_routing_v1.attempts
+            """SELECT id, state, status_code FROM yoao_inference_routing_v1.attempts
                WHERE scope_id=$1 ORDER BY created_at, id""",
             scope_id,
         )
@@ -436,14 +436,14 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         ]
         assert (
             await owner.fetchval(
-                """SELECT state FROM aap_inference_routing_v1.attempts WHERE id=$1""",
+                """SELECT state FROM yoao_inference_routing_v1.attempts WHERE id=$1""",
                 unrelated_id,
             )
             == "active"
         )
         assert (
             await owner.fetchval(
-                """SELECT state FROM aap_inference_routing_v1.scopes WHERE id=$1""",
+                """SELECT state FROM yoao_inference_routing_v1.scopes WHERE id=$1""",
                 unrelated_scope_id,
             )
             == "active"
@@ -472,7 +472,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         )
         assert (
             await owner.fetchval(
-                """SELECT state FROM aap_inference_routing_v1.scopes WHERE id=$1""",
+                """SELECT state FROM yoao_inference_routing_v1.scopes WHERE id=$1""",
                 unrelated_scope_id,
             )
             == "finished"
@@ -577,8 +577,8 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
         await client.close()
         try:
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.scope_retirements WHERE scope_id IN "
-                "(SELECT id FROM aap_inference_routing_v1.scopes WHERE registry_id=$1)",
+                "DELETE FROM yoao_inference_routing_v1.scope_retirements WHERE scope_id IN "
+                "(SELECT id FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1)",
                 registry_id,
             )
             await _cleanup(owner, world)

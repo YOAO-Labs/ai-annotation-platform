@@ -61,7 +61,7 @@ async def test_lookup_honors_no_autoflush_and_uses_bound_email(autoflush):
     assert await IdentityProvisioningData(db).lookup_account(request) == raw.encode()
     assert db.flush.await_count == int(autoflush)
     query, params = db.scalar.await_args.args
-    assert "aap_identity_v1.read_provisioning_account(" in str(query)
+    assert "yoao_identity_v1.read_provisioning_account(" in str(query)
     assert params == {"email": "admin"}
     _caller_owns_transaction(db)
 
@@ -77,7 +77,7 @@ async def test_creator_flushes_pending_work_even_when_autoflush_disabled(autoflu
 
     async def scalar(query, params):
         calls.append("write")
-        assert "aap_identity_v1.create_provisioning_account(" in str(query)
+        assert "yoao_identity_v1.create_provisioning_account(" in str(query)
         assert "opaque-hash" not in str(query)
         assert json.loads(params["request"]) == request.model_dump(
             mode="json", by_alias=True

@@ -44,8 +44,8 @@ pytestmark = [
     ),
 ]
 
-_ROUTING_ROLE = "inference_routing_client"
-_ROUTING_SCHEMA = "aap_inference_routing_v1"
+_ROUTING_ROLE = "yoao_inference_routing_client"
+_ROUTING_SCHEMA = "yoao_inference_routing_v1"
 
 
 def _reserve_loopback_listener() -> tuple[socket.socket, str]:
@@ -435,9 +435,9 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                                 text(
                                     "SELECT public.pgp_sym_decrypt("
                                     "intent.command_ciphertext,pg_catalog.encode("
-                                    "aap_jobs_v1._video_execution_secret(),'hex')) "
-                                    "FROM aap_jobs_v1.video_execution_route_intents intent "
-                                    "JOIN aap_jobs_v1.video_executions execution "
+                                    "yoao_jobs_v1._video_execution_secret(),'hex')) "
+                                    "FROM yoao_jobs_v1.video_execution_route_intents intent "
+                                    "JOIN yoao_jobs_v1.video_executions execution "
                                     "ON execution.route_request_id=intent.request_id "
                                     "AND execution.job_id=intent.job_id "
                                     "AND execution.generation=intent.generation "
@@ -558,7 +558,7 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                             text(
                                 "SELECT writer_terminal,writer_terminal_outcome,execution_retired,"
                                 "plan_document #>> '{source,source_version_id}' AS source_version "
-                                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                                "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                             ),
                             {"job": job_id},
                         )
@@ -572,7 +572,7 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                     assert (
                         await db.scalar(
                             text(
-                                "SELECT count(*) FROM aap_jobs_v1.video_execution_windows WHERE job_id=:job"
+                                "SELECT count(*) FROM yoao_jobs_v1.video_execution_windows WHERE job_id=:job"
                             ),
                             {"job": job_id},
                         )

@@ -229,7 +229,7 @@ async def test_key_replay_survives_restart_without_reviving_revoked_material(
             async with maker.begin() as db:
                 await db.execute(
                     text(
-                        "SELECT aap_identity_v1.revoke_jti(:jti,now()+INTERVAL '8 days')"
+                        "SELECT yoao_identity_v1.revoke_jti(:jti,now()+INTERVAL '8 days')"
                     ),
                     {"jti": jti},
                 )
@@ -340,7 +340,7 @@ async def test_public_key_routes_use_remote_owner_without_identity_table_privile
             assert (
                 await client.get("/api/v1/me/api-keys", headers=headers)
             ).status_code == 503
-        record_property("api_database_role", "identity_auth_client")
+        record_property("api_database_role", "yoao_identity_auth_client")
         record_property("command_database_role", "yoao_identity_key_client")
         record_property(
             "audit_scope", "existing asynchronous enqueue; delivery not asserted"

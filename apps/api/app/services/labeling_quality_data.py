@@ -20,13 +20,13 @@ from app.services.labeling_annotation_data import _native_error_fields
 
 _FUNCTIONS = {
     "mask_qc_command": text(
-        "SELECT aap_labeling_v1.mask_qc_command(CAST(:request AS jsonb))"
+        "SELECT yoao_labeling_v1.mask_qc_command(CAST(:request AS jsonb))"
     ),
     "mask_repair_command": text(
-        "SELECT aap_labeling_v1.mask_repair_command(CAST(:request AS jsonb))"
+        "SELECT yoao_labeling_v1.mask_repair_command(CAST(:request AS jsonb))"
     ),
     "raster_mask_retention_query": text(
-        "SELECT aap_labeling_v1.raster_mask_retention_query(CAST(:request AS jsonb))"
+        "SELECT yoao_labeling_v1.raster_mask_retention_query(CAST(:request AS jsonb))"
     ),
 }
 

@@ -27,7 +27,7 @@ pytestmark = [
     ),
 ]
 
-_FUNCTION = "aap_workspace_v1.project_access_step(uuid,uuid,text)"
+_FUNCTION = "yoao_workspace_v1.project_access_step(uuid,uuid,text)"
 _BUSY_HINTS = {
     "lock_actor_share": "aap.workspace.project_access.account_busy",
     "lock_project_key_share": "aap.workspace.project_access.project_busy",
@@ -107,7 +107,7 @@ async def _connect_inference(test_engine):
 
 async def _step(connection, actor_id, project_id, phase):
     raw = await connection.fetchval(
-        "SELECT aap_workspace_v1.project_access_step($1::uuid,$2::uuid,$3::text)",
+        "SELECT yoao_workspace_v1.project_access_step($1::uuid,$2::uuid,$3::text)",
         actor_id,
         project_id,
         phase,
@@ -231,7 +231,7 @@ async def test_inference_role_gets_only_bound_phase_facts_and_no_raw_reads(test_
                 (world["project_id"],),
             ),
             (
-                "SELECT * FROM aap_labeling_v1.workspace_project_query_counters("
+                "SELECT * FROM yoao_labeling_v1.workspace_project_query_counters("
                 "$1::uuid[])",
                 ([world["project_id"]],),
             ),
@@ -308,14 +308,14 @@ async def test_inference_role_gets_only_bound_phase_facts_and_no_raw_reads(test_
 
         with pytest.raises(asyncpg.PostgresError) as caught:
             await connection.fetchval(
-                "SELECT aap_workspace_v1.project_access_step(NULL::uuid,$1::uuid,$2::text)",
+                "SELECT yoao_workspace_v1.project_access_step(NULL::uuid,$1::uuid,$2::text)",
                 world["project_id"],
                 "lock_actor_share",
             )
         assert caught.value.sqlstate == "22023"
         with pytest.raises(asyncpg.PostgresError) as caught:
             await connection.fetchval(
-                "SELECT aap_workspace_v1.project_access_step($1::uuid,$2::uuid,$3::text)",
+                "SELECT yoao_workspace_v1.project_access_step($1::uuid,$2::uuid,$3::text)",
                 world["member_id"],
                 world["project_id"],
                 "lock_project_update",

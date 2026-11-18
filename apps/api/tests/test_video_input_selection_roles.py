@@ -58,7 +58,7 @@ async def test_assets_streams_and_locks_video_members_without_private_table_acce
                 )
         raw = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1.open_video_input_manifest_members(:actor,:project,CAST(:selection AS jsonb))"
+                "SELECT yoao_labeling_v1.open_video_input_manifest_members(:actor,:project,CAST(:selection AS jsonb))"
             ),
             {
                 "actor": actor,
@@ -92,7 +92,7 @@ async def test_assets_streams_and_locks_video_members_without_private_table_acce
         )
         raw = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1.lock_video_input_manifest_member(:actor,:project,:task,CAST(:selection AS jsonb),CAST(:captured AS jsonb))"
+                "SELECT yoao_labeling_v1.lock_video_input_manifest_member(:actor,:project,:task,CAST(:selection AS jsonb),CAST(:captured AS jsonb))"
             ),
             {
                 "actor": actor,
@@ -114,13 +114,13 @@ async def test_video_selection_exposes_only_two_public_capabilities_to_assets(
 ):
     for name, operation in c.OPERATIONS.items():
         signature = (
-            "aap_labeling_v1." + name + "(" + ",".join(operation.sql_types) + ")"
+            "yoao_labeling_v1." + name + "(" + ",".join(operation.sql_types) + ")"
         )
         for role, allowed in (
             ("assets_code", True),
-            ("append_client", False),
-            ("asset_media_control_client", False),
-            ("asset_image_worker_client", False),
+            ("yoao_append_client", False),
+            ("yoao_asset_media_control_client", False),
+            ("yoao_asset_image_worker_client", False),
         ):
             assert (
                 await db_session.scalar(
@@ -138,7 +138,7 @@ async def test_video_selection_exposes_only_two_public_capabilities_to_assets(
             text(
                 "SELECT p.oid, pg_catalog.pg_get_userbyid(p.proowner) AS owner FROM pg_catalog.pg_proc p "
                 "JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
-                "WHERE n.nspname='aap_labeling_v1' AND p.proname IN ("
+                "WHERE n.nspname='yoao_labeling_v1' AND p.proname IN ("
                 "'_video_input_selection_reply','_video_input_manifest_selection_valid',"
                 "'_video_input_captured_task_valid','_video_input_selection_task_access')"
             )
@@ -179,7 +179,7 @@ async def test_implicit_video_cursor_streams_complete_membership_beyond_explicit
     try:
         raw = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1.open_video_input_manifest_members(:actor,:project,CAST(:selection AS jsonb))"
+                "SELECT yoao_labeling_v1.open_video_input_manifest_members(:actor,:project,CAST(:selection AS jsonb))"
             ),
             {
                 "actor": actor,

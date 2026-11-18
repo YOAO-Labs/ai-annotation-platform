@@ -44,7 +44,7 @@ pytestmark = [
     ),
 ]
 _ROOT = Path(__file__).resolve().parents[3]
-_VIEW = "aap_workspace_v1.project_member_facts"
+_VIEW = "yoao_workspace_v1.project_member_facts"
 
 
 async def test_view_owner_columns_and_acl_are_narrow(test_engine):
@@ -83,7 +83,7 @@ async def test_view_owner_columns_and_acl_are_narrow(test_engine):
             for role, expected in [
                 ("identity_api_consumer", True),
                 ("legacy_runtime", True),
-                ("append_client", False),
+                ("yoao_append_client", False),
                 ("assets_code", False),
                 ("inference_code", False),
                 ("yoao_workspace_membership_client", False),
@@ -235,7 +235,7 @@ async def test_restricted_roster_keeps_mapper_identity_and_stale_fields(
                 "annotator" if cache == "clean" else "reviewer"
             )
             assert len(statements) == 2
-            assert "aap_workspace_v1.project_member_facts" in statements[0]
+            assert "yoao_workspace_v1.project_member_facts" in statements[0]
             assert not any("FROM project_members" in sql for sql in statements)
             if cached is not None:
                 assert (

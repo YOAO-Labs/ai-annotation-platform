@@ -147,14 +147,16 @@ async def _assert_api_consumer_workspace_closure(test_engine, project_id) -> Non
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
-                        "'aap_workspace_v1.read_project_row(uuid)'::regprocedure, 'EXECUTE')"
+                        "'yoao_workspace_v1.read_project_row(uuid)'::regprocedure, 'EXECUTE')"
                     )
                 )
                 is True
             )
             assert (
                 await db.scalar(
-                    text("SELECT aap_workspace_v1.read_project_row(CAST(:id AS uuid))"),
+                    text(
+                        "SELECT yoao_workspace_v1.read_project_row(CAST(:id AS uuid))"
+                    ),
                     {"id": project_id},
                 )
                 is not None

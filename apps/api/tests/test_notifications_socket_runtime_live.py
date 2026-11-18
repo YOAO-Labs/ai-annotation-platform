@@ -62,8 +62,8 @@ _HEARTBEAT_SECONDS = 30
 @pytest.mark.parametrize(
     ("role", "container"),
     [
-        ("notification_delivery_read_client", "owned-postgres"),
-        ("identity_actor_status_client", "owned-postgres"),
+        ("yoao_notification_delivery_read_client", "owned-postgres"),
+        ("yoao_identity_actor_status_client", "owned-postgres"),
     ],
 )
 def test_verifier_role_database_url_is_bound_to_owned_test_database(role, container):
@@ -78,7 +78,7 @@ def test_verifier_role_database_url_is_bound_to_owned_test_database(role, contai
     supplied = URL.create(
         (
             "postgresql+asyncpg"
-            if role == "identity_actor_status_client"
+            if role == "yoao_identity_actor_status_client"
             else "postgresql"
         ),
         username=role,
@@ -108,7 +108,7 @@ def test_verifier_role_database_url_is_bound_to_owned_test_database(role, contai
 def test_asyncpg_connection_url_normalizes_scheme_without_changing_credentials():
     supplied = URL.create(
         "postgresql+asyncpg",
-        username="identity_actor_status_client",
+        username="yoao_identity_actor_status_client",
         password="scoped-secret",
         host="127.0.0.1",
         port=55432,
@@ -127,7 +127,7 @@ def test_asyncpg_connection_url_normalizes_scheme_without_changing_credentials()
         "127.0.0.1",
         55432,
         "notifications_fixture_test",
-        "identity_actor_status_client",
+        "yoao_identity_actor_status_client",
     )
     assert normalized.password == "scoped-secret"
 
@@ -153,7 +153,7 @@ def test_verifier_role_database_url_rejects_cross_database_inputs(changes):
     )
     supplied = URL.create(
         "postgresql",
-        username="notification_delivery_read_client",
+        username="yoao_notification_delivery_read_client",
         password="scoped-secret",
         host="127.0.0.1",
         port=55432,
@@ -164,7 +164,7 @@ def test_verifier_role_database_url_rejects_cross_database_inputs(changes):
         verifier_database_url(
             supplied.render_as_string(hide_password=False),
             reference,
-            expected_role="notification_delivery_read_client",
+            expected_role="yoao_notification_delivery_read_client",
             container_name="owned-postgres",
         )
 
@@ -311,15 +311,15 @@ async def _assert_role_capabilities(
     )
     try:
         assert await connection.fetchval("SELECT session_user") == expected_role
-        if expected_role == "identity_actor_status_client":
+        if expected_role == "yoao_identity_actor_status_client":
             await verify_function_only_role(
                 connection,
-                schema="aap_identity_v1",
+                schema="yoao_identity_v1",
                 functions={("read_actor_facts", "uuid")},
                 role=expected_role,
             )
             status = await connection.fetchrow(
-                "SELECT actor_id, is_active FROM aap_identity_v1.read_actor_facts($1::uuid)",
+                "SELECT actor_id, is_active FROM yoao_identity_v1.read_actor_facts($1::uuid)",
                 actor_id,
             )
             assert status is not None and status["actor_id"] == actor_id
@@ -328,12 +328,12 @@ async def _assert_role_capabilities(
         else:
             await verify_function_only_role(
                 connection,
-                schema="aap_notifications_v1",
+                schema="yoao_notifications_v1",
                 functions=_NOTIFICATION_CAPABILITIES,
                 role=expected_role,
             )
             assert not await connection.fetch(
-                "SELECT * FROM aap_notifications_v1.read_notification($1::uuid)",
+                "SELECT * FROM yoao_notifications_v1.read_notification($1::uuid)",
                 uuid.uuid4(),
             )
             denied_query = "SELECT * FROM public.notifications LIMIT 1"
@@ -358,8 +358,8 @@ async def test_cold_notifications_owner_behind_api_bridge(
     actor_status_host_url = inputs["AAP_MODULE_DATA_IDENTITY_ACTOR_STATUS_URL"]
     delivery_host_url = inputs["AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL"]
     for dsn, role in (
-        (actor_status_host_url, "identity_actor_status_client"),
-        (delivery_host_url, "notification_delivery_read_client"),
+        (actor_status_host_url, "yoao_identity_actor_status_client"),
+        (delivery_host_url, "yoao_notification_delivery_read_client"),
     ):
         parsed = make_url(dsn)
         assert (parsed.host, parsed.port, parsed.database) == (
@@ -370,12 +370,12 @@ async def test_cold_notifications_owner_behind_api_bridge(
         assert parsed.username == role and parsed.database.endswith("_test")
     await _assert_role_capabilities(
         actor_status_host_url,
-        expected_role="identity_actor_status_client",
+        expected_role="yoao_identity_actor_status_client",
         actor_id=actor.id,
     )
     await _assert_role_capabilities(
         delivery_host_url,
-        expected_role="notification_delivery_read_client",
+        expected_role="yoao_notification_delivery_read_client",
         actor_id=actor.id,
     )
 

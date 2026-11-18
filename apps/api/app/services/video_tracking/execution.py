@@ -24,7 +24,7 @@ from yoao_preannotation_results.video_execution import (
     request_bytes,
 )
 
-_STEP = text("SELECT aap_jobs_v1.video_execution_step(:action, :arguments)")
+_STEP = text("SELECT yoao_jobs_v1.video_execution_step(:action, :arguments)")
 _LEASE_SECONDS = 120
 _RENEW_SECONDS = 30
 

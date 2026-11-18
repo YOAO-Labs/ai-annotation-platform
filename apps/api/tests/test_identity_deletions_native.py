@@ -54,7 +54,7 @@ def _deletion_dsn(test_engine=None) -> str:
         pytest.skip("Identity deletion client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_deletion_client"
+    assert parsed.username == "yoao_identity_deletion_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     if test_engine is not None:
         assert (parsed.host, parsed.port, parsed.database) == (
@@ -1010,9 +1010,9 @@ async def test_malformed_deletion_audit_reply_rolls_back_transfer_and_soft_delet
     )
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     owner_engine = create_async_engine(settings.effective_migration_database_url)
-    function = "aap_audit_v1.record_identity_deletion_event"
+    function = "yoao_audit_v1.record_identity_deletion_event"
     original_name = f"_identity_del_audit_{uuid.uuid4().hex}"
-    original = f"aap_audit_v1.{original_name}"
+    original = f"yoao_audit_v1.{original_name}"
     wrapped = False
     override = f"""
         CREATE FUNCTION {function}(

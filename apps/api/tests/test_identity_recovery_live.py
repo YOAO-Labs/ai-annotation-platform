@@ -300,7 +300,7 @@ async def test_installed_owner_node_all_operations_and_separate_mail_process(
         assert promoted["access_token_sha256"] == signed["access_token_sha256"]
         async with maker.begin() as db:
             await db.execute(
-                text("SELECT aap_identity_v1.advance_credential_generation(:id)"),
+                text("SELECT yoao_identity_v1.advance_credential_generation(:id)"),
                 {"id": immediate_id},
             )
         historical = await asyncio.to_thread(node, identity, control, immediate)
@@ -445,7 +445,7 @@ async def test_real_api_recovers_without_identity_table_access_and_never_falls_b
         async with maker() as db:
             assert not await db.scalar(
                 text(
-                    "SELECT has_table_privilege('identity_auth_client','users','SELECT')"
+                    "SELECT has_table_privilege('yoao_identity_auth_client','users','SELECT')"
                 )
             )
         record_property(

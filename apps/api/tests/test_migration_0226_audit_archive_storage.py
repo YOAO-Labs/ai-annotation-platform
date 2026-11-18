@@ -288,7 +288,7 @@ async def test_shared_restore_whitelist_changes_only_bucket_and_identity(owned_d
                 .where(AuditArchiveOutput.id == archive_id)
                 .values(storage_ref=restored)
             )
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await owned_db.execute(
         update(AuditArchiveOutput)
         .where(AuditArchiveOutput.id == archive_id)
@@ -338,7 +338,7 @@ async def test_runtime_role_cannot_forge_restore_marker(owned_db):
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(text(f"SET LOCAL ROLE {quoted}"))
-            await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+            await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
             await owned_db.execute(
                 update(AuditArchiveOutput)
                 .where(AuditArchiveOutput.id == archive_id)

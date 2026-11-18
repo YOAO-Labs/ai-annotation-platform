@@ -150,7 +150,7 @@ class _ExportExecution:
         token = uuid.uuid4()
         state = await self.control.scalar(
             text(
-                "SELECT aap_export_v1.begin_execution("
+                "SELECT yoao_export_v1.begin_execution("
                 ":job_id, :project_id, :delivery_id, :token, :business_pid)"
             ),
             {
@@ -179,11 +179,15 @@ class _ExportExecution:
                 self.entered = True
                 try:
                     entered = await self.control.scalar(
-                        text("SELECT aap_export_v1.enter_execution_io(:job_id, :token)"),
+                        text(
+                            "SELECT yoao_export_v1.enter_execution_io(:job_id, :token)"
+                        ),
                         {"job_id": self.job_id, "token": self.token},
                     )
                     if entered is not True:
-                        raise ExportExecutionLost("export physical execution authority was lost")
+                        raise ExportExecutionLost(
+                            "export physical execution authority was lost"
+                        )
                     await self.control.commit()
                 except BaseException:
                     self.unsettled = True
@@ -201,11 +205,13 @@ class _ExportExecution:
             try:
                 await self.assert_owned()
                 settled = await self.control.scalar(
-                    text("SELECT aap_export_v1.quiesce_execution_io(:job_id, :token)"),
+                    text("SELECT yoao_export_v1.quiesce_execution_io(:job_id, :token)"),
                     {"job_id": self.job_id, "token": self.token},
                 )
                 if settled is not True:
-                    raise ExportExecutionLost("export physical checkpoint could not be settled")
+                    raise ExportExecutionLost(
+                        "export physical checkpoint could not be settled"
+                    )
                 await self.control.commit()
             except BaseException:
                 self.unsettled = True
@@ -215,7 +221,7 @@ class _ExportExecution:
     async def finish(self, job_id: uuid.UUID) -> None:
         await self.assert_owned()
         settled = await self.control.scalar(
-            text("SELECT aap_export_v1.finish_execution(:job_id, :token)"),
+            text("SELECT yoao_export_v1.finish_execution(:job_id, :token)"),
             {"job_id": job_id, "token": self.token},
         )
         if settled is not True:
@@ -223,7 +229,9 @@ class _ExportExecution:
         await self.control.commit()
 
 
-async def _close_export_cache_lock(execution, client, key, token, acquired, observed, entered):
+async def _close_export_cache_lock(
+    execution, client, key, token, acquired, observed, entered
+):
     failure = None
     try:
         if acquired:
@@ -1158,7 +1166,9 @@ async def _run_export(
                         except OSError as closing:
                             if original is None:
                                 raise
-                            original.add_note(f"Export temporary ZIP cleanup failed: {closing!r}")
+                            original.add_note(
+                                f"Export temporary ZIP cleanup failed: {closing!r}"
+                            )
                             raise original
 
                 await execution.assert_owned()
@@ -1295,8 +1305,13 @@ async def _run_export(
                     if lock_client is not None:
                         try:
                             await _close_export_cache_lock(
-                                execution, lock_client, lock_key, lock_owner,
-                                lock_acquired, lock_observed, lock_entered,
+                                execution,
+                                lock_client,
+                                lock_key,
+                                lock_owner,
+                                lock_acquired,
+                                lock_observed,
+                                lock_entered,
                             )
                         except BaseException as closing:
                             cleanup_failure = closing
@@ -1314,7 +1329,9 @@ async def _run_export(
                                     and storage_access.failure_unsettled(original)
                                 )
                             ):
-                                raise ExportExecutionLost("export physical work is unsettled")
+                                raise ExportExecutionLost(
+                                    "export physical work is unsettled"
+                                )
                             await db.rollback()
                             await execution.finish(job_uuid)
                         except BaseException as closing:

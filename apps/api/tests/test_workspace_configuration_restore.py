@@ -73,7 +73,7 @@ async def _project_counter_facts(maker, project_id):
         await db.execute(text("SET LOCAL ROLE workspace_code"))
         rows = await db.execute(
             text(
-                "SELECT * FROM aap_labeling_v1.workspace_project_query_counters("
+                "SELECT * FROM yoao_labeling_v1.workspace_project_query_counters("
                 "CAST(:ids AS uuid[]))"
             ),
             {"ids": [project_id]},
@@ -422,7 +422,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with source_maker() as db:
             assert await db.scalar(
                 text(
-                    "SELECT to_regnamespace('aap_workspace_configuration_v1') IS NOT NULL"
+                    "SELECT to_regnamespace('yoao_workspace_configuration_v1') IS NOT NULL"
                 )
             )
             assert (await db.get(ProjectTemplate, template_id)).name == later_name

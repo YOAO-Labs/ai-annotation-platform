@@ -39,7 +39,7 @@ async def test_materialized_view_only_contains_completed_utc_days(
     rows = (
         await db_session.execute(
             text(
-                "SELECT action, event_count FROM aap_audit_v1.audit_daily_facts "
+                "SELECT action, event_count FROM yoao_audit_v1.audit_daily_facts "
                 "WHERE action IN (:completed_action, :current_action)"
             ),
             {
@@ -68,7 +68,7 @@ async def test_daily_projection_preserves_materialized_view_native_types(db_sess
                 WHERE (
                     (namespace.nspname = 'public'
                      AND relation.relname = 'mv_audit_bi_daily')
-                    OR (namespace.nspname = 'aap_audit_v1'
+                    OR (namespace.nspname = 'yoao_audit_v1'
                         AND relation.relname = 'audit_daily_facts')
                 )
                   AND attribute.attnum > 0
@@ -130,7 +130,7 @@ async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
         ]
     )
     await db_session.flush()
-    await db_session.execute(text("SELECT aap_audit_v1.refresh_audit_bi_mv()"))
+    await db_session.execute(text("SELECT yoao_audit_v1.refresh_audit_bi_mv()"))
 
     class RecordingSession:
         def __init__(self, session):
@@ -156,11 +156,11 @@ async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
     assert by_action[tail_action].day == today
     assert by_action[tail_action].event_count == 1
     assert any(
-        "from aap_audit_v1.audit_events" in statement.lower()
+        "from yoao_audit_v1.audit_events" in statement.lower()
         for statement in recorded.statements
     )
     assert any(
-        "from aap_audit_v1.audit_daily_facts" in statement.lower()
+        "from yoao_audit_v1.audit_daily_facts" in statement.lower()
         for statement in recorded.statements
     )
     assert not any(

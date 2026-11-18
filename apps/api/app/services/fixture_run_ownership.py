@@ -522,7 +522,7 @@ async def recover_verified_originals(db, run_id: uuid.UUID) -> None:
         await exclusive(db, creation.bucket, creation.object_key)
         classification = await db.scalar(
             text(
-                "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+                "SELECT yoao_assets_v1.classify_fixture_original_reclaim("
                 "CAST(:creation AS uuid), CAST(:identity AS text))"
             ),
             {"creation": creation.id, "identity": creation.storage_identity},
@@ -640,7 +640,7 @@ async def recover_verified_auxiliary_originals(db, run_id: uuid.UUID) -> None:
         await exclusive(db, creation.bucket, creation.object_key)
         classification = await db.scalar(
             text(
-                "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+                "SELECT yoao_assets_v1.classify_fixture_original_reclaim("
                 "CAST(:creation AS uuid), CAST(:identity AS text))"
             ),
             {"creation": creation.id, "identity": creation.storage_identity},
@@ -656,7 +656,7 @@ async def recover_verified_auxiliary_originals(db, run_id: uuid.UUID) -> None:
             ):
                 continue
             await gateway._managed_original_data(
-                "aap_assets_v1.publish_operator_auxiliary",
+                "yoao_assets_v1.publish_operator_auxiliary",
                 {"creation_id": creation.id},
                 {"creation_id": "uuid"},
             )
@@ -952,7 +952,7 @@ async def guard_project_jobs(db, project_ids: list[uuid.UUID]) -> None:
     """Ask Jobs to retain every unproved project execution before cleanup."""
     await _guard_jobs(
         db,
-        "SELECT aap_jobs_v1.guard_fixture_project_jobs(CAST(:ids AS uuid[]))",
+        "SELECT yoao_jobs_v1.guard_fixture_project_jobs(CAST(:ids AS uuid[]))",
         project_ids,
         "fixture_job_execution_unsettled",
     )
@@ -962,7 +962,7 @@ async def guard_dataset_jobs(db, dataset_ids: list[uuid.UUID]) -> None:
     """Reject owned or unscoped Dataset Jobs before physical cleanup."""
     await _guard_jobs(
         db,
-        "SELECT aap_jobs_v1.guard_fixture_dataset_jobs(CAST(:ids AS uuid[]))",
+        "SELECT yoao_jobs_v1.guard_fixture_dataset_jobs(CAST(:ids AS uuid[]))",
         dataset_ids,
         "fixture_dataset_job_unsettled",
     )

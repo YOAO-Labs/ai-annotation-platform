@@ -13,30 +13,30 @@ from sqlalchemy.engine import make_url
 _CLIENTS = (
     (
         "AAP_MODULE_DATA_IDENTITY_DEACTIVATION_URL",
-        "identity_deactivation_client",
-        "aap_identity_deactivation_v1",
+        "yoao_identity_deactivation_client",
+        "yoao_identity_deactivation_v1",
         {
-            "aap_identity_deactivation_v1.deactivation_policy()",
-            "aap_identity_deactivation_v1.execute_deactivation_command(jsonb)",
+            "yoao_identity_deactivation_v1.deactivation_policy()",
+            "yoao_identity_deactivation_v1.execute_deactivation_command(jsonb)",
         },
     ),
     (
         "AAP_MODULE_DATA_IDENTITY_DEACTIVATION_OPERATOR_URL",
-        "identity_deactivation_operator",
-        "aap_identity_deactivation_v1",
+        "yoao_identity_deactivation_operator",
+        "yoao_identity_deactivation_v1",
         {
-            "aap_identity_deactivation_v1.due_policy()",
-            "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
+            "yoao_identity_deactivation_v1.due_policy()",
+            "yoao_identity_deactivation_v1.process_due_deactivations(jsonb)",
         },
     ),
     (
         "AAP_MODULE_DATA_IDENTITY_NOTIFICATION_PUBLISH_URL",
-        "notification_publish_client",
-        "aap_notifications_v1",
+        "yoao_notification_publish_client",
+        "yoao_notifications_v1",
         {
-            "aap_notifications_v1.identity_delivery_policy()",
-            "aap_notifications_v1.claim_identity_deliveries(jsonb)",
-            "aap_notifications_v1.finish_identity_delivery(jsonb)",
+            "yoao_notifications_v1.identity_delivery_policy()",
+            "yoao_notifications_v1.claim_identity_deliveries(jsonb)",
+            "yoao_notifications_v1.finish_identity_delivery(jsonb)",
         },
     ),
 )
@@ -76,7 +76,7 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND function.prokind IN ('f','p')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
@@ -86,7 +86,7 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+                WHERE (namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' OR namespace.nspname ~ '^yoao_[a-z0-9_]+_v1$')
                   AND namespace.nspname <> $1
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
@@ -119,7 +119,7 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
                 WHERE namespace.nspname NOT IN ('pg_catalog','information_schema')
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
-                  AND left(namespace.nspname,4)<>'aap_'
+                  AND (left(namespace.nspname,4)<>'aap_' AND left(namespace.nspname,5)<>'yoao_')
                   AND function.prokind IN ('f','p')
                   AND function.prosecdef
                   AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
@@ -141,10 +141,10 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
             """
         )
 
-        if role_name == "identity_deactivation_client":
+        if role_name == "yoao_identity_deactivation_client":
             assert json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.deactivation_policy()"
+                    "SELECT yoao_identity_deactivation_v1.deactivation_policy()"
                 )
             ) == {
                 "schema": "aap-identity-deactivation-policy/v1",
@@ -152,14 +152,14 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
             }
             invalid = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.execute_deactivation_command('{}'::jsonb)"
+                    "SELECT yoao_identity_deactivation_v1.execute_deactivation_command('{}'::jsonb)"
                 )
             )
             assert invalid["error"]["code"] == "invalid_request"
-        elif role_name == "identity_deactivation_operator":
+        elif role_name == "yoao_identity_deactivation_operator":
             assert json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.due_policy()"
+                    "SELECT yoao_identity_deactivation_v1.due_policy()"
                 )
             ) == {
                 "schema": "aap-identity-deactivation-due-policy/v1",
@@ -167,14 +167,14 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
             }
             invalid = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.process_due_deactivations('{}'::jsonb)"
+                    "SELECT yoao_identity_deactivation_v1.process_due_deactivations('{}'::jsonb)"
                 )
             )
             assert invalid["error"]["code"] == "invalid_request"
         else:
             assert json.loads(
                 await connection.fetchval(
-                    "SELECT aap_notifications_v1.identity_delivery_policy()"
+                    "SELECT yoao_notifications_v1.identity_delivery_policy()"
                 )
             ) == {
                 "schema": "aap-notifications-delivery-policy/v1",
@@ -182,7 +182,7 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
             }
             invalid = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_notifications_v1.claim_identity_deliveries('{}'::jsonb)"
+                    "SELECT yoao_notifications_v1.claim_identity_deliveries('{}'::jsonb)"
                 )
             )
             assert invalid["error"]["code"] == "invalid_request"
@@ -194,7 +194,7 @@ async def test_deactivation_and_publisher_logins_have_exact_function_surfaces(
             "SELECT * FROM public.identity_deactivation_requests LIMIT 1",
             "SELECT * FROM public.notification_delivery_outbox LIMIT 1",
             "SELECT * FROM public.notifications LIMIT 1",
-            "SELECT aap_identity_v1.lock_super_admin_invariant()",
+            "SELECT yoao_identity_v1.lock_super_admin_invariant()",
             "CREATE TEMP TABLE deactivation_forbidden(id integer)",
             "SET ROLE identity_code",
         )

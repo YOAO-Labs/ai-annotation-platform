@@ -134,7 +134,7 @@ async def test_registry_delete_skips_only_missing_fence_rows(test_engine) -> Non
         ):
             await _assert_pg_error(connection, statement, sqlstate="42501")
 
-        delete = "SELECT aap_inference_topology_v1.delete_registry($1::uuid,'null')"
+        delete = "SELECT yoao_inference_topology_v1.delete_registry($1::uuid,'null')"
         result = json.loads(await connection.fetchval(delete, no_fence_id))
         assert result == {"deleted": True, "pool_id": None}
         await _assert_pg_error(
@@ -257,19 +257,19 @@ async def test_scalar_registry_parameters_preserve_gpu_membership_fences(
         )
         for client, role in (
             (runtime, "legacy_runtime"),
-            (ingress, "inference_registry_ingress_client"),
+            (ingress, "yoao_inference_registry_ingress_client"),
         ):
             assert await client.fetchval("SELECT current_user = session_user")
             assert await client.fetchval("SELECT current_user") == role
 
         snapshot = json.loads(
             await runtime.fetchval(
-                "SELECT aap_inference_topology_v1.registry_auth_snapshot($1::uuid)",
+                "SELECT yoao_inference_topology_v1.registry_auth_snapshot($1::uuid)",
                 backend_id,
             )
         )
         patch_sql = (
-            "SELECT aap_inference_topology_v1.patch_registry_auth_cas("
+            "SELECT yoao_inference_topology_v1.patch_registry_auth_cas("
             "$1::uuid,$2::text,$3::text,$4::bigint)"
         )
         changed = json.loads(
@@ -351,7 +351,7 @@ async def test_scalar_registry_parameters_preserve_gpu_membership_fences(
 
         with pytest.raises(asyncpg.PostgresError) as fenced_tag:
             await ingress.fetchrow(
-                "SELECT * FROM aap_inference_registry_ingress_v1.tag_seed_registry("
+                "SELECT * FROM yoao_inference_registry_ingress_v1.tag_seed_registry("
                 "$1::uuid,$2::text)",
                 backend_id,
                 json.dumps(

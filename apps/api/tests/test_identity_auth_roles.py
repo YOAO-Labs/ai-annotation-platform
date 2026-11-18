@@ -60,11 +60,11 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             SELECT namespace.nspname AS schema, function.proname AS name
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
         """)
         assert {(row["schema"], row["name"]) for row in actual} == {
-            ("aap_identity_v1", name) for name in SURFACES[kind]
+            ("yoao_identity_v1", name) for name in SURFACES[kind]
         }
         assert not await connection.fetchval("""
             SELECT EXISTS (
@@ -85,14 +85,14 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             "SELECT password_hash FROM public.users LIMIT 1",
             "CREATE TEMP TABLE identity_forbidden(id integer)",
             "SET ROLE identity_code",
-            "SELECT aap_identity_v1._admission_failure('credential_invalid')",
+            "SELECT yoao_identity_v1._admission_failure('credential_invalid')",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(sql)
         if kind != "AUTH":
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(
-                    "SELECT aap_identity_v1.read_actor_context(NULL::uuid,'super_admin')"
+                    "SELECT yoao_identity_v1.read_actor_context(NULL::uuid,'super_admin')"
                 )
 
         actor = fixture["actor_id"]
@@ -101,13 +101,13 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
         if kind == "AUTH":
             policy = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.authentication_policy()"
+                    "SELECT yoao_identity_v1.authentication_policy()"
                 )
             )
             assert policy["issuer"] == "aap-identity/v1"
             context = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.read_actor_context($1,$2)",
+                    "SELECT yoao_identity_v1.read_actor_context($1,$2)",
                     actor,
                     "employee",
                 )
@@ -118,7 +118,7 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             assert context["data"]["weekly_target_default"] is None
             result = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.read_jwt_principal($1,$2,0,$3,false)",
+                    "SELECT yoao_identity_v1.read_jwt_principal($1,$2,0,$3,false)",
                     actor,
                     jti,
                     expires,
@@ -127,7 +127,7 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             assert result["data"]["actor_id"] == str(actor)
             page = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.read_api_key_candidates($1,NULL,100)",
+                    "SELECT yoao_identity_v1.read_api_key_candidates($1,NULL,100)",
                     "ak_123456789",
                 )
             )
@@ -136,7 +136,7 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             )
             key = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.confirm_api_key_principal($1,$2)",
+                    "SELECT yoao_identity_v1.confirm_api_key_principal($1,$2)",
                     fixture["key_id"],
                     candidate["key_hash"],
                 )
@@ -144,31 +144,31 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             assert key["data"]["credential_type"] == "api_key"
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(
-                    "SELECT aap_identity_v1.advance_credential_generation($1)", actor
+                    "SELECT yoao_identity_v1.advance_credential_generation($1)", actor
                 )
         elif kind == "COMMAND":
             cleanup_jtis.append(jti)
             assert (
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.get_credential_generation($1)", actor
+                    "SELECT yoao_identity_v1.get_credential_generation($1)", actor
                 )
                 == 0
             )
             assert (
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.advance_credential_generation($1)", actor
+                    "SELECT yoao_identity_v1.advance_credential_generation($1)", actor
                 )
                 == 1
             )
             assert await connection.fetchval(
-                "SELECT aap_identity_v1.revoke_jti($1,$2)", jti, expires
+                "SELECT yoao_identity_v1.revoke_jti($1,$2)", jti, expires
             )
             assert await connection.fetchval(
-                "SELECT aap_identity_v1.is_jti_revoked($1)", jti
+                "SELECT yoao_identity_v1.is_jti_revoked($1)", jti
             )
             retired = json.loads(
                 await connection.fetchval(
-                    "SELECT aap_identity_v1.retire_account_credentials($1)", actor
+                    "SELECT yoao_identity_v1.retire_account_credentials($1)", actor
                 )
             )
             assert retired["generation"] == 2 and retired["revoked_key_ids"] == [
@@ -178,7 +178,7 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
             async with connection.transaction():
                 fenced = json.loads(
                     await connection.fetchval(
-                        "SELECT aap_identity_v1.lock_current_principal($1,'jwt',$2,0,$3,ARRAY[]::text[])",
+                        "SELECT yoao_identity_v1.lock_current_principal($1,'jwt',$2,0,$3,ARRAY[]::text[])",
                         actor,
                         jti,
                         expires,
@@ -187,7 +187,7 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
                 assert fenced["data"]["actor_id"] == str(actor)
         else:
             removed = await connection.fetchval(
-                "SELECT aap_identity_v1.purge_expired_revocations(1)"
+                "SELECT yoao_identity_v1.purge_expired_revocations(1)"
             )
             assert 0 <= removed <= 1
     finally:

@@ -67,7 +67,7 @@ async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None
 router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
 _SUITE_READER_WAIT_SECONDS = 3
 _LABELING_FIXTURE_DELETE_SQL = (
-    "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
+    "SELECT yoao_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
 )
 _AUDIT_FIXTURE_CLEANUP = "audit_fixture_cleanup"
 
@@ -323,12 +323,12 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
 
     log = logging.getLogger("anno-api.seed_cleanup")
     jobs_fixture_delete = operation in (
-        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
-        "SELECT aap_jobs_v1.delete_fixture_media_backfills(CAST(:run AS uuid),CAST(:dataset AS uuid))",
+        "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
+        "SELECT yoao_jobs_v1.delete_fixture_media_backfills(CAST(:run AS uuid),CAST(:dataset AS uuid))",
     )
     labeling_fixture_delete = operation == _LABELING_FIXTURE_DELETE_SQL
     audit_fixture_delete = operation == _AUDIT_FIXTURE_CLEANUP
-    identity_fixture_delete = operation.startswith("SELECT aap_identity_fixture_v1.")
+    identity_fixture_delete = operation.startswith("SELECT yoao_identity_fixture_v1.")
     owner_fixture_delete = (
         jobs_fixture_delete or labeling_fixture_delete or audit_fixture_delete
     )
@@ -342,7 +342,7 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
             else:
                 result = await db.execute(text(operation), params or {})
             if not audit_fixture_delete and (
-                operation.startswith("SELECT aap_workspace_fixture_v1.")
+                operation.startswith("SELECT yoao_workspace_fixture_v1.")
                 or owner_fixture_delete
             ):
                 decode_fixture_count(result.scalar_one())
@@ -363,7 +363,7 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
                 ) from exc
             raise
         if (
-            operation.startswith("SELECT aap_workspace_fixture_v1.")
+            operation.startswith("SELECT yoao_workspace_fixture_v1.")
             or owner_fixture_delete
         ):
             original = getattr(exc, "orig", exc)
@@ -1073,7 +1073,7 @@ async def _delete_scale_project_data(db, scope, run_id):
         raise HTTPException(409, detail={"code": "fixture_run_scope_changed"})
     await db.execute(
         text(
-            "SELECT aap_assets_v1.guard_scale_fixture_originals(CAST(:run AS uuid), CAST(:ids AS uuid[]))"
+            "SELECT yoao_assets_v1.guard_scale_fixture_originals(CAST(:run AS uuid), CAST(:ids AS uuid[]))"
         ),
         {"run": run_id, "ids": dataset_ids},
     )
@@ -1145,7 +1145,7 @@ async def _delete_owned_project_data(db, scope, run_id):
         )
         await _try_fixture_delete(
             db,
-            "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
+            "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
             {"pids": project_ids},
         )
         await _try_fixture_delete(
@@ -1163,13 +1163,13 @@ async def _delete_owned_project_data(db, scope, run_id):
         )
         await _try_fixture_delete(
             db,
-            "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
+            "SELECT yoao_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
             {"pids": project_ids},
         )
         if (
             await db.scalar(
                 text(
-                    "SELECT 1 FROM aap_workspace_v1.project_facts "
+                    "SELECT 1 FROM yoao_workspace_v1.project_facts "
                     "WHERE id=ANY(CAST(:ids AS uuid[])) LIMIT 1"
                 ),
                 {"ids": project_ids},
@@ -1180,7 +1180,7 @@ async def _delete_owned_project_data(db, scope, run_id):
     for dataset_id in dataset_ids:
         await _try_fixture_delete(
             db,
-            "SELECT aap_jobs_v1.delete_fixture_media_backfills(CAST(:run AS uuid),CAST(:dataset AS uuid))",
+            "SELECT yoao_jobs_v1.delete_fixture_media_backfills(CAST(:run AS uuid),CAST(:dataset AS uuid))",
             {"run": run_id, "dataset": dataset_id},
         )
         await capture_managed_original_retirements(
@@ -1362,7 +1362,7 @@ async def _delete_owned_accounts_and_auxiliary(
     ).all()
     await _try_fixture_delete(
         db,
-        "SELECT aap_workspace_fixture_v1.delete_templates(false, CAST(:ids AS text[]))",
+        "SELECT yoao_workspace_fixture_v1.delete_templates(false, CAST(:ids AS text[]))",
         {"ids": [row.display_id for row in template_rows]},
     )
     if (
@@ -1391,17 +1391,17 @@ async def _delete_owned_accounts_and_auxiliary(
     if users:
         await _try_fixture_delete(
             db,
-            "SELECT aap_identity_fixture_v1.delete_reset_tokens(:uids)",
+            "SELECT yoao_identity_fixture_v1.delete_reset_tokens(:uids)",
             {"uids": users},
         )
         await _try_fixture_delete(
             db,
-            "SELECT aap_identity_fixture_v1.delete_invitations(:uids)",
+            "SELECT yoao_identity_fixture_v1.delete_invitations(:uids)",
             {"uids": users},
         )
         await _try_fixture_delete(
             db,
-            "SELECT aap_identity_fixture_v1.delete_organization_members(:uids)",
+            "SELECT yoao_identity_fixture_v1.delete_organization_members(:uids)",
             {"uids": users},
         )
         user_rows = (
@@ -1415,7 +1415,7 @@ async def _delete_owned_accounts_and_auxiliary(
         ).all()
         await _try_fixture_delete(
             db,
-            "SELECT aap_identity_fixture_v1.delete_accounts(CAST(:shared AS boolean),CAST(:emails AS text[]))",
+            "SELECT yoao_identity_fixture_v1.delete_accounts(CAST(:shared AS boolean),CAST(:emails AS text[]))",
             {"shared": False, "emails": [row.email for row in user_rows]},
         )
         remaining = await db.scalar(
@@ -1786,7 +1786,7 @@ async def _cleanup_owned_e2e_fixtures(
                 await _wait_fixture_source_readers(db, run_id, None)
                 completed_drains = drained_runs | {run_id}
             proof = await db.scalar(
-                text("SELECT aap_assets_v1.seal_fixture_run_without_media(:run)"),
+                text("SELECT yoao_assets_v1.seal_fixture_run_without_media(:run)"),
                 {"run": run_id},
             )
             if proof is not True:

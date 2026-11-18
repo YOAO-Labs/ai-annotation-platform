@@ -24,7 +24,7 @@ from app.services.audit_read_relations import audit_event, execute_audit_relatio
 
 def test_audit_orm_alias_selects_only_the_public_relation():
     compiled = str(select(audit_event).compile(dialect=postgresql.dialect()))
-    assert "FROM aap_audit_v1.audit_events AS audit_events" in compiled
+    assert "FROM yoao_audit_v1.audit_events AS audit_events" in compiled
     assert "public.audit_logs" not in compiled
 
 
@@ -53,9 +53,9 @@ def test_project_admin_filters_still_compose_workspace_and_identity_public_facts
     count_sql = str(count.where(scope).compile(dialect=postgresql.dialect()))
 
     for sql in (list_sql, count_sql):
-        assert "aap_audit_v1.audit_events" in sql
-        assert "aap_workspace_v1.project_facts" in sql
-        assert "aap_identity_v1.invitation_audit_targets" in sql
+        assert "yoao_audit_v1.audit_events" in sql
+        assert "yoao_workspace_v1.project_facts" in sql
+        assert "yoao_identity_v1.invitation_audit_targets" in sql
         assert "public.audit_logs" not in sql
     assert any(value == "http.%" for value in list_statement.params.values())
     assert " @> " in list_sql

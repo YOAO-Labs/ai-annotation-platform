@@ -76,7 +76,7 @@ async def test_delivery_reads_keep_separate_snapshots_during_committed_revocatio
                 async with db.begin_nested():
                     await db.execute(
                         text(
-                            "SELECT id FROM aap_notifications_v1.notification_facts LIMIT 1"
+                            "SELECT id FROM yoao_notifications_v1.notification_facts LIMIT 1"
                         )
                     )
             assert denied.value.orig.sqlstate == "42501"

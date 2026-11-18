@@ -19,7 +19,7 @@ from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServiceP
 from app.db.models.ml_backend_registry import MLBackendRegistry
 
 _STAGES = "aap_inference_health_reconciliations"
-_NATIVE = "aap_inference_health_data_v1."
+_NATIVE = "yoao_inference_health_data_v1."
 
 
 @dataclass
@@ -53,7 +53,7 @@ _HEALTH_BACKEND_FIELDS = {
     "health_meta",
     "endpoint_sha256",
 }
-_HEALTH_ENDPOINT_NATIVE = "aap_inference_backend_endpoint_v1."
+_HEALTH_ENDPOINT_NATIVE = "yoao_inference_backend_endpoint_v1."
 
 
 def _health_backend_fact(value) -> HealthBackendFact | None:
@@ -287,7 +287,7 @@ class InferenceHealthData:
             select(MLBackendServicePool)
             .from_statement(
                 text(
-                    "SELECT * FROM aap_inference_v1.ai_mask_pool_reference_row(:pool_id)"
+                    "SELECT * FROM yoao_inference_v1.ai_mask_pool_reference_row(:pool_id)"
                 )
             )
             .execution_options(populate_existing=False)

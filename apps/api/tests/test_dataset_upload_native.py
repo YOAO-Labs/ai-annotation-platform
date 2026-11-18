@@ -24,14 +24,14 @@ pytestmark = pytest.mark.asyncio
 
 _ASSOCIATE = text(
     """
-    SELECT aap_assets_v1.associate_project(
+    SELECT yoao_assets_v1.associate_project(
         CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:project AS uuid)
     )
     """
 )
 _RESERVE = text(
     """
-    SELECT aap_assets_v1.reserve_dataset_upload(
+    SELECT yoao_assets_v1.reserve_dataset_upload(
         CAST(:item AS uuid), CAST(:actor AS uuid), CAST(:dataset AS uuid),
         CAST(:file_name AS text), CAST(:content_type AS text)
     )
@@ -39,14 +39,14 @@ _RESERVE = text(
 )
 _LOCK = text(
     """
-    SELECT aap_assets_v1.lock_dataset_upload(
+    SELECT yoao_assets_v1.lock_dataset_upload(
         CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid)
     )
     """
 )
 _FIND_DUPLICATE = text(
     """
-    SELECT aap_assets_v1.find_dataset_upload_duplicate(
+    SELECT yoao_assets_v1.find_dataset_upload_duplicate(
         CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid),
         CAST(:content_hash AS text)
     )
@@ -54,7 +54,7 @@ _FIND_DUPLICATE = text(
 )
 _COMPLETE = text(
     """
-    SELECT aap_assets_v1.complete_dataset_upload(
+    SELECT yoao_assets_v1.complete_dataset_upload(
         CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid),
         CAST(:publication AS uuid), CAST(:file_size AS bigint),
         CAST(:content_hash AS text), CAST(:width AS integer), CAST(:height AS integer)
@@ -63,7 +63,7 @@ _COMPLETE = text(
 )
 _DISCARD = text(
     """
-    SELECT aap_assets_v1.discard_dataset_upload(
+    SELECT yoao_assets_v1.discard_dataset_upload(
         CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid),
         CAST(:reason AS text)
     )
@@ -71,7 +71,7 @@ _DISCARD = text(
 )
 _DELETE_ITEM = text(
     """
-    SELECT aap_assets_v1.delete_dataset_item(
+    SELECT yoao_assets_v1.delete_dataset_item(
         CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:dataset AS uuid),
         CAST(:item AS uuid), CAST(:bucket AS text), CAST(:context AS jsonb)
     )

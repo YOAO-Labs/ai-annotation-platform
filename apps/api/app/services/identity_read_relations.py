@@ -20,14 +20,14 @@ account_profiles = table(
     column("is_active", Boolean),
     column("status", String),
     column("avatar_ref", String),
-    schema="aap_identity_v1",
+    schema="yoao_identity_v1",
 )
 
 invitation_audit_targets = table(
     "invitation_audit_targets",
     column("id", UUID(as_uuid=True)),
     column("project_id", UUID(as_uuid=True)),
-    schema="aap_identity_v1",
+    schema="yoao_identity_v1",
 )
 
 

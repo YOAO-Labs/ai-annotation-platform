@@ -378,7 +378,7 @@ def native_provider(test_engine, native_signer):
 
     cleanup_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_CLEANUP_URL",
-        "asset_cleanup_client",
+        "yoao_asset_cleanup_client",
         test_engine,
     )
     resources = _verified_resource_manifest(test_engine, cleanup_url)
@@ -461,12 +461,12 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
     native_signer.assert_running()
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     worker_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL",
-        "asset_image_worker_client",
+        "yoao_asset_image_worker_client",
         test_engine,
     )
     owner_s3, resources, cleanup_url = native_provider
@@ -630,7 +630,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 await owner.execute(
                     text(
                         "SELECT etag, version_id, state "
-                        "FROM aap_assets_v1.image_pyramid_native_members "
+                        "FROM yoao_assets_v1.image_pyramid_native_members "
                         "WHERE output_id=CAST(:output AS uuid)"
                     ),
                     {"output": allocation_a.output_id},
@@ -687,7 +687,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 await owner.execute(
                     text(
                         "SELECT state, opened_at, closed_at, output_id "
-                        "FROM aap_assets_v1.native_pyramid_read_permits "
+                        "FROM yoao_assets_v1.native_pyramid_read_permits "
                         "WHERE output_id=CAST(:output AS uuid)"
                     ),
                     {"output": allocation_a.output_id},
@@ -908,7 +908,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             assert (
                 await owner.scalar(
                     text(
-                        "SELECT state FROM aap_assets_v1.image_pyramid_native_members "
+                        "SELECT state FROM yoao_assets_v1.image_pyramid_native_members "
                         "WHERE operation_id=CAST(:operation AS uuid)"
                     ),
                     {"operation": unknown_operation},
@@ -925,7 +925,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             )
             assert not await owner.scalar(
                 text(
-                    "SELECT count(*) FROM aap_assets_v1.image_pyramid_native_members "
+                    "SELECT count(*) FROM yoao_assets_v1.image_pyramid_native_members "
                     "WHERE output_id=CAST(:output AS uuid) "
                     "AND state IN ('verified', 'not_written')"
                 ),
@@ -970,7 +970,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             assert (
                 await owner.scalar(
                     text(
-                        "SELECT state FROM aap_assets_v1.image_pyramid_native_members "
+                        "SELECT state FROM yoao_assets_v1.image_pyramid_native_members "
                         "WHERE operation_id=CAST(:operation AS uuid)"
                     ),
                     {"operation": drained_operation},
@@ -981,7 +981,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 await db.execute(
                     text(
                         "SELECT output_id, closed_at FROM "
-                        "aap_assets_v1.native_pyramid_retirements "
+                        "yoao_assets_v1.native_pyramid_retirements "
                         "WHERE output_id = CAST(:output AS uuid)"
                     ),
                     {"output": allocation_a.output_id},
@@ -1019,7 +1019,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             async with test_engine.connect() as owner:
                 return await owner.scalar(
                     text(
-                        "SELECT aap_assets_v1._native_pyramid_retirement_claimable("
+                        "SELECT yoao_assets_v1._native_pyramid_retirement_claimable("
                         "CAST(:output AS uuid))"
                     ),
                     {"output": allocation_a.output_id},
@@ -1110,7 +1110,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 return await owner.scalar(
                     text(
                         "SELECT EXISTS (SELECT 1 FROM "
-                        "aap_assets_v1.native_pyramid_retirement_pages "
+                        "yoao_assets_v1.native_pyramid_retirement_pages "
                         "WHERE output_id=CAST(:output AS uuid) "
                         "AND state='members_absent')"
                     ),
@@ -1122,7 +1122,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 return await owner.scalar(
                     text(
                         "SELECT closed_at IS NULL FROM "
-                        "aap_assets_v1.native_pyramid_retirements "
+                        "yoao_assets_v1.native_pyramid_retirements "
                         "WHERE output_id=CAST(:output AS uuid)"
                     ),
                     {"output": allocation_a.output_id},
@@ -1169,7 +1169,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 return await owner.scalar(
                     text(
                         "SELECT closed_at IS NOT NULL FROM "
-                        "aap_assets_v1.native_pyramid_retirements "
+                        "yoao_assets_v1.native_pyramid_retirements "
                         "WHERE output_id=CAST(:output AS uuid)"
                     ),
                     {"output": allocation_a.output_id},
@@ -1182,7 +1182,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 text(
                     "SELECT GREATEST(0, EXTRACT(EPOCH FROM "
                     "(lease_expires_at-clock_timestamp()))) "
-                    "FROM aap_assets_v1.native_pyramid_retirements "
+                    "FROM yoao_assets_v1.native_pyramid_retirements "
                     "WHERE output_id=CAST(:output AS uuid)"
                 ),
                 {"output": allocation_a.output_id},
@@ -1198,7 +1198,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 (
                     await owner.execute(
                         text(
-                            "SELECT state FROM aap_assets_v1."
+                            "SELECT state FROM yoao_assets_v1."
                             "native_pyramid_retirement_pages "
                             "WHERE output_id=CAST(:output AS uuid) ORDER BY prepared_at, page_id"
                         ),
@@ -1253,7 +1253,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 return await owner.scalar(
                     text(
                         "SELECT closed_at IS NOT NULL FROM "
-                        "aap_assets_v1.native_pyramid_retirements "
+                        "yoao_assets_v1.native_pyramid_retirements "
                         "WHERE output_id=CAST(:output AS uuid)"
                     ),
                     {"output": allocation_b.output_id},
@@ -1281,7 +1281,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 await owner.scalar(
                     text(
                         "SELECT count(*) FROM public.storage_operations AS operation "
-                        "JOIN aap_assets_v1.image_pyramid_native_members AS member "
+                        "JOIN yoao_assets_v1.image_pyramid_native_members AS member "
                         "ON operation.id=member.operation_permit "
                         "WHERE member.operation_id=CAST(:operation AS uuid)"
                     ),
@@ -1292,7 +1292,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             assert (
                 await owner.scalar(
                     text(
-                        "SELECT aap_assets_v1._native_pyramid_retirement_claimable("
+                        "SELECT yoao_assets_v1._native_pyramid_retirement_claimable("
                         "CAST(:output AS uuid))"
                     ),
                     {"output": allocation_c.output_id},
@@ -1302,7 +1302,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             assert (
                 await owner.scalar(
                     text(
-                        "SELECT state FROM aap_assets_v1.image_pyramid_native_members "
+                        "SELECT state FROM yoao_assets_v1.image_pyramid_native_members "
                         "WHERE operation_id=CAST(:operation AS uuid)"
                     ),
                     {"operation": unknown_operation},
@@ -1361,7 +1361,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 removed = await db.execute(
                     text(
                         "DELETE FROM public.storage_operations AS operation "
-                        "USING aap_assets_v1.image_pyramid_native_members AS member "
+                        "USING yoao_assets_v1.image_pyramid_native_members AS member "
                         "WHERE operation.id=member.operation_permit "
                         "AND member.operation_id=CAST(:operation AS uuid) "
                         "AND member.output_id=CAST(:output AS uuid) "

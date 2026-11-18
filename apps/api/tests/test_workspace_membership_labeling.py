@@ -190,7 +190,7 @@ async def test_read_membership_work_keeps_unknown_distinct_from_empty_evidence(
 
     facts = await db_session.scalar(
         text(
-            "SELECT aap_labeling_v1.read_membership_work("
+            "SELECT yoao_labeling_v1.read_membership_work("
             ":project_id, :user_id, NULL, :receiver_id)"
         ),
         {
@@ -281,7 +281,7 @@ async def test_annotation_handoff_matches_frozen_legacy_assigned_id_vectors(
     await db_session.flush()
     await db_session.execute(
         text(
-            "SELECT aap_labeling_v1.handoff_membership_annotation("
+            "SELECT yoao_labeling_v1.handoff_membership_annotation("
             ":project_id, :source_id, :receiver_id)"
         ),
         {

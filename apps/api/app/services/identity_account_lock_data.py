@@ -28,7 +28,7 @@ from app.services.identity_contracts import (
 
 _LOCK_QUERIES = {
     mode: text(
-        f"SELECT aap_identity_v1.lock_accounts_{mode}("
+        f"SELECT yoao_identity_v1.lock_accounts_{mode}("
         "CAST(:account_ids AS uuid[]), CAST(:nowait AS boolean))"
     )
     for mode in ("share", "update", "key_share")
@@ -62,7 +62,7 @@ class IdentityAccountLockData:
             await self.db.flush()
         authorized = await self.db.scalar(
             text(
-                "SELECT aap_identity_v1.check_accepted_api_key("
+                "SELECT yoao_identity_v1.check_accepted_api_key("
                 "CAST(:actor_id AS uuid), CAST(:api_key_id AS uuid), "
                 "CAST(:required_scopes AS text[]))"
             ),
@@ -118,7 +118,7 @@ class IdentityAccountLockData:
         result = await self.db.execute(
             text(
                 "SELECT scopes, expires_at, revision "
-                "FROM aap_identity_v1.read_accepted_api_key_facts("
+                "FROM yoao_identity_v1.read_accepted_api_key_facts("
                 "CAST(:actor_id AS uuid), CAST(:api_key_id AS uuid))"
             ),
             {"actor_id": actor_id, "api_key_id": api_key_id},
@@ -150,7 +150,7 @@ class IdentityAccountLockData:
         result = await self.db.execute(
             text(
                 "SELECT actor_id, platform_role, is_active "
-                "FROM aap_identity_v1.read_actor_facts(CAST(:actor_id AS uuid))"
+                "FROM yoao_identity_v1.read_actor_facts(CAST(:actor_id AS uuid))"
             ),
             {"actor_id": actor_id},
         )

@@ -384,14 +384,18 @@ async def test_captured_mask_result_survives_byte_provider_outage(
         assert await _counts(world) == (0, 0, 0, 0)
         async with world.owner_factory() as owner:
             states = (
-                await owner.execute(
-                    text(
-                        "SELECT state FROM aap_jobs_v1.prediction_mask_producers "
-                        "WHERE job_id=:job_id AND ordinal=1"
-                    ),
-                    {"job_id": world.execution.scope["job_id"]},
+                (
+                    await owner.execute(
+                        text(
+                            "SELECT state FROM yoao_jobs_v1.prediction_mask_producers "
+                            "WHERE job_id=:job_id AND ordinal=1"
+                        ),
+                        {"job_id": world.execution.scope["job_id"]},
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         assert states == ["pending"]
 
 

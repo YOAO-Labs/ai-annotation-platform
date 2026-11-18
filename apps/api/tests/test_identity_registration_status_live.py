@@ -272,5 +272,5 @@ async def test_real_api_status_settings_and_registration_share_the_remote_owner_
                 test_engine,
                 "lan-production-grants.sql",
                 application_role="legacy_runtime",
-                asset_cleanup_role="asset_cleanup_client",
+                asset_cleanup_role="yoao_asset_cleanup_client",
             )

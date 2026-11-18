@@ -31,7 +31,7 @@ async def _inventory(session_factory, run_id, project_ids, task_ids):
         async with session_factory() as db:
             value = await db.scalar(
                 text(
-                    "SELECT aap_inference_routing_v1.fixture_prediction_scope_inventory("
+                    "SELECT yoao_inference_routing_v1.fixture_prediction_scope_inventory("
                     "CAST(:run_id AS uuid), CAST(:project_ids AS uuid[]), CAST(:task_ids AS uuid[]))"
                 ),
                 {
@@ -133,7 +133,7 @@ async def wait_for_fixture_original_readers(
                             )
                             empty = await db.scalar(
                                 text(
-                                    "SELECT aap_assets_v1.fixture_original_readers_empty("
+                                    "SELECT yoao_assets_v1.fixture_original_readers_empty("
                                     "CAST(:run_id AS uuid))"
                                 ),
                                 {"run_id": run_id},
@@ -238,7 +238,7 @@ async def retire_fixture_prediction_work(
         async with session_factory() as db:
             retired = await db.scalar(
                 text(
-                    "SELECT aap_inference_routing_v1.fixture_prediction_tests_retired("
+                    "SELECT yoao_inference_routing_v1.fixture_prediction_tests_retired("
                     "CAST(:run_id AS uuid), CAST(:project_ids AS uuid[]), CAST(:task_ids AS uuid[]))"
                 ),
                 {

@@ -53,7 +53,7 @@ async def test_installation_intent_tables_are_private_to_definer(
                 for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
                     assert not await connection.fetchval(
                         "SELECT has_table_privilege(current_user, $1, $2)",
-                        f"aap_inference_gpu_v1.{table}",
+                        f"yoao_inference_gpu_v1.{table}",
                         privilege,
                     )
     finally:
@@ -497,13 +497,13 @@ async def test_native_terminal_intent_replay_and_full_pool_proof(
         async with factory.begin() as db:
             await db.execute(
                 text(
-                    "DELETE FROM aap_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"
+                    "DELETE FROM yoao_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"
                 ),
                 {"id": backend_id},
             )
             await db.execute(
                 text(
-                    "DELETE FROM aap_inference_gpu_v1.installation_control_intents WHERE backend_registry_id=:id"
+                    "DELETE FROM yoao_inference_gpu_v1.installation_control_intents WHERE backend_registry_id=:id"
                 ),
                 {"id": backend_id},
             )
@@ -649,7 +649,7 @@ async def test_pending_installation_control_reset_enforce_and_replay(
         async with factory.begin() as db:
             await db.execute(
                 text(
-                    "DELETE FROM aap_inference_gpu_v1.installation_control_intents WHERE backend_registry_id=:id"
+                    "DELETE FROM yoao_inference_gpu_v1.installation_control_intents WHERE backend_registry_id=:id"
                 ),
                 {"id": backend_id},
             )
@@ -809,7 +809,7 @@ async def test_owner_lifecycle_preserves_fence_and_requires_settled_terminal(
         async with factory.begin() as db:
             return await db.scalar(
                 text(
-                    "SELECT aap_inference_topology_v1.command_plugin_installation(:id,:revision,:action,:evidence)"
+                    "SELECT yoao_inference_topology_v1.command_plugin_installation(:id,:revision,:action,:evidence)"
                 ),
                 {
                     "id": backend_id,
@@ -986,7 +986,7 @@ async def test_owner_lifecycle_preserves_fence_and_requires_settled_terminal(
         async with factory.begin() as db:
             await db.execute(
                 text(
-                    "DELETE FROM aap_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"
+                    "DELETE FROM yoao_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"
                 ),
                 {"id": backend_id},
             )
@@ -1150,7 +1150,7 @@ async def test_terminal_first_claim_promotes_pending_legacy_resident(
         async with factory.begin() as db:
             await db.execute(
                 text(
-                    "DELETE FROM aap_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"
+                    "DELETE FROM yoao_inference_gpu_v1.installation_terminal_intents WHERE backend_registry_id=:id"
                 ),
                 {"id": backend_id},
             )

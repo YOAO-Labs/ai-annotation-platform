@@ -110,7 +110,7 @@ class SqlAlchemyTrackerVideoInputDatabase:
         definition = t.TRACKER_OPERATIONS.get(operation)
         if definition is None or definition.role not in self.allowed_roles:
             raise t.TrackerFailure("invalid_request")
-        if definition.namespace not in {"aap_assets_v1", "aap_labeling_v1"}:
+        if definition.namespace not in {"yoao_assets_v1", "yoao_labeling_v1"}:
             raise t.TrackerFailure("invalid_request")
         try:
             result = await _call_native(

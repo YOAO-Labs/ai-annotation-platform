@@ -29,10 +29,10 @@ def configuration_dsn(test_engine, database: str | None = None) -> str:
     value = make_url(
         _role_url(
             "AAP_MODULE_DATA_WORKSPACE_CONFIGURATION_URL",
-            "workspace_configuration_client",
+            "yoao_workspace_configuration_client",
         )
     )
-    assert value.username == "workspace_configuration_client"
+    assert value.username == "yoao_workspace_configuration_client"
     assert (value.host, value.port, value.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -172,7 +172,7 @@ async def provider_url(
     drop_operation_id=None,
 ):
     parsed = make_url(dsn)
-    assert parsed.username == "workspace_configuration_client"
+    assert parsed.username == "yoao_workspace_configuration_client"
     assert parsed.database and parsed.database.endswith("_test")
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     _verify_postgres(parsed)

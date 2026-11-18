@@ -141,11 +141,11 @@ async def test_restricted_api_records_progress_without_private_relation_rights(
             text(
                 "SELECT pg_catalog.has_function_privilege("
                 "'identity_api_consumer', "
-                "'aap_jobs_v1.read_job_progress_for_update(uuid,text,text)'"
+                "'yoao_jobs_v1.read_job_progress_for_update(uuid,text,text)'"
                 "::regprocedure, 'EXECUTE'), "
                 "pg_catalog.has_function_privilege("
                 "'identity_api_consumer', "
-                "'aap_jobs_v1.record_job_progress(uuid,text,text,"
+                "'yoao_jobs_v1.record_job_progress(uuid,text,text,"
                 "timestamp with time zone,jsonb)'::regprocedure, 'EXECUTE')"
             )
         )
@@ -186,7 +186,7 @@ async def test_restricted_api_records_progress_without_private_relation_rights(
         await db_session.execute(
             text(
                 "SELECT last_progress_at, progress_observation "
-                "FROM aap_jobs_v1.read_job_progress("
+                "FROM yoao_jobs_v1.read_job_progress("
                 "CAST(:job_id AS pg_catalog.uuid))"
             ),
             {"job_id": job_id},
@@ -199,9 +199,9 @@ async def test_restricted_api_records_progress_without_private_relation_rights(
 @pytest.mark.parametrize(
     ("signature", "returns_set"),
     [
-        ("aap_jobs_v1.read_job_progress_for_update(uuid,text,text)", True),
+        ("yoao_jobs_v1.read_job_progress_for_update(uuid,text,text)", True),
         (
-            "aap_jobs_v1.record_job_progress(uuid,text,text,"
+            "yoao_jobs_v1.record_job_progress(uuid,text,text,"
             "timestamp with time zone,jsonb)",
             False,
         ),

@@ -83,7 +83,7 @@ class SourceSession:
         self.queries.append(query)
         if "FROM task_events" in query:
             rows = self.events
-        elif "aap_audit_v1.audit_events" in query:
+        elif "yoao_audit_v1.audit_events" in query:
             rows = self.audit_events
         else:
             rows = []
@@ -111,7 +111,7 @@ async def test_fresh_seed_initializes_all_real_panels(analytics_target, populate
         assert report["audit_logs"]["rows"] == int(populated)
         assert len(source.queries) == 2
         assert "FROM task_events" in source.queries[0]
-        assert "aap_audit_v1.audit_events" in source.queries[1]
+        assert "yoao_audit_v1.audit_events" in source.queries[1]
         panels = {}
         for panel in PANELS:
             response = await client.get(f"/analytics/{panel}")

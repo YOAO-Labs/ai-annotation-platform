@@ -75,7 +75,7 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
     before = set(
         await owner.fetchval(
             "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
-            "FROM aap_inference_routing_v1.command_receipts"
+            "FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     with socket.socket() as listener:
@@ -156,14 +156,14 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
         # A usable local engine exists. The explicit HTTP selection must still
         # fail when its owner stops, without creating a local replacement scope.
         scopes_before = await owner.fetchval(
-            "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+            "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
             scope.registry_id,
         )
         with pytest.raises(RoutingUnavailable):
             await RoutingAuthority().acquire(registry_id=scope.registry_id)
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
                 scope.registry_id,
             )
             == scopes_before
@@ -176,7 +176,7 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
         assert replay == first and recovered == first
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
                 scope.registry_id,
             )
             == 1
@@ -219,7 +219,7 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
         assert snapshot.registries[0].open_scopes == 0
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
                 scope.registry_id,
             )
             == 17
@@ -247,11 +247,11 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
             after = set(
                 await owner.fetchval(
                     "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
-                    "FROM aap_inference_routing_v1.command_receipts"
+                    "FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
                 list(after - before),
             )
             await _cleanup(owner, world)

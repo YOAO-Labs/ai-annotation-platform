@@ -23,95 +23,95 @@ from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _RESOLVE = text(
-    "SELECT aap_assets_v1._image_resolve_owner("
+    "SELECT yoao_assets_v1._image_resolve_owner("
     "'dataset_item', CAST(:item_id AS uuid), false)"
 )
 _RESOLVE_TASK = text(
-    "SELECT aap_assets_v1._image_resolve_owner('task', CAST(:task_id AS uuid), false)"
+    "SELECT yoao_assets_v1._image_resolve_owner('task', CAST(:task_id AS uuid), false)"
 )
 _OBSERVE_TASK = text(
-    "SELECT aap_labeling_v1.observe_image_task_source("
+    "SELECT yoao_labeling_v1.observe_image_task_source("
     "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), "
     "CAST(:identity AS jsonb))"
 )
 _ENQUEUE = text(
-    "SELECT aap_assets_v1._image_enqueue("
+    "SELECT yoao_assets_v1._image_enqueue("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:source AS jsonb), CAST(:spec AS jsonb), CAST(:force AS boolean))"
 )
 _CLAIM = text(
-    "SELECT aap_assets_v1.claim_image_media("
+    "SELECT yoao_assets_v1.claim_image_media("
     "CAST(:worker_id AS uuid), CAST(:job_id AS uuid), :lease_seconds, "
     "ARRAY[:kind]::text[])"
 )
 _HEARTBEAT = text(
-    "SELECT aap_assets_v1.heartbeat_image_media("
+    "SELECT yoao_assets_v1.heartbeat_image_media("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), :lease_seconds)"
 )
 _FINISH = text(
-    "SELECT aap_assets_v1.finish_image_media("
+    "SELECT yoao_assets_v1.finish_image_media("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), CAST(:result AS jsonb))"
 )
 _ALLOCATE = text(
-    "SELECT aap_assets_v1.allocate_native_pyramid_output("
+    "SELECT yoao_assets_v1.allocate_native_pyramid_output("
     "CAST(:job_id AS uuid), CAST(:job_generation AS bigint), "
     "CAST(:lease_token AS uuid), CAST(:asset_id AS uuid), CAST(:generation AS integer))"
 )
 _BEGIN_MEMBER = text(
-    "SELECT aap_assets_v1.begin_native_pyramid_member("
+    "SELECT yoao_assets_v1.begin_native_pyramid_member("
     "CAST(:operation_id AS uuid), CAST(:output_id AS uuid), :relative_key, "
     ":sha256, CAST(:size_bytes AS bigint))"
 )
 _SUBMIT_MEMBER = text(
-    "SELECT aap_assets_v1.submit_native_pyramid_member(CAST(:operation_id AS uuid))"
+    "SELECT yoao_assets_v1.submit_native_pyramid_member(CAST(:operation_id AS uuid))"
 )
 _WRITE_MEMBER = text(
-    "SELECT aap_assets_v1.write_native_pyramid_member("
+    "SELECT yoao_assets_v1.write_native_pyramid_member("
     "CAST(:operation_id AS uuid), :etag, :version_id)"
 )
 _VERIFY_MEMBER = text(
-    "SELECT aap_assets_v1.verify_native_pyramid_member(CAST(:operation_id AS uuid))"
+    "SELECT yoao_assets_v1.verify_native_pyramid_member(CAST(:operation_id AS uuid))"
 )
 _OWNED_RETRY = text(
-    "SELECT aap_assets_v1.retry_owned_pyramid("
+    "SELECT yoao_assets_v1.retry_owned_pyramid("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), CAST(:task_id AS uuid), "
     "CAST(:dataset_item_id AS uuid), :purpose, CAST(:expected_source_snapshot AS text), "
     "CAST(:policy AS jsonb), CAST(:force AS boolean), CAST(:delegation AS jsonb))"
 )
 _FINISH_NATIVE = text(
-    "SELECT aap_assets_v1.finish_native_pyramid_output("
+    "SELECT yoao_assets_v1.finish_native_pyramid_output("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), CAST(:result AS jsonb))"
 )
 _FAIL = text(
-    "SELECT aap_assets_v1.fail_image_media("
+    "SELECT yoao_assets_v1.fail_image_media("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), :error_code, :error_detail)"
 )
 _ADVANCE = text(
-    "SELECT aap_assets_v1.advance_image_backfill("
+    "SELECT yoao_assets_v1.advance_image_backfill("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), :batch_size, CAST(:observations AS jsonb))"
 )
 _RECONCILE = text(
-    "SELECT aap_assets_v1.reconcile_image_media("
+    "SELECT yoao_assets_v1.reconcile_image_media("
     "CAST(:candidates AS jsonb), :batch_size)"
 )
 _READ_GENERATION = text(
-    "SELECT aap_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.read_image_generation(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:item_id AS uuid), "
     "CAST(:generation AS integer), CAST(:profile_version AS text))"
 )
 _READ_INTERNAL_WORK = text(
-    "SELECT aap_assets_v1.read_internal_image_work(CAST(:job_id AS uuid))"
+    "SELECT yoao_assets_v1.read_internal_image_work(CAST(:job_id AS uuid))"
 )
 _READ_WORK = text(
-    "SELECT aap_assets_v1.read_image_work(CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
+    "SELECT yoao_assets_v1.read_image_work(CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
 )
 _CANCEL = text(
-    "SELECT aap_assets_v1.cancel_image_media(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.cancel_image_media(CAST(:operation_id AS uuid), "
     "CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
 )
 
@@ -624,7 +624,7 @@ async def test_thumbnail_provenance_survives_refresh_failure_then_clears_on_new_
         _reply(
             await db_session.scalar(
                 text(
-                    "SELECT aap_assets_v1.resolve_internal_image_source("
+                    "SELECT yoao_assets_v1.resolve_internal_image_source("
                     "'dataset_item', :item_id, :snapshot, CAST(:identity AS jsonb))"
                 ),
                 {

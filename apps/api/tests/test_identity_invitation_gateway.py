@@ -332,7 +332,7 @@ async def test_invalid_native_reply_rolls_back_before_acknowledging_owner_writes
 
         async def scalar(self, statement, parameters):
             assert str(statement).startswith(
-                f"SELECT aap_identity_invitations_v1.{phase}_invitation_command("
+                f"SELECT yoao_identity_invitations_v1.{phase}_invitation_command("
             )
             assert json.loads(parameters["command"])["operation_id"] == str(
                 command.operation_id

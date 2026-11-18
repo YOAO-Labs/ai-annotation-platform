@@ -36,7 +36,7 @@ async def committed_routes(test_engine):
     receipts_before = set(
         await owner.fetchval(
             "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
-            "FROM aap_inference_routing_v1.command_receipts"
+            "FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -63,11 +63,11 @@ async def committed_routes(test_engine):
                 receipts_after = set(
                     await owner.fetchval(
                         "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
-                        "FROM aap_inference_routing_v1.command_receipts"
+                        "FROM yoao_inference_routing_v1.command_receipts"
                     )
                 )
                 await owner.execute(
-                    "DELETE FROM aap_inference_routing_v1.command_receipts "
+                    "DELETE FROM yoao_inference_routing_v1.command_receipts "
                     "WHERE id=ANY($1::uuid[])",
                     list(receipts_after - receipts_before),
                 )

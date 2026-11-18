@@ -77,7 +77,7 @@ def _command(
 async def _execute(session: AsyncSession, command: dict) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_groups_v1.execute_group_command(CAST(:request AS jsonb))"
+            "SELECT yoao_identity_groups_v1.execute_group_command(CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(command)},
     )
@@ -96,7 +96,9 @@ async def test_invitation_group_helper_rechecks_opaque_challenge_and_rolls_back(
 
     async def resolve(db, value):
         return await db.scalar(
-            text("SELECT aap_identity_groups_v1.resolve_invitation_group(:id, :token)"),
+            text(
+                "SELECT yoao_identity_groups_v1.resolve_invitation_group(:id, :token)"
+            ),
             {"id": invitation_id, "token": value},
         )
 
@@ -289,14 +291,14 @@ def test_frozen_group_artifacts_and_owner_capabilities():
     assert "lock_group_assignment_scope" in module_grants
     assert "record_identity_group_event" in module_grants
     assert 'user_invitations TO :"identity_owner"' in module_grants
-    assert "identity_group_role=identity_group_client" in group_grants
-    assert group_grants.count("aap_identity_groups_v1.group_policy()") == 2
+    assert "identity_group_role=yoao_identity_group_client" in group_grants
+    assert group_grants.count("yoao_identity_groups_v1.group_policy()") == 2
     assert (
-        group_grants.count("aap_identity_groups_v1.execute_group_command(jsonb)") == 2
+        group_grants.count("yoao_identity_groups_v1.execute_group_command(jsonb)") == 2
     )
     assert "resolve_invitation_group(uuid, text)" not in group_grants
-    assert "aap_identity_groups_v1.group_policy()" in legacy_grants
-    assert "aap_identity_groups_v1.execute_group_command(jsonb)" in legacy_grants
+    assert "yoao_identity_groups_v1.group_policy()" in legacy_grants
+    assert "yoao_identity_groups_v1.execute_group_command(jsonb)" in legacy_grants
     assert (
         "aap_identity_groups_v1.resolve_invitation_group(uuid, text)"
         not in legacy_grants
@@ -343,7 +345,7 @@ async def test_group_receipts_replay_frozen_results_and_assignment_is_atomic(
         )
         async with maker.begin() as session:
             policy = await session.scalar(
-                text("SELECT aap_identity_groups_v1.group_policy()")
+                text("SELECT yoao_identity_groups_v1.group_policy()")
             )
             assert policy == {
                 "schema": "aap-identity-groups-policy/v1",
@@ -757,7 +759,7 @@ async def test_workspace_scope_holds_project_owner_fence_through_assignment_tran
             scope_tx = await scope_session.begin()
             managed = await scope_session.scalar(
                 text(
-                    "SELECT aap_workspace_v1.lock_group_assignment_scope("
+                    "SELECT yoao_workspace_v1.lock_group_assignment_scope("
                     "CAST(:actor AS uuid), CAST(:targets AS uuid[]), true)"
                 ),
                 {"actor": fixture["actor_id"], "targets": [target_id]},

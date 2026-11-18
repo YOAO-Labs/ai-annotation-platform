@@ -27,14 +27,14 @@ pytestmark = [
 ]
 
 _LABELING_GUARD = text(
-    "SELECT aap_labeling_v1.guard_dataset_source_deletion("
+    "SELECT yoao_labeling_v1.guard_dataset_source_deletion("
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
 )
 _VIDEO_SOURCE_RETAINED = text(
-    "SELECT aap_jobs_v1.video_execution_source_item_retained(CAST(:item_id AS uuid))"
+    "SELECT yoao_jobs_v1.video_execution_source_item_retained(CAST(:item_id AS uuid))"
 )
 _VIDEO_INPUT_RETAINED = text(
-    "SELECT aap_jobs_v1.video_execution_input_retained(CAST(:input_id AS uuid))"
+    "SELECT yoao_jobs_v1.video_execution_input_retained(CAST(:input_id AS uuid))"
 )
 
 
@@ -256,7 +256,7 @@ async def test_video_execution_source_pin_blocks_until_journal_retirement(
         await db_session.execute(
             text(
                 "SELECT source_item_id, input_id, execution_retired "
-                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": job.id},
         )

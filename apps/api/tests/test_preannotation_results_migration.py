@@ -75,32 +75,32 @@ def test_all_native_functions_revoke_public_and_protocol_operations_are_complete
         if statement.startswith("REVOKE ALL ON FUNCTION")
     )
     expected_jobs = {
-        "aap_jobs_v1.claim_batch_result_execution(jsonb)",
-        "aap_jobs_v1.heartbeat_batch_result_execution(jsonb)",
-        "aap_jobs_v1.release_batch_result_execution(jsonb)",
-        "aap_jobs_v1.stage_batch_result_members(jsonb)",
-        "aap_jobs_v1.start_batch_result_execution(jsonb)",
-        "aap_jobs_v1.read_batch_result_execution(jsonb)",
-        "aap_jobs_v1.mark_batch_result_overwrite(jsonb)",
-        "aap_jobs_v1.skip_batch_result_member(jsonb)",
-        "aap_jobs_v1.finish_batch_result_execution(jsonb)",
-        "aap_jobs_v1.start_batch_result_member(jsonb)",
-        "aap_jobs_v1.lock_batch_result_execution(jsonb)",
-        "aap_jobs_v1.advance_batch_result_member(jsonb)",
-        "aap_jobs_v1.record_batch_result_member(jsonb)",
-        "aap_jobs_v1.batch_result_execution_referenced(jsonb)",
+        "yoao_jobs_v1.claim_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.heartbeat_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.release_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.stage_batch_result_members(jsonb)",
+        "yoao_jobs_v1.start_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.read_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.mark_batch_result_overwrite(jsonb)",
+        "yoao_jobs_v1.skip_batch_result_member(jsonb)",
+        "yoao_jobs_v1.finish_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.start_batch_result_member(jsonb)",
+        "yoao_jobs_v1.lock_batch_result_execution(jsonb)",
+        "yoao_jobs_v1.advance_batch_result_member(jsonb)",
+        "yoao_jobs_v1.record_batch_result_member(jsonb)",
+        "yoao_jobs_v1.batch_result_execution_referenced(jsonb)",
     }
     expected_labeling = {
-        "aap_labeling_v1.begin_batch_result(jsonb)",
-        "aap_labeling_v1.put_batch_result_part(jsonb)",
-        "aap_labeling_v1.seal_batch_result(jsonb)",
-        "aap_labeling_v1.read_batch_result(jsonb)",
-        "aap_labeling_v1.lock_batch_result_write(jsonb)",
-        "aap_labeling_v1.finish_batch_result_write(jsonb)",
-        "aap_labeling_v1.finish_batch_result_failure(jsonb)",
-        "aap_labeling_v1.batch_result_commit_proof(jsonb)",
-        "aap_labeling_v1.batch_result_referenced(jsonb)",
-        "aap_labeling_v1.retire_batch_results(jsonb)",
+        "yoao_labeling_v1.begin_batch_result(jsonb)",
+        "yoao_labeling_v1.put_batch_result_part(jsonb)",
+        "yoao_labeling_v1.seal_batch_result(jsonb)",
+        "yoao_labeling_v1.read_batch_result(jsonb)",
+        "yoao_labeling_v1.lock_batch_result_write(jsonb)",
+        "yoao_labeling_v1.finish_batch_result_write(jsonb)",
+        "yoao_labeling_v1.finish_batch_result_failure(jsonb)",
+        "yoao_labeling_v1.batch_result_commit_proof(jsonb)",
+        "yoao_labeling_v1.batch_result_referenced(jsonb)",
+        "yoao_labeling_v1.retire_batch_results(jsonb)",
     }
     assert expected_jobs | expected_labeling <= signatures
     assert any(
@@ -175,7 +175,7 @@ def test_empty_downgrade_removes_triggers_before_functions_and_tables(monkeypatc
     emitted = _record_operations(monkeypatch, module)
     monkeypatch.setattr(module.op, "get_bind", lambda: bind)
     monkeypatch.setattr(
-        module, "_new_function_signatures", lambda: ["aap_jobs_v1._helper()"]
+        module, "_new_function_signatures", lambda: ["yoao_jobs_v1._helper()"]
     )
 
     module.downgrade()
@@ -192,13 +192,13 @@ def test_empty_downgrade_removes_triggers_before_functions_and_tables(monkeypatc
     restored = next(
         index
         for index, statement in enumerate(statements)
-        if "CREATE OR REPLACE FUNCTION aap_labeling_v1._mask_gc_root_entry_live"
+        if "CREATE OR REPLACE FUNCTION yoao_labeling_v1._mask_gc_root_entry_live"
         in statement
     )
     assert restored == 4
     assert "video_tracker_input_scopes" in statements[restored]
     assert "batch_result_payloads" not in statements[restored]
-    assert statements[-1] == "DROP FUNCTION IF EXISTS aap_jobs_v1._helper() RESTRICT"
+    assert statements[-1] == "DROP FUNCTION IF EXISTS yoao_jobs_v1._helper() RESTRICT"
     dropped = [item[1][0] for item in emitted if isinstance(item, tuple)]
     assert dropped == [
         "batch_result_parts",
@@ -216,7 +216,7 @@ def test_downgrade_restores_the_immutable_0229_helper_before_dropping_tables():
         statement
         for statement in module._statements("0229_mask_gc.sql")
         if statement.startswith(
-            "CREATE FUNCTION aap_labeling_v1._mask_gc_root_entry_live"
+            "CREATE FUNCTION yoao_labeling_v1._mask_gc_root_entry_live"
         )
     ][0]
     assert restored[0] == previous.replace(

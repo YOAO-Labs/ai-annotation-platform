@@ -47,13 +47,19 @@ def test_jobs_broker_rejects_foreign_target_or_reused_bearer(broker, token):
 @pytest.mark.parametrize(
     "variable,role_name",
     [
-        ("AAP_MODULE_DATA_PREANNOTATION_RESULT_URL", "preannotation_result_client"),
-        ("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL", "asset_media_control_client"),
-        ("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL", "asset_media_worker_client"),
-        ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"),
-        ("AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL", "labeling_video_writer_client"),
-        ("AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL", "jobs_dispatch_relay_client"),
-        ("AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "jobs_publication_client"),
+        (
+            "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
+            "yoao_preannotation_result_client",
+        ),
+        ("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL", "yoao_asset_media_control_client"),
+        ("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL", "yoao_asset_media_worker_client"),
+        ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "yoao_inference_routing_client"),
+        (
+            "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
+            "yoao_labeling_video_writer_client",
+        ),
+        ("AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL", "yoao_jobs_dispatch_relay_client"),
+        ("AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "yoao_jobs_publication_client"),
     ],
 )
 def test_restored_role_context_keeps_the_existing_database_guard(
@@ -75,7 +81,9 @@ def test_restored_role_context_keeps_the_existing_database_guard(
     assert os.environ[variable] == role
 
 
-@pytest.mark.parametrize("violation", [None, "stopped", "network", "endpoint", "address"])
+@pytest.mark.parametrize(
+    "violation", [None, "stopped", "network", "endpoint", "address"]
+)
 def test_jobs_queue_origin_requires_the_verified_owned_attachment(violation):
     container_id = "container-id"
     endpoint = {

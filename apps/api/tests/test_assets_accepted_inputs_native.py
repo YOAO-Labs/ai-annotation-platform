@@ -19,64 +19,64 @@ from tests.test_assets_images_execution import _seed_image
 pytestmark = pytest.mark.asyncio
 
 _READ_SOURCE = text(
-    "SELECT aap_assets_v1.read_image_source(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.read_image_source(CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), NULL)"
 )
 _FIND = text(
-    "SELECT aap_assets_v1.find_accepted_image_input(CAST(:job_id AS uuid), "
+    "SELECT yoao_assets_v1.find_accepted_image_input(CAST(:job_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:actor_id AS uuid))"
 )
 _RESERVE = text(
-    "SELECT aap_assets_v1.reserve_accepted_image_input(CAST(:job_id AS uuid), "
+    "SELECT yoao_assets_v1.reserve_accepted_image_input(CAST(:job_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:actor_id AS uuid), CAST(:source_snapshot AS text), "
     "CAST(:object_identity AS jsonb))"
 )
 _READ = text(
-    "SELECT aap_assets_v1.read_accepted_image_input(CAST(:input_id AS uuid), "
+    "SELECT yoao_assets_v1.read_accepted_image_input(CAST(:input_id AS uuid), "
     "CAST(:job_id AS uuid), CAST(:task_id AS uuid))"
 )
 _READ_WORK = text(
-    "SELECT aap_assets_v1.read_accepted_image_input_work(CAST(:input_id AS uuid), "
+    "SELECT yoao_assets_v1.read_accepted_image_input_work(CAST(:input_id AS uuid), "
     "CAST(:job_id AS uuid), CAST(:task_id AS uuid))"
 )
 _CLAIM = text(
-    "SELECT aap_assets_v1.claim_accepted_image_input(CAST(:worker_id AS uuid), "
+    "SELECT yoao_assets_v1.claim_accepted_image_input(CAST(:worker_id AS uuid), "
     "CAST(:input_id AS uuid), :lease_seconds)"
 )
 _HEARTBEAT = text(
-    "SELECT aap_assets_v1.heartbeat_accepted_image_input(CAST(:input_id AS uuid), "
+    "SELECT yoao_assets_v1.heartbeat_accepted_image_input(CAST(:input_id AS uuid), "
     "CAST(:generation AS bigint), CAST(:lease_token AS uuid), :lease_seconds)"
 )
 _FINISH = text(
-    "SELECT aap_assets_v1.finish_accepted_image_input(CAST(:input_id AS uuid), "
+    "SELECT yoao_assets_v1.finish_accepted_image_input(CAST(:input_id AS uuid), "
     "CAST(:generation AS bigint), CAST(:lease_token AS uuid), CAST(:blob AS jsonb))"
 )
 _FAIL = text(
-    "SELECT aap_assets_v1.fail_accepted_image_input(CAST(:input_id AS uuid), "
+    "SELECT yoao_assets_v1.fail_accepted_image_input(CAST(:input_id AS uuid), "
     "CAST(:generation AS bigint), CAST(:lease_token AS uuid), :error_code)"
 )
 _LOCK = text(
-    "SELECT aap_assets_v1.lock_accepted_image_input(CAST(:input_id AS uuid), "
+    "SELECT yoao_assets_v1.lock_accepted_image_input(CAST(:input_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:project_id AS uuid))"
 )
 _ATTACH = text(
-    "SELECT aap_labeling_v1.attach_annotation_input_source(CAST(:annotation_id AS uuid), "
+    "SELECT yoao_labeling_v1.attach_annotation_input_source(CAST(:annotation_id AS uuid), "
     "CAST(:input_id AS uuid), CAST(:sha256 AS text))"
 )
 _COPY_PINS = text(
-    "SELECT aap_labeling_v1.copy_annotation_input_sources("
+    "SELECT yoao_labeling_v1.copy_annotation_input_sources("
     "CAST(:source_annotation_id AS uuid), CAST(:target_annotation_id AS uuid))"
 )
 _REFERENCED = text(
-    "SELECT aap_labeling_v1.accepted_image_input_referenced(CAST(:input_id AS uuid))"
+    "SELECT yoao_labeling_v1.accepted_image_input_referenced(CAST(:input_id AS uuid))"
 )
-_SWEEP = text("SELECT aap_assets_v1.sweep_accepted_image_inputs(:page_size)")
+_SWEEP = text("SELECT yoao_assets_v1.sweep_accepted_image_inputs(:page_size)")
 _CLAIM_GARBAGE = text(
-    "SELECT aap_assets_v1.claim_accepted_input_garbage(CAST(:worker_id AS uuid), "
+    "SELECT yoao_assets_v1.claim_accepted_input_garbage(CAST(:worker_id AS uuid), "
     ":lease_seconds, :page_size)"
 )
 _COMPLETE_GARBAGE = text(
-    "SELECT aap_assets_v1.complete_accepted_input_garbage(CAST(:garbage_id AS uuid), "
+    "SELECT yoao_assets_v1.complete_accepted_input_garbage(CAST(:garbage_id AS uuid), "
     "CAST(:lease_token AS uuid))"
 )
 

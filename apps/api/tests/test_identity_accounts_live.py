@@ -246,7 +246,7 @@ async def test_installed_account_process_node_replay_and_current_fences(
                     == "system"
                 )
                 await db.execute(
-                    text("SELECT aap_identity_v1.revoke_jti(:jti,:retain)"),
+                    text("SELECT yoao_identity_v1.revoke_jti(:jti,:retain)"),
                     {"jti": jti, "retain": datetime.now(UTC) + timedelta(days=8)},
                 )
             revoked = await _call(client, identity, control, lost)
@@ -335,7 +335,7 @@ async def test_table_free_real_api_forwards_accounts_and_avatar_storage(
         async with maker.begin() as db:
             assert not await db.scalar(
                 text(
-                    "SELECT has_table_privilege('identity_auth_client','public.users','SELECT')"
+                    "SELECT has_table_privilege('yoao_identity_auth_client','public.users','SELECT')"
                 )
             )
             assert (

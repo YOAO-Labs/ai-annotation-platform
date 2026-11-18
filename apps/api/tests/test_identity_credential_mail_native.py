@@ -265,7 +265,7 @@ async def test_legacy_runtime_grants_keep_embedded_recovery_and_mail_working(
                 "-v",
                 "application_role=legacy_runtime",
                 "-v",
-                "asset_cleanup_role=asset_cleanup_client",
+                "asset_cleanup_role=yoao_asset_cleanup_client",
             ],
             body=(ROOT / "infra/docker/lan-production-grants.sql").read_bytes(),
         )

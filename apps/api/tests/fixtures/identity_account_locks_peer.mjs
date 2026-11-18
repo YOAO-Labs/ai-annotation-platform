@@ -196,9 +196,9 @@ function roleProbeSql(request) {
     "CASE WHEN has_table_privilege(current_user, 'public.users', 'DELETE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_database_privilege(current_user, current_database(), 'TEMP') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_any_column_privilege(current_user, 'public.users', 'SELECT') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_identity_v1', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_identity_v1', 'USAGE') THEN 'true' ELSE 'false' END;",
-    `SELECT aap_identity_v1.${lock}(${array}, ${request.nowait ? "true" : "false"});`,
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_v1', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_v1', 'USAGE') THEN 'true' ELSE 'false' END;",
+    `SELECT yoao_identity_v1.${lock}(${array}, ${request.nowait ? "true" : "false"});`,
     "ROLLBACK;",
   ].join("\n");
 }
@@ -217,7 +217,7 @@ function callOwner(value) {
       "-A",
       "-t",
       "-U",
-      "append_client",
+      "yoao_append_client",
       "-d",
       database,
       "-v",
@@ -239,8 +239,8 @@ function callOwner(value) {
   const role = lines[0].split("|");
   if (
     role.length !== 11 ||
-    role[0] !== "append_client" ||
-    role[1] !== "append_client" ||
+    role[0] !== "yoao_append_client" ||
+    role[1] !== "yoao_append_client" ||
     role[2] !== value.database ||
     [3, 4, 5, 6, 8, 9].some((index) => role[index] !== "false") ||
     !["false", "true"].includes(role[7]) ||

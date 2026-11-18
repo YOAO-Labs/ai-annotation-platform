@@ -203,7 +203,7 @@ async def _stack(test_engine, app_module, monkeypatch, connections_image):
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
     assert (
-        role_url.username == "asset_source_client"
+        role_url.username == "yoao_asset_source_client"
         and role_url.database == test_engine.url.database
     )
     assert role_url.database.endswith("_test")

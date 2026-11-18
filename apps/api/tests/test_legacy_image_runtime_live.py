@@ -70,7 +70,7 @@ async def preserve_legacy_function_grants(test_engine, grant_profile):
         "FROM pg_catalog.pg_proc AS p "
         "JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace "
         "CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) AS acl "
-        "WHERE n.nspname IN ('aap_assets_v1','aap_labeling_v1') "
+        "WHERE n.nspname IN ('yoao_assets_v1','yoao_labeling_v1') "
         "AND acl.grantee='legacy_runtime'::regrole "
         "ORDER BY statement"
     )
@@ -83,7 +83,7 @@ async def preserve_legacy_function_grants(test_engine, grant_profile):
             await db.execute(
                 text(
                     "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA "
-                    "aap_assets_v1,aap_labeling_v1 FROM legacy_runtime"
+                    "yoao_assets_v1,yoao_labeling_v1 FROM legacy_runtime"
                 )
             )
             for statement in original:
@@ -106,15 +106,15 @@ async def _apply_lan_grants(test_engine, monkeypatch):
         password=test_engine.url.password,
         database=test_engine.url.database,
         sql=(
-            "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_assets_v1, "
-            "aap_labeling_v1 FROM legacy_runtime;\n"
+            "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_assets_v1, "
+            "yoao_labeling_v1 FROM legacy_runtime;\n"
             + (ROOT / "infra/docker/lan-production-grants.sql").read_text()
         ),
         variables={
             "expected_database": test_engine.url.database,
             "application_role": "legacy_runtime",
             "migration_role": test_engine.url.username,
-            "asset_cleanup_role": "asset_cleanup_client",
+            "asset_cleanup_role": "yoao_asset_cleanup_client",
         },
     )
 
@@ -164,11 +164,11 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
                 {"owner": test_engine.url.username},
             )
             for signature in (
-                "aap_assets_v1.sweep_accepted_image_inputs(integer)",
-                "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
-                "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
-                "aap_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
-                "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
+                "yoao_assets_v1.sweep_accepted_image_inputs(integer)",
+                "yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+                "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+                "yoao_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
+                "yoao_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
             ):
                 assert not await db.scalar(
                     text(

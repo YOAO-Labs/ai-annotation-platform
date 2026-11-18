@@ -14,14 +14,14 @@ from app.db.models.async_job import AsyncJob
 from tests.factory import create_project
 
 _GUARD_DATASET_SOURCE_DELETION = text(
-    "SELECT aap_jobs_v1.guard_dataset_source_deletion(CAST(:dataset_id AS uuid))"
+    "SELECT yoao_jobs_v1.guard_dataset_source_deletion(CAST(:dataset_id AS uuid))"
 )
 _TASK_CREATION_EXECUTION_ACTIVE = text(
-    "SELECT aap_jobs_v1.task_creation_execution_active("
+    "SELECT yoao_jobs_v1.task_creation_execution_active("
     "CAST(:operation_id AS uuid), CAST(:job_id AS uuid))"
 )
 _RECORD_SOURCE_DELETION = text(
-    "SELECT aap_audit_v1.record_dataset_source_deletion("
+    "SELECT yoao_audit_v1.record_dataset_source_deletion("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid), "
     "CAST(:deleted_items AS bigint), CAST(:deleted_scenes AS bigint), "

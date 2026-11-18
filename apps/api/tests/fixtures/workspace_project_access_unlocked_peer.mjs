@@ -24,7 +24,7 @@ try {
     .rows[0];
   const initial = (
     await client.query(
-      "SELECT aap_workspace_v1.project_access_step($1::uuid,$2::uuid,'read_project_row') AS reply",
+      "SELECT yoao_workspace_v1.project_access_step($1::uuid,$2::uuid,'read_project_row') AS reply",
       [input.actor_id, input.project_id],
     )
   ).rows[0].reply;
@@ -34,7 +34,7 @@ try {
   assert.equal(initial.phase, "read_project_row");
   assert.equal(JSON.parse(initial.facts.row_json).id, input.project_id);
   const actor = (
-    await client.query("SELECT * FROM aap_identity_v1.read_actor_facts($1::uuid)", [input.actor_id])
+    await client.query("SELECT * FROM yoao_identity_v1.read_actor_facts($1::uuid)", [input.actor_id])
   ).rows[0];
   assert.equal(actor.actor_id, input.actor_id);
   assert.equal(actor.is_active, true);

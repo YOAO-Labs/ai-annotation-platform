@@ -35,21 +35,21 @@ async def test_identity_session_login_has_only_three_functions_and_no_direct_dat
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
         )
         assert {row["signature"] for row in actual} == {
-            "aap_identity_sessions_v1.session_policy()",
-            "aap_identity_sessions_v1.read_login_candidate(text)",
-            "aap_identity_sessions_v1.execute_session_command(jsonb)",
+            "yoao_identity_sessions_v1.session_policy()",
+            "yoao_identity_sessions_v1.read_login_candidate(text)",
+            "yoao_identity_sessions_v1.execute_session_command(jsonb)",
         }
         assert not await connection.fetchval(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
-                  AND namespace.nspname <> 'aap_identity_sessions_v1'
+                WHERE (namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' OR namespace.nspname ~ '^yoao_[a-z0-9_]+_v1$')
+                  AND namespace.nspname <> 'yoao_identity_sessions_v1'
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
             """
@@ -91,7 +91,7 @@ async def test_identity_session_login_has_only_three_functions_and_no_direct_dat
 
         policy = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_sessions_v1.session_policy()"
+                "SELECT yoao_identity_sessions_v1.session_policy()"
             )
         )
         assert policy == {
@@ -102,7 +102,7 @@ async def test_identity_session_login_has_only_three_functions_and_no_direct_dat
         }
         candidate = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_sessions_v1.read_login_candidate($1)",
+                "SELECT yoao_identity_sessions_v1.read_login_candidate($1)",
                 "identity-session-missing@example.test",
             )
         )
@@ -112,7 +112,7 @@ async def test_identity_session_login_has_only_three_functions_and_no_direct_dat
         }
         invalid = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_sessions_v1.execute_session_command('{}'::jsonb)"
+                "SELECT yoao_identity_sessions_v1.execute_session_command('{}'::jsonb)"
             )
         )
         assert invalid["error"]["code"] == "invalid_request"
@@ -122,9 +122,9 @@ async def test_identity_session_login_has_only_three_functions_and_no_direct_dat
             "SELECT key_hash FROM public.api_keys LIMIT 1",
             "SELECT * FROM public.identity_session_operation_receipts LIMIT 1",
             "SELECT * FROM public.audit_logs LIMIT 1",
-            "SELECT aap_audit_v1.record_identity_session_event('logout',NULL,'{}','null')",
-            "SELECT aap_identity_v1.authentication_policy()",
-            "SELECT aap_identity_sessions_v1._failure('invalid_request',NULL)",
+            "SELECT yoao_audit_v1.record_identity_session_event('logout',NULL,'{}','null')",
+            "SELECT yoao_identity_v1.authentication_policy()",
+            "SELECT yoao_identity_sessions_v1._failure('invalid_request',NULL)",
             "CREATE TEMP TABLE identity_session_forbidden(id integer)",
             "SET ROLE identity_code",
         ):
@@ -141,7 +141,7 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
         audit_function_oid = await connection.fetchval(
             "SELECT operation.oid FROM pg_catalog.pg_proc AS operation "
             "JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=operation.pronamespace "
-            "WHERE namespace.nspname='aap_audit_v1' "
+            "WHERE namespace.nspname='yoao_audit_v1' "
             "AND operation.proname='record_identity_session_event' "
             "AND pg_catalog.oidvectortypes(operation.proargtypes)='text, jsonb, jsonb, jsonb'"
         )
@@ -149,7 +149,7 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
         rows = await connection.fetch(
             """
             SELECT role.rolname,
-                   pg_catalog.has_schema_privilege(role.oid,'aap_audit_v1','USAGE')
+                   pg_catalog.has_schema_privilege(role.oid,'yoao_audit_v1','USAGE')
                        AS audit_schema,
                    pg_catalog.has_function_privilege(
                        role.oid,
@@ -166,16 +166,16 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
             WHERE role.rolname = ANY($1::text[])
             """,
             [
-                "identity_session_client",
-                "identity_auth_client",
+                "yoao_identity_session_client",
+                "yoao_identity_auth_client",
                 "yoao_identity_key_client",
             ],
             audit_function_oid,
         )
         actual = {row["rolname"]: row for row in rows}
         assert set(actual) == {
-            "identity_session_client",
-            "identity_auth_client",
+            "yoao_identity_session_client",
+            "yoao_identity_auth_client",
             "yoao_identity_key_client",
         }
         for row in actual.values():

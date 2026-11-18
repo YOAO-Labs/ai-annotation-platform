@@ -88,7 +88,7 @@ def _native_psql(
     sql = """\
 BEGIN;
 SELECT current_user || '|' || session_user || '|' || current_database();
-SELECT aap_assets_v1.create_spatial_scene(
+SELECT yoao_assets_v1.create_spatial_scene(
     :'create_operation_id'::uuid,
     :'scene_id'::uuid,
     :'dataset_id'::uuid,
@@ -97,13 +97,13 @@ SELECT aap_assets_v1.create_spatial_scene(
     '{"client":"psql-peer"}'::jsonb,
     :'actor_id'::uuid
 );
-SELECT aap_assets_v1.upsert_spatial_poses(
+SELECT yoao_assets_v1.upsert_spatial_poses(
     :'pose_operation_id'::uuid,
     :'scene_id'::uuid,
     '[{"frame_index":0,"timestamp_us":-9876543210,"ego_translation":[1.25,-2.5,3.75],"ego_rotation":[1,0,0,0],"source_metadata":{"client":"psql-peer"}}]'::jsonb
 );
-SELECT aap_assets_v1.get_spatial_scene(:'actor_id'::uuid, :'scene_id'::uuid);
-SELECT aap_assets_v1.read_spatial_poses(
+SELECT yoao_assets_v1.get_spatial_scene(:'actor_id'::uuid, :'scene_id'::uuid);
+SELECT yoao_assets_v1.read_spatial_poses(
     :'actor_id'::uuid, :'scene_id'::uuid, NULL::integer, 10
 );
 ROLLBACK;
@@ -127,7 +127,7 @@ ROLLBACK;
         "-p",
         "5432",
         "-U",
-        "asset_catalog_client",
+        "yoao_asset_catalog_client",
         "-d",
         catalog_url.database,
         "-v",
@@ -168,7 +168,7 @@ async def test_restricted_catalog_psql_spatial_transaction_rolls_back(test_engin
     except Exception:
         pytest.fail("the restricted Catalog connection URL is invalid", pytrace=False)
     if not (
-        catalog_url.username == "asset_catalog_client"
+        catalog_url.username == "yoao_asset_catalog_client"
         and catalog_url.password
         and catalog_url.host == "127.0.0.1"
         and catalog_url.port is not None
@@ -212,7 +212,7 @@ async def test_restricted_catalog_psql_spatial_transaction_rolls_back(test_engin
         )
         assert len(lines) == 5
         assert lines[0] == (
-            f"asset_catalog_client|asset_catalog_client|{catalog_url.database}"
+            f"yoao_asset_catalog_client|yoao_asset_catalog_client|{catalog_url.database}"
         )
 
         created = _success(

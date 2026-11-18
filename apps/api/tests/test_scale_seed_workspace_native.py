@@ -189,10 +189,10 @@ async def test_scale_seed_stages_preserve_owned_scope(scale_world, case, monkeyp
     def fail_stage(connection, cursor, statement, parameters, context, executemany):
         if (
             case == "tasks_fail"
-            and "aap_labeling_v1.create_scale_seed_tasks" in statement
+            and "yoao_labeling_v1.create_scale_seed_tasks" in statement
         ) or (
             case == "annotations_fail"
-            and "aap_labeling_v1.create_scale_seed_annotations" in statement
+            and "yoao_labeling_v1.create_scale_seed_annotations" in statement
         ):
             raise RuntimeError("controlled scale stage failure")
 
@@ -425,7 +425,7 @@ async def test_purge_retains_execution_learning_and_auxiliary_evidence(
                     assert (
                         await db.scalar(
                             text(
-                                "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:id"
+                                "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:id"
                             ),
                             {"id": reference},
                         )
@@ -527,7 +527,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
     test_engine,
 ):
     async with _world(test_engine) as (_, consumer, role, _):
-        workspace_signature = "aap_workspace_v1.create_scale_seed_project(uuid,text)"
+        workspace_signature = "yoao_workspace_v1.create_scale_seed_project(uuid,text)"
         async with consumer() as db:
             assert not await db.scalar(
                 text("SELECT has_function_privilege(current_user,:s,'EXECUTE')"),
@@ -535,7 +535,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_function_privilege(current_user,'aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)','EXECUTE')"
+                    "SELECT has_function_privilege(current_user,'yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)','EXECUTE')"
                 )
             )
         result = await _grants(
@@ -549,10 +549,10 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
         async with consumer() as db:
             await _assert_closed(db)
             for labeling_signature in (
-                "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
-                "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
-                "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
-                "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+                "yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+                "yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+                "yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+                "yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
             ):
                 assert await db.scalar(
                     text(
@@ -588,18 +588,18 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_any_column_privilege(current_user,"
-                    "'aap_labeling_v1.batch_rows','SELECT')"
+                    "'yoao_labeling_v1.batch_rows','SELECT')"
                 )
             )
             await db.execute(
                 text(
-                    "SELECT id FROM aap_labeling_v1.batch_rows "
+                    "SELECT id FROM yoao_labeling_v1.batch_rows "
                     "WHERE project_id IS NULL ORDER BY display_id LIMIT 1"
                 )
             )
             assert await db.scalar(
                 text(
-                    "SELECT has_function_privilege(current_user,'aap_workspace_v1.read_project_row(uuid)','EXECUTE')"
+                    "SELECT has_function_privilege(current_user,'yoao_workspace_v1.read_project_row(uuid)','EXECUTE')"
                 )
             )
             assert await db.scalar(
@@ -608,7 +608,7 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_function_privilege(current_user,'aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)','EXECUTE')"
+                    "SELECT has_function_privilege(current_user,'yoao_assets_v1._lock_dataset_source_deletion(uuid,uuid)','EXECUTE')"
                 )
             )
         result = await _grants(
@@ -622,6 +622,6 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_function_privilege(current_user,'aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)','EXECUTE')"
+                    "SELECT has_function_privilege(current_user,'yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)','EXECUTE')"
                 )
             )

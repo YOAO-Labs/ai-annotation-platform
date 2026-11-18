@@ -24,7 +24,7 @@ try {
     const displayId = `P-NM-${randomUUID().slice(0, 8)}`;
     const created = (
       await client.query(
-        "SELECT aap_workspace_v1.create_media_seed_project($1,$2,$3,$4,$5,$6::jsonb) AS reply",
+        "SELECT yoao_workspace_v1.create_media_seed_project($1,$2,$3,$4,$5,$6::jsonb) AS reply",
         [projectId, displayId, "Node media", input.owner_id, kind, {}],
       )
     ).rows[0].reply;
@@ -34,7 +34,7 @@ try {
   }
   const patched = (
     await client.query(
-      "SELECT aap_workspace_v1.write_seed_project_projection($1,$2::jsonb) AS reply",
+      "SELECT yoao_workspace_v1.write_seed_project_projection($1,$2::jsonb) AS reply",
       [projectIds[0], { name: "Node changed", updated_at: assignedAt }],
     )
   ).rows[0].reply;
@@ -45,7 +45,7 @@ try {
   assert.equal(Date.parse(patched.updated_at), Date.parse(assignedAt));
 
   const memberId = randomUUID();
-  await client.query("SELECT aap_workspace_v1.write_seed_members($1::jsonb)", [
+  await client.query("SELECT yoao_workspace_v1.write_seed_members($1::jsonb)", [
     {
       schema: "aap-workspace-seed-members/v1",
       operations: [
@@ -62,7 +62,7 @@ try {
   ]);
   const member = (
     await client.query(
-      "SELECT aap_workspace_v1.pin_seed_member_assignment($1,$2::timestamptz) AS reply",
+      "SELECT yoao_workspace_v1.pin_seed_member_assignment($1,$2::timestamptz) AS reply",
       [memberId, assignedAt],
     )
   ).rows[0].reply;
@@ -81,7 +81,7 @@ try {
   const missingId = randomUUID();
   const missing = (
     await client.query(
-      "SELECT aap_workspace_v1.pin_seed_member_assignment($1,$2::timestamptz) AS reply",
+      "SELECT yoao_workspace_v1.pin_seed_member_assignment($1,$2::timestamptz) AS reply",
       [missingId, assignedAt],
     )
   ).rows[0].reply;
@@ -94,7 +94,7 @@ try {
   });
   await client.query("SAVEPOINT malformed");
   await assert.rejects(
-    client.query("SELECT aap_workspace_v1.write_seed_project_projection($1,$2::jsonb)", [
+    client.query("SELECT yoao_workspace_v1.write_seed_project_projection($1,$2::jsonb)", [
       projectIds[0],
       { total_tasks: 99 },
     ]),
@@ -104,7 +104,7 @@ try {
   await client.query("ROLLBACK");
   for (const displayId of displayIds) {
     const found = (
-      await client.query("SELECT aap_workspace_v1.read_import_project($1) AS reply", [displayId])
+      await client.query("SELECT yoao_workspace_v1.read_import_project($1) AS reply", [displayId])
     ).rows[0].reply;
     assert.equal(found.project_id, null);
   }

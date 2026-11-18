@@ -21,11 +21,11 @@ pytestmark = pytest.mark.asyncio
 
 _SCHEMA = "aap-labeling-video-input-selection/v1"
 _OPEN = text(
-    "SELECT aap_labeling_v1.open_video_input_manifest_members("
+    "SELECT yoao_labeling_v1.open_video_input_manifest_members("
     "CAST(:actor AS uuid),CAST(:project AS uuid),CAST(:selection AS jsonb))"
 )
 _LOCK = text(
-    "SELECT aap_labeling_v1.lock_video_input_manifest_member("
+    "SELECT yoao_labeling_v1.lock_video_input_manifest_member("
     "CAST(:actor AS uuid),CAST(:project AS uuid),CAST(:task AS uuid),"
     "CAST(:selection AS jsonb),CAST(:captured AS jsonb))"
 )

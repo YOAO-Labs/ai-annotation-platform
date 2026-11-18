@@ -49,7 +49,7 @@ async def test_maintenance_preserves_partition_identity_lock_and_caller_rollback
     savepoint = await db_session.begin_nested()
     with pytest.raises(DBAPIError) as extra_key:
         await db_session.scalar(
-            text("SELECT aap_audit_v1.maintenance_command(CAST(:request AS jsonb))"),
+            text("SELECT yoao_audit_v1.maintenance_command(CAST(:request AS jsonb))"),
             {
                 "request": json.dumps(
                     {
@@ -121,13 +121,13 @@ async def test_maintenance_login_snapshots_exact_json_and_serializes_competing_d
     try:
         await verify_function_only_role(
             maintenance,
-            schema="aap_audit_v1",
+            schema="yoao_audit_v1",
             functions={("maintenance_command", "jsonb")},
-            role="audit_maintenance_client",
+            role="yoao_audit_maintenance_client",
         )
         month = date(1999, 3, 1)
         await owner.execute(
-            "SELECT aap_audit_v1.maintenance_command($1::jsonb)",
+            "SELECT yoao_audit_v1.maintenance_command($1::jsonb)",
             json.dumps(
                 {
                     "schema": MAINTENANCE_PROTOCOL,
@@ -151,7 +151,7 @@ async def test_maintenance_login_snapshots_exact_json_and_serializes_competing_d
 
         partitions = json.loads(
             await maintenance.fetchval(
-                "SELECT aap_audit_v1.maintenance_command($1::jsonb)",
+                "SELECT yoao_audit_v1.maintenance_command($1::jsonb)",
                 json.dumps({"schema": MAINTENANCE_PROTOCOL, "operation": "partitions"}),
             )
         )
@@ -175,7 +175,7 @@ async def test_maintenance_login_snapshots_exact_json_and_serializes_competing_d
         await transaction.start()
         snapshot = json.loads(
             await maintenance.fetchval(
-                "SELECT aap_audit_v1.maintenance_command($1::jsonb)",
+                "SELECT yoao_audit_v1.maintenance_command($1::jsonb)",
                 json.dumps(snapshot_request),
             )
         )
@@ -190,14 +190,14 @@ async def test_maintenance_login_snapshots_exact_json_and_serializes_competing_d
             async with competing.transaction():
                 await competing.execute("SET LOCAL lock_timeout = '300ms'")
                 await competing.fetchval(
-                    "SELECT aap_audit_v1.maintenance_command($1::jsonb)",
+                    "SELECT yoao_audit_v1.maintenance_command($1::jsonb)",
                     json.dumps(snapshot_request),
                 )
         assert contention.value.sqlstate == "55P03"
 
         dropped = json.loads(
             await maintenance.fetchval(
-                "SELECT aap_audit_v1.maintenance_command($1::jsonb)",
+                "SELECT yoao_audit_v1.maintenance_command($1::jsonb)",
                 json.dumps(drop_request),
             )
         )
@@ -206,7 +206,7 @@ async def test_maintenance_login_snapshots_exact_json_and_serializes_competing_d
 
         restored = json.loads(
             await maintenance.fetchval(
-                "SELECT aap_audit_v1.maintenance_command($1::jsonb)",
+                "SELECT yoao_audit_v1.maintenance_command($1::jsonb)",
                 json.dumps(snapshot_request),
             )
         )

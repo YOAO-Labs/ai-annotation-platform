@@ -69,7 +69,7 @@ async def _delete_project_fixture(
 
 async def _lock_project_reference(session, project_id: UUID | None) -> UUID | None:
     return await session.scalar(
-        text("SELECT aap_workspace_v1.lock_project_reference(:project_id)"),
+        text("SELECT yoao_workspace_v1.lock_project_reference(:project_id)"),
         {"project_id": project_id},
     )
 

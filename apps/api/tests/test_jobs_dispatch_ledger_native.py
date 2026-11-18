@@ -17,10 +17,10 @@ from tests.factory import create_project, create_task, create_user
 
 pytestmark = pytest.mark.asyncio
 
-_PREPARE = text("SELECT aap_jobs_v1.prepare_dispatch(CAST(:request AS jsonb))")
-_CLAIM = text("SELECT aap_jobs_v1.claim_dispatches(CAST(:request AS jsonb))")
-_FINISH = text("SELECT aap_jobs_v1.finish_dispatch(CAST(:request AS jsonb))")
-_STATUS = text("SELECT aap_jobs_v1.dispatch_status(CAST(:intent_id AS uuid))")
+_PREPARE = text("SELECT yoao_jobs_v1.prepare_dispatch(CAST(:request AS jsonb))")
+_CLAIM = text("SELECT yoao_jobs_v1.claim_dispatches(CAST(:request AS jsonb))")
+_FINISH = text("SELECT yoao_jobs_v1.finish_dispatch(CAST(:request AS jsonb))")
+_STATUS = text("SELECT yoao_jobs_v1.dispatch_status(CAST(:intent_id AS uuid))")
 
 
 def _dispatch(execution_id: str) -> dict:
@@ -138,7 +138,7 @@ async def test_prepare_is_rollback_safe_and_rejects_immutable_identity_rewrites(
     _refused(conflict, "identity_mismatch")
     stored = await db_session.scalar(
         text(
-            "SELECT envelope FROM aap_jobs_v1.dispatch_intents "
+            "SELECT envelope FROM yoao_jobs_v1.dispatch_intents "
             "WHERE intent_id=CAST(:intent_id AS uuid)"
         ),
         {"intent_id": first["intent_id"]},
@@ -146,7 +146,7 @@ async def test_prepare_is_rollback_safe_and_rejects_immutable_identity_rewrites(
     assert stored == envelope
     count = await db_session.scalar(
         text(
-            "SELECT pg_catalog.count(*) FROM aap_jobs_v1.dispatch_intents "
+            "SELECT pg_catalog.count(*) FROM yoao_jobs_v1.dispatch_intents "
             "WHERE job_id=CAST(:job_id AS uuid)"
         ),
         {"job_id": job.id},
@@ -172,7 +172,7 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
         {"intent_id": inline["intent_id"]},
     )
     begin_publication = text(
-        "SELECT aap_jobs_v1.begin_dispatch_publication("
+        "SELECT yoao_jobs_v1.begin_dispatch_publication("
         "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
         ":generation, CAST(:lease_token AS uuid))"
     )
@@ -180,7 +180,7 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
 
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.dispatch_intents "
+            "UPDATE yoao_jobs_v1.dispatch_intents "
             "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE intent_id=CAST(:intent_id AS uuid)"
         ),
@@ -198,7 +198,7 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     attempts = (
         await db_session.execute(
             text(
-                "SELECT generation, state FROM aap_jobs_v1.dispatch_publication_attempts "
+                "SELECT generation, state FROM yoao_jobs_v1.dispatch_publication_attempts "
                 "WHERE intent_id=CAST(:intent_id AS uuid) ORDER BY generation"
             ),
             {"intent_id": inline["intent_id"]},
@@ -209,7 +209,7 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
         (claimed["generation"], "entered"),
     ]
     retry_publication = text(
-        "SELECT aap_jobs_v1.begin_retry_publication("
+        "SELECT yoao_jobs_v1.begin_retry_publication("
         "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, :task_name, "
         "CAST(:args AS jsonb), CAST(:kwargs AS jsonb), :retry, CAST(:nonce AS uuid))"
     )
@@ -222,22 +222,32 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
         "nonce": str(uuid.uuid4()),
     }
     assert await db_session.scalar(retry_publication, retry_args) == "entered"
-    assert await db_session.scalar(
-        retry_publication, {**retry_args, "nonce": str(uuid.uuid4())}
-    ) == "entered"
-    assert await db_session.scalar(
-        retry_publication,
-        {**retry_args, "nonce": str(uuid.uuid4()), "args": json.dumps(["changed"])},
-    ) == "blocked"
-    retry_attempts = (
-        await db_session.execute(
-            text(
-                "SELECT state FROM aap_jobs_v1.dispatch_retry_publications "
-                "WHERE intent_id=CAST(:intent_id AS uuid) AND retry_number=1"
-            ),
-            {"intent_id": inline["intent_id"]},
+    assert (
+        await db_session.scalar(
+            retry_publication, {**retry_args, "nonce": str(uuid.uuid4())}
         )
-    ).scalars().all()
+        == "entered"
+    )
+    assert (
+        await db_session.scalar(
+            retry_publication,
+            {**retry_args, "nonce": str(uuid.uuid4()), "args": json.dumps(["changed"])},
+        )
+        == "blocked"
+    )
+    retry_attempts = (
+        (
+            await db_session.execute(
+                text(
+                    "SELECT state FROM yoao_jobs_v1.dispatch_retry_publications "
+                    "WHERE intent_id=CAST(:intent_id AS uuid) AND retry_number=1"
+                ),
+                {"intent_id": inline["intent_id"]},
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert retry_attempts == ["entered", "entered"]
 
     _refused(await _finish(db_session, inline, accepted=True), "stale_lease")
@@ -250,7 +260,7 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
 
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.dispatch_intents "
+            "UPDATE yoao_jobs_v1.dispatch_intents "
             "SET next_attempt_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE intent_id=CAST(:intent_id AS uuid)"
         ),
@@ -268,7 +278,7 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     assert _data(status)["state"] == "submitted"
     assert not await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.retire_job_publications("
+            "SELECT yoao_jobs_v1.retire_job_publications("
             "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
         ),
         {"job_id": str(job.id), "execution_ids": [inline["execution_id"]]},
@@ -296,46 +306,54 @@ async def test_refused_publication_is_distinct_from_acceptance_and_allows_exact_
         "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
         ":generation, CAST(:lease_token AS uuid)"
     )
-    begin = text(f"SELECT aap_jobs_v1.begin_dispatch_publication({arguments})")
-    refuse = text(f"SELECT aap_jobs_v1.refuse_dispatch_publication({arguments})")
-    finish = text(f"SELECT aap_jobs_v1.finish_dispatch_publication({arguments})")
+    begin = text(f"SELECT yoao_jobs_v1.begin_dispatch_publication({arguments})")
+    refuse = text(f"SELECT yoao_jobs_v1.refuse_dispatch_publication({arguments})")
+    finish = text(f"SELECT yoao_jobs_v1.finish_dispatch_publication({arguments})")
     retire = text(
-        "SELECT aap_jobs_v1.retire_job_publications("
+        "SELECT yoao_jobs_v1.retire_job_publications("
         "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
     )
     retire_args = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
     assert await db_session.scalar(begin, first) == "entered"
-    assert not await db_session.scalar(refuse, {**first, "lease_token": str(uuid.uuid4())})
+    assert not await db_session.scalar(
+        refuse, {**first, "lease_token": str(uuid.uuid4())}
+    )
     assert await db_session.scalar(refuse, first)
     assert _data(await _finish(db_session, first, accepted=False))["state"] == "pending"
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.dispatch_intents "
+            "UPDATE yoao_jobs_v1.dispatch_intents "
             "SET next_attempt_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE intent_id=CAST(:intent_id AS uuid)"
         ),
         {"intent_id": first["intent_id"]},
     )
-    replay, = _data(await _claim(db_session, limit=1))
+    (replay,) = _data(await _claim(db_session, limit=1))
     assert replay["envelope"] == envelope
     assert replay["execution_id"] == first["execution_id"]
     assert await db_session.scalar(begin, replay) == "entered"
     assert await db_session.scalar(finish, replay)
-    assert _data(await _finish(db_session, replay, accepted=True))["state"] == "submitted"
+    assert (
+        _data(await _finish(db_session, replay, accepted=True))["state"] == "submitted"
+    )
     states = (
-        await db_session.execute(
-            text(
-                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
-                "WHERE intent_id=CAST(:intent_id AS uuid) ORDER BY generation"
-            ),
-            {"intent_id": first["intent_id"]},
+        (
+            await db_session.execute(
+                text(
+                    "SELECT state FROM yoao_jobs_v1.dispatch_publication_attempts "
+                    "WHERE intent_id=CAST(:intent_id AS uuid) ORDER BY generation"
+                ),
+                {"intent_id": first["intent_id"]},
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert states == ["not_sent", "settled"]
     assert await db_session.scalar(retire, retire_args)
     assert not await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.job_publications_not_sent("
+            "SELECT yoao_jobs_v1.job_publications_not_sent("
             "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
         ),
         retire_args,
@@ -361,14 +379,14 @@ async def test_unsent_retirement_fences_new_publication(db_session, entered):
         "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
         ":generation, CAST(:lease_token AS uuid)"
     )
-    begin = text(f"SELECT aap_jobs_v1.begin_dispatch_publication({arguments})")
-    refuse = text(f"SELECT aap_jobs_v1.refuse_dispatch_publication({arguments})")
+    begin = text(f"SELECT yoao_jobs_v1.begin_dispatch_publication({arguments})")
+    refuse = text(f"SELECT yoao_jobs_v1.refuse_dispatch_publication({arguments})")
     retire = text(
-        "SELECT aap_jobs_v1.retire_job_publications("
+        "SELECT yoao_jobs_v1.retire_job_publications("
         "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
     )
     not_sent = text(
-        "SELECT aap_jobs_v1.job_publications_not_sent("
+        "SELECT yoao_jobs_v1.job_publications_not_sent("
         "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
     )
     exact = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
@@ -389,7 +407,7 @@ async def test_unsent_retirement_fences_new_publication(db_session, entered):
     assert (
         await db_session.scalar(
             text(
-                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
+                "SELECT state FROM yoao_jobs_v1.dispatch_publication_attempts "
                 "WHERE intent_id=CAST(:intent_id AS uuid)"
             ),
             {"intent_id": first["intent_id"]},
@@ -397,13 +415,15 @@ async def test_unsent_retirement_fences_new_publication(db_session, entered):
     ) == ("not_sent" if entered else None)
 
 
-async def test_unentered_retirement_waits_for_publication_owner(db_session, test_engine):
+async def test_unentered_retirement_waits_for_publication_owner(
+    db_session, test_engine
+):
     job = _job()
     db_session.add(job)
     await db_session.flush()
     first = _data(await _prepare(db_session, job.id, _dispatch(str(uuid.uuid4()))))
     retire = text(
-        "SELECT aap_jobs_v1.retire_job_publications("
+        "SELECT yoao_jobs_v1.retire_job_publications("
         "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
     )
     exact = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
@@ -420,7 +440,7 @@ async def test_unentered_retirement_waits_for_publication_owner(db_session, test
     assert await db_session.scalar(retire, exact)
     assert await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.job_publications_not_sent("
+            "SELECT yoao_jobs_v1.job_publications_not_sent("
             "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
         ),
         exact,
@@ -446,11 +466,14 @@ async def test_terminal_refusal_rejects_any_retry_publication(db_session, settle
         "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
         ":generation, CAST(:lease_token AS uuid)"
     )
+    assert (
+        await db_session.scalar(
+            text(f"SELECT yoao_jobs_v1.begin_dispatch_publication({args})"), first
+        )
+        == "entered"
+    )
     assert await db_session.scalar(
-        text(f"SELECT aap_jobs_v1.begin_dispatch_publication({args})"), first
-    ) == "entered"
-    assert await db_session.scalar(
-        text(f"SELECT aap_jobs_v1.refuse_dispatch_publication({args})"), first
+        text(f"SELECT yoao_jobs_v1.refuse_dispatch_publication({args})"), first
     )
     retry = {
         **first,
@@ -460,18 +483,21 @@ async def test_terminal_refusal_rejects_any_retry_publication(db_session, settle
         "retry": 1,
         "nonce": str(uuid.uuid4()),
     }
-    assert await db_session.scalar(
-        text(
-            "SELECT aap_jobs_v1.begin_retry_publication("
-            "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, :task_name, "
-            "CAST(:args AS jsonb), CAST(:kwargs AS jsonb), :retry, CAST(:nonce AS uuid))"
-        ),
-        retry,
-    ) == "entered"
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT yoao_jobs_v1.begin_retry_publication("
+                "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, :task_name, "
+                "CAST(:args AS jsonb), CAST(:kwargs AS jsonb), :retry, CAST(:nonce AS uuid))"
+            ),
+            retry,
+        )
+        == "entered"
+    )
     if settled:
         assert await db_session.scalar(
             text(
-                "SELECT aap_jobs_v1.finish_retry_publication("
+                "SELECT yoao_jobs_v1.finish_retry_publication("
                 "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
                 ":retry, CAST(:nonce AS uuid))"
             ),
@@ -479,7 +505,7 @@ async def test_terminal_refusal_rejects_any_retry_publication(db_session, settle
         )
     assert not await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.retire_job_publications("
+            "SELECT yoao_jobs_v1.retire_job_publications("
             "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
         ),
         {"job_id": str(job.id), "execution_ids": [first["execution_id"]]},
@@ -497,7 +523,7 @@ async def test_mixed_publications_require_exact_set_and_settled_attempts(db_sess
         ":generation, CAST(:lease_token AS uuid)"
     )
     retire = text(
-        "SELECT aap_jobs_v1.retire_job_publications("
+        "SELECT yoao_jobs_v1.retire_job_publications("
         "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
     )
     exact = {
@@ -513,12 +539,15 @@ async def test_mixed_publications_require_exact_set_and_settled_attempts(db_sess
             ),
             {"intent_id": lease["intent_id"]},
         )
-        assert await db_session.scalar(
-            text(f"SELECT aap_jobs_v1.begin_dispatch_publication({args})"), lease
-        ) == "entered"
+        assert (
+            await db_session.scalar(
+                text(f"SELECT yoao_jobs_v1.begin_dispatch_publication({args})"), lease
+            )
+            == "entered"
+        )
         assert not await db_session.scalar(retire, exact)
         assert await db_session.scalar(
-            text(f"SELECT aap_jobs_v1.{outcome}_dispatch_publication({args})"), lease
+            text(f"SELECT yoao_jobs_v1.{outcome}_dispatch_publication({args})"), lease
         )
     assert not await db_session.scalar(
         retire,
@@ -527,7 +556,7 @@ async def test_mixed_publications_require_exact_set_and_settled_attempts(db_sess
     assert await db_session.scalar(retire, exact)
     assert not await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.job_publications_not_sent("
+            "SELECT yoao_jobs_v1.job_publications_not_sent("
             "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
         ),
         exact,
@@ -549,7 +578,7 @@ async def test_concurrent_dispatch_claims_are_single_winner_and_skip_locked(
         async with sessions() as setup:
             await setup.execute(
                 text(
-                    "UPDATE aap_jobs_v1.dispatch_intents "
+                    "UPDATE yoao_jobs_v1.dispatch_intents "
                     "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
                     "WHERE intent_id=CAST(:intent_id AS uuid)"
                 ),
@@ -628,7 +657,7 @@ async def test_frame_canvas_requires_running_and_cancelled_tracker_retirement_is
     await db_session.flush()
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.dispatch_intents "
+            "UPDATE yoao_jobs_v1.dispatch_intents "
             "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE intent_id=CAST(:intent_id AS uuid)"
         ),
@@ -736,7 +765,7 @@ async def test_frame_canvas_requires_running_and_cancelled_tracker_retirement_is
     assert terminal_lease["state"] == "leased"
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.dispatch_intents "
+            "UPDATE yoao_jobs_v1.dispatch_intents "
             "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE intent_id=CAST(:intent_id AS uuid)"
         ),
@@ -774,7 +803,7 @@ async def test_native_rejects_unpublishable_canvas_without_saving_an_intent(
     )
     assert not await db_session.scalar(
         text(
-            "SELECT EXISTS(SELECT FROM aap_jobs_v1.dispatch_intents "
+            "SELECT EXISTS(SELECT FROM yoao_jobs_v1.dispatch_intents "
             "WHERE job_id=:job_id)"
         ),
         {"job_id": job.id},
@@ -796,7 +825,7 @@ async def test_locked_terminal_intent_does_not_block_live_dispatch(test_engine):
             await setup.flush()
             await setup.execute(
                 text(
-                    "UPDATE aap_jobs_v1.dispatch_intents "
+                    "UPDATE yoao_jobs_v1.dispatch_intents "
                     "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
                     "WHERE job_id=ANY(CAST(:ids AS uuid[]))"
                 ),
@@ -806,7 +835,7 @@ async def test_locked_terminal_intent_does_not_block_live_dispatch(test_engine):
         async with sessions() as blocker:
             await blocker.execute(
                 text(
-                    "SELECT FROM aap_jobs_v1.dispatch_intents "
+                    "SELECT FROM yoao_jobs_v1.dispatch_intents "
                     "WHERE intent_id=CAST(:intent_id AS uuid) FOR UPDATE"
                 ),
                 {"intent_id": terminal_lease["intent_id"]},
@@ -861,7 +890,7 @@ async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
         async with sessions() as owner:
             await owner.execute(
                 text(
-                    "UPDATE aap_jobs_v1.dispatch_intents "
+                    "UPDATE yoao_jobs_v1.dispatch_intents "
                     "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
                     "WHERE intent_id=:intent_id"
                 ),
@@ -881,17 +910,17 @@ async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
             (
                 relay_url,
                 (
-                    "SELECT * FROM aap_jobs_v1.dispatch_intents",
+                    "SELECT * FROM yoao_jobs_v1.dispatch_intents",
                     "SELECT * FROM public.async_jobs",
-                    "SELECT aap_jobs_v1.prepare_dispatch('{}'::jsonb)",
+                    "SELECT yoao_jobs_v1.prepare_dispatch('{}'::jsonb)",
                     "CREATE TABLE public.jobs_relay_escape(id integer)",
                 ),
             ),
             (
                 api_url,
                 (
-                    "SELECT * FROM aap_jobs_v1.dispatch_intents",
-                    "SELECT aap_jobs_v1.claim_dispatches('{}'::jsonb)",
+                    "SELECT * FROM yoao_jobs_v1.dispatch_intents",
+                    "SELECT yoao_jobs_v1.claim_dispatches('{}'::jsonb)",
                 ),
             ),
         ):

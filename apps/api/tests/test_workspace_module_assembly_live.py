@@ -151,7 +151,7 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
-                        "'aap_workspace_v1.read_project_row(uuid)'::regprocedure, 'EXECUTE')"
+                        "'yoao_workspace_v1.read_project_row(uuid)'::regprocedure, 'EXECUTE')"
                     )
                 )
                 is True
@@ -160,7 +160,7 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
-                        "'aap_workspace_v1.project_access_step(uuid,uuid,text)'::regprocedure, 'EXECUTE')"
+                        "'yoao_workspace_v1.project_access_step(uuid,uuid,text)'::regprocedure, 'EXECUTE')"
                     )
                 )
                 is True
@@ -169,7 +169,7 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege(current_user, "
-                        "'aap_workspace_v1.project_facts', 'SELECT')"
+                        "'yoao_workspace_v1.project_facts', 'SELECT')"
                     )
                 )
                 is True
@@ -189,7 +189,7 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
             "SELECT id FROM public.project_members LIMIT 1",
             "SELECT id FROM public.project_templates LIMIT 1",
             "UPDATE public.projects SET name=name WHERE false",
-            "UPDATE aap_workspace_v1.project_facts SET name=name WHERE false",
+            "UPDATE yoao_workspace_v1.project_facts SET name=name WHERE false",
         ):
             async with engine.connect() as db:
                 with pytest.raises(DBAPIError):
@@ -362,7 +362,7 @@ async def _restored_database_with_acl_and_proofs(
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
-                        "'aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)'::regprocedure, 'EXECUTE')"
+                        "'yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)'::regprocedure, 'EXECUTE')"
                     )
                 )
                 is True
@@ -371,7 +371,7 @@ async def _restored_database_with_acl_and_proofs(
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
-                        "'aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)'::regprocedure, 'EXECUTE')"
+                        "'yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)'::regprocedure, 'EXECUTE')"
                     )
                 )
                 is True
@@ -379,7 +379,7 @@ async def _restored_database_with_acl_and_proofs(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT aap_workspace_v1.read_project_row(CAST(:project_id AS uuid))"
+                        "SELECT yoao_workspace_v1.read_project_row(CAST(:project_id AS uuid))"
                     ),
                     {"project_id": project_id},
                 )

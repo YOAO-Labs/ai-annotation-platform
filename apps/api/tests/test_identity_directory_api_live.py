@@ -377,7 +377,7 @@ async def test_auth_only_api_routes_use_directory_owner(
                     await db.scalar(
                         text(
                             "SELECT pg_catalog.has_table_privilege("
-                            "'identity_auth_client','public.users','SELECT')"
+                            "'yoao_identity_auth_client','public.users','SELECT')"
                         )
                     )
                     is False
@@ -386,7 +386,7 @@ async def test_auth_only_api_routes_use_directory_owner(
                     await db.scalar(
                         text(
                             "SELECT pg_catalog.has_table_privilege("
-                            "'identity_auth_client','public.projects','SELECT')"
+                            "'yoao_identity_auth_client','public.projects','SELECT')"
                         )
                     )
                     is False
@@ -395,7 +395,7 @@ async def test_auth_only_api_routes_use_directory_owner(
                     await db.scalar(
                         text(
                             "SELECT pg_catalog.has_table_privilege("
-                            "'identity_directory_client','public.users','SELECT')"
+                            "'yoao_identity_directory_client','public.users','SELECT')"
                         )
                     )
                     is False

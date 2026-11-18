@@ -193,7 +193,7 @@ async def test_auth_only_platform_role_api_bindings_and_public_contract(
                     await db.execute(
                         text(
                             "GRANT SELECT ON public.users "
-                            "TO identity_platform_role_client"
+                            "TO yoao_identity_platform_role_client"
                         )
                     )
                 try:
@@ -212,7 +212,7 @@ async def test_auth_only_platform_role_api_bindings_and_public_contract(
                         await db.execute(
                             text(
                                 "REVOKE SELECT ON public.users "
-                                "FROM identity_platform_role_client"
+                                "FROM yoao_identity_platform_role_client"
                             )
                         )
 

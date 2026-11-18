@@ -23,7 +23,7 @@ from tests.notifications_module_acceptance_helpers import (
 def _database_url(**changes):
     return URL.create(
         "postgresql+asyncpg",
-        username="notification_publish_client",
+        username="yoao_notification_publish_client",
         password="scoped-secret",
         host="127.0.0.1",
         port=55432,
@@ -109,7 +109,7 @@ def test_publisher_role_url_stays_on_the_owned_test_database():
         bound.port,
         bound.database,
     ) == (
-        "notification_publish_client",
+        "yoao_notification_publish_client",
         "scoped-secret",
         "127.0.0.1",
         55432,

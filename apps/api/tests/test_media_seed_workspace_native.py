@@ -62,7 +62,7 @@ async def media_world(test_engine):
                         text(
                             "SELECT p.oid::regprocedure::text FROM pg_proc p "
                             "JOIN pg_namespace n ON n.oid=p.pronamespace "
-                            "WHERE n.nspname IN ('aap_assets_v1','aap_labeling_v1','aap_jobs_v1') "
+                            "WHERE n.nspname IN ('yoao_assets_v1','yoao_labeling_v1','yoao_jobs_v1') "
                             "AND has_function_privilege('legacy_runtime',p.oid,'EXECUTE')"
                         )
                     )

@@ -105,7 +105,7 @@ def _apply_command(
 async def _prepare(session: AsyncSession, request: dict | list | str | None) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_accounts_v1.prepare_account_command("
+            "SELECT yoao_identity_accounts_v1.prepare_account_command("
             "CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(request)},
@@ -116,7 +116,7 @@ async def _prepare(session: AsyncSession, request: dict | list | str | None) -> 
 async def _apply(session: AsyncSession, request: dict | list | str | None) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_accounts_v1.apply_account_command("
+            "SELECT yoao_identity_accounts_v1.apply_account_command("
             "CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(request)},
@@ -716,7 +716,7 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
             )
             affected = await session.scalar(
                 text(
-                    "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline(:cutoff)"
+                    "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline(:cutoff)"
                 ),
                 {"cutoff": cutoff},
             )

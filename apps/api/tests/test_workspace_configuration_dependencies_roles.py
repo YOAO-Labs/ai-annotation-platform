@@ -13,19 +13,19 @@ pytestmark = pytest.mark.asyncio
 
 FUNCTIONS = (
     (
-        "aap_identity_v1.workspace_configuration_org_scope(uuid,uuid)",
+        "yoao_identity_v1.workspace_configuration_org_scope(uuid,uuid)",
         "identity_code",
     ),
     (
-        "aap_assets_v1.workspace_configuration_datasets(uuid)",
+        "yoao_assets_v1.workspace_configuration_datasets(uuid)",
         "assets_code",
     ),
     (
-        "aap_labeling_v1.workspace_configuration_video_facts(uuid)",
+        "yoao_labeling_v1.workspace_configuration_video_facts(uuid)",
         "labeling_code",
     ),
     (
-        "aap_inference_v1.enable_workspace_project_backend(uuid,uuid)",
+        "yoao_inference_v1.enable_workspace_project_backend(uuid,uuid)",
         "inference_code",
     ),
 )
@@ -94,11 +94,11 @@ async def test_workspace_configuration_dependencies_only_expose_typed_functions(
                       ON namespace.oid = function.pronamespace
                     WHERE (namespace.nspname, function.proname,
                            pg_catalog.oidvectortypes(function.proargtypes)) IN (
-                        ('aap_identity_v1', 'workspace_configuration_org_scope',
+                        ('yoao_identity_v1', 'workspace_configuration_org_scope',
                          'uuid, uuid'),
-                        ('aap_assets_v1', 'workspace_configuration_datasets', 'uuid'),
-                        ('aap_labeling_v1', 'workspace_configuration_video_facts', 'uuid'),
-                        ('aap_inference_v1', 'enable_workspace_project_backend',
+                        ('yoao_assets_v1', 'workspace_configuration_datasets', 'uuid'),
+                        ('yoao_labeling_v1', 'workspace_configuration_video_facts', 'uuid'),
+                        ('yoao_inference_v1', 'enable_workspace_project_backend',
                          'uuid, uuid')
                     )
                     ORDER BY namespace.nspname, function.proname
@@ -159,7 +159,7 @@ async def test_workspace_configuration_dependencies_only_expose_typed_functions(
             await connection.scalar(
                 text(
                     """
-                    SELECT aap_identity_v1.workspace_configuration_org_scope(
+                    SELECT yoao_identity_v1.workspace_configuration_org_scope(
                         CAST(:actor AS uuid), CAST(:organization AS uuid)
                     )
                     """
@@ -171,7 +171,7 @@ async def test_workspace_configuration_dependencies_only_expose_typed_functions(
             await connection.scalar(
                 text(
                     """
-                    SELECT aap_assets_v1.workspace_configuration_datasets(
+                    SELECT yoao_assets_v1.workspace_configuration_datasets(
                         CAST(:project AS uuid)
                     )
                     """
@@ -183,7 +183,7 @@ async def test_workspace_configuration_dependencies_only_expose_typed_functions(
             await connection.scalar(
                 text(
                     """
-                    SELECT aap_labeling_v1.workspace_configuration_video_facts(
+                    SELECT yoao_labeling_v1.workspace_configuration_video_facts(
                         CAST(:project AS uuid)
                     )
                     """
@@ -195,7 +195,7 @@ async def test_workspace_configuration_dependencies_only_expose_typed_functions(
             await connection.scalar(
                 text(
                     """
-                    SELECT aap_inference_v1.enable_workspace_project_backend(
+                    SELECT yoao_inference_v1.enable_workspace_project_backend(
                         CAST(:project AS uuid), CAST(:registry AS uuid)
                     )
                     """

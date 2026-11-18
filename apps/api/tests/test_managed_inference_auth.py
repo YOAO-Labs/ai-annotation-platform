@@ -347,23 +347,23 @@ async def test_runtime_cannot_execute_unfenced_registry_patch(test_engine):
                 text(
                     "SELECT "
                     "has_function_privilege(current_user,"
-                    "'aap_inference_topology_v1.registry_auth_snapshot(uuid)','EXECUTE'),"
+                    "'yoao_inference_topology_v1.registry_auth_snapshot(uuid)','EXECUTE'),"
                     "has_function_privilege(current_user,"
-                    "'aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)','EXECUTE'),"
+                    "'yoao_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)','EXECUTE'),"
                     "has_function_privilege(current_user,"
-                    "'aap_inference_topology_v1.patch_registry(uuid,text)','EXECUTE')"
+                    "'yoao_inference_topology_v1.patch_registry(uuid,text)','EXECUTE')"
                 )
             )
             assert tuple(result.one()) == (True, True, False)
             policy = await connection.scalar(
-                text("SELECT aap_inference_topology_v1.topology_policy()")
+                text("SELECT yoao_inference_topology_v1.topology_policy()")
             )
             assert {
-                "aap_inference_topology_v1.registry_auth_snapshot(uuid)",
-                "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)",
+                "yoao_inference_topology_v1.registry_auth_snapshot(uuid)",
+                "yoao_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)",
             } <= set(policy["functions"])
             assert (
-                "aap_inference_topology_v1.patch_registry(uuid,text)"
+                "yoao_inference_topology_v1.patch_registry(uuid,text)"
                 not in policy["functions"]
             )
     finally:

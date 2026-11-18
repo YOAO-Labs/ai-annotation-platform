@@ -73,7 +73,9 @@ async def test_fixture_derivative_source_reader_blocks_exact_retirement(
                         "SELECT count(*) FROM public.storage_operations "
                         "WHERE purpose = :purpose AND node_id = 'aap-assets-media'"
                     ),
-                    {"purpose": f"media_original_{source.replica_facts.creation_id.hex}"},
+                    {
+                        "purpose": f"media_original_{source.replica_facts.creation_id.hex}"
+                    },
                 )
                 assert pending == 1
             blocked = await _cleanup_owned(owner_fault_http, run)
@@ -312,7 +314,7 @@ async def test_suite_reader_budget_does_not_expire_between_children(
                 async with test_engine.connect() as observer:
                     empty = await observer.scalar(
                         text(
-                            "SELECT aap_assets_v1.fixture_original_readers_empty(:run)"
+                            "SELECT yoao_assets_v1.fixture_original_readers_empty(:run)"
                         ),
                         {"run": second.run_id},
                     )

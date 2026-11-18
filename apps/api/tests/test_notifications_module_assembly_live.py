@@ -356,12 +356,12 @@ async def _claim_notification_import_delivery(test_engine, notification_id):
     lease_token = uuid.uuid4()
     try:
         await connection.fetchval(
-            "SELECT aap_assets_v1.queue_dataset_import_delivery($1::uuid, 'notification', $2::uuid)",
+            "SELECT yoao_assets_v1.queue_dataset_import_delivery($1::uuid, 'notification', $2::uuid)",
             job_id,
             notification_id,
         )
         raw_claim = await connection.fetchval(
-            "SELECT aap_assets_v1.claim_dataset_import_delivery($1::uuid, 120)",
+            "SELECT yoao_assets_v1.claim_dataset_import_delivery($1::uuid, 120)",
             lease_token,
         )
         claim = json.loads(raw_claim) if isinstance(raw_claim, str) else raw_claim
@@ -403,12 +403,12 @@ async def test_notifications_module_cold_composition_and_full_restore(
     )
     await _assert_role_capabilities(
         inputs["AAP_MODULE_DATA_IDENTITY_ACTOR_STATUS_URL"],
-        expected_role="identity_actor_status_client",
+        expected_role="yoao_identity_actor_status_client",
         actor_id=actor.id,
     )
     await _assert_role_capabilities(
         inputs["AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL"],
-        expected_role="notification_delivery_read_client",
+        expected_role="yoao_notification_delivery_read_client",
         actor_id=actor.id,
     )
 
@@ -932,7 +932,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         worker_id = uuid.uuid4()
                         try:
                             raw_claim = await claim_connection.fetchval(
-                                "SELECT aap_notifications_v1.claim_identity_deliveries($1::jsonb)",
+                                "SELECT yoao_notifications_v1.claim_identity_deliveries($1::jsonb)",
                                 json.dumps(
                                     {
                                         "schema": "aap-notifications-delivery/v1",

@@ -79,7 +79,7 @@ class DatasetSourceIngestData:
     ) -> IngestContext:
         result = await self._call(
             """
-            SELECT aap_assets_v1.begin_dataset_ingest(
+            SELECT yoao_assets_v1.begin_dataset_ingest(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:descriptor AS jsonb)
             )
@@ -110,7 +110,7 @@ class DatasetSourceIngestData:
     ) -> IngestBatchPlan:
         result = await self._call(
             """
-            SELECT aap_assets_v1.prepare_dataset_ingest_batch(
+            SELECT yoao_assets_v1.prepare_dataset_ingest_batch(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:batch_id AS uuid),
                 CAST(:entries AS jsonb)
@@ -143,7 +143,7 @@ class DatasetSourceIngestData:
     ) -> IngestBatchResult:
         result = await self._call(
             """
-            SELECT aap_assets_v1.stage_dataset_ingest_batch(
+            SELECT yoao_assets_v1.stage_dataset_ingest_batch(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:batch_id AS uuid),
                 CAST(:entries AS jsonb)
@@ -169,7 +169,7 @@ class DatasetSourceIngestData:
     ) -> IngestBatchResult:
         result = await self._call(
             """
-            SELECT aap_assets_v1.complete_dataset_ingest_batch(
+            SELECT yoao_assets_v1.complete_dataset_ingest_batch(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:batch_id AS uuid),
                 CAST(:entries AS jsonb)
@@ -196,7 +196,7 @@ class DatasetSourceIngestData:
     ) -> IngestLayoutPage:
         result = await self._call(
             """
-            SELECT aap_assets_v1.read_dataset_ingest_layout(
+            SELECT yoao_assets_v1.read_dataset_ingest_layout(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:after_item_id AS uuid),
                 CAST(:limit AS integer)
@@ -221,7 +221,7 @@ class DatasetSourceIngestData:
     ) -> IngestReceipt:
         return await self._call(
             """
-            SELECT aap_assets_v1.finish_dataset_ingest(
+            SELECT yoao_assets_v1.finish_dataset_ingest(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:finish AS jsonb)
             )

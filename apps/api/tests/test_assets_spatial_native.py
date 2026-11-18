@@ -43,76 +43,76 @@ from tests.test_assets_catalog_native import (
 pytestmark = pytest.mark.asyncio
 
 _GUARD_ACTOR = text(
-    "SELECT aap_assets_v1.guard_spatial_actor("
+    "SELECT yoao_assets_v1.guard_spatial_actor("
     "CAST(:actor_id AS uuid), CAST(:access AS text))"
 )
 _CREATE_SCENE = text(
-    "SELECT aap_assets_v1.create_spatial_scene("
+    "SELECT yoao_assets_v1.create_spatial_scene("
     "CAST(:operation_id AS uuid), CAST(:scene_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:name AS text), "
     "CAST(:source_format AS text), CAST(:source_metadata AS jsonb), "
     "CAST(:created_by AS uuid))"
 )
 _ASSIGN_ITEMS = text(
-    "SELECT aap_assets_v1.assign_spatial_items("
+    "SELECT yoao_assets_v1.assign_spatial_items("
     "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
     "CAST(:assignments AS jsonb))"
 )
 _READ_LAYOUT = text(
-    "SELECT aap_assets_v1.read_spatial_layout("
+    "SELECT yoao_assets_v1.read_spatial_layout("
     "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), "
     "CAST(:creation_operation_id AS uuid), CAST(:after_item_id AS uuid), "
     "CAST(:page_size AS integer))"
 )
 _APPLY_LAYOUT = text(
-    "SELECT aap_assets_v1.apply_spatial_layout("
+    "SELECT yoao_assets_v1.apply_spatial_layout("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:mode AS text), "
     "CAST(:dry_run AS boolean), CAST(:plan AS jsonb), CAST(:snapshot AS jsonb))"
 )
 _UPSERT_POSES = text(
-    "SELECT aap_assets_v1.upsert_spatial_poses("
+    "SELECT yoao_assets_v1.upsert_spatial_poses("
     "CAST(:operation_id AS uuid), CAST(:scene_id AS uuid), CAST(:poses AS jsonb))"
 )
 _READ_POSES = text(
-    "SELECT aap_assets_v1.read_spatial_poses("
+    "SELECT yoao_assets_v1.read_spatial_poses("
     "CAST(:actor_id AS uuid), CAST(:scene_id AS uuid), "
     "CAST(:after_frame_index AS integer), CAST(:page_size AS integer))"
 )
 _ASSOCIATE = text(
-    "SELECT aap_assets_v1.associate_project("
+    "SELECT yoao_assets_v1.associate_project("
     "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
 )
 _CREATE_JOB = text(
-    "SELECT aap_jobs_v1.create_task_creation_job("
+    "SELECT yoao_jobs_v1.create_task_creation_job("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:association_id AS uuid))"
 )
 _ACCEPT_TASK_CREATION = text(
-    "SELECT aap_labeling_v1.accept_dataset_task_creation("
+    "SELECT yoao_labeling_v1.accept_dataset_task_creation("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:association_id AS uuid), CAST(:job_id AS uuid), "
     "CAST(:mode AS text), CAST(:chunk_size AS integer))"
 )
 _CANCEL_JOB = text(
-    "SELECT aap_jobs_v1.cancel_task_creation_job("
+    "SELECT yoao_jobs_v1.cancel_task_creation_job("
     "CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
 )
 _UNLINK_DATASET = text(
-    "SELECT aap_workspace_v1.unlink_dataset("
+    "SELECT yoao_workspace_v1.unlink_dataset("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:cleanup_bucket AS text), CAST(:audit_context AS jsonb))"
 )
 _READ_PREPARATION = text(
-    "SELECT aap_assets_v1.read_pointcloud_preparation("
+    "SELECT yoao_assets_v1.read_pointcloud_preparation("
     "CAST(:creation_operation_id AS uuid), CAST(:after_item_id AS uuid), "
     "CAST(:page_size AS integer))"
 )
 _APPLY_PREPARATION = text(
-    "SELECT aap_assets_v1.apply_pointcloud_preparation("
+    "SELECT yoao_assets_v1.apply_pointcloud_preparation("
     "CAST(:creation_operation_id AS uuid), CAST(:snapshot AS jsonb), "
     "CAST(:calibration_updates AS jsonb), CAST(:frame_plan AS jsonb))"
 )
@@ -322,7 +322,7 @@ async def test_native_argument_names_match_frozen_same_type_argument_order(db_se
             text(
                 "SELECT proargnames FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure(:signature)"
             ),
-            {"signature": f"aap_assets_v1.{name}({types})"},
+            {"signature": f"yoao_assets_v1.{name}({types})"},
         )
         assert names == [f"p_{field}" for field in SPATIAL_NATIVE_ARGUMENTS[name]]
 
@@ -345,7 +345,7 @@ async def test_axis_operator_preserves_metadata_replay_and_published_query_facts
         created_by=None,
     )
     statement = text(
-        "SELECT aap_assets_v1.set_spatial_dataset_axis(CAST(:operation AS uuid),CAST(:dataset AS uuid),CAST(:axis AS text))"
+        "SELECT yoao_assets_v1.set_spatial_dataset_axis(CAST(:operation AS uuid),CAST(:dataset AS uuid),CAST(:axis AS text))"
     )
     operation_id = uuid.uuid4()
     changed = _spatial_result(
@@ -398,7 +398,7 @@ async def test_axis_operator_preserves_metadata_replay_and_published_query_facts
     assert (
         await db_session.scalar(
             text(
-                "SELECT scene_name FROM aap_assets_v1.spatial_scene_references WHERE scene_id=:id"
+                "SELECT scene_name FROM yoao_assets_v1.spatial_scene_references WHERE scene_id=:id"
             ),
             {"id": scene.scene_id},
         )
@@ -420,7 +420,7 @@ async def test_axis_operator_preserves_metadata_replay_and_published_query_facts
     facts = (
         await db_session.execute(
             text(
-                "SELECT scene_id,frame_index,axis_convention,calibration_metadata_present FROM aap_assets_v1.spatial_item_references WHERE item_id=:id"
+                "SELECT scene_id,frame_index,axis_convention,calibration_metadata_present FROM yoao_assets_v1.spatial_item_references WHERE item_id=:id"
             ),
             {"id": item_id},
         )
@@ -813,11 +813,13 @@ async def test_catalog_login_has_exact_spatial_and_catalog_capability_surface():
     if not raw_url:
         pytest.fail(f"the module-data verifier did not provide {_CATALOG_URL}")
     url = make_url(raw_url)
-    if url.username != "asset_catalog_client" or not url.database.endswith("_test"):
+    if url.username != "yoao_asset_catalog_client" or not url.database.endswith(
+        "_test"
+    ):
         pytest.fail("catalog LOGIN URL does not target the owned test database")
     engine = create_async_engine(url, hide_parameters=True)
     expected = set(_CATALOG_LOGIN_FUNCTIONS) | {
-        f"aap_assets_v1.{name}({signature})"
+        f"yoao_assets_v1.{name}({signature})"
         for name, signature in SPATIAL_NATIVE_SIGNATURES.items()
     }
     try:

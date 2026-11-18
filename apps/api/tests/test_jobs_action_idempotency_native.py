@@ -360,7 +360,9 @@ async def _assert_contract(test_engine):
     assert schema["$id"] == "aap-jobs-action-idempotency/v1"
     assert schema["x-row-columns"] == list(ROW_COLUMNS)
     functions = schema["x-postgresql-functions"]
-    assert functions["aap_jobs_v1.find_action_idempotent_jobs"]["returns"] == ROW_RETURN
+    assert (
+        functions["yoao_jobs_v1.find_action_idempotent_jobs"]["returns"] == ROW_RETURN
+    )
     expected = {
         "lock_action_idempotency": (
             "text, uuid, uuid, text",
@@ -384,13 +386,13 @@ async def _assert_contract(test_engine):
                         "EXISTS (SELECT FROM pg_catalog.aclexplode(COALESCE(p.proacl, "
                         "pg_catalog.acldefault('f',p.proowner))) acl "
                         "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute, "
-                        "pg_catalog.has_function_privilege('jobs_lifecycle_client',p.oid,'EXECUTE') "
+                        "pg_catalog.has_function_privilege('yoao_jobs_lifecycle_client',p.oid,'EXECUTE') "
                         "AS lifecycle_execute, CASE WHEN pg_catalog.to_regrole("
-                        "'jobs_list_query_client') IS NULL THEN false ELSE "
-                        "pg_catalog.has_function_privilege('jobs_list_query_client',p.oid,"
+                        "'yoao_jobs_list_query_client') IS NULL THEN false ELSE "
+                        "pg_catalog.has_function_privilege('yoao_jobs_list_query_client',p.oid,"
                         "'EXECUTE') END AS list_execute "
                         "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n "
-                        "ON n.oid=p.pronamespace WHERE n.nspname='aap_jobs_v1' "
+                        "ON n.oid=p.pronamespace WHERE n.nspname='yoao_jobs_v1' "
                         "AND p.proname::text=ANY(:names) ORDER BY p.proname"
                     ).bindparams(bindparam("names", type_=ARRAY(Text()))),
                     {"role": ROLE, "names": list(expected)},
@@ -666,7 +668,7 @@ async def test_action_idempotency_lookup_locks_every_duplicate_and_waits(
                         waiting = asyncio.create_task(
                             api.execute(
                                 text(
-                                    "SELECT * FROM aap_jobs_v1.find_action_idempotent_jobs("
+                                    "SELECT * FROM yoao_jobs_v1.find_action_idempotent_jobs("
                                     "CAST(:kind AS text), CAST(:project_id AS uuid), "
                                     "CAST(:actor_id AS uuid), CAST(:key AS text))"
                                 ),

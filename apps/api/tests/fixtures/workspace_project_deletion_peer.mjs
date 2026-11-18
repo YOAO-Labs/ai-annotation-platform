@@ -15,13 +15,13 @@ try {
   await client.connect();
   assert.equal(
     (await client.query("SELECT current_user AS role")).rows[0].role,
-    "workspace_project_deletion_client",
+    "yoao_workspace_project_deletion_client",
   );
   await client.query("BEGIN");
   // Keep JSON text intact so receipt integers retain full PostgreSQL precision.
   const raw = (
     await client.query(
-      "SELECT aap_workspace_v1.delete_project($1::uuid,$2::uuid,$3::uuid,$4::jsonb)::text AS reply",
+      "SELECT yoao_workspace_v1.delete_project($1::uuid,$2::uuid,$3::uuid,$4::jsonb)::text AS reply",
       [command.operation_id, command.actor_id, command.project_id, command.audit_context],
     )
   ).rows[0].reply;

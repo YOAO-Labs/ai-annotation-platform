@@ -172,8 +172,8 @@ async def test_restored_admin_password_receipt_replays_without_second_audit(
         await _assert_exact_identity_functions(
             dsn("ADMIN_PASSWORD"),
             {
-                "aap_identity_admin_passwords_v1.admin_password_policy()",
-                "aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
+                "yoao_identity_admin_passwords_v1.admin_password_policy()",
+                "yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
             },
         )
         restored_manager = manager(dsn("ADMIN_PASSWORD"), dsn("AUTH"), secret)

@@ -89,9 +89,9 @@ async def test_list_calls_identity_once_then_separate_page_and_total(monkeypatch
     assert len(session.executed) == 2
     page_statement, page_params = session.executed[0]
     total_statement, total_params = session.executed[1]
-    assert "aap_jobs_v1.async_job_list_page" in str(page_statement)
+    assert "yoao_jobs_v1.async_job_list_page" in str(page_statement)
     assert page_statement.get_execution_options()["populate_existing"] is True
-    assert "aap_jobs_v1.async_job_list_total" in str(total_statement)
+    assert "yoao_jobs_v1.async_job_list_total" in str(total_statement)
     assert page_params["actor_id"] == total_params["actor_id"] == actor_id
     assert page_params["platform_role"] == total_params["platform_role"] == "employee"
     assert (

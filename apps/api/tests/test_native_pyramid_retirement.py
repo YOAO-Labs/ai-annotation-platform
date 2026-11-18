@@ -98,7 +98,7 @@ async def _seed_obligation(session):
     )
     await session.execute(
         text(
-            "INSERT INTO aap_assets_v1.native_pyramid_retirement_targets "
+            "INSERT INTO yoao_assets_v1.native_pyramid_retirement_targets "
             "(output_id, asset_id, generation, gate_revision, location_id, "
             "config_revision, binding_generation, endpoint_url, bucket, "
             "key_prefix, prefix, storage_identity, policy, gc_grace_hours, "
@@ -120,7 +120,7 @@ async def _seed_obligation(session):
     )
     await session.execute(
         text(
-            "INSERT INTO aap_assets_v1.native_pyramid_retirements "
+            "INSERT INTO yoao_assets_v1.native_pyramid_retirements "
             "(output_id, not_before) "
             "VALUES (CAST(:output_id AS uuid), "
             "clock_timestamp() - interval '1 hour')"
@@ -134,7 +134,7 @@ async def _claim(session, worker_id):
     return _reply(
         await session.scalar(
             text(
-                "SELECT aap_assets_v1.claim_native_pyramid_retirement("
+                "SELECT yoao_assets_v1.claim_native_pyramid_retirement("
                 "CAST(:worker_id AS uuid), 120)"
             ),
             {"worker_id": worker_id},
@@ -146,7 +146,7 @@ async def _prepare(session, output_id, lease_token, page_size=100):
     return _reply(
         await session.scalar(
             text(
-                "SELECT aap_assets_v1.prepare_native_pyramid_retirement_page("
+                "SELECT yoao_assets_v1.prepare_native_pyramid_retirement_page("
                 "CAST(:output_id AS uuid), CAST(:lease_token AS uuid), :page_size)"
             ),
             {
@@ -158,13 +158,11 @@ async def _prepare(session, output_id, lease_token, page_size=100):
     )
 
 
-async def _complete(
-    session, output_id, lease_token, page_id, outcome, operation_ids
-):
+async def _complete(session, output_id, lease_token, page_id, outcome, operation_ids):
     return _reply(
         await session.scalar(
             text(
-                "SELECT aap_assets_v1.complete_native_pyramid_retirement_page("
+                "SELECT yoao_assets_v1.complete_native_pyramid_retirement_page("
                 "CAST(:output_id AS uuid), CAST(:lease_token AS uuid), "
                 "CAST(:page_id AS uuid), :outcome, CAST(:operation_ids AS jsonb))"
             ),
@@ -194,9 +192,11 @@ async def test_saved_target_claim_and_page_fences_are_exact(test_engine):
             assert claim is not None
             assert claim["output_id"] == str(output_id)
             assert claim["storage_ref"]["bucket"] == BUCKET
-            assert claim["storage_ref"]["prefix"] == claim["storage_ref"][
-                "key_prefix"
-            ] + f"image-pyramids/objects/{output_id}/"
+            assert (
+                claim["storage_ref"]["prefix"]
+                == claim["storage_ref"]["key_prefix"]
+                + f"image-pyramids/objects/{output_id}/"
+            )
             assert claim["after_operation_id"] is None
             lease_token = uuid.UUID(claim["lease_token"])
 
@@ -208,13 +208,16 @@ async def test_saved_target_claim_and_page_fences_are_exact(test_engine):
             assert page["after_operation_id"] is None
             page_id = uuid.UUID(page["page_id"])
 
-            assert await session.scalar(
-                text(
-                    "SELECT count(*) FROM public.storage_operations "
-                    "WHERE id = CAST(:page_id AS uuid)"
-                ),
-                {"page_id": page_id},
-            ) == 1
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations "
+                        "WHERE id = CAST(:page_id AS uuid)"
+                    ),
+                    {"page_id": page_id},
+                )
+                == 1
+            )
 
             foreign_page = await _complete(
                 session, output_id, lease_token, uuid.uuid4(), "prefix_absent", []
@@ -269,17 +272,20 @@ async def test_saved_target_claim_and_page_fences_are_exact(test_engine):
                 )
                 == "deleted"
             )
-            assert await session.scalar(
-                text(
-                    "SELECT count(*) FROM public.storage_operations "
-                    "WHERE id = CAST(:page_id AS uuid)"
-                ),
-                {"page_id": page_id},
-            ) == 0
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations "
+                        "WHERE id = CAST(:page_id AS uuid)"
+                    ),
+                    {"page_id": page_id},
+                )
+                == 0
+            )
             assert await session.scalar(
                 text(
                     "SELECT closed_at IS NOT NULL "
-                    "FROM aap_assets_v1.native_pyramid_retirements "
+                    "FROM yoao_assets_v1.native_pyramid_retirements "
                     "WHERE output_id = CAST(:output_id AS uuid)"
                 ),
                 {"output_id": output_id},
@@ -309,7 +315,7 @@ async def test_expired_page_releases_only_its_permit_and_is_then_recovered(
 
             await session.execute(
                 text(
-                    "UPDATE aap_assets_v1.native_pyramid_retirements "
+                    "UPDATE yoao_assets_v1.native_pyramid_retirements "
                     "SET lease_expires_at = clock_timestamp() - interval '1 second' "
                     "WHERE output_id = CAST(:output_id AS uuid)"
                 ),
@@ -336,13 +342,16 @@ async def test_expired_page_releases_only_its_permit_and_is_then_recovered(
                 "after_operation_id": None,
                 "completed": False,
             }
-            assert await session.scalar(
-                text(
-                    "SELECT count(*) FROM public.storage_operations "
-                    "WHERE id = CAST(:page_id AS uuid)"
-                ),
-                {"page_id": first_page_id},
-            ) == 0
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations "
+                        "WHERE id = CAST(:page_id AS uuid)"
+                    ),
+                    {"page_id": first_page_id},
+                )
+                == 0
+            )
             assert (
                 await session.scalar(
                     text(
@@ -357,7 +366,7 @@ async def test_expired_page_releases_only_its_permit_and_is_then_recovered(
                 await session.scalar(
                     text(
                         "SELECT closed_at FROM "
-                        "aap_assets_v1.native_pyramid_retirements "
+                        "yoao_assets_v1.native_pyramid_retirements "
                         "WHERE output_id = CAST(:output_id AS uuid)"
                     ),
                     {"output_id": output_id},
@@ -381,9 +390,9 @@ async def test_expired_page_releases_only_its_permit_and_is_then_recovered(
             recovered_token = uuid.UUID(recovered_claim["lease_token"])
             assert recovered_token != first_token
             assert recovered_claim["after_operation_id"] is None
-            recovered_page = (
-                await _prepare(session, output_id, recovered_token)
-            )["data"]
+            recovered_page = (await _prepare(session, output_id, recovered_token))[
+                "data"
+            ]
             assert recovered_page["exhausted"] is True
             assert recovered_page["page_id"] != first_page["page_id"]
 
@@ -446,8 +455,8 @@ async def test_ordinary_allocation_registers_and_closes_its_saved_output(db_sess
                 text(
                     "SELECT target.endpoint_url, target.bucket, target.prefix, "
                     "target.key_prefix, target.policy, retirement.closed_at "
-                    "FROM aap_assets_v1.native_pyramid_retirement_targets AS target "
-                    "JOIN aap_assets_v1.native_pyramid_retirements AS retirement "
+                    "FROM yoao_assets_v1.native_pyramid_retirement_targets AS target "
+                    "JOIN yoao_assets_v1.native_pyramid_retirements AS retirement "
                     "  ON retirement.output_id = target.output_id "
                     "WHERE target.output_id = CAST(:output_id AS uuid)"
                 ),
@@ -495,7 +504,7 @@ async def test_ordinary_allocation_registers_and_closes_its_saved_output(db_sess
     )
     await db_session.execute(
         text(
-            "UPDATE aap_assets_v1.native_pyramid_retirements "
+            "UPDATE yoao_assets_v1.native_pyramid_retirements "
             "SET not_before = clock_timestamp() - interval '1 second' "
             "WHERE output_id = CAST(:output_id AS uuid)"
         ),
@@ -535,7 +544,7 @@ async def test_ordinary_allocation_registers_and_closes_its_saved_output(db_sess
     assert await db_session.scalar(
         text(
             "SELECT closed_at IS NOT NULL "
-            "FROM aap_assets_v1.native_pyramid_retirements "
+            "FROM yoao_assets_v1.native_pyramid_retirements "
             "WHERE output_id = CAST(:output_id AS uuid)"
         ),
         {"output_id": output_id},

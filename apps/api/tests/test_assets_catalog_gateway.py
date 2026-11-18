@@ -90,7 +90,7 @@ async def test_local_list_uses_native_capability_on_the_caller_session():
 
     assert result.total == 0
     statement = str(db.execute.await_args.args[0])
-    assert "aap_assets_v1.list_catalog_datasets" in statement
+    assert "yoao_assets_v1.list_catalog_datasets" in statement
     assert db.execute.await_args.args[1] == {
         "actor_id": actor_id,
         "search": "camera_100%",
@@ -821,7 +821,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     publication_url = (
         _guard_role_url(
             "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-            "jobs_publication_client",
+            "yoao_jobs_publication_client",
             test_engine,
         )
         .set(drivername="postgresql")
@@ -876,7 +876,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         async with test_engine.connect() as db:
             dataset_id = await db.scalar(
                 text(
-                    "SELECT item.dataset_id FROM aap_labeling_v1.task_rows AS task "
+                    "SELECT item.dataset_id FROM yoao_labeling_v1.task_rows AS task "
                     "JOIN public.dataset_items AS item ON item.id=task.dataset_item_id "
                     "WHERE task.id=:task"
                 ),
@@ -892,7 +892,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             retry_id = await _admit(db, retry)
             scope_query = text(
                 "SELECT j.id,b.dataset_ids FROM public.async_jobs j "
-                "JOIN aap_jobs_v1.fixture_worker_job_datasets b ON b.job_id=j.id "
+                "JOIN yoao_jobs_v1.fixture_worker_job_datasets b ON b.job_id=j.id "
                 "WHERE j.id=ANY(:ids) AND j.status='pending' ORDER BY j.id"
             )
             neighbor_ids = {"ids": [cross_frame["job_id"], retry_id]}
@@ -1034,7 +1034,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                 (
                     await db.execute(
                         text(
-                            "SELECT execution_id,envelope FROM aap_jobs_v1.dispatch_intents "
+                            "SELECT execution_id,envelope FROM yoao_jobs_v1.dispatch_intents "
                             "WHERE job_id=:job"
                         ),
                         {"job": job_id},
@@ -1078,7 +1078,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             async with test_engine.connect() as db:
                 return await db.scalar(
                     text(
-                        "SELECT state='settled' FROM aap_jobs_v1.fixture_media_backfills "
+                        "SELECT state='settled' FROM yoao_jobs_v1.fixture_media_backfills "
                         "WHERE job_id=:job AND run_id=:run AND dataset_id=:dataset"
                     ),
                     {"job": job_id, "run": run.run_id, "dataset": dataset_id},
@@ -1111,7 +1111,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                         text(
                             "SELECT version.id,version.object_key,version.version_id,"
                             "version.sha256,version.size_bytes,output.storage_ref->>'bucket' AS bucket "
-                            "FROM aap_assets_v1.fixture_media_versions AS version "
+                            "FROM yoao_assets_v1.fixture_media_versions AS version "
                             "JOIN public.thumbnail_outputs AS output ON output.id=version.owner_id "
                             "WHERE version.run_id=:run AND version.dataset_id=:dataset "
                             "AND version.owner_kind='thumbnail' AND version.state='verified'"
@@ -1147,7 +1147,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         async with test_engine.connect() as db:
             completed_generation = await db.scalar(
                 text(
-                    "SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                    "SELECT generation FROM yoao_jobs_v1.fixture_media_backfills WHERE job_id=:job"
                 ),
                 {"job": job_id},
             )
@@ -1163,7 +1163,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                        "SELECT generation FROM yoao_jobs_v1.fixture_media_backfills WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -1200,7 +1200,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                         )
                         generation = await observer.scalar(
                             text(
-                                "SELECT generation FROM aap_jobs_v1.fixture_media_backfills "
+                                "SELECT generation FROM yoao_jobs_v1.fixture_media_backfills "
                                 "WHERE job_id=:job"
                             ),
                             {"job": job_id},
@@ -1228,7 +1228,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                         assert (
                             await observer.scalar(
                                 text(
-                                    "SELECT generation FROM aap_jobs_v1.fixture_media_backfills "
+                                    "SELECT generation FROM yoao_jobs_v1.fixture_media_backfills "
                                     "WHERE job_id=:job"
                                 ),
                                 {"job": job_id},
@@ -1277,7 +1277,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             async with test_engine.connect() as observer:
                 assert await observer.scalar(
                     text(
-                        "SELECT state='retired' FROM aap_jobs_v1.fixture_media_backfills "
+                        "SELECT state='retired' FROM yoao_jobs_v1.fixture_media_backfills "
                         "WHERE job_id=:job AND run_id=:run AND dataset_id=:dataset"
                     ),
                     {"job": job_id, "run": run.run_id, "dataset": dataset_id},
@@ -1285,8 +1285,8 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                 assert (
                     await observer.scalar(
                         text(
-                            "SELECT count(*) FROM aap_assets_v1.fixture_media_versions AS version "
-                            "LEFT JOIN aap_assets_v1.fixture_media_version_retirements AS retirement "
+                            "SELECT count(*) FROM yoao_assets_v1.fixture_media_versions AS version "
+                            "LEFT JOIN yoao_assets_v1.fixture_media_version_retirements AS retirement "
                             "ON retirement.version_id=version.id "
                             "WHERE version.run_id=:run AND version.dataset_id=:dataset "
                             "AND retirement.state IS DISTINCT FROM 'absent'"

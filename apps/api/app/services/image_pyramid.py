@@ -528,7 +528,7 @@ async def publish_generation(
     await db.flush()
     receipt = await db.scalar(
         text(
-            "SELECT aap_assets_v1.publish_image_pyramid_thumbnail("
+            "SELECT yoao_assets_v1.publish_image_pyramid_thumbnail("
             "CAST(:asset_id AS uuid), CAST(:generation AS integer), "
             "CAST(:output_id AS uuid))"
         ),

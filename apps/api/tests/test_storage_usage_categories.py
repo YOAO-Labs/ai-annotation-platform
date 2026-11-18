@@ -494,7 +494,7 @@ async def test_restored_current_original_locator_is_independent_of_creation(
             "size_bytes": 7,
         }
     # Use the existing offline restore gate without changing immutable creation history.
-    await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     owner.bucket = bucket
     owner.storage_identity = managed_storage_identity(categories.endpoint(), bucket)
     await db.commit()

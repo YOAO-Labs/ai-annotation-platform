@@ -69,7 +69,7 @@ async def capture_backend_endpoint_subject(
     )
 
 
-_ENDPOINT_SCHEMA = "aap_inference_backend_endpoint_v1"
+_ENDPOINT_SCHEMA = "yoao_inference_backend_endpoint_v1"
 _ENDPOINT_CAPTURE = text(
     f"SELECT {_ENDPOINT_SCHEMA}.capture_backend_endpoint_subject("
     "CAST(:registry_id AS uuid),CAST(:request_id AS uuid),CAST(:purpose AS text),"

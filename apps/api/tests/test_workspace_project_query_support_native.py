@@ -22,6 +22,7 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from tests.factory import create_project, create_task, create_user
+from tests.frozen_namespaces import historical
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -36,42 +37,42 @@ _SCHEMA_PATH = (
     / "alembic/sql/0260_workspace_project_query_support.schema.json"
 )
 _FUNCTIONS = (
-    ("aap_labeling_v1.workspace_project_query_counters(uuid[])", "labeling_code"),
-    ("aap_labeling_v1.workspace_project_query_ai_counts(uuid[])", "labeling_code"),
+    ("yoao_labeling_v1.workspace_project_query_counters(uuid[])", "labeling_code"),
+    ("yoao_labeling_v1.workspace_project_query_ai_counts(uuid[])", "labeling_code"),
     (
-        "aap_labeling_v1.workspace_project_query_annotation_count(uuid[],boolean)",
+        "yoao_labeling_v1.workspace_project_query_annotation_count(uuid[],boolean)",
         "labeling_code",
     ),
     (
-        "aap_labeling_v1.workspace_project_query_task_series(uuid[],timestamptz[])",
+        "yoao_labeling_v1.workspace_project_query_task_series(uuid[],timestamptz[])",
         "labeling_code",
     ),
     (
-        "aap_labeling_v1.workspace_project_query_annotation_series(uuid[],timestamptz[])",
+        "yoao_labeling_v1.workspace_project_query_annotation_series(uuid[],timestamptz[])",
         "labeling_code",
     ),
-    ("aap_assets_v1.workspace_project_query_dataset_ids(uuid)", "assets_code"),
+    ("yoao_assets_v1.workspace_project_query_dataset_ids(uuid)", "assets_code"),
     (
-        "aap_assets_v1.workspace_project_query_dataset_item_count(uuid[])",
+        "yoao_assets_v1.workspace_project_query_dataset_item_count(uuid[])",
         "assets_code",
     ),
     (
-        "aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])",
+        "yoao_assets_v1.workspace_project_query_dataset_item_ids(uuid[])",
         "assets_code",
     ),
     (
-        "aap_labeling_v1.workspace_project_query_linked_task_count(uuid,uuid[])",
+        "yoao_labeling_v1.workspace_project_query_linked_task_count(uuid,uuid[])",
         "labeling_code",
     ),
-    ("aap_labeling_v1.workspace_project_query_task_count(uuid)", "labeling_code"),
-    ("aap_labeling_v1.workspace_project_query_batches(uuid)", "labeling_code"),
+    ("yoao_labeling_v1.workspace_project_query_task_count(uuid)", "labeling_code"),
+    ("yoao_labeling_v1.workspace_project_query_batches(uuid)", "labeling_code"),
     (
-        "aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)",
+        "yoao_labeling_v1.workspace_project_query_batch_task_counts(uuid)",
         "labeling_code",
     ),
-    ("aap_jobs_v1.workspace_project_query_job_status_counts(uuid)", "jobs_code"),
-    ("aap_jobs_v1.workspace_project_query_latest_job_status(uuid)", "jobs_code"),
-    ("aap_inference_v1.workspace_project_query_pool(uuid)", "inference_code"),
+    ("yoao_jobs_v1.workspace_project_query_job_status_counts(uuid)", "jobs_code"),
+    ("yoao_jobs_v1.workspace_project_query_latest_job_status(uuid)", "jobs_code"),
+    ("yoao_inference_v1.workspace_project_query_pool(uuid)", "inference_code"),
 )
 
 
@@ -179,8 +180,10 @@ async def test_project_query_functions_have_fixed_domain_owners_and_grants(test_
         "security_definer": True,
         "search_path": ["pg_catalog", "pg_temp"],
     }
-    assert schema["x-postgresql-functions"] == signatures
-    assert [function["signature"] for function in schema["functions"]] == signatures
+    assert schema["x-postgresql-functions"] == historical(signatures)
+    assert [function["signature"] for function in schema["functions"]] == historical(
+        signatures
+    )
     assert {row["signature"] for row in rows} == set(signatures)
     expected_owners = dict(_FUNCTIONS)
     for row in rows:
@@ -192,7 +195,7 @@ async def test_project_query_functions_have_fixed_domain_owners_and_grants(test_
         assert row["parallel_mode"] == "u"
         assert row["function_settings"] == ["search_path=pg_catalog, pg_temp"]
         if row["signature"] == (
-            "aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])"
+            "yoao_assets_v1.workspace_project_query_dataset_item_ids(uuid[])"
         ):
             assert row["workspace_can_execute"] is False
             assert row["labeling_can_execute"] is True
@@ -279,7 +282,7 @@ async def test_project_counters_and_annotation_count_semantics(test_engine):
                 """
                 SELECT project_id, total_tasks, completed_tasks, review_tasks,
                        in_progress_tasks, batch_summary
-                FROM aap_labeling_v1.workspace_project_query_counters(
+                FROM yoao_labeling_v1.workspace_project_query_counters(
                     CAST(:project_ids AS uuid[])
                 )
                 """,
@@ -289,7 +292,7 @@ async def test_project_counters_and_annotation_count_semantics(test_engine):
                 session,
                 """
                 SELECT project_id, task_count
-                FROM aap_labeling_v1.workspace_project_query_ai_counts(
+                FROM yoao_labeling_v1.workspace_project_query_ai_counts(
                     CAST(:project_ids AS uuid[])
                 )
                 """,
@@ -298,7 +301,7 @@ async def test_project_counters_and_annotation_count_semantics(test_engine):
             total_annotations = await _scalar(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_project_query_annotation_count(
+                SELECT yoao_labeling_v1.workspace_project_query_annotation_count(
                     CAST(:project_ids AS uuid[]), false
                 )
                 """,
@@ -307,7 +310,7 @@ async def test_project_counters_and_annotation_count_semantics(test_engine):
             ai_annotations = await _scalar(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_project_query_annotation_count(
+                SELECT yoao_labeling_v1.workspace_project_query_annotation_count(
                     CAST(:project_ids AS uuid[]), true
                 )
                 """,
@@ -316,7 +319,7 @@ async def test_project_counters_and_annotation_count_semantics(test_engine):
             empty_counters = await _rows(
                 session,
                 """
-                SELECT project_id FROM aap_labeling_v1.workspace_project_query_counters(
+                SELECT project_id FROM yoao_labeling_v1.workspace_project_query_counters(
                     CAST(:project_ids AS uuid[])
                 )
                 """,
@@ -471,7 +474,7 @@ async def test_project_query_series_keep_twelve_input_ordered_bucket_boundaries(
                 session,
                 """
                 SELECT bucket_index, total_data, completed, pending_review
-                FROM aap_labeling_v1.workspace_project_query_task_series(
+                FROM yoao_labeling_v1.workspace_project_query_task_series(
                     CAST(:project_ids AS uuid[]), CAST(:ends AS timestamptz[])
                 )
                 ORDER BY bucket_index
@@ -482,7 +485,7 @@ async def test_project_query_series_keep_twelve_input_ordered_bucket_boundaries(
                 session,
                 """
                 SELECT bucket_index, total_annotations, ai_annotations
-                FROM aap_labeling_v1.workspace_project_query_annotation_series(
+                FROM yoao_labeling_v1.workspace_project_query_annotation_series(
                     CAST(:project_ids AS uuid[]), CAST(:ends AS timestamptz[])
                 )
                 ORDER BY bucket_index
@@ -493,7 +496,7 @@ async def test_project_query_series_keep_twelve_input_ordered_bucket_boundaries(
                 session,
                 """
                 SELECT bucket_index, total_data, completed, pending_review
-                FROM aap_labeling_v1.workspace_project_query_task_series(
+                FROM yoao_labeling_v1.workspace_project_query_task_series(
                     CAST(:project_ids AS uuid[]), CAST(:ends AS timestamptz[])
                 )
                 ORDER BY bucket_index
@@ -504,7 +507,7 @@ async def test_project_query_series_keep_twelve_input_ordered_bucket_boundaries(
                 session,
                 """
                 SELECT bucket_index, total_data, completed, pending_review
-                FROM aap_labeling_v1.workspace_project_query_task_series(
+                FROM yoao_labeling_v1.workspace_project_query_task_series(
                     CAST(:project_ids AS uuid[]),
                     array_fill(CAST(:last_end AS timestamptz), ARRAY[12], ARRAY[0])
                 )
@@ -677,7 +680,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
                 session,
                 """
                 SELECT dataset_id
-                FROM aap_assets_v1.workspace_project_query_dataset_ids(
+                FROM yoao_assets_v1.workspace_project_query_dataset_ids(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -694,7 +697,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
                 session,
                 """
                 SELECT dataset_id
-                FROM aap_assets_v1.workspace_project_query_dataset_ids(
+                FROM yoao_assets_v1.workspace_project_query_dataset_ids(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -704,7 +707,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
             item_count = await _scalar(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_project_query_dataset_item_count(
+                SELECT yoao_assets_v1.workspace_project_query_dataset_item_count(
                     CAST(:dataset_ids AS uuid[])
                 )
                 """,
@@ -714,7 +717,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
                 session,
                 """
                 SELECT item_id
-                FROM aap_assets_v1.workspace_project_query_dataset_item_ids(
+                FROM yoao_assets_v1.workspace_project_query_dataset_item_ids(
                     CAST(:dataset_ids AS uuid[])
                 )
                 """,
@@ -723,7 +726,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
             linked_count = await _scalar(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_project_query_linked_task_count(
+                SELECT yoao_labeling_v1.workspace_project_query_linked_task_count(
                     CAST(:project_id AS uuid), CAST(:dataset_ids AS uuid[])
                 )
                 """,
@@ -732,7 +735,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
             task_count = await _scalar(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_project_query_task_count(
+                SELECT yoao_labeling_v1.workspace_project_query_task_count(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -741,7 +744,7 @@ async def test_project_query_assets_use_captured_dataset_ids_after_unlink(test_e
             empty_item_count = await _scalar(
                 session,
                 """
-                SELECT aap_assets_v1.workspace_project_query_dataset_item_count(
+                SELECT yoao_assets_v1.workspace_project_query_dataset_item_count(
                     CAST(:dataset_ids AS uuid[])
                 )
                 """,
@@ -885,7 +888,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT id, status, annotator_id, reviewer_id
-                FROM aap_labeling_v1.workspace_project_query_batches(
+                FROM yoao_labeling_v1.workspace_project_query_batches(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -895,7 +898,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT batch_id, task_count
-                FROM aap_labeling_v1.workspace_project_query_batch_task_counts(
+                FROM yoao_labeling_v1.workspace_project_query_batch_task_counts(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -905,7 +908,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT status, job_count
-                FROM aap_jobs_v1.workspace_project_query_job_status_counts(
+                FROM yoao_jobs_v1.workspace_project_query_job_status_counts(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -915,7 +918,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT status
-                FROM aap_jobs_v1.workspace_project_query_latest_job_status(
+                FROM yoao_jobs_v1.workspace_project_query_latest_job_status(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -925,7 +928,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT status
-                FROM aap_jobs_v1.workspace_project_query_latest_job_status(
+                FROM yoao_jobs_v1.workspace_project_query_latest_job_status(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -934,7 +937,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
             task_count = await _scalar(
                 session,
                 """
-                SELECT aap_labeling_v1.workspace_project_query_task_count(
+                SELECT yoao_labeling_v1.workspace_project_query_task_count(
                     CAST(:project_id AS uuid)
                 )
                 """,
@@ -944,7 +947,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT pool_id, legacy_instance_id
-                FROM aap_inference_v1.workspace_project_query_pool(
+                FROM yoao_inference_v1.workspace_project_query_pool(
                     CAST(:pool_id AS uuid)
                 )
                 """,
@@ -954,7 +957,7 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
                 session,
                 """
                 SELECT pool_id, legacy_instance_id
-                FROM aap_inference_v1.workspace_project_query_pool(
+                FROM yoao_inference_v1.workspace_project_query_pool(
                     CAST(:pool_id AS uuid)
                 )
                 """,
@@ -1009,26 +1012,26 @@ async def test_project_query_batches_jobs_and_pool_keep_legacy_rules(test_engine
 async def test_project_query_rejects_null_and_malformed_inputs_with_22023(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     statements = [
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_counters(NULL::uuid[])",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_ai_counts(NULL::uuid[])",
-        "SELECT aap_labeling_v1.workspace_project_query_annotation_count(NULL::uuid[], false)",
-        "SELECT aap_labeling_v1.workspace_project_query_annotation_count(ARRAY[]::uuid[], NULL::boolean)",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_task_series(NULL::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[12]))",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_annotation_series(NULL::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[12]))",
-        "SELECT * FROM aap_assets_v1.workspace_project_query_dataset_ids(NULL::uuid)",
-        "SELECT aap_assets_v1.workspace_project_query_dataset_item_count(NULL::uuid[])",
-        "SELECT * FROM aap_assets_v1.workspace_project_query_dataset_item_ids(NULL::uuid[])",
-        "SELECT aap_labeling_v1.workspace_project_query_linked_task_count(NULL::uuid, ARRAY[]::uuid[])",
-        "SELECT aap_labeling_v1.workspace_project_query_task_count(NULL::uuid)",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_batches(NULL::uuid)",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_batch_task_counts(NULL::uuid)",
-        "SELECT * FROM aap_jobs_v1.workspace_project_query_job_status_counts(NULL::uuid)",
-        "SELECT * FROM aap_jobs_v1.workspace_project_query_latest_job_status(NULL::uuid)",
-        "SELECT * FROM aap_inference_v1.workspace_project_query_pool(NULL::uuid)",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_counters(ARRAY[NULL::uuid])",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_counters(ARRAY[[ '00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000002'::uuid ]])",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_task_series(ARRAY[]::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[11]))",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_task_series(ARRAY[]::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[3, 4]))",
-        "SELECT * FROM aap_labeling_v1.workspace_project_query_task_series(ARRAY[]::uuid[], ARRAY[NULL::timestamptz] || array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[11]))",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_counters(NULL::uuid[])",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_ai_counts(NULL::uuid[])",
+        "SELECT yoao_labeling_v1.workspace_project_query_annotation_count(NULL::uuid[], false)",
+        "SELECT yoao_labeling_v1.workspace_project_query_annotation_count(ARRAY[]::uuid[], NULL::boolean)",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_task_series(NULL::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[12]))",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_annotation_series(NULL::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[12]))",
+        "SELECT * FROM yoao_assets_v1.workspace_project_query_dataset_ids(NULL::uuid)",
+        "SELECT yoao_assets_v1.workspace_project_query_dataset_item_count(NULL::uuid[])",
+        "SELECT * FROM yoao_assets_v1.workspace_project_query_dataset_item_ids(NULL::uuid[])",
+        "SELECT yoao_labeling_v1.workspace_project_query_linked_task_count(NULL::uuid, ARRAY[]::uuid[])",
+        "SELECT yoao_labeling_v1.workspace_project_query_task_count(NULL::uuid)",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_batches(NULL::uuid)",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_batch_task_counts(NULL::uuid)",
+        "SELECT * FROM yoao_jobs_v1.workspace_project_query_job_status_counts(NULL::uuid)",
+        "SELECT * FROM yoao_jobs_v1.workspace_project_query_latest_job_status(NULL::uuid)",
+        "SELECT * FROM yoao_inference_v1.workspace_project_query_pool(NULL::uuid)",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_counters(ARRAY[NULL::uuid])",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_counters(ARRAY[[ '00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000002'::uuid ]])",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_task_series(ARRAY[]::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[11]))",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_task_series(ARRAY[]::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[3, 4]))",
+        "SELECT * FROM yoao_labeling_v1.workspace_project_query_task_series(ARRAY[]::uuid[], ARRAY[NULL::timestamptz] || array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[11]))",
     ]
     await _invalid_calls(maker, statements)

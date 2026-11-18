@@ -28,17 +28,17 @@ from tests.factory import create_project, create_user
 
 pytestmark = [pytest.mark.asyncio]
 
-ADMIT = text("SELECT aap_labeling_v1.admit_prediction_retry(CAST(:payload AS jsonb))")
+ADMIT = text("SELECT yoao_labeling_v1.admit_prediction_retry(CAST(:payload AS jsonb))")
 SET_CONSTRAINTS = text(
-    "SET CONSTRAINTS aap_jobs_v1.aap_retry_born_dataset_scope_guard IMMEDIATE"
+    "SET CONSTRAINTS yoao_jobs_v1.aap_retry_born_dataset_scope_guard IMMEDIATE"
 )
 SCOPE = text(
-    "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+    "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
     "id,kind,payload,project_id,user_id) "
     "FROM public.async_jobs WHERE id=:id"
 )
 RECEIPT = text(
-    "SELECT dataset_ids FROM aap_jobs_v1.fixture_worker_job_datasets WHERE job_id=:id"
+    "SELECT dataset_ids FROM yoao_jobs_v1.fixture_worker_job_datasets WHERE job_id=:id"
 )
 
 
@@ -372,7 +372,7 @@ async def test_itemless_text_retry_is_dataset_independent_and_ignores_metadata(
     assert (
         await db_session.scalar(
             text(
-                "SELECT aap_jobs_v1.retry_born_dataset_scope("
+                "SELECT yoao_jobs_v1.retry_born_dataset_scope("
                 "id,project_id,user_id,payload) FROM public.async_jobs WHERE id=:id"
             ),
             {"id": job},

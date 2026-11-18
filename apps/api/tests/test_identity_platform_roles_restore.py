@@ -170,8 +170,8 @@ async def test_restored_platform_role_receipt_replays_frozen_result(
         await _assert_exact_identity_functions(
             dsn("PLATFORM_ROLE"),
             {
-                "aap_identity_platform_roles_v1.platform_role_policy()",
-                "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
+                "yoao_identity_platform_roles_v1.platform_role_policy()",
+                "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
             },
         )
         restored_manager = manager(dsn("PLATFORM_ROLE"), dsn("AUTH"), secret)

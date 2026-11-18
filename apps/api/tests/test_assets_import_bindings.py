@@ -178,7 +178,7 @@ async def test_prepare_binds_scoped_actor_dataset_and_connection():
         connection_id,
     )
     statement, parameters = db.scalar.await_args.args
-    assert "aap_assets_v1.prepare_dataset_import" in str(statement)
+    assert "yoao_assets_v1.prepare_dataset_import" in str(statement)
     assert parameters == {
         "actor_id": actor_id,
         "dataset_id": dataset_id,
@@ -223,7 +223,7 @@ async def test_accept_binds_operation_and_canonical_request_snapshot():
 
     assert isinstance(accepted, ImportAcceptance)
     statement, parameters = db.scalar.await_args.args
-    assert "aap_assets_v1.accept_dataset_import" in str(statement)
+    assert "yoao_assets_v1.accept_dataset_import" in str(statement)
     assert parameters["operation_id"] == operation_id
     assert json.loads(parameters["request"]) == request
     assert json.loads(parameters["limits"]) == limits.model_dump(mode="json")
@@ -307,7 +307,7 @@ async def test_cancel_accepts_original_owner_in_receipt_for_current_actor():
     assert state.stage == "cancelled"
     assert state.actor_id == original_owner_id
     statement, parameters = db.scalar.await_args.args
-    assert "aap_assets_v1.cancel_dataset_import" in str(statement)
+    assert "yoao_assets_v1.cancel_dataset_import" in str(statement)
     assert parameters == {"actor_id": current_actor_id, "job_id": job_id}
 
 

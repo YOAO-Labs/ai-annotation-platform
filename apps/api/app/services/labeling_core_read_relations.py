@@ -31,7 +31,7 @@ def _row_relation(relation: str, model):
     selectable = table(
         relation,
         *(column(name, model.__table__.c[name].type) for name in expected),
-        schema="aap_labeling_v1",
+        schema="yoao_labeling_v1",
     )
     return aliased(model, selectable, name=model.__name__, adapt_on_names=True)
 
@@ -40,7 +40,7 @@ def alias_core_row(row, name: str | None = None):
     """Alias a published core-row selectable while retaining its owner schema."""
     row_info = inspect(row)
     if (
-        row_info.selectable.schema != "aap_labeling_v1"
+        row_info.selectable.schema != "yoao_labeling_v1"
         or row_info.selectable.name not in CORE_READ_RELATIONS
     ):
         raise ValueError("row must use a published Labeling core-read relation")
@@ -65,7 +65,7 @@ annotation_draft_rows = table(
         column(name, AnnotationDraft.__table__.c[name].type)
         for name in CORE_READ_COLUMNS["annotation_draft_rows"]
     ),
-    schema="aap_labeling_v1",
+    schema="yoao_labeling_v1",
 )
 scene_track_row = _row_relation("scene_track_rows", SceneTrack)
 scene_track_interval_row = _row_relation(
@@ -121,7 +121,7 @@ async def lock_task_for_core_read(
     nowait: bool = False,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_task_for_core_read(
+    locked = func.yoao_labeling_v1.lock_task_for_core_read(
         task_id, lock_mode, nowait, project_id
     ).table_valued(
         *(
@@ -144,7 +144,7 @@ async def lock_task_dataset_item_links_for_core_read(
     max_links: int | None = None,
 ) -> list[TaskDatasetItemLink]:
     """Lock the selected published link rows in the caller's transaction."""
-    locked = func.aap_labeling_v1.lock_task_dataset_item_links_for_core_read(
+    locked = func.yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(
         task_id, compact, link_id, max_links
     ).table_valued(
         *(
@@ -168,7 +168,7 @@ async def lock_batch_rows_for_core_read(
 ):
     if not batch_ids:
         return []
-    locked = func.aap_labeling_v1.lock_batch_rows_for_core_read(
+    locked = func.yoao_labeling_v1.lock_batch_rows_for_core_read(
         batch_ids, project_id, lock_mode, nowait
     ).table_valued(
         *(
@@ -191,7 +191,7 @@ async def lock_task_rows_for_core_read(
     batch_id: uuid.UUID | None = None,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_task_rows_for_core_read(
+    locked = func.yoao_labeling_v1.lock_task_rows_for_core_read(
         task_ids, project_id, batch_id
     ).table_valued(
         *(
@@ -217,7 +217,7 @@ async def lock_task_rows_for_core_read_share(
     """Take exact FOR SHARE NOWAIT locks without UPDATE rights on the view."""
     if not task_ids:
         return []
-    locked = func.aap_labeling_v1.lock_task_rows_for_core_read_share(
+    locked = func.yoao_labeling_v1.lock_task_rows_for_core_read_share(
         task_ids, project_id, batch_id
     ).table_valued(
         *(
@@ -239,7 +239,7 @@ async def lock_prediction_for_core_read_share(
     task_id: uuid.UUID | None = None,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_prediction_for_core_read_share(
+    locked = func.yoao_labeling_v1.lock_prediction_for_core_read_share(
         prediction_id, task_id
     ).table_valued(
         *(
@@ -259,7 +259,7 @@ async def lock_prediction_meta_for_core_read_share(
     *,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_prediction_meta_for_core_read_share(
+    locked = func.yoao_labeling_v1.lock_prediction_meta_for_core_read_share(
         meta_id
     ).table_valued(
         *(
@@ -280,7 +280,7 @@ async def lock_video_segment_for_core_read_share(
     *,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_video_segment_for_core_read_share(
+    locked = func.yoao_labeling_v1.lock_video_segment_for_core_read_share(
         segment_id, dataset_item_id
     ).table_valued(
         *(
@@ -299,7 +299,7 @@ async def lock_feedback_task_rows_for_share(
     project_id: uuid.UUID,
     task_ids: list[uuid.UUID],
 ):
-    locked = func.aap_labeling_v1.lock_active_learning_feedback_task_rows(
+    locked = func.yoao_labeling_v1.lock_active_learning_feedback_task_rows(
         project_id, task_ids
     ).table_valued(
         *(
@@ -316,7 +316,7 @@ async def lock_active_annotation_rows_for_share(
     db: AsyncSession,
     task_ids: list[uuid.UUID],
 ):
-    locked = func.aap_labeling_v1.lock_active_learning_feedback_annotation_rows(
+    locked = func.yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(
         task_ids
     ).table_valued(
         *(
@@ -358,7 +358,7 @@ async def lock_annotation_rows_for_core_read(
 ):
     if not annotation_ids:
         return []
-    locked = func.aap_labeling_v1.lock_annotation_rows_for_core_read(
+    locked = func.yoao_labeling_v1.lock_annotation_rows_for_core_read(
         annotation_ids, task_id, project_id, lock_mode, nowait
     ).table_valued(
         *(
@@ -380,7 +380,7 @@ async def lock_video_segment_for_core_read(
     *,
     populate_existing: bool = False,
 ):
-    locked = func.aap_labeling_v1.lock_video_segment_for_core_read(
+    locked = func.yoao_labeling_v1.lock_video_segment_for_core_read(
         segment_id, dataset_item_id
     ).table_valued(
         *(

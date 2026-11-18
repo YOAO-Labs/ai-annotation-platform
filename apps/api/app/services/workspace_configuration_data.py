@@ -64,7 +64,7 @@ class WorkspaceConfigurationData:
             with self.db.no_autoflush:
                 return await self.db.scalar(
                     text(
-                        "SELECT aap_workspace_configuration_v1.guide_assets_step("
+                        "SELECT yoao_workspace_configuration_v1.guide_assets_step("
                         "CAST(:command AS jsonb), CAST(:action AS text), "
                         "CAST(:args AS jsonb))"
                     ),
@@ -116,7 +116,9 @@ class WorkspaceConfigurationData:
                     await self.db.flush()
             try:
                 policy = await self.db.scalar(
-                    text("SELECT aap_workspace_configuration_v1.configuration_policy()")
+                    text(
+                        "SELECT yoao_workspace_configuration_v1.configuration_policy()"
+                    )
                 )
             except SQLAlchemyError:
                 raise ConfigurationUnavailable() from None
@@ -132,7 +134,7 @@ class WorkspaceConfigurationData:
             with self.db.no_autoflush:
                 return await self.db.scalar(
                     text(
-                        "SELECT aap_workspace_configuration_v1.configuration_step("
+                        "SELECT yoao_workspace_configuration_v1.configuration_step("
                         "CAST(:command AS jsonb), CAST(:action AS text), "
                         "CAST(:args AS jsonb), CAST(:columns AS text[]), "
                         "CAST(:values AS text[]))"

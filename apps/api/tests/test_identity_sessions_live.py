@@ -261,8 +261,8 @@ async def test_session_replay_restart_and_current_authority_with_scoped_redis(
                 async with maker.begin() as db:
                     await db.execute(
                         text(
-                            "REVOKE EXECUTE ON FUNCTION aap_identity_sessions_v1.read_login_candidate(text) "
-                            "FROM identity_session_client"
+                            "REVOKE EXECUTE ON FUNCTION yoao_identity_sessions_v1.read_login_candidate(text) "
+                            "FROM yoao_identity_session_client"
                         )
                     )
                 try:
@@ -280,8 +280,8 @@ async def test_session_replay_restart_and_current_authority_with_scoped_redis(
                     async with maker.begin() as db:
                         await db.execute(
                             text(
-                                "GRANT EXECUTE ON FUNCTION aap_identity_sessions_v1.read_login_candidate(text) "
-                                "TO identity_session_client"
+                                "GRANT EXECUTE ON FUNCTION yoao_identity_sessions_v1.read_login_candidate(text) "
+                                "TO yoao_identity_session_client"
                             )
                         )
                 all_out = _command("logout_all", token=key)

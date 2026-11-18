@@ -362,7 +362,7 @@ async def _retire_publications(
                 (
                     await db.scalars(
                         text(
-                            "SELECT DISTINCT execution_id FROM aap_jobs_v1.dispatch_intents "
+                            "SELECT DISTINCT execution_id FROM yoao_jobs_v1.dispatch_intents "
                             "WHERE job_id=:job ORDER BY execution_id"
                         ),
                         {"job": job_uuid},
@@ -374,7 +374,7 @@ async def _retire_publications(
         args = {"job": job_uuid, "ids": execution_ids}
         retired = await db.scalar(
             text(
-                "SELECT aap_jobs_v1.retire_job_publications("
+                "SELECT yoao_jobs_v1.retire_job_publications("
                 "CAST(:job AS uuid), CAST(:ids AS text[]))"
             ),
             args,
@@ -383,7 +383,7 @@ async def _retire_publications(
         if require_not_sent:
             not_sent = await db.scalar(
                 text(
-                    "SELECT aap_jobs_v1.job_publications_not_sent("
+                    "SELECT yoao_jobs_v1.job_publications_not_sent("
                     "CAST(:job AS uuid), CAST(:ids AS text[]))"
                 ),
                 args,
@@ -504,7 +504,9 @@ async def _assert_cancelled_claim_refused(test_engine, job_id: str, deliveries) 
     engine = create_async_engine(url, hide_parameters=True)
     try:
         async with async_sessionmaker(engine)() as db:
-            assert await db.scalar(text("SELECT current_user")) == "identity_api_consumer"
+            assert (
+                await db.scalar(text("SELECT current_user")) == "identity_api_consumer"
+            )
             try:
                 await _call(
                     db,
@@ -669,7 +671,7 @@ async def _exercise_api_tracker_phase(
                     (
                         await db.scalars(
                             text(
-                                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
+                                "SELECT state FROM yoao_jobs_v1.dispatch_publication_attempts "
                                 "WHERE job_id=:job ORDER BY generation"
                             ),
                             {"job": uuid.UUID(str(failed["id"]))},
@@ -692,7 +694,9 @@ async def _exercise_api_tracker_phase(
                 test_engine, str(failed["id"]), None, require_not_sent=True
             )
             retention.retired(f"{phase}:enqueue-outage")
-            record_property(f"video_tracker_outage_retirement_{phase}", outage_retirement)
+            record_property(
+                f"video_tracker_outage_retirement_{phase}", outage_retirement
+            )
             await stack.start_service("jobs-queue")
             queue_failure = {
                 "http_status": 202,
@@ -815,7 +819,7 @@ async def _exercise_api_tracker_phase(
                 await db.execute(
                     text(
                         "SELECT DISTINCT execution_id, state "
-                        "FROM aap_jobs_v1.dispatch_publication_attempts "
+                        "FROM yoao_jobs_v1.dispatch_publication_attempts "
                         "WHERE job_id=:job AND execution_id<>:original"
                     ),
                     {
@@ -901,7 +905,7 @@ async def _exercise_api_tracker_phase(
         async with async_sessionmaker(test_engine)() as db:
             execution_count = await db.scalar(
                 text(
-                    "SELECT count(*) FROM aap_jobs_v1.video_executions "
+                    "SELECT count(*) FROM yoao_jobs_v1.video_executions "
                     "WHERE job_id=:job_id"
                 ),
                 {"job_id": uuid.UUID(cancel_job_id)},
@@ -985,7 +989,9 @@ async def _exercise_api_tracker_phase(
                         {
                             "from_frame": call["from_frame"],
                             "to_frame": call["to_frame"],
-                            "admission_header_present": call["admission_header_present"],
+                            "admission_header_present": call[
+                                "admission_header_present"
+                            ],
                             "authorization_bound": call["authorization_bound"],
                         }
                         for call in peer.model_windows
@@ -1013,7 +1019,9 @@ async def _exercise_api_tracker_phase(
                 retention.arm(f"{phase}:worker-teardown")
                 if primary is None:
                     raise
-                primary.add_note(f"Tracker worker teardown failed: {type(cleanup_error).__name__}")
+                primary.add_note(
+                    f"Tracker worker teardown failed: {type(cleanup_error).__name__}"
+                )
             else:
                 workers.remove(worker)
 
@@ -1192,7 +1200,9 @@ async def exercise_video_tracker_queue_and_restore(
                     retention.arm("restored:teardown")
                     if primary is None:
                         raise
-                    primary.add_note(f"Restored tracker teardown failed: {type(cleanup_error).__name__}")
+                    primary.add_note(
+                        f"Restored tracker teardown failed: {type(cleanup_error).__name__}"
+                    )
                 finally:
                     if clone_engine is not None:
                         await clone_engine.dispose()
@@ -1225,7 +1235,10 @@ async def exercise_video_tracker_queue_and_restore(
         @asynccontextmanager
         async def redis_users_with_stack_cleanup():
             async with _login_redis(retain=keep) as (login_url, _login_owner):
-                async with _publisher_redis(retain=keep) as (publisher_url, _publisher_owner):
+                async with _publisher_redis(retain=keep) as (
+                    publisher_url,
+                    _publisher_owner,
+                ):
                     try:
                         yield login_url, publisher_url
                     finally:
@@ -1237,7 +1250,9 @@ async def exercise_video_tracker_queue_and_restore(
                                 retention.arm("stack:teardown")
                                 if primary is None:
                                     raise
-                                primary.add_note(f"Tracker stack teardown failed: {type(cleanup_error).__name__}")
+                                primary.add_note(
+                                    f"Tracker stack teardown failed: {type(cleanup_error).__name__}"
+                                )
 
         async with redis_users_with_stack_cleanup() as (
             login_url,
@@ -1260,7 +1275,10 @@ async def exercise_video_tracker_queue_and_restore(
             source_media_dir = Path(tmp_path) / "video-media-source"
             source_media_dir.mkdir(parents=True, exist_ok=True)
             async with _video_runtime(
-                test_engine, source_media_dir, tracker_bridge=bridge, tracker_retain=keep
+                test_engine,
+                source_media_dir,
+                tracker_bridge=bridge,
+                tracker_retain=keep,
             ) as media:
                 media_processes.extend(media.processes)
                 listener, backend_origin = bridge.reserve_listener()
@@ -1445,7 +1463,7 @@ async def exercise_video_tracker_queue_and_restore(
                         )
                         restore_dsn = _clone_role_dsn(
                             "AAP_MODULE_DATA_VIDEO_RESTORE_URL",
-                            "video_restore_operator_client",
+                            "yoao_video_restore_operator_client",
                             restored_database,
                         )
                         manager = VideoRestoreManager(
@@ -1571,7 +1589,9 @@ async def exercise_video_tracker_queue_and_restore(
                         }
                         for worker in workers
                     ],
-                    "compose_project": stack.project_name if stack is not None else None,
+                    "compose_project": stack.project_name
+                    if stack is not None
+                    else None,
                     "compose_services": stack.service_ids if stack is not None else {},
                     "media_pids": [process.pid for process in media_processes],
                     "restored_database": clone_database,
@@ -1612,7 +1632,9 @@ async def exercise_video_tracker_queue_and_restore(
                 if stack is not None:
                     await stack.stop()
                 if any(process.poll() is None for process in media_processes):
-                    raise RuntimeError("Tracker Media process termination is unconfirmed")
+                    raise RuntimeError(
+                        "Tracker Media process termination is unconfirmed"
+                    )
                 if guide_scope is not None and destroy_guide_scope is not None:
                     destroy_guide_scope(guide_scope)
                 await source_peer_stack.aclose()

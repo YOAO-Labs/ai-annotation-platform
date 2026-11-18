@@ -47,7 +47,7 @@ class SqlAlchemyManifestDatabase:
             async with self.db.begin_nested():
                 raw = await self.db.scalar(
                     text(
-                        f"SELECT aap_assets_v1.{operation}({', '.join(placeholders)})"
+                        f"SELECT yoao_assets_v1.{operation}({', '.join(placeholders)})"
                     ),
                     parameters,
                 )

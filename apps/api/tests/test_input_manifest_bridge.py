@@ -310,7 +310,7 @@ async def test_capture_uses_caller_transaction_and_canonical_selector():
     assert result == header
     assert db.events[0:2] == ["flush", "savepoint"]
     statement, parameters = db.events[2]
-    assert "aap_assets_v1.capture_accepted_image_input_manifest(" in statement
+    assert "yoao_assets_v1.capture_accepted_image_input_manifest(" in statement
     assert json.loads(parameters["selection"]) == {
         "batch_id": None,
         "task_ids": None,

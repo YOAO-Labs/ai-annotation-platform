@@ -193,11 +193,11 @@ async def test_gc_login_has_only_cleanup_functions_and_no_write_permits():
         async with pool.acquire() as connection:
             assert (
                 await connection.fetchval("SELECT current_user")
-                == "labeling_mask_gc_client"
+                == "yoao_labeling_mask_gc_client"
             )
             functions = await connection.fetch(
                 "SELECT proc.proname FROM pg_proc AS proc JOIN pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                "WHERE ns.nspname LIKE 'aap_%' AND has_function_privilege(current_user,proc.oid,'execute')"
+                "WHERE (ns.nspname LIKE 'aap_%' OR ns.nspname LIKE 'yoao_%') AND has_function_privilege(current_user,proc.oid,'execute')"
             )
             assert {row[0] for row in functions} == {
                 "claim_mask_gc_sweep",
@@ -222,7 +222,7 @@ async def test_gc_login_has_only_cleanup_functions_and_no_write_permits():
             for query in (
                 "SELECT * FROM public.mask_gc_intents",
                 "SELECT * FROM public.tasks",
-                "SELECT aap_labeling_v1.read_mask_write_epochs('{\"object_keys\": []}'::jsonb)",
+                "SELECT yoao_labeling_v1.read_mask_write_epochs('{\"object_keys\": []}'::jsonb)",
             ):
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     await connection.execute(query)

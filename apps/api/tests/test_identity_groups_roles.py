@@ -35,20 +35,20 @@ async def test_identity_group_login_has_only_two_functions_and_no_direct_access(
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
         )
         assert {row["signature"] for row in actual} == {
-            "aap_identity_groups_v1.group_policy()",
-            "aap_identity_groups_v1.execute_group_command(jsonb)",
+            "yoao_identity_groups_v1.group_policy()",
+            "yoao_identity_groups_v1.execute_group_command(jsonb)",
         }
         assert not await connection.fetchval(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
-                  AND namespace.nspname <> 'aap_identity_groups_v1'
+                WHERE (namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' OR namespace.nspname ~ '^yoao_[a-z0-9_]+_v1$')
+                  AND namespace.nspname <> 'yoao_identity_groups_v1'
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
             """
@@ -89,7 +89,7 @@ async def test_identity_group_login_has_only_two_functions_and_no_direct_access(
         )
 
         policy = json.loads(
-            await connection.fetchval("SELECT aap_identity_groups_v1.group_policy()")
+            await connection.fetchval("SELECT yoao_identity_groups_v1.group_policy()")
         )
         assert policy == {
             "schema": "aap-identity-groups-policy/v1",
@@ -97,7 +97,7 @@ async def test_identity_group_login_has_only_two_functions_and_no_direct_access(
         }
         invalid = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_groups_v1.execute_group_command('{}'::jsonb)"
+                "SELECT yoao_identity_groups_v1.execute_group_command('{}'::jsonb)"
             )
         )
         assert invalid["error"]["code"] == "invalid_request"
@@ -107,10 +107,10 @@ async def test_identity_group_login_has_only_two_functions_and_no_direct_access(
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.identity_group_operation_receipts LIMIT 1",
             "SELECT * FROM public.audit_logs LIMIT 1",
-            "SELECT aap_identity_groups_v1.resolve_invitation_group(gen_random_uuid(),'secret')",
-            "SELECT aap_identity_groups_v1._group_scope(gen_random_uuid(),ARRAY[]::uuid[],false)",
-            "SELECT aap_workspace_v1.lock_group_assignment_scope(gen_random_uuid(),ARRAY[]::uuid[],false)",
-            "SELECT aap_audit_v1.record_identity_group_event('group.create',NULL,'{}','{}')",
+            "SELECT yoao_identity_groups_v1.resolve_invitation_group(gen_random_uuid(),'secret')",
+            "SELECT yoao_identity_groups_v1._group_scope(gen_random_uuid(),ARRAY[]::uuid[],false)",
+            "SELECT yoao_workspace_v1.lock_group_assignment_scope(gen_random_uuid(),ARRAY[]::uuid[],false)",
+            "SELECT yoao_audit_v1.record_identity_group_event('group.create',NULL,'{}','{}')",
             "CREATE TEMP TABLE identity_group_forbidden(id integer)",
             "SET ROLE identity_code",
         ):

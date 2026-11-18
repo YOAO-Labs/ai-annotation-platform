@@ -44,7 +44,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_mask_quality_client"
+_ROLE = "yoao_labeling_mask_quality_client"
 
 
 async def test_qc_decision_and_repair_result_share_the_caller_transaction(
@@ -132,7 +132,7 @@ async def test_qc_decision_and_repair_result_share_the_caller_transaction(
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={
                 (signature.rsplit(".", 1)[1].split("(", 1)[0], "jsonb")
                 for signature in QUALITY_DATA_FUNCTIONS
@@ -149,7 +149,7 @@ async def test_qc_decision_and_repair_result_share_the_caller_transaction(
 
         async def execute(function: str, payload: str):
             return await connection.fetchval(
-                f"SELECT aap_labeling_v1.{function}($1::jsonb)", payload
+                f"SELECT yoao_labeling_v1.{function}($1::jsonb)", payload
             )
 
         client = QualityDataClient(execute)
@@ -332,7 +332,7 @@ async def test_rollback_shard_checkpoint_binds_to_the_caller_transaction(
 
         async def execute(function: str, payload: str):
             return await connection.fetchval(
-                f"SELECT aap_labeling_v1.{function}($1::jsonb)", payload
+                f"SELECT yoao_labeling_v1.{function}($1::jsonb)", payload
             )
 
         def rollback_shard(
@@ -545,7 +545,7 @@ async def test_source_read_shares_the_batch_and_never_queues(test_engine):
         def client(connection) -> QualityDataClient:
             async def execute(function: str, payload: str):
                 return await connection.fetchval(
-                    f"SELECT aap_labeling_v1.{function}($1::jsonb)", payload
+                    f"SELECT yoao_labeling_v1.{function}($1::jsonb)", payload
                 )
 
             return QualityDataClient(execute)

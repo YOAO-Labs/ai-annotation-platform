@@ -19,8 +19,8 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_routing_v1"
-_ROLE = "inference_routing_client"
+_SCHEMA = "yoao_inference_routing_v1"
+_ROLE = "yoao_inference_routing_client"
 _STEP = f"{_SCHEMA}.routing_step"
 
 
@@ -95,7 +95,7 @@ async def _seed(owner):
         member_id,
     )
     await owner.execute(
-        """UPDATE aap_inference_routing_v1.registry_state
+        """UPDATE yoao_inference_routing_v1.registry_state
            SET authority_epoch=$2, backend_incarnation=$3, continuity='ready',
                epoch_key=public.gen_random_bytes(32)
            WHERE registry_id=$1""",
@@ -103,7 +103,7 @@ async def _seed(owner):
         old_epoch,
         old_incarnation,
     )
-    realm = await owner.fetchval("SELECT aap_inference_routing_v1._routing_realm()")
+    realm = await owner.fetchval("SELECT yoao_inference_routing_v1._routing_realm()")
     return {
         "registry_id": registry_id,
         "pool_id": pool_id,
@@ -117,31 +117,32 @@ async def _seed(owner):
 async def _cleanup(owner, world) -> None:
     registry_id = world["registry_id"]
     await owner.execute(
-        """DELETE FROM aap_inference_routing_v1.control_attempts
+        """DELETE FROM yoao_inference_routing_v1.control_attempts
            WHERE control_id IN (
-               SELECT id FROM aap_inference_routing_v1.controls WHERE registry_id=$1
+               SELECT id FROM yoao_inference_routing_v1.controls WHERE registry_id=$1
            )""",
         registry_id,
     )
     await owner.execute(
-        """DELETE FROM aap_inference_routing_v1.attempts
+        """DELETE FROM yoao_inference_routing_v1.attempts
            WHERE scope_id IN (
-               SELECT id FROM aap_inference_routing_v1.scopes WHERE registry_id=$1
+               SELECT id FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1
            )""",
         registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.scopes WHERE registry_id=$1", registry_id
+        "DELETE FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1", registry_id
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+        "DELETE FROM yoao_inference_routing_v1.controls WHERE registry_id=$1",
         registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.weights WHERE registry_id=$1", registry_id
+        "DELETE FROM yoao_inference_routing_v1.weights WHERE registry_id=$1",
+        registry_id,
     )
     await owner.execute(
-        "DELETE FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+        "DELETE FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
         registry_id,
     )
     await owner.execute(
@@ -176,11 +177,11 @@ async def _identity_hash(owner, registry_id: uuid.UUID) -> str:
 async def _add_open_scope(owner, world, scope_id: uuid.UUID) -> None:
     state = await owner.fetchrow(
         """SELECT config_revision, eligibility_revision, authority_epoch, realm
-           FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1""",
+           FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1""",
         world["registry_id"],
     )
     await owner.execute(
-        """INSERT INTO aap_inference_routing_v1.scopes (
+        """INSERT INTO yoao_inference_routing_v1.scopes (
                id, command_sha256, registry_id, pool_id, project_id, mode,
                owner, operation, generation, config_revision, eligibility_revision,
                authority_epoch, realm, state, closed, heartbeat_deadline
@@ -231,7 +232,7 @@ async def test_unstarted_control_can_close_without_claiming_a_backend_response(
         assert closed["phase"] == "completed"
         assert (
             await owner.fetchval(
-                "SELECT count(*) FROM aap_inference_routing_v1.control_attempts WHERE control_id=$1",
+                "SELECT count(*) FROM yoao_inference_routing_v1.control_attempts WHERE control_id=$1",
                 control_id,
             )
             == 0
@@ -388,12 +389,12 @@ async def test_unresolved_control_recovers_under_same_id_after_scope_gate(test_e
         }
         before_recovery = await owner.fetchrow(
             """SELECT kind, phase, recovered_kind
-               FROM aap_inference_routing_v1.controls WHERE id=$1""",
+               FROM yoao_inference_routing_v1.controls WHERE id=$1""",
             control_id,
         )
         assert tuple(before_recovery) == ("unload", "uncertain", None)
         await owner.execute(
-            "DELETE FROM aap_inference_routing_v1.scopes WHERE id=$1", blocker_scope_id
+            "DELETE FROM yoao_inference_routing_v1.scopes WHERE id=$1", blocker_scope_id
         )
 
         async with client.transaction():
@@ -457,7 +458,7 @@ async def test_unresolved_control_recovers_under_same_id_after_scope_gate(test_e
         assert not_drained["status"] == "rejected"
         assert not_drained["reason"] == "member_not_quiescent"
         unresolved_before_bound = await owner.fetchval(
-            """SELECT state FROM aap_inference_routing_v1.control_attempts
+            """SELECT state FROM yoao_inference_routing_v1.control_attempts
                WHERE id=$1""",
             uncertain_attempt_id,
         )
@@ -471,7 +472,7 @@ async def test_unresolved_control_recovers_under_same_id_after_scope_gate(test_e
         assert finished["phase"] == "completed"
         rows = await owner.fetch(
             """SELECT id, state, status_code, reason
-               FROM aap_inference_routing_v1.control_attempts
+               FROM yoao_inference_routing_v1.control_attempts
                WHERE control_id=$1 ORDER BY id""",
             control_id,
         )
@@ -481,7 +482,7 @@ async def test_unresolved_control_recovers_under_same_id_after_scope_gate(test_e
         assert attempts[uncertain_attempt_id]["state"] == "reconciled"
         control = await owner.fetchrow(
             """SELECT kind, phase, recovered_kind
-               FROM aap_inference_routing_v1.controls WHERE id=$1""",
+               FROM yoao_inference_routing_v1.controls WHERE id=$1""",
             control_id,
         )
         assert tuple(control) == ("epoch", "completed", "unload")

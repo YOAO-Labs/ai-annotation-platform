@@ -101,19 +101,19 @@ async def test_function_only_prediction_records_preserve_transaction_and_cleanup
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_PREDICTION_URL",
-                "labeling_prediction_client",
+                "yoao_labeling_prediction_client",
             ),
             timeout=5,
             command_timeout=10,
         )
         assert await connection.fetchval("SELECT current_user") == (
-            "labeling_prediction_client"
+            "yoao_labeling_prediction_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions=_PREDICTION_FUNCTIONS,
-            role="labeling_prediction_client",
+            role="yoao_labeling_prediction_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.predictions LIMIT 1")
@@ -124,7 +124,7 @@ async def test_function_only_prediction_records_preserve_transaction_and_cleanup
 
         async def execute(request_json):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.prediction_record_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.prediction_record_command($1::jsonb)",
                 request_json,
             )
 
@@ -302,20 +302,20 @@ async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
         _dsn(
             test_engine,
             "AAP_MODULE_DATA_LABELING_PREDICTION_URL",
-            "labeling_prediction_client",
+            "yoao_labeling_prediction_client",
         ),
         timeout=5,
         command_timeout=10,
     )
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "labeling_prediction_client"
+            "yoao_labeling_prediction_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions=_PREDICTION_FUNCTIONS,
-            role="labeling_prediction_client",
+            role="yoao_labeling_prediction_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetch("SELECT id FROM public.predictions LIMIT 1")
@@ -334,7 +334,7 @@ async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
 
         async def execute(request_json: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.prediction_partition_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.prediction_partition_command($1::jsonb)",
                 request_json,
             )
 
@@ -399,7 +399,7 @@ async def test_screenshot_restore_uses_private_owner_and_caller_transaction(
                 await consumer.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
-                        "'aap_labeling_v1.screenshot_operations_command(jsonb)', 'EXECUTE')"
+                        "'yoao_labeling_v1.screenshot_operations_command(jsonb)', 'EXECUTE')"
                     )
                 )
                 is False
@@ -414,7 +414,9 @@ async def test_screenshot_restore_uses_private_owner_and_caller_transaction(
             )
             with pytest.raises(DBAPIError) as denied:
                 await consumer.execute(
-                    text("SELECT aap_labeling_v1.screenshot_operations_command('{}'::jsonb)")
+                    text(
+                        "SELECT yoao_labeling_v1.screenshot_operations_command('{}'::jsonb)"
+                    )
                 )
             assert denied.value.orig.sqlstate == "42501"
 
@@ -463,7 +465,7 @@ async def test_screenshot_restore_uses_private_owner_and_caller_transaction(
         async def execute(request_json):
             return await connection.scalar(
                 text(
-                    "SELECT aap_labeling_v1.screenshot_operations_command(CAST(:request AS jsonb))"
+                    "SELECT yoao_labeling_v1.screenshot_operations_command(CAST(:request AS jsonb))"
                 ),
                 {"request": request_json},
             )
@@ -495,7 +497,7 @@ async def test_screenshot_restore_uses_private_owner_and_caller_transaction(
                 text(
                     "SELECT review_contributor_ids IS NULL, "
                     "jsonb_typeof(review_contributor_ids) "
-                    "FROM aap_labeling_v1.task_rows WHERE id=:id"
+                    "FROM yoao_labeling_v1.task_rows WHERE id=:id"
                 ),
                 {"id": task_id},
             )

@@ -64,8 +64,8 @@ pytestmark = [
 ]
 
 ROOT = Path(__file__).resolve().parents[3]
-_ROUTING_SCHEMA = "aap_inference_routing_v1"
-_JOBS_SCHEMA = "aap_jobs_v1"
+_ROUTING_SCHEMA = "yoao_inference_routing_v1"
+_JOBS_SCHEMA = "yoao_jobs_v1"
 
 
 def _reserve_port() -> tuple[socket.socket, str]:
@@ -500,7 +500,7 @@ async def _expire_exact_claim(sessions_factory, job_id, expected_generation: int
         assert row["generation"] == expected_generation
         result = await db.execute(
             text(
-                "UPDATE aap_jobs_v1.video_executions "
+                "UPDATE yoao_jobs_v1.video_executions "
                 "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
                 "WHERE job_id=:job AND run_id=:run AND generation=:generation "
                 "AND worker_id=:worker AND lease_expires_at>pg_catalog.clock_timestamp()"
@@ -575,8 +575,8 @@ async def _wait_model_owner_settled(sessions_factory, job_id) -> None:
                 active = await db.scalar(
                     text(
                         "SELECT EXISTS (SELECT 1 FROM "
-                        "aap_inference_routing_v1.attempts AS a "
-                        "JOIN aap_inference_routing_v1.scopes AS s ON s.id=a.scope_id "
+                        "yoao_inference_routing_v1.attempts AS a "
+                        "JOIN yoao_inference_routing_v1.scopes AS s ON s.id=a.scope_id "
                         "WHERE s.owner=:owner AND a.dispatch_state='started' "
                         "AND a.state NOT IN ('response', 'reconciled'))"
                     ),
@@ -721,10 +721,8 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                         async with media.sessions.begin() as health_db:
                             health_service = MLBackendService(health_db)
                             assert await health_service.check_health(registry_id)
-                            resolved = (
-                                await health_service.get_tracker_backend_for_capabilities(
-                                    project_id, ["sam2_video"]
-                                )
+                            resolved = await health_service.get_tracker_backend_for_capabilities(
+                                project_id, ["sam2_video"]
                             )
                             assert resolved is not None and resolved.id == registry_id
 
@@ -784,16 +782,20 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 assert reconcile.result.phase == "completed"
                 assert reconcile.result.registry_id == registry_id
                 assert backend.controller.phase == "bound"
-                execution_owner, execution_url, execution_token = (
-                    await _start_model_execution_owner(tmp_path, routing_dsn)
-                )
+                (
+                    execution_owner,
+                    execution_url,
+                    execution_token,
+                ) = await _start_model_execution_owner(tmp_path, routing_dsn)
                 monkeypatch.setattr(
                     settings, "inference_model_execution_url", execution_url
                 )
                 monkeypatch.setattr(
                     settings, "inference_model_execution_token", execution_token
                 )
-                monkeypatch.setattr(settings, "inference_model_execution_token_file", "")
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_token_file", ""
+                )
 
                 peer = _start_runner_peer(
                     job_id,
@@ -1056,26 +1058,25 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                             await db.execute(
                                 text(
                                     "SELECT operation_id,request_digest,completed_at FROM "
-                                    "aap_labeling_v1.video_writer_receipts WHERE job_id=:job"
+                                    "yoao_labeling_v1.video_writer_receipts WHERE job_id=:job"
                                 ),
                                 {"job": job_id},
                             )
                         ).one()
                     # Duplicate delivery cannot reopen an already settled
                     # execution or replace its original writer receipt.
-                    settled_execution = await _snapshot_claim(
-                        media.sessions, job_id
-                    )
+                    settled_execution = await _snapshot_claim(media.sessions, job_id)
                     await _attempt_tracker_run(execution_sessions, job_id)
-                    assert await _snapshot_claim(
-                        media.sessions, job_id
-                    ) == settled_execution
+                    assert (
+                        await _snapshot_claim(media.sessions, job_id)
+                        == settled_execution
+                    )
                     async with media.sessions() as db:
                         replayed = (
                             await db.execute(
                                 text(
                                     "SELECT operation_id,request_digest,completed_at FROM "
-                                    "aap_labeling_v1.video_writer_receipts WHERE job_id=:job"
+                                    "yoao_labeling_v1.video_writer_receipts WHERE job_id=:job"
                                 ),
                                 {"job": job_id},
                             )

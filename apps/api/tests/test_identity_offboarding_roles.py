@@ -21,7 +21,7 @@ def _dsn() -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_offboarding_client"
+    assert parsed.username == "yoao_identity_offboarding_client"
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -30,7 +30,7 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
     connection = await asyncpg.connect(_dsn())
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "identity_offboarding_client"
+            "yoao_identity_offboarding_client"
         )
         rows = await connection.fetch(
             """
@@ -57,7 +57,7 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
                     AND dependency.deptype = 'e'
               )
               AND (
-                  pg_catalog.left(namespace.nspname,4)='aap_'
+                  (pg_catalog.left(namespace.nspname,4)='aap_' OR pg_catalog.left(namespace.nspname,5)='yoao_')
                   OR function.prosecdef
                   OR EXISTS (
                       SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
@@ -78,17 +78,17 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
             """
         )
         assert [row["signature"] for row in rows] == [
-            "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
-            "aap_identity_offboarding_v1.offboarding_policy()",
-            "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
+            "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)",
+            "yoao_identity_offboarding_v1.offboarding_policy()",
+            "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
         ]
         assert await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_offboarding_v1', 'USAGE')"
+            "'yoao_identity_offboarding_v1', 'USAGE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_offboarding_v1', 'CREATE')"
+            "'yoao_identity_offboarding_v1', 'CREATE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')"
@@ -103,7 +103,7 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
                 WHERE namespace.nspname NOT IN (
                     'pg_catalog','information_schema',
-                    'aap_identity_offboarding_v1','public'
+                    'yoao_identity_offboarding_v1','public'
                 )
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -164,7 +164,7 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
         )
 
         policy = await connection.fetchval(
-            "SELECT aap_identity_offboarding_v1.offboarding_policy()"
+            "SELECT yoao_identity_offboarding_v1.offboarding_policy()"
         )
         assert json.loads(policy) == {
             "schema": "aap-identity-offboarding-policy/v1",
@@ -175,7 +175,7 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
             "apply_offboarding_command",
         ):
             raw = await connection.fetchval(
-                f"SELECT aap_identity_offboarding_v1.{function}('{{}}'::jsonb)"
+                f"SELECT yoao_identity_offboarding_v1.{function}('{{}}'::jsonb)"
             )
             assert json.loads(raw) == {
                 "schema": "aap-identity-offboarding-native/v1",
@@ -193,9 +193,9 @@ async def test_identity_offboarding_login_has_only_three_functions_and_no_raw_ac
             "SELECT * FROM public.tasks LIMIT 1",
             "SELECT * FROM public.task_locks LIMIT 1",
             "SELECT * FROM public.identity_offboarding_operation_receipts LIMIT 1",
-            "SELECT aap_workspace_v1.lock_identity_offboarding_scope(NULL::uuid,'{}'::uuid[],'{}'::uuid[])",
-            "SELECT aap_labeling_v1.identity_offboarding_facts(NULL::uuid)",
-            "SELECT aap_audit_v1.record_identity_offboarding_event('{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb)",
+            "SELECT yoao_workspace_v1.lock_identity_offboarding_scope(NULL::uuid,'{}'::uuid[],'{}'::uuid[])",
+            "SELECT yoao_labeling_v1.identity_offboarding_facts(NULL::uuid)",
+            "SELECT yoao_audit_v1.record_identity_offboarding_event('{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb)",
             "CREATE TEMP TABLE offboarding_forbidden(id integer)",
             "SET ROLE identity_code",
         )
@@ -213,14 +213,16 @@ async def test_offboarding_readiness_rejects_raw_user_privilege():
     try:
         async with owner_engine.begin() as connection:
             await connection.execute(
-                text("GRANT SELECT ON public.users TO identity_offboarding_client")
+                text("GRANT SELECT ON public.users TO yoao_identity_offboarding_client")
             )
         with pytest.raises(IdentityUnavailable):
             await OffboardingPostgresData(dsn).offboarding_policy()
     finally:
         async with owner_engine.begin() as connection:
             await connection.execute(
-                text("REVOKE SELECT ON public.users FROM identity_offboarding_client")
+                text(
+                    "REVOKE SELECT ON public.users FROM yoao_identity_offboarding_client"
+                )
             )
         await owner_engine.dispose()
 
@@ -239,7 +241,7 @@ async def test_offboarding_readiness_rejects_database_temp_privilege():
             await connection.execute(
                 text(
                     f"GRANT TEMP ON DATABASE {quoted_database} "
-                    "TO identity_offboarding_client"
+                    "TO yoao_identity_offboarding_client"
                 )
             )
         with pytest.raises(IdentityUnavailable):
@@ -249,7 +251,7 @@ async def test_offboarding_readiness_rejects_database_temp_privilege():
             await connection.execute(
                 text(
                     f"REVOKE TEMP ON DATABASE {quoted_database} "
-                    "FROM identity_offboarding_client"
+                    "FROM yoao_identity_offboarding_client"
                 )
             )
         await owner_engine.dispose()

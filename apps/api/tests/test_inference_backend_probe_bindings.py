@@ -94,7 +94,7 @@ async def _subject(db, registry_id):
     await db.execute(text("SET LOCAL ROLE workspace_code"))
     value = await db.scalar(
         text(
-            "SELECT aap_inference_v1.workspace_configuration_backend(CAST(:id AS uuid))"
+            "SELECT yoao_inference_v1.workspace_configuration_backend(CAST(:id AS uuid))"
         ),
         {"id": registry_id},
     )
@@ -309,7 +309,7 @@ async def test_missing_probe_secret_is_503_before_public_configuration_writes(
                 await _insert(seed, registry_id, "http://127.0.0.1:1")
                 retained_key = await seed.scalar(
                     text(
-                        "DELETE FROM aap_inference_backend_probe_v1.probe_secret RETURNING secret"
+                        "DELETE FROM yoao_inference_backend_probe_v1.probe_secret RETURNING secret"
                     )
                 )
                 assert type(retained_key) is bytes and len(retained_key) == 32
@@ -357,7 +357,7 @@ async def test_missing_probe_secret_is_503_before_public_configuration_writes(
                 if retained_key is not None:
                     await cleanup.execute(
                         text(
-                            "INSERT INTO aap_inference_backend_probe_v1.probe_secret(singleton,secret) VALUES(true,:key)"
+                            "INSERT INTO yoao_inference_backend_probe_v1.probe_secret(singleton,secret) VALUES(true,:key)"
                         ),
                         {"key": retained_key},
                     )

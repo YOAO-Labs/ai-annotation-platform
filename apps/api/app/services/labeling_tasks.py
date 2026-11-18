@@ -116,7 +116,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
             await self.db.flush()
             return await self.db.scalar(
                 text(
-                    "SELECT aap_labeling_v1.task_workflow_command("
+                    "SELECT yoao_labeling_v1.task_workflow_command("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": request_json},
@@ -374,7 +374,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         count = await self.db.scalar(
             select(Project.review_tasks).from_statement(
                 text(
-                    "SELECT aap_labeling_v1.decrement_project_review_count("
+                    "SELECT yoao_labeling_v1.decrement_project_review_count("
                     "CAST(:project_id AS uuid)) AS review_tasks"
                 )
             ),
@@ -386,7 +386,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         count = await self.db.scalar(
             select(Project.completed_tasks).from_statement(
                 text(
-                    "SELECT aap_labeling_v1.decrement_project_completed_count("
+                    "SELECT yoao_labeling_v1.decrement_project_completed_count("
                     "CAST(:project_id AS uuid)) AS completed_tasks"
                 )
             ),
@@ -400,7 +400,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
                 select(Project.completed_tasks, Project.review_tasks).from_statement(
                     text(
                         "SELECT completed_tasks, review_tasks "
-                        "FROM aap_labeling_v1.record_project_review_approval("
+                        "FROM yoao_labeling_v1.record_project_review_approval("
                         "CAST(:project_id AS uuid))"
                     ),
                 ),
@@ -425,7 +425,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         await self.db.flush()
         payload = await self.db.scalar(
             text(
-                "SELECT aap_labeling_v1.accept_dataset_task_creation("
+                "SELECT yoao_labeling_v1.accept_dataset_task_creation("
                 "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
                 "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
                 "CAST(:association_id AS uuid), CAST(:job_id AS uuid), "
@@ -467,7 +467,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         await self.db.flush()
         payload = await self.db.scalar(
             text(
-                "SELECT aap_labeling_v1.prepare_dataset_task_creation("
+                "SELECT yoao_labeling_v1.prepare_dataset_task_creation("
                 "CAST(:operation_id AS uuid), CAST(:frames AS jsonb))"
             ),
             {
@@ -487,7 +487,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
     ) -> CreationOperation:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_labeling_v1.read_dataset_task_creation("
+                "SELECT yoao_labeling_v1.read_dataset_task_creation("
                 "CAST(:operation_id AS uuid))"
             ),
             {"operation_id": operation_id},
@@ -504,7 +504,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
     ) -> CreationChunk:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_labeling_v1.advance_dataset_task_creation("
+                "SELECT yoao_labeling_v1.advance_dataset_task_creation("
                 "CAST(:operation_id AS uuid), :chunk_index)"
             ),
             {"operation_id": operation_id, "chunk_index": chunk_index},
@@ -532,7 +532,7 @@ class LabelingTaskService(LabelingTaskCreationPort):
         await self.db.flush()
         payload = await self.db.scalar(
             text(
-                "SELECT aap_labeling_v1.append_dataset_items("
+                "SELECT yoao_labeling_v1.append_dataset_items("
                 "CAST(:dataset_id AS uuid), CAST(:item_ids AS uuid[]), "
                 "CAST(:operation_id AS uuid))"
             ),

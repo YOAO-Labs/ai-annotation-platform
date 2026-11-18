@@ -214,13 +214,13 @@ async def test_recovery_login_has_only_four_functions_and_status_has_no_durable_
             (
                 await db.execute(
                     text(
-                        "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname LIKE 'aap_identity%' AND has_function_privilege('identity_recovery_client',p.oid,'EXECUTE')"
+                        "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (n.nspname LIKE 'aap_identity%' OR n.nspname LIKE 'yoao_identity%') AND has_function_privilege('yoao_identity_recovery_client',p.oid,'EXECUTE')"
                     )
                 )
             ).scalars()
         )
         assert capabilities == {
-            f"aap_identity_recovery_v1.{name}"
+            f"yoao_identity_recovery_v1.{name}"
             for name in [
                 "recovery_policy()",
                 "prepare_recovery_command(jsonb)",
@@ -229,15 +229,15 @@ async def test_recovery_login_has_only_four_functions_and_status_has_no_durable_
             ]
         }
         for role in [
-            "identity_auth_client",
+            "yoao_identity_auth_client",
             "yoao_identity_key_client",
-            "identity_mail_client",
-            "identity_mail_v2_client",
-            "append_client",
+            "yoao_identity_mail_client",
+            "yoao_identity_mail_v2_client",
+            "yoao_append_client",
         ]:
             assert not await db.scalar(
                 text(
-                    "SELECT has_function_privilege(CAST(:role AS name),'aap_identity_recovery_v1.read_registration_status(jsonb)','EXECUTE')"
+                    "SELECT has_function_privilege(CAST(:role AS name),'yoao_identity_recovery_v1.read_registration_status(jsonb)','EXECUTE')"
                 ),
                 {"role": role},
             )
@@ -256,7 +256,7 @@ async def test_recovery_login_has_only_four_functions_and_status_has_no_durable_
             )
         ).one()
         assert after == before
-        await db.execute(text("SET LOCAL ROLE identity_recovery_client"))
+        await db.execute(text("SET LOCAL ROLE yoao_identity_recovery_client"))
         with pytest.raises(DBAPIError) as denied:
             await db.execute(text("SELECT value_json FROM public.system_settings"))
         assert getattr(denied.value.orig, "sqlstate", None) == "42501"

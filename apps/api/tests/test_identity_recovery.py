@@ -193,7 +193,7 @@ async def _assert_exact_identity_functions(dsn, expected):
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+                WHERE (namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' OR namespace.nspname ~ '^yoao_[a-z0-9_]+_v1$')
                   AND namespace.nspname <> ALL($1::text[])
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
@@ -401,7 +401,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 {"id": actor},
             )
             await db.execute(
-                text("SELECT aap_identity_v1.revoke_jti(:jti,:expiry)"),
+                text("SELECT yoao_identity_v1.revoke_jti(:jti,:expiry)"),
                 {"jti": jti, "expiry": datetime.now(UTC) + timedelta(days=8)},
             )
         command = decode_key_request(
@@ -609,7 +609,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_database_privilege('identity_account_client',current_database(),'TEMP')"
+                    "SELECT has_database_privilege('yoao_identity_account_client',current_database(),'TEMP')"
                 )
             )
         historical = await account_manager.execute(account_command)
@@ -667,24 +667,24 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         await _assert_exact_identity_functions(
             recovery_dsn,
             {
-                "aap_identity_recovery_v1.recovery_policy()",
-                "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
-                "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
-                "aap_identity_recovery_v1.read_registration_status(jsonb)",
+                "yoao_identity_recovery_v1.recovery_policy()",
+                "yoao_identity_recovery_v1.prepare_recovery_command(jsonb)",
+                "yoao_identity_recovery_v1.apply_recovery_command(jsonb)",
+                "yoao_identity_recovery_v1.read_registration_status(jsonb)",
             },
         )
         await _assert_exact_identity_functions(
             mail_dsn,
             {
-                "aap_identity_recovery_v1.mail_policy()",
-                "aap_identity_recovery_v1.claim_mail(jsonb)",
-                "aap_identity_recovery_v1.renew_mail(jsonb)",
-                "aap_identity_recovery_v1.finish_mail(jsonb)",
+                "yoao_identity_recovery_v1.mail_policy()",
+                "yoao_identity_recovery_v1.claim_mail(jsonb)",
+                "yoao_identity_recovery_v1.renew_mail(jsonb)",
+                "yoao_identity_recovery_v1.finish_mail(jsonb)",
             },
         )
         await _assert_exact_identity_functions(
             mail_settings_dsn,
-            {"aap_settings_v1.mail_delivery_policy(jsonb)"},
+            {"yoao_settings_v1.mail_delivery_policy(jsonb)"},
         )
         assert (await MailPostgresData(mail_dsn).mail_policy()).policy == MAIL_POLICY
         fallback_settings = {

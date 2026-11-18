@@ -124,7 +124,7 @@ async def test_installed_read_only_runtime_claims_and_reads_the_saved_bundle(
     }
     url = make_url(os.environ["AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"])
     assert (
-        url.username == "preannotation_result_client"
+        url.username == "yoao_preannotation_result_client"
         and url.database == test_engine.url.database
     )
     _verify_postgres(url)
@@ -200,7 +200,7 @@ async def test_installed_retry_cli_reads_and_publishes_with_only_executor_capabi
     identity = os.environ["AAP_PREANNOTATION_RESULT_RUNTIME_IDENTITY"]
     url = make_url(os.environ["AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"])
     assert (
-        url.username == "preannotation_result_client"
+        url.username == "yoao_preannotation_result_client"
         and url.database == test_engine.url.database
     )
     _verify_postgres(url)

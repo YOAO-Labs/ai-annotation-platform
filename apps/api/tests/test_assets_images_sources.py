@@ -15,12 +15,12 @@ from tests.test_assets_images_control import _seed_actor, _seed_image_item
 pytestmark = pytest.mark.asyncio
 
 _PEEK = text(
-    "SELECT aap_assets_v1.read_legacy_dataset_upload("
+    "SELECT yoao_assets_v1.read_legacy_dataset_upload("
     "CAST(:operation AS uuid), CAST(:actor AS uuid), "
     "CAST(:dataset AS uuid), CAST(:item AS uuid))"
 )
 _COMPLETE = text(
-    "SELECT aap_assets_v1.complete_legacy_dataset_upload("
+    "SELECT yoao_assets_v1.complete_legacy_dataset_upload("
     "CAST(:operation AS uuid), CAST(:actor AS uuid), "
     "CAST(:dataset AS uuid), CAST(:item AS uuid), "
     ":path, 2048::bigint, :hash, 5000, 5000)"

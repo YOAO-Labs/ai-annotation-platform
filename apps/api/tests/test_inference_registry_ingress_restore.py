@@ -53,20 +53,20 @@ async def _native_state(engine):
             "pg_catalog.pg_get_userbyid(p.proowner) AS owner,p.proacl::text AS acl,p.proconfig AS settings, "
             "n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
             "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
-            "WHERE n.nspname='aap_inference_registry_ingress_v1' ORDER BY signature"
+            "WHERE n.nspname='yoao_inference_registry_ingress_v1' ORDER BY signature"
         )
         assert {row["signature"] for row in rows} == set(_CATALOG_FUNCTIONS)
         assert all(row["owner"] == "inference_code" for row in rows)
         executable = await owner.fetch(
             "SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
             "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
-            "WHERE n.nspname='aap_inference_registry_ingress_v1' "
+            "WHERE n.nspname='yoao_inference_registry_ingress_v1' "
             "AND pg_catalog.has_function_privilege("
-            "'inference_registry_ingress_client', p.oid, 'EXECUTE')"
+            "'yoao_inference_registry_ingress_client', p.oid, 'EXECUTE')"
         )
         assert {row["signature"] for row in executable} == set(_CLIENT_FUNCTIONS)
         receipts = await owner.fetch(
-            "SELECT * FROM aap_inference_registry_ingress_v1.env_sync_receipts ORDER BY request_id"
+            "SELECT * FROM yoao_inference_registry_ingress_v1.env_sync_receipts ORDER BY request_id"
         )
         assert receipts
         return [dict(row) for row in rows], [dict(row) for row in receipts]
@@ -110,13 +110,13 @@ async def test_nonempty_restore_preserves_ingress_role_receipt_and_actual_owner_
                     client, registry_id, "Before restore", origin, "env"
                 )
                 await client.fetchrow(
-                    "SELECT * FROM aap_inference_registry_ingress_v1.create_singleton_pool($1,$2,$3,'Before restore','null',NULL)",
+                    "SELECT * FROM yoao_inference_registry_ingress_v1.create_singleton_pool($1,$2,$3,'Before restore','null',NULL)",
                     registry_id,
                     uuid.uuid4(),
                     uuid.uuid4(),
                 )
                 receipt = await client.fetchval(
-                    "SELECT aap_inference_registry_ingress_v1.record_sync_result($1,$2,1)",
+                    "SELECT yoao_inference_registry_ingress_v1.record_sync_result($1,$2,1)",
                     request_id,
                     digest,
                 )
@@ -153,7 +153,7 @@ async def test_nonempty_restore_preserves_ingress_role_receipt_and_actual_owner_
             role_url = make_url(
                 _role_url(
                     "AAP_MODULE_DATA_INFERENCE_REGISTRY_INGRESS_URL",
-                    "inference_registry_ingress_client",
+                    "yoao_inference_registry_ingress_client",
                 )
             )
             assert role_url.database == test_engine.url.database
@@ -183,7 +183,7 @@ async def test_nonempty_restore_preserves_ingress_role_receipt_and_actual_owner_
                 )
                 assert (
                     await restored_owner.fetchval(
-                        "SELECT count(*) FROM aap_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
+                        "SELECT count(*) FROM yoao_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
                         new_request_id,
                     )
                     == 1
@@ -198,7 +198,7 @@ async def test_nonempty_restore_preserves_ingress_role_receipt_and_actual_owner_
             )
             assert (
                 await owner.fetchval(
-                    "SELECT count(*) FROM aap_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
+                    "SELECT count(*) FROM yoao_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
                     new_request_id,
                 )
                 == 0

@@ -40,7 +40,8 @@ pytestmark = [
 async def _client(test_engine):
     url = make_url(
         _role_url(
-            "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL", "inference_health_data_client"
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL",
+            "yoao_inference_health_data_client",
         )
     )
     assert (url.host, url.port, url.database) == (
@@ -69,11 +70,11 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
     try:
         assert (
             await client.fetchval("SELECT current_user")
-            == "inference_health_data_client"
+            == "yoao_inference_health_data_client"
         )
         with pytest.raises(HealthDataUnavailable):
             await HealthDataPostgresData.bind(
-                client, expected_role="inference_health_data_client"
+                client, expected_role="yoao_inference_health_data_client"
             )
         with _backend("gpu_echo" if gpu else "cpu_healthy", trace) as origin:
             await owner.execute(
@@ -86,7 +87,7 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
             tx = client.transaction()
             await tx.start()
             data = await HealthDataPostgresData.bind(
-                client, expected_role="inference_health_data_client"
+                client, expected_role="yoao_inference_health_data_client"
             )
 
             def make_transport(row):
@@ -140,7 +141,7 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
                 with pytest.raises(HealthDataUnavailable):
                     await data.get_backend(world["registry_id"])
                 fresh = await HealthDataPostgresData.bind(
-                    client, expected_role="inference_health_data_client"
+                    client, expected_role="yoao_inference_health_data_client"
                 )
                 assert await fresh.get_backend(world["registry_id"]) is not None
             finally:
@@ -179,9 +180,9 @@ async def test_independent_function_login_requires_its_exact_expected_role(
     role = "fixture_profile_" + uuid.uuid4().hex
     password = uuid.uuid4().hex
     schema, functions = (
-        ("aap_inference_health_data_v1", _FUNCTIONS)
+        ("yoao_inference_health_data_v1", _FUNCTIONS)
         if profile == "health_data"
-        else ("aap_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
+        else ("yoao_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
     )
     grant_functions = ", ".join(
         f"{schema}.{name}({signature})" for name, signature in sorted(functions)
@@ -218,7 +219,7 @@ async def test_independent_function_login_requires_its_exact_expected_role(
             await client.fetchval("SELECT count(*) FROM public.ml_backend_registry")
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await client.fetchval(
-                "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
+                "SELECT yoao_inference_backend_endpoint_v1.backend_endpoint_policy()"
             )
     finally:
         if client is not None:

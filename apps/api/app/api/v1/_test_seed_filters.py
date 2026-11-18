@@ -1730,7 +1730,7 @@ async def _seed_operations(
         raise RuntimeError("filtering invitation ownership changed")
     count = await db.scalar(
         text(
-            "SELECT aap_jobs_v1.create_filter_fixture_jobs("
+            "SELECT yoao_jobs_v1.create_filter_fixture_jobs("
             "CAST(:run AS uuid), CAST(:completed AS uuid), CAST(:failed AS uuid), "
             "CAST(:completed_project AS uuid), CAST(:failed_project AS uuid), "
             "CAST(:actor AS uuid), CAST(:completed_prompt AS text), CAST(:failed_prompt AS text))"

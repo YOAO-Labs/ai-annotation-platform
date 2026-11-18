@@ -45,10 +45,12 @@ _IDENTITY_CONSUMER_FUNCTIONS = {
     "is_jti_revoked(uuid)",
     "get_credential_generation(uuid)",
 }
-_FIXTURE_PREFERENCE_FUNCTION = "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)"
+_FIXTURE_PREFERENCE_FUNCTION = (
+    "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)"
+)
 _IDENTITY_VIEWS = {
-    "aap_identity_v1.account_profiles",
-    "aap_identity_v1.invitation_audit_targets",
+    "yoao_identity_v1.account_profiles",
+    "yoao_identity_v1.invitation_audit_targets",
 }
 _JOB_ASSET_ID = "jobs-retry-recovery"
 _REVIEW_REASON = "车辆边界存在偏移，请重新贴合目标外沿。"
@@ -64,7 +66,7 @@ async def _function_set(db, role: str) -> set[str]:
                     "replace(pg_catalog.oidvectortypes(proc.proargtypes), ' ', '') || ')' "
                     "FROM pg_catalog.pg_proc AS proc "
                     "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                    "WHERE ns.nspname='aap_identity_v1' "
+                    "WHERE ns.nspname='yoao_identity_v1' "
                     "AND pg_catalog.has_function_privilege(:role, proc.oid, 'EXECUTE')"
                 ),
                 {"role": role},
@@ -75,7 +77,7 @@ async def _function_set(db, role: str) -> set[str]:
 
 async def _assert_identity_profile(test_engine):
     _verify_postgres(test_engine.url)
-    ordinary = {f"aap_identity_v1.{sig}" for sig in _IDENTITY_CONSUMER_FUNCTIONS}
+    ordinary = {f"yoao_identity_v1.{sig}" for sig in _IDENTITY_CONSUMER_FUNCTIONS}
     async with test_engine.connect() as db:
         assert await _function_set(db, "legacy_runtime") == ordinary
         assert await _function_set(db, "identity_api_consumer") == ordinary
@@ -143,10 +145,10 @@ async def main():
     db = await asyncpg.connect(url)
     try:
         assert await db.fetchval("SELECT current_user") == "legacy_runtime"
-        signature = "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)"
+        signature = "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)"
         assert not await db.fetchval("SELECT has_function_privilege(current_user,$1,'EXECUTE')", signature)
         try:
-            await db.execute("SELECT aap_identity_v1.replace_fixture_preferences($1,'{}'::jsonb)", uuid.UUID(sys.argv[1]))
+            await db.execute("SELECT yoao_identity_v1.replace_fixture_preferences($1,'{}'::jsonb)", uuid.UUID(sys.argv[1]))
         except asyncpg.InsufficientPrivilegeError:
             print("fixture preference write denied")
         else:

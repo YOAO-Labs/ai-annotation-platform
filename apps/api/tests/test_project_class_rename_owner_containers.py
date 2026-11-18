@@ -307,7 +307,7 @@ async def _workspace_owner_container(test_engine, directory: Path, token: str):
     query_dsn = project_query_dsn(test_engine)
     briefs_dsn = project_query_briefs_dsn(test_engine)
     parsed = make_url(config_dsn)
-    assert parsed.username == "workspace_configuration_client"
+    assert parsed.username == "yoao_workspace_configuration_client"
     for value, username in (
         (make_url(query_dsn), "yoao_workspace_project_query_client"),
         (make_url(briefs_dsn), "yoao_identity_briefs_client"),
@@ -871,7 +871,7 @@ async def test_project_class_rename_owner_container_replay_restart_and_bounded_l
                                     "network_id": owner["network_id"],
                                     "network_identity": owner["network_identity"],
                                     "database_roles": [
-                                        "workspace_configuration_client",
+                                        "yoao_workspace_configuration_client",
                                         "yoao_workspace_project_query_client",
                                         "yoao_identity_briefs_client",
                                     ],

@@ -47,7 +47,7 @@ class IdentityMailV2CommandData:
                 raw = _json_value(
                     await db.scalar(
                         text(
-                            f"SELECT aap_identity_mail_v2.{function}(CAST(:command AS jsonb))"
+                            f"SELECT yoao_identity_mail_v2.{function}(CAST(:command AS jsonb))"
                         ),
                         {"command": native_mail_v2_command_json(command)},
                     )

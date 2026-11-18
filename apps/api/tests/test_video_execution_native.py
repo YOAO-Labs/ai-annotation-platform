@@ -20,9 +20,9 @@ from app.services.video_tracking import execution, runner
 
 pytestmark = pytest.mark.asyncio
 
-_STEP = text("SELECT aap_jobs_v1.video_execution_step(:action, :arguments)")
+_STEP = text("SELECT yoao_jobs_v1.video_execution_step(:action, :arguments)")
 _ROUTING_STEP = text(
-    "SELECT aap_inference_routing_v1.routing_step(:action, :arguments)"
+    "SELECT yoao_inference_routing_v1.routing_step(:action, :arguments)"
 )
 
 
@@ -67,13 +67,13 @@ async def _install_bound_route_intent(db, job_id, claim):
     scope_id = uuid.uuid4()
     await db.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_route_intents ("
+            "INSERT INTO yoao_jobs_v1.video_execution_route_intents ("
             "request_id,job_id,run_id,generation,command_sha256,command_ciphertext,"
             "scope_id,state,realm) VALUES ("
             ":request,:job,:run,:generation,:digest,"
             "public.pgp_sym_encrypt('{}',pg_catalog.encode("
-            "aap_jobs_v1._video_execution_secret(),'hex'),'cipher-algo=aes256'),"
-            ":scope,'bound',aap_jobs_v1._video_execution_realm())"
+            "yoao_jobs_v1._video_execution_secret(),'hex'),'cipher-algo=aes256'),"
+            ":scope,'bound',yoao_jobs_v1._video_execution_realm())"
         ),
         {
             "request": request_id,
@@ -86,7 +86,7 @@ async def _install_bound_route_intent(db, job_id, claim):
     )
     await db.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions SET route_request_id=:request, "
+            "UPDATE yoao_jobs_v1.video_executions SET route_request_id=:request, "
             "lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE job_id=:job"
         ),
@@ -99,15 +99,15 @@ async def _install_ready_tracker_scope(db, job_id, claim):
     request_id, scope_id = await _install_bound_route_intent(db, job_id, claim)
     digest = await db.scalar(
         text(
-            "SELECT command_sha256 FROM aap_jobs_v1.video_execution_route_intents "
+            "SELECT command_sha256 FROM yoao_jobs_v1.video_execution_route_intents "
             "WHERE request_id=:request"
         ),
         {"request": request_id},
     )
-    realm = await db.scalar(text("SELECT aap_inference_routing_v1._routing_realm()"))
+    realm = await db.scalar(text("SELECT yoao_inference_routing_v1._routing_realm()"))
     await db.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.scopes ("
+            "INSERT INTO yoao_inference_routing_v1.scopes ("
             "id,command_sha256,registry_id,pool_id,project_id,mode,owner,operation,"
             "generation,config_revision,eligibility_revision,authority_epoch,realm,"
             "state,closed,heartbeat_deadline) VALUES ("
@@ -125,21 +125,21 @@ async def _install_ready_tracker_scope(db, job_id, claim):
     )
     await db.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes "
+            "UPDATE yoao_inference_routing_v1.scopes "
             "SET owner=:owner,operation='tracker' WHERE id=:scope"
         ),
         {"owner": f"tracker:{job_id}", "scope": scope_id},
     )
     await db.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions "
+            "UPDATE yoao_jobs_v1.video_executions "
             "SET lease_expires_at=pg_catalog.clock_timestamp()+interval '1 minute' "
             "WHERE job_id=:job"
         ),
         {"job": job_id},
     )
     capability = await db.scalar(
-        text("SELECT aap_inference_routing_v1._routing_scope_capability(:scope)"),
+        text("SELECT yoao_inference_routing_v1._routing_scope_capability(:scope)"),
         {"scope": scope_id},
     )
     assert isinstance(capability, str) and len(capability) == 64
@@ -185,22 +185,24 @@ async def _cleanup_claimed_scope(
 ):
     async with test_engine.begin() as cleanup:
         await cleanup.execute(
-            text("DELETE FROM aap_inference_routing_v1.attempts WHERE scope_id=:scope"),
+            text(
+                "DELETE FROM yoao_inference_routing_v1.attempts WHERE scope_id=:scope"
+            ),
             {"scope": scope_id},
         )
         await cleanup.execute(
-            text("DELETE FROM aap_inference_routing_v1.scopes WHERE id=:scope"),
+            text("DELETE FROM yoao_inference_routing_v1.scopes WHERE id=:scope"),
             {"scope": scope_id},
         )
         await cleanup.execute(
             text(
-                "DELETE FROM aap_jobs_v1.video_execution_route_intents "
+                "DELETE FROM yoao_jobs_v1.video_execution_route_intents "
                 "WHERE job_id=:job"
             ),
             {"job": job_id},
         )
         await cleanup.execute(
-            text("DELETE FROM aap_jobs_v1.video_executions WHERE job_id=:job"),
+            text("DELETE FROM yoao_jobs_v1.video_executions WHERE job_id=:job"),
             {"job": job_id},
         )
         await cleanup.execute(
@@ -253,7 +255,7 @@ async def test_video_execution_takeover_keeps_logical_run_and_fences_old_claim(
     await db_session.flush()
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions "
+            "UPDATE yoao_jobs_v1.video_executions "
             "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE job_id=:job"
         ),
@@ -414,7 +416,7 @@ async def test_cancelled_current_scope_allows_heartbeat_but_denies_new_attempt(
     identity_hash = "c" * 64
     await db_session.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.attempts ("
+            "INSERT INTO yoao_inference_routing_v1.attempts ("
             "id,scope_id,method,path,transport_identity_sha256,state) "
             "VALUES (:id,:scope,'POST','/predict',:identity,'active')"
         ),
@@ -426,14 +428,14 @@ async def test_cancelled_current_scope_allows_heartbeat_but_denies_new_attempt(
 
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1._video_execution_scope_is_current(:scope,true)"),
+            text("SELECT yoao_jobs_v1._video_execution_scope_is_current(:scope,true)"),
             {"scope": route["scope_id"]},
         )
         is True
     )
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1._video_execution_scope_is_current(:scope,false)"),
+            text("SELECT yoao_jobs_v1._video_execution_scope_is_current(:scope,false)"),
             {"scope": route["scope_id"]},
         )
         is False
@@ -467,7 +469,7 @@ async def test_cancelled_current_scope_allows_heartbeat_but_denies_new_attempt(
         async with db_session.begin_nested():
             await db_session.execute(
                 text(
-                    "INSERT INTO aap_inference_routing_v1.attempts ("
+                    "INSERT INTO yoao_inference_routing_v1.attempts ("
                     "id,scope_id,method,path,transport_identity_sha256,state) "
                     "VALUES (:id,:scope,'POST','/predict',:identity,'active')"
                 ),
@@ -518,7 +520,7 @@ async def test_video_execution_lock_contention_returns_management_busy(test_engi
         blocker_transaction = await blocker.begin()
         await blocker.execute(
             text(
-                "SELECT job_id FROM aap_jobs_v1.video_executions "
+                "SELECT job_id FROM yoao_jobs_v1.video_executions "
                 "WHERE job_id=:job FOR UPDATE"
             ),
             {"job": job_id},
@@ -623,7 +625,7 @@ async def test_settled_release_fences_concurrent_delivery_then_replays(test_engi
             async with test_engine.begin() as cleanup:
                 await cleanup.execute(
                     text(
-                        "DELETE FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                        "DELETE FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -674,7 +676,9 @@ async def test_deleted_job_can_only_recover_its_retained_route_intent(db_session
     assert renewed["execution"]["state"] == "recovery_required"
     route_status = _decode(
         await db_session.scalar(
-            text("SELECT aap_jobs_v1._video_execution_route_step('status',:arguments)"),
+            text(
+                "SELECT yoao_jobs_v1._video_execution_route_step('status',:arguments)"
+            ),
             {"arguments": json.dumps(cleanup_proof, separators=(",", ":"))},
         )
     )
@@ -779,7 +783,7 @@ async def test_terminal_job_without_bound_intent_replays_only_after_retirement(
     await db_session.flush()
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions "
+            "UPDATE yoao_jobs_v1.video_executions "
             "SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE job_id=:job"
         ),
@@ -823,7 +827,7 @@ async def test_terminal_prepared_intent_requires_durable_no_scope_rejection(
     request_id, _ = await _install_bound_route_intent(db_session, job.id, claim)
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.video_execution_route_intents SET state='prepared' "
+            "UPDATE yoao_jobs_v1.video_execution_route_intents SET state='prepared' "
             "WHERE request_id=:request"
         ),
         {"request": request_id},
@@ -831,12 +835,12 @@ async def test_terminal_prepared_intent_requires_durable_no_scope_rejection(
     if rejected:
         await db_session.execute(
             text(
-                "INSERT INTO aap_inference_routing_v1.command_receipts "
+                "INSERT INTO yoao_inference_routing_v1.command_receipts "
                 "(id,command_sha256,operation,result,creating_xid,realm) "
                 "SELECT request_id,command_sha256,'video_acquire',"
                 '\'{"reason":"pool_not_enabled"}\'::jsonb,'
-                "pg_catalog.pg_current_xact_id(),aap_inference_routing_v1._routing_realm() "
-                "FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
+                "pg_catalog.pg_current_xact_id(),yoao_inference_routing_v1._routing_realm() "
+                "FROM yoao_jobs_v1.video_execution_route_intents WHERE request_id=:request"
             ),
             {"request": request_id},
         )
@@ -845,7 +849,7 @@ async def test_terminal_prepared_intent_requires_durable_no_scope_rejection(
     await db_session.flush()
     await db_session.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "INSERT INTO yoao_jobs_v1.video_execution_journals "
             "(job_id,run_id,writer_terminal,writer_terminal_outcome,execution_retired) "
             "VALUES (:job,:run,true,'failed',true) ON CONFLICT(job_id) DO UPDATE SET "
             "writer_terminal=true,writer_terminal_outcome='failed',execution_retired=true"
@@ -890,7 +894,7 @@ async def test_release_distinguishes_proven_no_scope_rejection_from_uncertainty(
         )
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.video_execution_route_intents SET state='prepared' "
+            "UPDATE yoao_jobs_v1.video_execution_route_intents SET state='prepared' "
             "WHERE request_id=:request"
         ),
         {"request": request_id},
@@ -898,12 +902,12 @@ async def test_release_distinguishes_proven_no_scope_rejection_from_uncertainty(
     if outcome != "unknown":
         await db_session.execute(
             text(
-                "INSERT INTO aap_inference_routing_v1.command_receipts "
+                "INSERT INTO yoao_inference_routing_v1.command_receipts "
                 "(id,command_sha256,operation,result,creating_xid,realm) "
                 "SELECT request_id,command_sha256,'video_acquire',"
                 '\'{"reason":"pool_not_enabled"}\'::jsonb,'
-                "pg_catalog.pg_current_xact_id(),aap_inference_routing_v1._routing_realm() "
-                "FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
+                "pg_catalog.pg_current_xact_id(),yoao_inference_routing_v1._routing_realm() "
+                "FROM yoao_jobs_v1.video_execution_route_intents WHERE request_id=:request"
             ),
             {"request": request_id},
         )
@@ -918,7 +922,7 @@ async def test_release_distinguishes_proven_no_scope_rejection_from_uncertainty(
             await db_session.scalar(
                 text(
                     "SELECT lease_expires_at <= pg_catalog.clock_timestamp() "
-                    "FROM aap_jobs_v1.video_executions WHERE job_id=:job"
+                    "FROM yoao_jobs_v1.video_executions WHERE job_id=:job"
                 ),
                 {"job": job_id},
             )
@@ -929,7 +933,7 @@ async def test_release_distinguishes_proven_no_scope_rejection_from_uncertainty(
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
+                "SELECT count(*) FROM yoao_jobs_v1.video_execution_route_intents WHERE request_id=:request"
             ),
             {"request": request_id},
         )
@@ -961,18 +965,18 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
     )
     await db_session.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.command_receipts "
+            "INSERT INTO yoao_inference_routing_v1.command_receipts "
             "(id,command_sha256,operation,result,creating_xid,realm) "
             "SELECT request_id,command_sha256,'video_acquire',"
-            "aap_inference_routing_v1._routing_scope_view(scope_id,true),"
-            "pg_catalog.pg_current_xact_id(),aap_inference_routing_v1._routing_realm() "
-            "FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
+            "yoao_inference_routing_v1._routing_scope_view(scope_id,true),"
+            "pg_catalog.pg_current_xact_id(),yoao_inference_routing_v1._routing_realm() "
+            "FROM yoao_jobs_v1.video_execution_route_intents WHERE request_id=:request"
         ),
         {"request": route["request_id"]},
     )
     digest = await db_session.scalar(
         text(
-            "SELECT command_sha256 FROM aap_jobs_v1.video_execution_route_intents WHERE request_id=:request"
+            "SELECT command_sha256 FROM yoao_jobs_v1.video_execution_route_intents WHERE request_id=:request"
         ),
         {"request": route["request_id"]},
     )
@@ -982,7 +986,7 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
     ] == "ok"
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes SET state='reserved', "
+            "UPDATE yoao_inference_routing_v1.scopes SET state='reserved', "
             "heartbeat_deadline=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE id=:scope"
         ),
@@ -992,7 +996,7 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
     assert expired["status"] == "rejected" and expired["reason"] == "scope_unavailable"
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes SET state='active' WHERE id=:scope"
+            "UPDATE yoao_inference_routing_v1.scopes SET state='active' WHERE id=:scope"
         ),
         {"scope": route["scope_id"]},
     )
@@ -1002,7 +1006,7 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
     ] == "ok"
     await db_session.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
+            "UPDATE yoao_jobs_v1.video_executions SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' "
             "WHERE job_id=:job"
         ),
         {"job": job_id},
@@ -1077,7 +1081,7 @@ async def test_video_route_intent_binds_approved_candidates_to_claim(
         return _decode(
             await db_session.scalar(
                 text(
-                    "SELECT aap_inference_routing_v1.video_execution_scope_step"
+                    "SELECT yoao_inference_routing_v1.video_execution_scope_step"
                     "('prepare', :arguments)"
                 ),
                 {"arguments": json.dumps(args, separators=(",", ":"))},

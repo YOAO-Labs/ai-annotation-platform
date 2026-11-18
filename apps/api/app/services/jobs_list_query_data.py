@@ -40,10 +40,10 @@ class JobsListQueryPostgresData:
             .from_statement(
                 text(
                     "SELECT job.*, "
-                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
                     "progress.progress_observation FROM "
-                    "aap_jobs_v1.async_job_list_page("
+                    "yoao_jobs_v1.async_job_list_page("
                     "CAST(:actor_id AS pg_catalog.uuid), "
                     "CAST(:platform_role AS pg_catalog.text), "
                     "CAST(:statuses AS pg_catalog.text[]), "
@@ -53,7 +53,7 @@ class JobsListQueryPostgresData:
                     "CAST(:limit AS pg_catalog.int4), "
                     "CAST(:offset AS pg_catalog.int4)) AS job "
                     "CROSS JOIN LATERAL "
-                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
+                    "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             )
             .execution_options(populate_existing=True)
@@ -69,7 +69,7 @@ class JobsListQueryPostgresData:
             func.count(self.async_job_model.id).label("async_job_list_total")
         ).from_statement(
             text(
-                "SELECT aap_jobs_v1.async_job_list_total("
+                "SELECT yoao_jobs_v1.async_job_list_total("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text), "
                 "CAST(:statuses AS pg_catalog.text[]), "

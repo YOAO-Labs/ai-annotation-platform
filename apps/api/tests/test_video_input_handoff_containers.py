@@ -189,7 +189,7 @@ def _verify_worker_container(
         )
     parsed = make_url(environment["ASSETS_MEDIA_WORKER_DATABASE_URL"])
     if not (
-        parsed.username == "asset_media_worker_client"
+        parsed.username == "yoao_asset_media_worker_client"
         and parsed.host == "host.docker.internal"
         and parsed.database
         and parsed.database.endswith("_test")
@@ -580,7 +580,7 @@ async def _heartbeat_as_worker(
         async with engine.connect() as worker:
             value = await worker.scalar(
                 text(
-                    "SELECT aap_assets_v1.heartbeat_accepted_video_input("
+                    "SELECT yoao_assets_v1.heartbeat_accepted_video_input("
                     "CAST(:input AS uuid),:generation,CAST(:token AS uuid),60)"
                 ),
                 {"input": input_id, "generation": generation, "token": token},
@@ -680,12 +680,12 @@ async def test_media_containers_reclaim_and_fence_a_paused_original_lease(
     worker_image = _required_env("AAP_VIDEO_CONSUMER_MEDIA_WORKER_IMAGE")
     worker_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
-        "asset_media_worker_client",
+        "yoao_asset_media_worker_client",
         test_engine,
     )
     control_db_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     internal_s3, public_s3 = _container_s3_origins(settings)

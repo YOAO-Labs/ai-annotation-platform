@@ -28,13 +28,13 @@ async def _installed(db) -> None:
         await _run_file(db, "0225_video_inputs_control.sql")
     if not await db.scalar(
         text(
-            "SELECT pg_catalog.to_regprocedure('aap_assets_v1.sweep_accepted_video_inputs(integer)')"
+            "SELECT pg_catalog.to_regprocedure('yoao_assets_v1.sweep_accepted_video_inputs(integer)')"
         )
     ):
         await _run_file(db, "0225_video_inputs_retention.sql")
     if not await db.scalar(
         text(
-            "SELECT pg_catalog.to_regprocedure('aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)')"
+            "SELECT pg_catalog.to_regprocedure('yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)')"
         )
     ):
         await _run_file(db, "0225_video_inputs_garbage.sql")
@@ -69,11 +69,11 @@ async def test_native_evidence_validator_is_typed_strict_and_has_only_annotation
     }
     values = await db_session.execute(
         text(
-            "SELECT aap_assets_v1._video_input_evidence_valid(CAST(:ready AS jsonb),true),"
-            "aap_assets_v1._video_input_evidence_valid(CAST(:failed AS jsonb),false),"
-            "aap_assets_v1._video_input_evidence_valid(CAST(:failed AS jsonb),true),"
-            "aap_labeling_v1._video_input_evidence_valid(CAST(:ready AS jsonb),true),"
-            "aap_labeling_v1._video_input_evidence_valid(CAST(:failed AS jsonb),false)"
+            "SELECT yoao_assets_v1._video_input_evidence_valid(CAST(:ready AS jsonb),true),"
+            "yoao_assets_v1._video_input_evidence_valid(CAST(:failed AS jsonb),false),"
+            "yoao_assets_v1._video_input_evidence_valid(CAST(:failed AS jsonb),true),"
+            "yoao_labeling_v1._video_input_evidence_valid(CAST(:ready AS jsonb),true),"
+            "yoao_labeling_v1._video_input_evidence_valid(CAST(:failed AS jsonb),false)"
         ),
         {"ready": json.dumps(ready), "failed": json.dumps(failed)},
     )
@@ -91,13 +91,13 @@ async def test_native_evidence_validator_is_typed_strict_and_has_only_annotation
             malformed[path] = invalid
         assert not await db_session.scalar(
             text(
-                "SELECT aap_assets_v1._video_input_evidence_valid(CAST(:value AS jsonb),true)"
+                "SELECT yoao_assets_v1._video_input_evidence_valid(CAST(:value AS jsonb),true)"
             ),
             {"value": json.dumps(malformed)},
         )
         assert not await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1._video_input_evidence_valid(CAST(:value AS jsonb),true)"
+                "SELECT yoao_labeling_v1._video_input_evidence_valid(CAST(:value AS jsonb),true)"
             ),
             {"value": json.dumps(malformed)},
         )
@@ -153,7 +153,7 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     image_reply = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.claim_accepted_input_garbage(CAST(:worker AS uuid),300,10)"
+                "SELECT yoao_assets_v1.claim_accepted_input_garbage(CAST(:worker AS uuid),300,10)"
             ),
             {"worker": token_worker},
         )
@@ -161,7 +161,7 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     video_reply = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.claim_accepted_video_input_garbage(CAST(:worker AS uuid),300,10)"
+                "SELECT yoao_assets_v1.claim_accepted_video_input_garbage(CAST(:worker AS uuid),300,10)"
             ),
             {"worker": token_worker},
         )
@@ -185,7 +185,7 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     wrong_partition = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.complete_accepted_video_input_garbage("
+                "SELECT yoao_assets_v1.complete_accepted_video_input_garbage("
                 "CAST(:garbage AS uuid),CAST(:token AS uuid))"
             ),
             {"garbage": image_id, "token": image_token},
@@ -197,7 +197,7 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     wrong_image_ack = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.complete_accepted_input_garbage("
+                "SELECT yoao_assets_v1.complete_accepted_input_garbage("
                 "CAST(:garbage AS uuid),CAST(:token AS uuid))"
             ),
             {"garbage": video_id, "token": video_token},
@@ -209,7 +209,7 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     completed = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.complete_accepted_video_input_garbage("
+                "SELECT yoao_assets_v1.complete_accepted_video_input_garbage("
                 "CAST(:garbage AS uuid),CAST(:token AS uuid))"
             ),
             {"garbage": video_id, "token": video_token},
@@ -219,7 +219,7 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     repeated = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.complete_accepted_video_input_garbage("
+                "SELECT yoao_assets_v1.complete_accepted_video_input_garbage("
                 "CAST(:garbage AS uuid),CAST(:token AS uuid))"
             ),
             {"garbage": video_id, "token": video_token},
@@ -235,7 +235,7 @@ async def test_video_garbage_queue_will_not_start_cleanup_before_late_put_grace(
     prefix = f"accepted-video-inputs/{uuid.uuid4()}/g3/a{uuid.uuid4()}/"
     await db_session.execute(
         text(
-            "SELECT aap_assets_v1._video_input_queue_prefix(:prefix,'lease_expired',"
+            "SELECT yoao_assets_v1._video_input_queue_prefix(:prefix,'lease_expired',"
             "pg_catalog.clock_timestamp()-interval '1 day')"
         ),
         {"prefix": prefix},
@@ -254,6 +254,6 @@ async def test_video_garbage_queue_will_not_start_cleanup_before_late_put_grace(
     )
     assert not_before is not None and remaining.total_seconds() >= 23 * 60 * 60
     assert await db_session.scalar(
-        text("SELECT aap_assets_v1._video_input_prefix_valid(:prefix)"),
+        text("SELECT yoao_assets_v1._video_input_prefix_valid(:prefix)"),
         {"prefix": prefix},
     )

@@ -165,11 +165,11 @@ def _member_snapshot(member, aliases, *, phase: str) -> dict:
 def _read_phase(statement: str, observation: dict) -> str:
     compact = " ".join(statement.casefold().split())
     direct = observation.get("phase_context") == "direct_resolver"
-    if "aap_identity_v1.read_actor_context" in compact:
+    if "yoao_identity_v1.read_actor_context" in compact:
         return "identity_actor_context"
-    if "aap_identity_v1.read_jwt_principal" in compact:
+    if "yoao_identity_v1.read_jwt_principal" in compact:
         return "identity_jwt_principal"
-    if "aap_identity_v1.read_actor_facts" in compact:
+    if "yoao_identity_v1.read_actor_facts" in compact:
         count = observation.setdefault("_actor_status_reads", 0) + 1
         observation["_actor_status_reads"] = count
         if direct:

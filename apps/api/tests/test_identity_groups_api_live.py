@@ -187,12 +187,12 @@ async def test_table_free_group_api_all_eight_routes(
         async with maker() as db:
             assert not await db.scalar(
                 text(
-                    "SELECT has_table_privilege('identity_auth_client','public.users','SELECT')"
+                    "SELECT has_table_privilege('yoao_identity_auth_client','public.users','SELECT')"
                 )
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_table_privilege('identity_auth_client','public.groups','SELECT')"
+                    "SELECT has_table_privilege('yoao_identity_auth_client','public.groups','SELECT')"
                 )
             )
             assert (

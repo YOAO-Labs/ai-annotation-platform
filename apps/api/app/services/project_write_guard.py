@@ -44,10 +44,10 @@ from yoao_workspace_contract.access import (
 
 _BUSY_SQLSTATES = {"55P03", "40001", "40P01"}
 _LOCK_PROJECT_REFERENCE = text(
-    "SELECT aap_workspace_v1.lock_project_reference(CAST(:project_id AS uuid))"
+    "SELECT yoao_workspace_v1.lock_project_reference(CAST(:project_id AS uuid))"
 )
 _LOCK_PROJECT_REFERENCE_NOWAIT = text(
-    "SELECT aap_workspace_v1.lock_project_reference_nowait(CAST(:project_id AS uuid))"
+    "SELECT yoao_workspace_v1.lock_project_reference_nowait(CAST(:project_id AS uuid))"
 )
 
 

@@ -111,7 +111,7 @@ async def test_local_native_read_uses_exact_connection_owner_function():
 
     assert result.connection.id == connection_id
     statement, parameters = db.execute.await_args.args
-    assert "aap_assets_v1.read_storage_connection" in str(statement)
+    assert "yoao_assets_v1.read_storage_connection" in str(statement)
     assert parameters == {"actor_id": actor_id, "connection_id": connection_id}
     db.commit.assert_not_awaited()
 
@@ -140,7 +140,7 @@ async def test_local_native_capture_uses_frozen_three_argument_signature():
 
     assert result.source_snapshot == "b" * 64
     statement, parameters = db.execute.await_args.args
-    assert "aap_assets_v1.capture_storage_connection" in str(statement)
+    assert "yoao_assets_v1.capture_storage_connection" in str(statement)
     assert parameters == {
         "actor_id": actor_id,
         "connection_id": connection_id,

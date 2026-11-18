@@ -587,7 +587,7 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
                 )
                 assert await db.scalar(
                     text(
-                        "SELECT aap_labeling_v1.create_uploading_task("
+                        "SELECT yoao_labeling_v1.create_uploading_task("
                         ":task_id, :project_id, :display_id, :file_name, "
                         ":file_path, :file_type, :actor_id)"
                     ),

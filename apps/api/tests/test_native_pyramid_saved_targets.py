@@ -48,31 +48,31 @@ from yoao_assets_images.policy import ImagePolicy
 pytestmark = pytest.mark.asyncio
 
 _CLAIMABLE = text(
-    "SELECT aap_assets_v1._native_pyramid_retirement_claimable("
+    "SELECT yoao_assets_v1._native_pyramid_retirement_claimable("
     "CAST(:output_id AS uuid))"
 )
 _ABANDON = text(
-    "SELECT aap_assets_v1.abandon_native_pyramid_member("
+    "SELECT yoao_assets_v1.abandon_native_pyramid_member("
     "CAST(:operation_id AS uuid), :state)"
 )
 _VERIFY_MEMBER = text(
-    "SELECT aap_assets_v1.verify_native_pyramid_member(CAST(:operation_id AS uuid))"
+    "SELECT yoao_assets_v1.verify_native_pyramid_member(CAST(:operation_id AS uuid))"
 )
 _CAPTURE_WRITE = text(
-    "SELECT aap_assets_v1.capture_native_pyramid_write_io("
+    "SELECT yoao_assets_v1.capture_native_pyramid_write_io("
     "CAST(:operation_id AS uuid), CAST(:job_id AS uuid), "
     "CAST(:job_generation AS bigint), CAST(:lease_token AS uuid), :mode)"
 )
 _CAPTURE_RETIREMENT = text(
-    "SELECT aap_assets_v1.capture_native_pyramid_retirement_io("
+    "SELECT yoao_assets_v1.capture_native_pyramid_retirement_io("
     "CAST(:output_id AS uuid), CAST(:lease_token AS uuid), CAST(:page_id AS uuid))"
 )
 _DESTINATION = text(
-    "SELECT aap_assets_v1._native_pyramid_target_destination("
+    "SELECT yoao_assets_v1._native_pyramid_target_destination("
     "CAST(:location_id AS uuid), :endpoint_url, :bucket, :storage_identity)"
 )
 _RESOLVE_FIXTURE_CACHE = text(
-    "SELECT aap_assets_v1.resolve_fixture_native_cache(:key)"
+    "SELECT yoao_assets_v1.resolve_fixture_native_cache(:key)"
 )
 
 
@@ -80,7 +80,9 @@ def _identity(endpoint: str, bucket: str) -> str:
     return hashlib.sha256(json.dumps([endpoint, bucket]).encode("utf-8")).hexdigest()
 
 
-def _ref(output_id, location_id, endpoint, bucket, *, key_prefix="", config=1, binding=1):
+def _ref(
+    output_id, location_id, endpoint, bucket, *, key_prefix="", config=1, binding=1
+):
     return {
         "schema": 2,
         "purpose": "media-cache",
@@ -152,9 +154,7 @@ async def _reserve(session, output_id, relative_key):
     )
     assert reservation["state"] == "prepared"
     submitted = _data(
-        _reply(
-            await session.scalar(_SUBMIT_MEMBER, {"operation_id": operation_id})
-        )
+        _reply(await session.scalar(_SUBMIT_MEMBER, {"operation_id": operation_id}))
     )
     assert submitted["state"] == "submitted"
     return operation_id
@@ -181,10 +181,7 @@ async def _claimable(session, output_id):
 
 async def _permits(session, output_id):
     return await session.scalar(
-        text(
-            "SELECT count(*) FROM public.storage_operations "
-            "WHERE purpose = :purpose"
-        ),
+        text("SELECT count(*) FROM public.storage_operations WHERE purpose = :purpose"),
         {"purpose": "image_pyramid_" + output_id.hex},
     )
 
@@ -207,7 +204,7 @@ async def _cancel(session, allocation):
 async def _make_retirement_due(session, output_id):
     await session.execute(
         text(
-            "UPDATE aap_assets_v1.native_pyramid_retirements "
+            "UPDATE yoao_assets_v1.native_pyramid_retirements "
             "SET not_before = clock_timestamp() - interval '1 minute' "
             "WHERE output_id = CAST(:output_id AS uuid)"
         ),
@@ -223,7 +220,9 @@ async def _make_retirement_due(session, output_id):
     )
 
 
-async def test_written_closure_settles_its_operation_and_permits_retirement(test_engine):
+async def test_written_closure_settles_its_operation_and_permits_retirement(
+    test_engine,
+):
     maker = await _maker(test_engine)
     async with maker() as session:
         await session.begin()
@@ -274,7 +273,7 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(test
                     await session.execute(
                         text(
                             "SELECT state, etag, version_id "
-                            "FROM aap_assets_v1.image_pyramid_native_members "
+                            "FROM yoao_assets_v1.image_pyramid_native_members "
                             "WHERE operation_id = CAST(:operation_id AS uuid)"
                         ),
                         {"operation_id": manifest},
@@ -322,7 +321,7 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(test
                     await session.execute(
                         text(
                             "SELECT operation_id, version_id, version_id IS NULL "
-                            "AS omitted FROM aap_assets_v1.image_pyramid_native_members "
+                            "AS omitted FROM yoao_assets_v1.image_pyramid_native_members "
                             "WHERE output_id = CAST(:output_id AS uuid)"
                         ),
                         {"output_id": output_id},
@@ -556,7 +555,9 @@ async def test_saved_targets_require_the_registered_connection_bucket(test_engin
             assert first["storage_ref"]["location_id"] == str(location_a)
             assert first["storage_ref"]["endpoint_url"] == "https://cache-a.example"
             assert first["storage_ref"]["bucket"] == "registered-a"
-            assert first["storage_ref"]["key_prefix"] == "tenant/_aap_managed/media-cache/"
+            assert (
+                first["storage_ref"]["key_prefix"] == "tenant/_aap_managed/media-cache/"
+            )
 
             destination = _reply(
                 await session.scalar(
@@ -711,10 +712,14 @@ async def test_binding_switch_keeps_each_saved_target_at_its_own_location(test_e
                     await session.scalar(
                         _DESTINATION,
                         {
-                            "location_id": uuid.UUID(saved["storage_ref"]["location_id"]),
+                            "location_id": uuid.UUID(
+                                saved["storage_ref"]["location_id"]
+                            ),
                             "endpoint_url": saved["storage_ref"]["endpoint_url"],
                             "bucket": saved["storage_ref"]["bucket"],
-                            "storage_identity": saved["storage_ref"]["storage_identity"],
+                            "storage_identity": saved["storage_ref"][
+                                "storage_identity"
+                            ],
                         },
                     )
                 )
@@ -725,7 +730,7 @@ async def test_binding_switch_keeps_each_saved_target_at_its_own_location(test_e
                     await session.execute(
                         text(
                             "SELECT output_id, location_id FROM "
-                            "aap_assets_v1.native_pyramid_retirement_targets "
+                            "yoao_assets_v1.native_pyramid_retirement_targets "
                             "WHERE output_id IN (CAST(:first AS uuid), CAST(:second AS uuid))"
                         ),
                         {
@@ -769,7 +774,7 @@ async def _fixture_run(session, *, parent=None):
 async def _register_resolver(session, suite_id, *, run_id, proxy_origin):
     await session.execute(
         text(
-            "INSERT INTO aap_assets_v1.fixture_native_resolver_principals "
+            "INSERT INTO yoao_assets_v1.fixture_native_resolver_principals "
             "(suite_id, principal_oid, principal_name, state) "
             "VALUES (CAST(:suite AS uuid), "
             " (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user), "
@@ -779,7 +784,7 @@ async def _register_resolver(session, suite_id, *, run_id, proxy_origin):
     )
     await session.execute(
         text(
-            "INSERT INTO aap_assets_v1.fixture_native_read_principals "
+            "INSERT INTO yoao_assets_v1.fixture_native_read_principals "
             "(run_id, principal_oid, principal_name, proxy_origin, state) "
             "VALUES (CAST(:run AS uuid), "
             " (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user), "
@@ -814,7 +819,7 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
             )
             await session.execute(
                 text(
-                    "INSERT INTO aap_assets_v1.fixture_native_media_jobs "
+                    "INSERT INTO yoao_assets_v1.fixture_native_media_jobs "
                     "(family, job_id, run_id, dataset_id, item_id, job_kind, "
                     " owner_kind, owner_id) "
                     "VALUES ('image', CAST(:job AS uuid), CAST(:run AS uuid), "
@@ -845,7 +850,7 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
             )
             await session.execute(
                 text(
-                    "INSERT INTO aap_assets_v1.image_pyramid_native_attempts "
+                    "INSERT INTO yoao_assets_v1.image_pyramid_native_attempts "
                     "(output_id, job_id, job_generation, lease_token, asset_id, "
                     " generation, source_generation, source_snapshot, "
                     " profile_version, gate_revision) "
@@ -886,7 +891,7 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
             )
             await session.execute(
                 text(
-                    "INSERT INTO aap_assets_v1.fixture_media_births "
+                    "INSERT INTO yoao_assets_v1.fixture_media_births "
                     "(owner_kind, owner_id, generation, run_id, dataset_id, item_id) "
                     "VALUES ('pyramid_output', CAST(:output AS uuid), 0, "
                     " CAST(:run AS uuid), CAST(:dataset AS uuid), CAST(:item AS uuid))"
@@ -905,13 +910,18 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
                 "tiles/0/0/0.webp": (tile_sha, 12, "written", "written"),
             }
             operations = {}
-            for relative_key, (sha, size, member_state, version_state) in members.items():
+            for relative_key, (
+                sha,
+                size,
+                member_state,
+                version_state,
+            ) in members.items():
                 operation_id = uuid.uuid4()
                 operations[relative_key] = operation_id
                 object_key = ref["prefix"] + relative_key
                 await session.execute(
                     text(
-                        "INSERT INTO aap_assets_v1.image_pyramid_native_members "
+                        "INSERT INTO yoao_assets_v1.image_pyramid_native_members "
                         "(operation_id, output_id, relative_key, sha256, size_bytes, "
                         " state, operation_permit, etag, version_id) "
                         "VALUES (CAST(:operation AS uuid), CAST(:output AS uuid), "
@@ -932,7 +942,7 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
                 )
                 await session.execute(
                     text(
-                        "INSERT INTO aap_assets_v1.fixture_media_versions "
+                        "INSERT INTO yoao_assets_v1.fixture_media_versions "
                         "(id, run_id, dataset_id, item_id, task_id, execution_kind, "
                         " execution_id, execution_token, owner_kind, owner_id, "
                         " object_key, key_digest, sha256, size_bytes, state, etag, "
@@ -1052,7 +1062,7 @@ async def test_legacy_reconcile_never_fails_admitted_native_generation(
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_assets_v1.image_pyramid_native_attempts "
+                "SELECT count(*) FROM yoao_assets_v1.image_pyramid_native_attempts "
                 "WHERE asset_id = CAST(:asset_id AS uuid)"
             ),
             {"asset_id": asset_id},
@@ -1087,20 +1097,25 @@ async def test_legacy_reconcile_never_fails_admitted_native_generation(
     # Admission survives the business job anchor; a vanished job is still not
     # permission for the legacy collector to mutate the generation.
     await db_session.execute(
-        text("DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"),
-        {"job_id": job_id},
-    )
-    assert await db_session.scalar(
         text(
-            "SELECT count(*) FROM public.asset_image_jobs "
-            "WHERE job_id = CAST(:job_id AS uuid)"
+            "DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"
         ),
         {"job_id": job_id},
-    ) == 0
+    )
     assert (
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.legacy_pyramid_gc_eligible("
+                "SELECT count(*) FROM public.asset_image_jobs "
+                "WHERE job_id = CAST(:job_id AS uuid)"
+            ),
+            {"job_id": job_id},
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT yoao_assets_v1.legacy_pyramid_gc_eligible("
                 "'pyramid_generation', CAST(:asset_id AS uuid), :generation)"
             ),
             {"asset_id": asset_id, "generation": generation},
@@ -1178,7 +1193,9 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
         {"asset_id": asset_id, "generation": generation},
     )
     await db_session.execute(
-        text("DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"),
+        text(
+            "DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"
+        ),
         {"job_id": job_id},
     )
 
@@ -1197,7 +1214,7 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_assets_v1.image_pyramid_native_attempts "
+                "SELECT count(*) FROM yoao_assets_v1.image_pyramid_native_attempts "
                 "WHERE output_id = CAST(:output_id AS uuid)"
             ),
             {"output_id": output_id},
@@ -1207,7 +1224,7 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_assets_v1.native_pyramid_retirement_targets "
+                "SELECT count(*) FROM yoao_assets_v1.native_pyramid_retirement_targets "
                 "WHERE output_id = CAST(:output_id AS uuid)"
             ),
             {"output_id": output_id},
@@ -1217,7 +1234,7 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
     assert (
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.legacy_pyramid_gc_eligible("
+                "SELECT yoao_assets_v1.legacy_pyramid_gc_eligible("
                 "'pyramid_output', CAST(:output_id AS uuid), 0)"
             ),
             {"output_id": output_id},

@@ -73,7 +73,7 @@ async def test_source_less_cleanup_uses_labeling_owner_and_preserves_uow(test_en
                 assert await db.scalar(
                     text(
                         "SELECT has_function_privilege(current_user, "
-                        "'aap_labeling_v1.task_maintenance_command(jsonb)', 'EXECUTE')"
+                        "'yoao_labeling_v1.task_maintenance_command(jsonb)', 'EXECUTE')"
                     )
                 )
                 result = await delete_source_less_tasks(db, world["project_id"])
@@ -83,7 +83,7 @@ async def test_source_less_cleanup_uses_labeling_owner_and_preserves_uow(test_en
                 event.remove(engine, "before_cursor_execute", capture)
 
         assert any(
-            "aap_labeling_v1.task_maintenance_command" in sql for sql in statements
+            "yoao_labeling_v1.task_maintenance_command" in sql for sql in statements
         )
         assert not any(
             sql.lstrip().startswith(

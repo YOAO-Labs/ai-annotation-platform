@@ -527,16 +527,16 @@ async def test_unlocked_guard_refreshes_job_without_private_jobs_select(
     role = "learning_jobs_guard_" + uuid.uuid4().hex
     await world.db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
     await world.db.execute(
-        text(f'GRANT USAGE ON SCHEMA public, aap_jobs_v1 TO "{role}"')
+        text(f'GRANT USAGE ON SCHEMA public, yoao_jobs_v1 TO "{role}"')
     )
     await world.db.execute(
         text(f'GRANT SELECT ON public.training_dataset_versions TO "{role}"')
     )
     await world.db.execute(
         text(
-            f"GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
-            f"aap_jobs_v1.read_job_execution_snapshot(uuid), "
-            f'aap_jobs_v1.read_job_progress(uuid) TO "{role}"'
+            f"GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), "
+            f"yoao_jobs_v1.read_job_execution_snapshot(uuid), "
+            f'yoao_jobs_v1.read_job_progress(uuid) TO "{role}"'
         )
     )
     await world.db.execute(text(f'SET LOCAL ROLE "{role}"'))
@@ -585,8 +585,8 @@ async def test_dataset_dispatch_and_cancellation_without_private_jobs_select(
     await db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
     await db.execute(
         text(
-            f"GRANT USAGE ON SCHEMA public, aap_jobs_v1, aap_identity_v1, "
-            f'aap_workspace_v1, aap_notifications_v1 TO "{role}"'
+            f"GRANT USAGE ON SCHEMA public, yoao_jobs_v1, yoao_identity_v1, "
+            f'yoao_workspace_v1, yoao_notifications_v1 TO "{role}"'
         )
     )
     await db.execute(
@@ -594,20 +594,20 @@ async def test_dataset_dispatch_and_cancellation_without_private_jobs_select(
     )
     await db.execute(
         text(
-            f"GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
-            f"aap_jobs_v1.read_job_execution_snapshot(uuid), "
-            f"aap_jobs_v1.read_job_progress(uuid), "
-            f"aap_jobs_v1.apply_lifecycle(uuid,jsonb), "
-            f"aap_identity_v1.lock_accounts_share(uuid[],boolean), "
-            f"aap_workspace_v1.project_access_step(uuid,uuid,text), "
-            f"aap_notifications_v1.find_terminal_notification(uuid,text,uuid), "
-            f"aap_notifications_v1.preference_command(jsonb), "
-            f"aap_notifications_v1.delivery_job_scopes(uuid[]), "
-            f"aap_notifications_v1.delivery_member_pairs(jsonb), "
-            f"aap_notifications_v1.delivery_owner_pairs(jsonb), "
-            f"aap_notifications_v1.delivery_reviewer_pairs(jsonb), "
-            f"aap_notifications_v1.delivery_super_pairs(jsonb), "
-            f'aap_notifications_v1.append_job_terminal_notification(jsonb) TO "{role}"'
+            f"GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), "
+            f"yoao_jobs_v1.read_job_execution_snapshot(uuid), "
+            f"yoao_jobs_v1.read_job_progress(uuid), "
+            f"yoao_jobs_v1.apply_lifecycle(uuid,jsonb), "
+            f"yoao_identity_v1.lock_accounts_share(uuid[],boolean), "
+            f"yoao_workspace_v1.project_access_step(uuid,uuid,text), "
+            f"yoao_notifications_v1.find_terminal_notification(uuid,text,uuid), "
+            f"yoao_notifications_v1.preference_command(jsonb), "
+            f"yoao_notifications_v1.delivery_job_scopes(uuid[]), "
+            f"yoao_notifications_v1.delivery_member_pairs(jsonb), "
+            f"yoao_notifications_v1.delivery_owner_pairs(jsonb), "
+            f"yoao_notifications_v1.delivery_reviewer_pairs(jsonb), "
+            f"yoao_notifications_v1.delivery_super_pairs(jsonb), "
+            f'yoao_notifications_v1.append_job_terminal_notification(jsonb) TO "{role}"'
         )
     )
     sent = []
@@ -776,14 +776,14 @@ async def test_http_training_authority_without_private_identity_select(
     await db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
     await db.execute(
         text(
-            "GRANT USAGE ON SCHEMA public, aap_identity_v1, "
-            f'aap_workspace_v1, yoao_workspace_project_query_v1 TO "{role}"'
+            "GRANT USAGE ON SCHEMA public, yoao_identity_v1, "
+            f'yoao_workspace_v1, yoao_workspace_project_query_v1 TO "{role}"'
         )
     )
     await db.execute(
         text(
-            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, "
-            f'aap_workspace_v1, yoao_workspace_project_query_v1 TO "{role}"'
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA yoao_identity_v1, "
+            f'yoao_workspace_v1, yoao_workspace_project_query_v1 TO "{role}"'
         )
     )
     request = Request(

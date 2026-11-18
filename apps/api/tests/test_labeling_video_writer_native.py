@@ -14,7 +14,7 @@ from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
 
 pytestmark = pytest.mark.asyncio
 
-_WRITER_STEP = text("SELECT aap_labeling_v1.video_writer_step(:action, :arguments)")
+_WRITER_STEP = text("SELECT yoao_labeling_v1.video_writer_step(:action, :arguments)")
 
 
 def _decode(value):
@@ -144,7 +144,7 @@ async def test_invalid_staged_digest_leaves_running_job_and_no_receipt(db_sessio
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_labeling_v1.video_writer_receipts "
+                "SELECT count(*) FROM yoao_labeling_v1.video_writer_receipts "
                 "WHERE job_id=:job"
             ),
             {"job": job.id},
@@ -191,7 +191,7 @@ async def test_native_source_mapping_matches_frozen_legacy_observations(db_sessi
             continue
         actual = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1._video_writer_source_map("
+                "SELECT yoao_labeling_v1._video_writer_source_map("
                 "CAST(:annotation AS uuid), CAST(:execution AS jsonb), CAST(:results AS jsonb))"
             ),
             {
@@ -283,7 +283,7 @@ async def test_falsy_prompt_seed_defaults_match_legacy_mapping(db_session):
         }
         actual = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1._video_writer_source_map("
+                "SELECT yoao_labeling_v1._video_writer_source_map("
                 "CAST(:annotation AS uuid),CAST(:execution AS jsonb),CAST(:results AS jsonb))"
             ),
             {
@@ -301,30 +301,30 @@ async def test_late_jobs_finish_rejection_rolls_back_job_publication(db_session)
     definition = await db_session.scalar(
         text(
             "SELECT pg_catalog.pg_get_functiondef("
-            "'aap_jobs_v1.video_writer_authority(text,jsonb)'::regprocedure)"
+            "'yoao_jobs_v1.video_writer_authority(text,jsonb)'::regprocedure)"
         )
     )
     connection = await db_session.connection()
     await connection.exec_driver_sql(
         definition.replace(
-            "aap_jobs_v1.video_writer_authority(",
-            "aap_jobs_v1._test_original_writer_authority(",
+            "yoao_jobs_v1.video_writer_authority(",
+            "yoao_jobs_v1._test_original_writer_authority(",
             1,
         )
     )
     await connection.exec_driver_sql(
-        "ALTER FUNCTION aap_jobs_v1._test_original_writer_authority(text,jsonb) OWNER TO jobs_code"
+        "ALTER FUNCTION yoao_jobs_v1._test_original_writer_authority(text,jsonb) OWNER TO jobs_code"
     )
     await connection.exec_driver_sql("""
-        CREATE OR REPLACE FUNCTION aap_jobs_v1.video_writer_authority(
+        CREATE OR REPLACE FUNCTION yoao_jobs_v1.video_writer_authority(
             p_action text,p_arguments jsonb
         ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
         SET search_path=pg_catalog,pg_temp AS $test$
         BEGIN
             IF p_action='finish_failed' THEN
-                RETURN aap_jobs_v1._video_checkpoint_reply(NULL,'finish_conflict');
+                RETURN yoao_jobs_v1._video_checkpoint_reply(NULL,'finish_conflict');
             END IF;
-            RETURN aap_jobs_v1._test_original_writer_authority(p_action,p_arguments);
+            RETURN yoao_jobs_v1._test_original_writer_authority(p_action,p_arguments);
         END
         $test$
     """)
@@ -337,7 +337,7 @@ async def test_late_jobs_finish_rejection_rolls_back_job_publication(db_session)
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_labeling_v1.video_writer_receipts WHERE job_id=:job"
+                "SELECT count(*) FROM yoao_labeling_v1.video_writer_receipts WHERE job_id=:job"
             ),
             {"job": job.id},
         )
@@ -346,7 +346,7 @@ async def test_late_jobs_finish_rejection_rolls_back_job_publication(db_session)
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_execution_journals "
+                "SELECT count(*) FROM yoao_jobs_v1.video_execution_journals "
                 "WHERE job_id=:job"
             ),
             {"job": job.id},

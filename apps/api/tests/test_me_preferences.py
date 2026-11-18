@@ -802,7 +802,7 @@ async def test_patch_ui_theme_default_and_invalid(httpx_client, annotator):
 async def _store_raw_preferences(db_session, user, value):
     await db_session.execute(
         sa.text(
-            "SELECT aap_identity_v1.replace_fixture_preferences(:id, CAST(:value AS jsonb))"
+            "SELECT yoao_identity_v1.replace_fixture_preferences(:id, CAST(:value AS jsonb))"
         ),
         {"id": user.id, "value": json.dumps(value)},
     )

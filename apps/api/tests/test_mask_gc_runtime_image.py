@@ -70,7 +70,7 @@ async def _start_gc(
 ):
     dsn = make_url(_required_env("AAP_MODULE_DATA_LABELING_MASK_GC_URL"))
     assert (
-        dsn.username == "labeling_mask_gc_client"
+        dsn.username == "yoao_labeling_mask_gc_client"
         and dsn.database == resources["database"]
     )
     token = secrets.token_urlsafe(32)

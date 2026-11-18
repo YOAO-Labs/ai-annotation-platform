@@ -186,7 +186,7 @@ async def test_media_admin_behavior(
             (
                 await db.execute(
                     text(
-                        "SELECT email,name,role,is_active,status,avatar_ref FROM aap_identity_v1.account_profiles WHERE id=:id"
+                        "SELECT email,name,role,is_active,status,avatar_ref FROM yoao_identity_v1.account_profiles WHERE id=:id"
                     ),
                     {"id": account_id},
                 )

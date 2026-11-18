@@ -16,7 +16,7 @@ class WorkspaceInferenceCeleryWorker(WorkspaceCeleryWorker):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._routing_dsn = self._role_dsn(
-            "AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"
+            "AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "yoao_inference_routing_client"
         )
         self._routing_token = secrets.token_urlsafe(32)
         self._routing_owner_url = f"http://127.0.0.1:{_ROUTING_OWNER_PORT}"
@@ -33,55 +33,55 @@ class WorkspaceInferenceCeleryWorker(WorkspaceCeleryWorker):
             (
                 "BACKEND_ENDPOINT_SETUP",
                 "ENDPOINT_SETUP",
-                "inference_endpoint_setup_client",
+                "yoao_inference_endpoint_setup_client",
             ),
             (
                 "BACKEND_ENDPOINT_HEALTH_OBSERVATION",
                 "ENDPOINT_HEALTH_OBSERVATION",
-                "inference_endpoint_health_client",
+                "yoao_inference_endpoint_health_client",
             ),
             (
                 "BACKEND_ENDPOINT_CATALOG_FALLBACK",
                 "ENDPOINT_CATALOG_FALLBACK",
-                "inference_endpoint_catalog_client",
+                "yoao_inference_endpoint_catalog_client",
             ),
             (
                 "BACKEND_ENDPOINT_STATS",
                 "ENDPOINT_STATS",
-                "inference_endpoint_stats_client",
+                "yoao_inference_endpoint_stats_client",
             ),
             (
                 "BACKEND_ENDPOINT_BACKEND_READ",
                 "ENDPOINT_BACKEND_READ",
-                "inference_endpoint_read_client",
+                "yoao_inference_endpoint_read_client",
             ),
             (
                 "BACKEND_ENDPOINT_LIFECYCLE",
                 "ENDPOINT_LIFECYCLE",
-                "inference_endpoint_lifecycle_client",
+                "yoao_inference_endpoint_lifecycle_client",
             ),
             (
                 "BACKEND_ENDPOINT_EXECUTION",
                 "ENDPOINT_EXECUTION",
-                "inference_endpoint_execution_client",
+                "yoao_inference_endpoint_execution_client",
             ),
-            ("BACKEND_STATS", "BACKEND_STATS", "inference_backend_stats_client"),
-            ("GPU", "GPU", "inference_gpu_authority_client"),
+            ("BACKEND_STATS", "BACKEND_STATS", "yoao_inference_backend_stats_client"),
+            ("GPU", "GPU", "yoao_inference_gpu_authority_client"),
             (
                 "GPU_ENDPOINT_HEALTH_OBSERVATION",
                 "GPU_HEALTH_ENDPOINT",
-                "inference_gpu_health_endpoint_client",
+                "yoao_inference_gpu_health_endpoint_client",
             ),
             (
                 "GPU_ENDPOINT_GPU_CONTROL",
                 "GPU_CONTROL_ENDPOINT",
-                "inference_gpu_control_endpoint_client",
+                "yoao_inference_gpu_control_endpoint_client",
             ),
-            ("HEALTH_DATA", "HEALTH_DATA", "inference_health_data_client"),
+            ("HEALTH_DATA", "HEALTH_DATA", "yoao_inference_health_data_client"),
             (
                 "HEALTH_OBSERVATION",
                 "HEALTH_OBSERVATION",
-                "inference_health_observation_client",
+                "yoao_inference_health_observation_client",
             ),
         )
         owner_databases = {

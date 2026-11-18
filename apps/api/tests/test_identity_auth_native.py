@@ -114,7 +114,7 @@ def test_frozen_identity_admission_protocol_and_ownership_artifacts():
     assert artifact.count("CREATE FUNCTION") == 12  # public operations + private helper
     assert artifact.count("REVOKE ALL ON FUNCTION") == 12
     assert artifact.count("SET search_path = pg_catalog, pg_temp") == 12
-    assert "identity_auth_role=identity_auth_client" in Path(__file__).parents[
+    assert "identity_auth_role=yoao_identity_auth_client" in Path(__file__).parents[
         3
     ].joinpath("infra/docker/identity-auth-grants.sql").read_text(encoding="utf-8")
 
@@ -131,7 +131,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
     try:
         async with maker() as session:
             policy = await _call(
-                session, "SELECT aap_identity_v1.authentication_policy()"
+                session, "SELECT yoao_identity_v1.authentication_policy()"
             )
             assert policy == {
                 "schema": "aap-identity-policy/v1",
@@ -140,7 +140,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
             }
             reply = await _call(
                 session,
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 "CAST(:actor AS uuid), CAST(:jti AS uuid), 0, :expires, false)",
                 actor=_uuid(fixture["actor_id"]),
                 jti=_uuid(jti),
@@ -151,7 +151,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
             assert reply["data"]["generation"] == 0
             refreshable = await _call(
                 session,
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 "CAST(:actor AS uuid), CAST(:jti AS uuid), 0, :expires, true)",
                 actor=_uuid(fixture["actor_id"]),
                 jti=_uuid(uuid.uuid4()),
@@ -159,7 +159,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
             )
             refresh_expired = await _call(
                 session,
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 "CAST(:actor AS uuid), CAST(:jti AS uuid), 0, :expires, true)",
                 actor=_uuid(fixture["actor_id"]),
                 jti=_uuid(uuid.uuid4()),
@@ -172,13 +172,13 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
         async with maker.begin() as session:
             await _call(
                 session,
-                "SELECT aap_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)",
+                "SELECT yoao_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)",
                 jti=_uuid(jti),
                 retain_until=expiry + timedelta(days=7),
             )
             await _call(
                 session,
-                "SELECT aap_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)",
+                "SELECT yoao_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)",
                 jti=_uuid(jti),
                 retain_until=expiry,
             )
@@ -191,7 +191,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
             assert retained_until == expiry + timedelta(days=7)
             revoked = await _call(
                 session,
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 "CAST(:actor AS uuid), CAST(:jti AS uuid), 0, :expires, false)",
                 actor=_uuid(fixture["actor_id"]),
                 jti=_uuid(jti),
@@ -199,7 +199,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
             )
             stale = await _call(
                 session,
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 "CAST(:actor AS uuid), CAST(:jti AS uuid), 1, :expires, false)",
                 actor=_uuid(fixture["actor_id"]),
                 jti=_uuid(old_generation_jti),
@@ -207,7 +207,7 @@ async def test_jwt_principal_checks_current_generation_expiry_and_jti_revocation
             )
             expired = await _call(
                 session,
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 "CAST(:actor AS uuid), CAST(:jti AS uuid), 0, :expires, false)",
                 actor=_uuid(fixture["actor_id"]),
                 jti=_uuid(uuid.uuid4()),
@@ -250,7 +250,7 @@ async def test_api_key_candidates_are_ordered_and_confirmation_updates_last_used
         async with maker() as session:
             first = await _call(
                 session,
-                "SELECT aap_identity_v1.read_api_key_candidates(:prefix, NULL, 1)",
+                "SELECT yoao_identity_v1.read_api_key_candidates(:prefix, NULL, 1)",
                 prefix=prefix,
             )
             assert first["schema"] == "aap-identity-candidates/v1"
@@ -258,7 +258,7 @@ async def test_api_key_candidates_are_ordered_and_confirmation_updates_last_used
             assert first["next_after"] == str(key_ids[0])
             second = await _call(
                 session,
-                "SELECT aap_identity_v1.read_api_key_candidates("
+                "SELECT yoao_identity_v1.read_api_key_candidates("
                 ":prefix, CAST(:after_id AS uuid), 10)",
                 prefix=prefix,
                 after_id=str(key_ids[0]),
@@ -268,7 +268,7 @@ async def test_api_key_candidates_are_ordered_and_confirmation_updates_last_used
 
             reply = await _call(
                 session,
-                "SELECT aap_identity_v1.confirm_api_key_principal("
+                "SELECT yoao_identity_v1.confirm_api_key_principal("
                 "CAST(:key_id AS uuid), :expected_hash)",
                 key_id=str(key_ids[2]),
                 expected_hash=f"hash-{key_ids[2].int}",
@@ -316,7 +316,7 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
             transaction = await session.begin()
             generation = await _call(
                 session,
-                "SELECT aap_identity_v1.advance_credential_generation("
+                "SELECT yoao_identity_v1.advance_credential_generation("
                 "CAST(:actor AS uuid))",
                 actor=_uuid(fixture["actor_id"]),
             )
@@ -327,7 +327,7 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
             assert (
                 await _call(
                     session,
-                    "SELECT aap_identity_v1.get_credential_generation(CAST(:actor AS uuid))",
+                    "SELECT yoao_identity_v1.get_credential_generation(CAST(:actor AS uuid))",
                     actor=_uuid(fixture["actor_id"]),
                 )
                 == 0
@@ -338,7 +338,7 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
             transaction = await session.begin()
             await _call(
                 session,
-                "SELECT aap_identity_v1.retire_account_credentials("
+                "SELECT yoao_identity_v1.retire_account_credentials("
                 "CAST(:actor AS uuid))",
                 actor=_uuid(fixture["actor_id"]),
             )
@@ -347,7 +347,7 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
             assert (
                 await _call(
                     session,
-                    "SELECT aap_identity_v1.get_credential_generation(CAST(:actor AS uuid))",
+                    "SELECT yoao_identity_v1.get_credential_generation(CAST(:actor AS uuid))",
                     actor=_uuid(fixture["actor_id"]),
                 )
                 == 0
@@ -373,7 +373,7 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
         async with maker.begin() as session:
             result = await _call(
                 session,
-                "SELECT aap_identity_v1.retire_account_credentials("
+                "SELECT yoao_identity_v1.retire_account_credentials("
                 "CAST(:actor AS uuid))",
                 actor=_uuid(fixture["actor_id"]),
             )
@@ -385,14 +385,14 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
         async with maker.begin() as session:
             await _call(
                 session,
-                "SELECT aap_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)",
+                "SELECT yoao_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)",
                 jti=_uuid(jti),
                 retain_until=datetime.now(UTC) + timedelta(days=8),
             )
             assert (
                 await _call(
                     session,
-                    "SELECT aap_identity_v1.is_jti_revoked(CAST(:jti AS uuid))",
+                    "SELECT yoao_identity_v1.is_jti_revoked(CAST(:jti AS uuid))",
                     jti=_uuid(jti),
                 )
                 is True
@@ -402,7 +402,7 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
             assert (
                 await _call(
                     session,
-                    "SELECT aap_identity_v1.get_credential_generation(CAST(:actor AS uuid))",
+                    "SELECT yoao_identity_v1.get_credential_generation(CAST(:actor AS uuid))",
                     actor=_uuid(fixture["actor_id"]),
                 )
                 == 1
@@ -437,7 +437,7 @@ async def test_final_principal_fence_requires_current_scopes_and_holds_jti_lock(
             async with session.begin():
                 jwt = await _call(
                     session,
-                    "SELECT aap_identity_v1.lock_current_principal("
+                    "SELECT yoao_identity_v1.lock_current_principal("
                     "CAST(:actor AS uuid), 'jwt', CAST(:credential_id AS uuid), "
                     "0, :expires, NULL::text[])",
                     actor=_uuid(fixture["actor_id"]),
@@ -458,7 +458,7 @@ async def test_final_principal_fence_requires_current_scopes_and_holds_jti_lock(
         async with maker.begin() as session:
             api_key = await _call(
                 session,
-                "SELECT aap_identity_v1.lock_current_principal("
+                "SELECT yoao_identity_v1.lock_current_principal("
                 "CAST(:actor AS uuid), 'api_key', CAST(:credential_id AS uuid), "
                 "NULL, NULL, CAST(:required AS text[]))",
                 actor=_uuid(fixture["actor_id"]),
@@ -468,7 +468,7 @@ async def test_final_principal_fence_requires_current_scopes_and_holds_jti_lock(
             assert api_key["ok"] is True
             denied = await _call(
                 session,
-                "SELECT aap_identity_v1.lock_current_principal("
+                "SELECT yoao_identity_v1.lock_current_principal("
                 "CAST(:actor AS uuid), 'api_key', CAST(:credential_id AS uuid), "
                 "NULL, NULL, CAST(:required AS text[]))",
                 actor=_uuid(fixture["actor_id"]),

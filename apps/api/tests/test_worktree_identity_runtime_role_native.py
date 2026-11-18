@@ -211,13 +211,13 @@ async def _assert_private_identity_denied(engine, role: str) -> None:
         )
         assert leaked == []
         await connection.execute(
-            text("SELECT * FROM aap_identity_v1.account_profiles LIMIT 0")
+            text("SELECT * FROM yoao_identity_v1.account_profiles LIMIT 0")
         )
         await connection.execute(
-            text("SELECT * FROM aap_identity_v1.invitation_audit_targets LIMIT 0")
+            text("SELECT * FROM yoao_identity_v1.invitation_audit_targets LIMIT 0")
         )
         await connection.execute(
-            text("SELECT * FROM aap_identity_fixture_v1.account_profiles LIMIT 0")
+            text("SELECT * FROM yoao_identity_fixture_v1.account_profiles LIMIT 0")
         )
 
     for statement in (
@@ -989,7 +989,7 @@ async def test_generated_runtime_grants_recheck_memberships_and_roll_back_atomic
             )
             assert not await db.scalar(
                 text(
-                    "SELECT has_function_privilege(:role,'aap_identity_v1.authentication_policy()','EXECUTE')"
+                    "SELECT has_function_privilege(:role,'yoao_identity_v1.authentication_policy()','EXECUTE')"
                 ),
                 {"role": role},
             )

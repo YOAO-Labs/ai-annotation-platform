@@ -276,7 +276,7 @@ class BatchService:
     ) -> TaskBatch:
         batch_id = uuid.uuid4()
         display_id = await self.db.scalar(
-            text("SELECT aap_labeling_v1.next_batch_display_id()")
+            text("SELECT yoao_labeling_v1.next_batch_display_id()")
         )
         if (
             not isinstance(display_id, str)

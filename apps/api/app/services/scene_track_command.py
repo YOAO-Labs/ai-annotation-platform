@@ -40,7 +40,7 @@ from app.services.track_operation import SceneTrackContext, resolve_scene_track_
 
 MAX_COMMAND_MEMBERS = 5000
 _SCENE_TRACK_COMMAND_STEP = text(
-    "SELECT aap_labeling_v1.scene_track_command(CAST(:request AS jsonb))"
+    "SELECT yoao_labeling_v1.scene_track_command(CAST(:request AS jsonb))"
 )
 
 

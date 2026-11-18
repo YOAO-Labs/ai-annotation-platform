@@ -117,7 +117,7 @@ async def _snapshot(owner, fixture):
             await db.execute(
                 text(
                     "SELECT run_id,worker_id,generation,lease_expires_at,state,route_request_id "
-                    "FROM aap_jobs_v1.video_executions WHERE job_id=:job"
+                    "FROM yoao_jobs_v1.video_executions WHERE job_id=:job"
                 ),
                 {"job": fixture["job_id"]},
             )
@@ -126,7 +126,7 @@ async def _snapshot(owner, fixture):
             await db.execute(
                 text(
                     "SELECT writer_terminal,writer_terminal_outcome,execution_retired "
-                    "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                    "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                 ),
                 {"job": fixture["job_id"]},
             )
@@ -196,8 +196,8 @@ async def _assert_retired_lease_stays_live(owner, fixture) -> None:
                 text(
                     "SELECT journal.execution_retired, "
                     "execution.lease_expires_at > pg_catalog.clock_timestamp() "
-                    "FROM aap_jobs_v1.video_execution_journals AS journal "
-                    "JOIN aap_jobs_v1.video_executions AS execution "
+                    "FROM yoao_jobs_v1.video_execution_journals AS journal "
+                    "JOIN yoao_jobs_v1.video_executions AS execution "
                     "ON execution.job_id=journal.job_id WHERE journal.job_id=:job"
                 ),
                 {"job": fixture["job_id"]},

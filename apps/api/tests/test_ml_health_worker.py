@@ -882,7 +882,7 @@ async def test_gpu_check_health_holds_membership_lock_through_probe_commit(
                 result = await original_execute(statement, *args, **kwargs)
                 source = str(statement)
                 if (
-                    "aap_inference_health_data_v1.membership_row(" in source
+                    "yoao_inference_health_data_v1.membership_row(" in source
                     and ",true)" in source
                 ):
                     final_membership_locked.set()

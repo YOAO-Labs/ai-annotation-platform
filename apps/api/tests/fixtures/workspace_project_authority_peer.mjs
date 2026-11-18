@@ -12,7 +12,7 @@ const client = new Client({ connectionString: input.database_url, connectionTime
 async function step(phase) {
   const reply = (
     await client.query(
-      "SELECT aap_workspace_v1.project_access_step($1::uuid,$2::uuid,$3::text) AS reply",
+      "SELECT yoao_workspace_v1.project_access_step($1::uuid,$2::uuid,$3::text) AS reply",
       [input.actor_id, input.project_id, phase],
     )
   ).rows[0].reply;
@@ -43,7 +43,7 @@ try {
   const before = (await client.query("SELECT pg_backend_pid() AS pid,txid_current()::text AS xid"))
     .rows[0];
   const accounts = (
-    await client.query("SELECT aap_identity_v1.lock_accounts_share($1::uuid[],true) AS reply", [
+    await client.query("SELECT yoao_identity_v1.lock_accounts_share($1::uuid[],true) AS reply", [
       [input.actor_id],
     ])
   ).rows[0].reply;

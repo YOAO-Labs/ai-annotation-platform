@@ -63,7 +63,7 @@ async def _group_command(db, actor_id, operation, payload, *, operation_id=None)
     )
     raw = await db.scalar(
         text(
-            "SELECT aap_identity_groups_v1.execute_group_command(CAST(:command AS jsonb))"
+            "SELECT yoao_identity_groups_v1.execute_group_command(CAST(:command AS jsonb))"
         ),
         {"command": command.model_dump_json(by_alias=True)},
     )

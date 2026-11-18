@@ -22,7 +22,7 @@ def _dsn() -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_directory_client"
+    assert parsed.username == "yoao_identity_directory_client"
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -31,7 +31,7 @@ async def test_identity_directory_login_has_only_two_functions_and_no_table_acce
     connection = await asyncpg.connect(_dsn())
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "identity_directory_client"
+            "yoao_identity_directory_client"
         )
         functions = await connection.fetch(
             """
@@ -40,7 +40,7 @@ async def test_identity_directory_login_has_only_two_functions_and_no_table_acce
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid = function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND function.prokind IN ('f','p')
               AND function.prorettype NOT IN (
                   'trigger'::pg_catalog.regtype,
@@ -52,23 +52,23 @@ async def test_identity_directory_login_has_only_two_functions_and_no_table_acce
             """
         )
         assert {row["signature"] for row in functions} == {
-            "aap_identity_directory_v1.directory_policy()",
-            "aap_identity_directory_v1.execute_directory_command(jsonb)",
+            "yoao_identity_directory_v1.directory_policy()",
+            "yoao_identity_directory_v1.execute_directory_command(jsonb)",
         }
         assert await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_directory_v1', 'USAGE')"
+            "'yoao_identity_directory_v1', 'USAGE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_directory_v1', 'CREATE')"
+            "'yoao_identity_directory_v1', 'CREATE')"
         )
         assert not await connection.fetchval(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE left(namespace.nspname,4)='aap_'
-                  AND namespace.nspname <> 'aap_identity_directory_v1'
+                WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
+                  AND namespace.nspname <> 'yoao_identity_directory_v1'
                   AND pg_catalog.has_schema_privilege(
                       current_user, namespace.oid, 'USAGE,CREATE'
                   )
@@ -123,14 +123,14 @@ async def test_identity_directory_login_has_only_two_functions_and_no_table_acce
         )
 
         policy = await connection.fetchval(
-            "SELECT aap_identity_directory_v1.directory_policy()"
+            "SELECT yoao_identity_directory_v1.directory_policy()"
         )
         assert json.loads(policy) == {
             "schema": "aap-identity-directory-policy/v1",
             "policy": "aap-identity-directory/v1",
         }
         invalid = await connection.fetchval(
-            "SELECT aap_identity_directory_v1.execute_directory_command('{}'::jsonb)"
+            "SELECT yoao_identity_directory_v1.execute_directory_command('{}'::jsonb)"
         )
         assert json.loads(invalid) == {
             "schema": "aap-identity-directory-native/v1",
@@ -140,8 +140,8 @@ async def test_identity_directory_login_has_only_two_functions_and_no_table_acce
         forbidden = (
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.identity_directory_export_receipts LIMIT 1",
-            "SELECT aap_workspace_v1.identity_directory_owned_member_ids(NULL::uuid)",
-            "SELECT aap_identity_directory_v1._scope_user_ids(NULL::uuid,'super_admin','export_users','{}'::jsonb,true)",
+            "SELECT yoao_workspace_v1.identity_directory_owned_member_ids(NULL::uuid)",
+            "SELECT yoao_identity_directory_v1._scope_user_ids(NULL::uuid,'super_admin','export_users','{}'::jsonb,true)",
             "CREATE TEMP TABLE identity_directory_forbidden(id integer)",
             "SET ROLE identity_code",
         )
@@ -171,7 +171,7 @@ async def test_directory_policy_rejects_explicit_public_function_grant():
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO identity_directory_client"
+                    "TO yoao_identity_directory_client"
                 )
             )
 

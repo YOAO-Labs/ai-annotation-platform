@@ -44,15 +44,15 @@ from tests.test_video_input_ledger_execution import (
 pytestmark = pytest.mark.asyncio
 
 _AUXILIARY_GUARD = text(
-    "SELECT aap_assets_v1.guard_dataset_source_auxiliary_retention("
+    "SELECT yoao_assets_v1.guard_dataset_source_auxiliary_retention("
     "CAST(:dataset_id AS uuid),CAST(:item_id AS uuid))"
 )
 _SCENE_PROJECTION = text(
-    "SELECT scene_id FROM aap_assets_v1.dataset_item_scene_references("
+    "SELECT scene_id FROM yoao_assets_v1.dataset_item_scene_references("
     "CAST(:dataset_id AS uuid),CAST(:item_id AS uuid))"
 )
 _LABELING_GUARD = text(
-    "SELECT aap_labeling_v1.guard_dataset_source_deletion("
+    "SELECT yoao_labeling_v1.guard_dataset_source_deletion("
     "CAST(:dataset_id AS uuid),CAST(:item_id AS uuid))"
 )
 
@@ -548,7 +548,7 @@ async def test_image_input_remains_protected_until_its_authoritative_expiry(db_s
         {"input": accepted["input_id"]},
     )
     sweep = await db_session.scalar(
-        text("SELECT aap_assets_v1.sweep_accepted_image_inputs(100)")
+        text("SELECT yoao_assets_v1.sweep_accepted_image_inputs(100)")
     )
     assert sweep["ok"] is True
     assert (
@@ -642,7 +642,7 @@ async def test_video_input_manifest_and_receipt_expiry_allow_unreferenced_retry(
     )
     sweep = _video_data(
         await db_session.scalar(
-            text("SELECT aap_assets_v1.sweep_accepted_video_inputs(100)")
+            text("SELECT yoao_assets_v1.sweep_accepted_video_inputs(100)")
         )
     )
     assert sweep["expired"] == 1

@@ -44,7 +44,7 @@ class IdentityMailCommandData:
                 raw = _json_value(
                     await db.scalar(
                         text(
-                            f"SELECT aap_identity_recovery_v1.{function}(CAST(:command AS jsonb))"
+                            f"SELECT yoao_identity_recovery_v1.{function}(CAST(:command AS jsonb))"
                         ),
                         {"command": native_command_json(command)},
                     )
@@ -129,7 +129,7 @@ class IdentityMailSettingsData:
                     _json_value(
                         await db.scalar(
                             text(
-                                "SELECT aap_settings_v1.mail_delivery_policy(CAST(:fallbacks AS jsonb))"
+                                "SELECT yoao_settings_v1.mail_delivery_policy(CAST(:fallbacks AS jsonb))"
                             ),
                             {
                                 "fallbacks": json.dumps(

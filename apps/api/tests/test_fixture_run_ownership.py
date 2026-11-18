@@ -28,7 +28,7 @@ async def test_native_source_reader_fence_conflicts_with_python_reclaim_key(
         acquired = await other.scalar(
             text(
                 "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended("
-                "aap_assets_v1._managed_reclaim_lock_identity(:bucket, :key), 0))"
+                "yoao_assets_v1._managed_reclaim_lock_identity(:bucket, :key), 0))"
             ),
             {"bucket": bucket, "key": key},
         )
@@ -115,7 +115,7 @@ async def test_audit_receipts_keep_native_ids_and_neighbor_events(test_engine):
                     (
                         await db.execute(
                             text(
-                                "SELECT id, created_at FROM aap_audit_v1.audit_events "
+                                "SELECT id, created_at FROM yoao_audit_v1.audit_events "
                                 "WHERE id=ANY(CAST(:ids AS bigint[]))"
                             ),
                             {"ids": [receipt[0] for receipt in audit_receipts]},
@@ -317,7 +317,7 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
     with pytest.raises(HTTPException) as cleanup_blocked:
         await _try_fixture_delete(
             db_session,
-            "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
+            "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
             {"pids": [projects[0].id]},
         )
     assert cleanup_blocked.value.status_code == 409
@@ -378,7 +378,7 @@ async def test_presentation_jobs_are_nondispatchable_and_retire_only_the_sealed_
         )
     jobs = [uuid.uuid4() for _ in range(4)]
     create = text(
-        "SELECT aap_jobs_v1.create_filter_fixture_jobs("
+        "SELECT yoao_jobs_v1.create_filter_fixture_jobs("
         ":run, :completed, :failed, :first_project, :second_project, :actor, :first_prompt, :second_prompt)"
     )
 
@@ -404,7 +404,7 @@ async def test_presentation_jobs_are_nondispatchable_and_retire_only_the_sealed_
         async with db_session.begin_nested():
             await db_session.execute(
                 text(
-                    "INSERT INTO aap_jobs_v1.dispatch_intents (intent_id, job_id, purpose) "
+                    "INSERT INTO yoao_jobs_v1.dispatch_intents (intent_id, job_id, purpose) "
                     "VALUES (:id, :job, 'execution')"
                 ),
                 {"id": uuid.uuid4(), "job": jobs[2]},
@@ -421,7 +421,7 @@ async def test_presentation_jobs_are_nondispatchable_and_retire_only_the_sealed_
         async with db_session.begin_nested():
             await db_session.scalar(
                 text(
-                    "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+                    "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
                 ),
                 {"ids": [projects[0].id]},
             )
@@ -438,7 +438,7 @@ async def test_presentation_jobs_are_nondispatchable_and_retire_only_the_sealed_
     assert (
         await db_session.scalar(
             text(
-                "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+                "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
             ),
             {"ids": [projects[0].id, projects[1].id]},
         )
@@ -534,7 +534,7 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
     async def retire(index):
         return await db_session.scalar(
             text(
-                "SELECT aap_jobs_v1.delete_fixture_presentation_jobs("
+                "SELECT yoao_jobs_v1.delete_fixture_presentation_jobs("
                 ":run,:project,CAST(:jobs AS uuid[]))"
             ),
             {"run": runs[index], "project": projects[index].id, "jobs": [jobs[index]]},
@@ -571,9 +571,9 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
         )
         await attempt.rollback()
 
-    guard = text("SELECT aap_jobs_v1.guard_fixture_prediction_ledgers(:run,:project)")
+    guard = text("SELECT yoao_jobs_v1.guard_fixture_prediction_ledgers(:run,:project)")
     cleanup = text(
-        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+        "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
     )
     params = {"run": runs[0], "project": projects[0].id}
     async with db_session.begin_nested() as inconsistent:
@@ -729,7 +729,7 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
     # its media is sealed (0446); assert the neighbor job's typed scope now.
     assert await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
             "id,kind,payload,project_id,user_id) "
             "FROM public.async_jobs WHERE id=:id"
         ),
@@ -761,7 +761,7 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
     )
     assert await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
             "id,kind,payload,project_id,user_id) "
             "FROM public.async_jobs WHERE id=:id"
         ),
@@ -1005,7 +1005,7 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
         "CAST(:payload AS jsonb),CAST('{}' AS jsonb))"
     )
     scope = text(
-        "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+        "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
         "id,kind,payload,project_id,user_id) "
         "FROM public.async_jobs WHERE id=:id"
     )
@@ -1043,14 +1043,14 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
     for statement, params in (
         (
             text(
-                "UPDATE aap_jobs_v1.fixture_prediction_job_datasets "
+                "UPDATE yoao_jobs_v1.fixture_prediction_job_datasets "
                 "SET dataset_ids=CAST(:ids AS uuid[]) WHERE job_id=:job"
             ),
             {"ids": [fixture.unrelated.id], "job": job},
         ),
         (
             text(
-                "DELETE FROM aap_jobs_v1.fixture_prediction_job_datasets "
+                "DELETE FROM yoao_jobs_v1.fixture_prediction_job_datasets "
                 "WHERE job_id=:job"
             ),
             {"job": job},
@@ -1065,7 +1065,7 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
     # Project, actor and Task mismatches stay unknown and still block cleanup.
     assert await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
             ":id,'batch_predict',(SELECT payload FROM public.async_jobs WHERE id=:id),"
             ":project,:actor)"
         ),
@@ -1077,7 +1077,7 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
     ) == {"kind": "unknown"}
     assert await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
             ":id,'batch_predict',(SELECT payload FROM public.async_jobs WHERE id=:id),"
             ":project,:actor)"
         ),
@@ -1208,7 +1208,7 @@ async def test_batch_predict_scope_retirement_releases_exact_datasets(
     assert await ownership.seal(db_session, fixture.run, family="scale") == ()
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1.fixture_real_job_retired(:run,:project,:job)"),
+            text("SELECT yoao_jobs_v1.fixture_real_job_retired(:run,:project,:job)"),
             {"run": fixture.run, "project": fixture.project.id, "job": job},
         )
         is True
@@ -1216,7 +1216,7 @@ async def test_batch_predict_scope_retirement_releases_exact_datasets(
     # Retirement never rewrites the born binding; it releases the exact proof.
     assert await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
             "id,kind,payload,project_id,user_id) "
             "FROM public.async_jobs WHERE id=:id"
         ),

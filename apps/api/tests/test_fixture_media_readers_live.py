@@ -99,7 +99,7 @@ StreamingBody.read = read
 def _worker_environment(media, test_engine, tmp_path, *, gate=None):
     worker_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
-        "asset_media_worker_client",
+        "yoao_asset_media_worker_client",
         test_engine,
     )
     env = _runtime_environment(
@@ -480,7 +480,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
         worker_url, env = _worker_environment(media, test_engine, tmp_path)
         await _assert_sql_role_is_narrow(
             worker_url.render_as_string(hide_password=False),
-            "asset_media_worker_client",
+            "yoao_asset_media_worker_client",
             "public.asset_media_jobs",
         )
         restricted = create_async_engine(worker_url, hide_parameters=True)
@@ -489,7 +489,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 with pytest.raises(DBAPIError) as denied_status:
                     await connection.execute(
                         text(
-                            "SELECT aap_assets_v1.fixture_original_readers_empty(NULL)"
+                            "SELECT yoao_assets_v1.fixture_original_readers_empty(NULL)"
                         )
                     )
                 assert getattr(denied_status.value.orig, "sqlstate", None) == "42501"
@@ -586,7 +586,9 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 processes,
             )
             gate_b = tmp_path / "neighbor-original-gate"
-            _, gated_env_b = _worker_environment(media, test_engine, tmp_path, gate=gate_b)
+            _, gated_env_b = _worker_environment(
+                media, test_engine, tmp_path, gate=gate_b
+            )
             worker_b, stream_b, log_b = await _worker(
                 media, gated_env_b, tmp_path, "neighbor-reader", job_b["job_id"]
             )
@@ -631,7 +633,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 _connection, _cursor, statement, _parameters, _context, _many
             ):
                 if statement.startswith(
-                    "SELECT aap_assets_v1.fixture_original_readers_empty("
+                    "SELECT yoao_assets_v1.fixture_original_readers_empty("
                 ):
                     status_seen.set()
 

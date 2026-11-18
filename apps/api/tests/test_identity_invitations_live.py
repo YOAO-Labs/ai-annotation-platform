@@ -1749,9 +1749,9 @@ async def test_invitation_container_unbounded_catalog_has_only_three_owner_funct
                         text(
                             "SELECT proc.proname FROM pg_catalog.pg_proc AS proc "
                             "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                            "WHERE ns.nspname='aap_identity_invitations_v1' "
+                            "WHERE ns.nspname='yoao_identity_invitations_v1' "
                             "AND pg_catalog.has_function_privilege("
-                            "'identity_invitation_client',proc.oid,'EXECUTE')"
+                            "'yoao_identity_invitation_client',proc.oid,'EXECUTE')"
                         )
                     )
                 ).scalars()
@@ -1777,18 +1777,22 @@ async def test_invitation_container_unbounded_catalog_has_only_three_owner_funct
                             ":role,:table_name,:privilege)"
                         ),
                         {
-                            "role": "identity_invitation_client",
+                            "role": "yoao_identity_invitation_client",
                             "table_name": table,
                             "privilege": privilege,
                         },
                     )
-            for schema_name in ("aap_identity_v1", "aap_workspace_v1", "aap_group_v1"):
+            for schema_name in (
+                "yoao_identity_v1",
+                "yoao_workspace_v1",
+                "aap_group_v1",
+            ):
                 assert not await db.scalar(
                     text(
                         "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_proc AS proc "
                         "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
                         "WHERE ns.nspname=:schema AND pg_catalog.has_function_privilege("
-                        "'identity_invitation_client',proc.oid,'EXECUTE'))"
+                        "'yoao_identity_invitation_client',proc.oid,'EXECUTE'))"
                     ),
                     {"schema": schema_name},
                 )

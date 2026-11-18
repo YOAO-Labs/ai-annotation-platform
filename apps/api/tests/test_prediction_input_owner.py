@@ -1142,7 +1142,7 @@ async def test_historical_null_receipt_retires_and_remaps_without_any_delete(
             "bucket": bucket,
             "storage_identity": owner._identity(owner._endpoint(), bucket),
         }
-        await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+        await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
         await db.execute(
             update(Lease)
             .where(Lease.id == row.id)

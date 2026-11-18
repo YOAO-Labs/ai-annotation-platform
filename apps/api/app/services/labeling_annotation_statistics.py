@@ -30,7 +30,7 @@ async def update_annotation_statistics(
     async def execute(request_json: str):
         return await db.scalar(
             text(
-                "SELECT aap_labeling_v1.annotation_statistics_command("
+                "SELECT yoao_labeling_v1.annotation_statistics_command("
                 "CAST(:request AS jsonb))"
             ),
             {"request": request_json},

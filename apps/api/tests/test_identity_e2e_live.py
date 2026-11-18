@@ -242,8 +242,8 @@ async def database_denials():
         queries = {
             "users": "SELECT id FROM public.users LIMIT 1",
             "projects": "SELECT id FROM public.projects LIMIT 1",
-            "identity_fixture": "SELECT aap_identity_fixture_v1.create_account(gen_random_uuid(),'blocked@example.test','Blocked','opaque','employee')",
-            "workspace_fixture": "SELECT aap_workspace_fixture_v1.create_project('{}'::jsonb)",
+            "identity_fixture": "SELECT yoao_identity_fixture_v1.create_account(gen_random_uuid(),'blocked@example.test','Blocked','opaque','employee')",
+            "workspace_fixture": "SELECT yoao_workspace_fixture_v1.create_project('{}'::jsonb)",
         }
         for name, query in queries.items():
             transaction = db.transaction()

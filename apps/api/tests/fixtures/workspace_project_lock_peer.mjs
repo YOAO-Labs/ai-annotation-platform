@@ -12,7 +12,7 @@ const contender = new Client({
   connectionString: input.database_url,
   connectionTimeoutMillis: 5000,
 });
-const lock = "SELECT aap_workspace_v1.lock_project_row($1::uuid,$2::boolean) AS reply";
+const lock = "SELECT yoao_workspace_v1.lock_project_row($1::uuid,$2::boolean) AS reply";
 
 try {
   await client.connect();

@@ -33,7 +33,7 @@ from yoao_inference_contract.plugin import (
     PreparePluginInstallation,
 )
 
-_SCHEMA = "aap_inference_topology_v1"
+_SCHEMA = "yoao_inference_topology_v1"
 _REPAIR_MODEL_LOCK_STATUSES = frozenset(
     {"ready", "backend_unavailable", "model_changed"}
 )

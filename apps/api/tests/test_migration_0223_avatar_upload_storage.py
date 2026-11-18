@@ -337,7 +337,7 @@ async def test_controlled_restore_changes_only_physical_bucket_and_identity(owne
             original["endpoint_url"], "avatars-restored"
         ),
     }
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await owned_db.execute(
         update(AvatarUpload)
         .where(AvatarUpload.token == token)
@@ -368,7 +368,7 @@ async def test_controlled_restore_changes_only_physical_bucket_and_identity(owne
                 .where(AvatarUpload.token == token)
                 .values(sha256="b" * 64)
             )
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='off'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='off'"))
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(
@@ -406,7 +406,7 @@ async def test_runtime_role_cannot_forge_restore_marker(owned_db):
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(text(f"SET LOCAL ROLE {quoted}"))
-            await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+            await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
             await owned_db.execute(
                 update(AvatarUpload)
                 .where(AvatarUpload.token == token)

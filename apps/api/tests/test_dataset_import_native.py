@@ -31,42 +31,42 @@ pytestmark = [
 ]
 
 _PREPARE = text(
-    "SELECT aap_assets_v1.prepare_dataset_import("
+    "SELECT yoao_assets_v1.prepare_dataset_import("
     "CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:connection AS uuid))"
 )
 _ACCEPT = text(
-    "SELECT aap_assets_v1.accept_dataset_import("
+    "SELECT yoao_assets_v1.accept_dataset_import("
     "CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:dataset AS uuid), "
     "CAST(:connection AS uuid), CAST(:request AS jsonb), CAST(:limits AS jsonb), "
     "CAST(:context AS jsonb))"
 )
 _CLAIM = text(
-    "SELECT aap_assets_v1.claim_dataset_import("
+    "SELECT yoao_assets_v1.claim_dataset_import("
     "CAST(:token AS uuid), CAST(:seconds AS integer), CAST(:job AS uuid))"
 )
 _READ_CONNECTION = text(
-    "SELECT aap_assets_v1.read_dataset_import_connection("
+    "SELECT yoao_assets_v1.read_dataset_import_connection("
     "CAST(:job AS uuid), CAST(:token AS uuid), CAST(:fallback AS jsonb))"
 )
 _MANIFEST = text(
-    "SELECT aap_assets_v1.save_dataset_import_manifest("
+    "SELECT yoao_assets_v1.save_dataset_import_manifest("
     "CAST(:job AS uuid), CAST(:token AS uuid), CAST(:objects AS jsonb))"
 )
 _NEXT = text(
-    "SELECT aap_assets_v1.next_dataset_import_entry("
+    "SELECT yoao_assets_v1.next_dataset_import_entry("
     "CAST(:job AS uuid), CAST(:token AS uuid), CAST(:publication AS uuid))"
 )
 _COMPLETE = text(
-    "SELECT aap_assets_v1.complete_dataset_import_entry("
+    "SELECT yoao_assets_v1.complete_dataset_import_entry("
     "CAST(:job AS uuid), CAST(:token AS uuid), CAST(:index AS bigint), "
     "CAST(:publication AS uuid), CAST(:completion AS jsonb))"
 )
 _FINISH = text(
-    "SELECT aap_assets_v1.finish_dataset_import("
+    "SELECT yoao_assets_v1.finish_dataset_import("
     "CAST(:job AS uuid), CAST(:token AS uuid), CAST(:fatal_error AS text))"
 )
 _CANCEL = text(
-    "SELECT aap_assets_v1.cancel_dataset_import("
+    "SELECT yoao_assets_v1.cancel_dataset_import("
     "CAST(:actor AS uuid), CAST(:job AS uuid))"
 )
 

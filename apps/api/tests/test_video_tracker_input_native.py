@@ -24,11 +24,11 @@ from tests.test_video_input_selection_native import _selection
 pytestmark = pytest.mark.asyncio
 
 _CAPTURE = text(
-    "SELECT aap_labeling_v1.capture_video_tracker_input("
+    "SELECT yoao_labeling_v1.capture_video_tracker_input("
     "CAST(:actor AS uuid),CAST(:job AS uuid),CAST(:grid_step AS integer))"
 )
 _READ = text(
-    "SELECT aap_assets_v1.read_video_tracker_input("
+    "SELECT yoao_assets_v1.read_video_tracker_input("
     "CAST(:actor AS uuid),CAST(:job AS uuid),CAST(:task AS uuid))"
 )
 
@@ -300,7 +300,7 @@ async def test_tracker_claim_uses_only_its_canonical_scope(db_session):
     # given the exact input ID; the dedicated tracker claim can take it next.
     legacy = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1.claim_accepted_video_input("
+            "SELECT yoao_assets_v1.claim_accepted_video_input("
             "CAST(:worker AS uuid),CAST(:input AS uuid),CAST(:lease AS integer))"
         ),
         {"worker": uuid.uuid4(), "input": captured.input_id, "lease": 2100},

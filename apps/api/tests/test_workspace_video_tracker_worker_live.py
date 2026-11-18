@@ -73,8 +73,8 @@ pytestmark = [
 ]
 
 _TASK_NAME = "app.workers.video_tracker.run_video_tracker_job"
-_JOBS_SCHEMA = "aap_jobs_v1"
-_ROUTING_SCHEMA = "aap_inference_routing_v1"
+_JOBS_SCHEMA = "yoao_jobs_v1"
+_ROUTING_SCHEMA = "yoao_inference_routing_v1"
 
 
 class _TrackerFixtureBridge:
@@ -230,7 +230,7 @@ class _VideoTrackerCeleryWorker(WorkspaceInferenceCeleryWorker):
         self.queue = "gpu"
         writer_dsn = self._role_dsn(
             "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
-            "labeling_video_writer_client",
+            "yoao_labeling_video_writer_client",
         )
         self._worker_environment.update(
             {
@@ -521,7 +521,7 @@ async def _committed_api_client(app_module, test_engine, *, dispatcher=None):
     for group, role, setting in (
         (
             "SUSPENSION",
-            "identity_suspension_client",
+            "yoao_identity_suspension_client",
             "identity_suspension_database_url",
         ),
         ("BRIEFS", "yoao_identity_briefs_client", "identity_briefs_database_url"),
@@ -535,7 +535,7 @@ async def _committed_api_client(app_module, test_engine, *, dispatcher=None):
         owner_bindings[setting] = dsn.render_as_string(hide_password=False)
     publication = make_url(
         _module_role_url(
-            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "jobs_publication_client"
+            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "yoao_jobs_publication_client"
         )
     ).set(drivername="postgresql")
     owner_bindings["jobs_publication_database_url"] = publication.render_as_string(

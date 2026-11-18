@@ -12,9 +12,9 @@ const contender = new Client({
   connectionString: input.database_url,
   connectionTimeoutMillis: 5000,
 });
-const lock = "SELECT aap_workspace_v1.lock_project_references_for_update($1::uuid[]) AS ids";
-const read = "SELECT aap_workspace_v1.read_project_row($1::uuid) AS row";
-const write = "SELECT aap_labeling_v1.write_project_counter_projection($1::uuid,$2::jsonb) AS id";
+const lock = "SELECT yoao_workspace_v1.lock_project_references_for_update($1::uuid[]) AS ids";
+const read = "SELECT yoao_workspace_v1.read_project_row($1::uuid) AS row";
+const write = "SELECT yoao_labeling_v1.write_project_counter_projection($1::uuid,$2::jsonb) AS id";
 const tx = "SELECT pg_backend_pid() AS pid,txid_current()::text AS xid";
 try {
   await client.connect();

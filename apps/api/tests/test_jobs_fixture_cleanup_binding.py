@@ -8,9 +8,9 @@ from fastapi import HTTPException
 from app.api.v1._test_seed import _try_fixture_delete
 
 
-_JOBS_DELETE = "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
+_JOBS_DELETE = "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
 _LABELING_DELETE = (
-    "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
+    "SELECT yoao_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
 )
 _FIXTURE_DELETES = (_JOBS_DELETE, _LABELING_DELETE)
 

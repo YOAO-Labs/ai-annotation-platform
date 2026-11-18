@@ -22,7 +22,7 @@ def probe_dsn(database_url):
     value = make_url(
         _role_url(
             "AAP_MODULE_DATA_INFERENCE_BACKEND_PROBE_URL",
-            "inference_backend_probe_client",
+            "yoao_inference_backend_probe_client",
         )
     )
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"

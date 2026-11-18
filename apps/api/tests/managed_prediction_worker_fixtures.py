@@ -180,7 +180,7 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
             if world.projects:
                 await db.execute(
                     text(
-                        "SELECT aap_jobs_v1.delete_fixture_project_jobs("
+                        "SELECT yoao_jobs_v1.delete_fixture_project_jobs("
                         "CAST(:project_ids AS uuid[]))"
                     ),
                     {"project_ids": list(world.projects)},

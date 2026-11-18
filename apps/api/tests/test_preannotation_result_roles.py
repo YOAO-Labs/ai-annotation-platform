@@ -13,23 +13,23 @@ ROOT = Path(__file__).resolve().parents[3]
 GRANTS = ROOT / "infra/docker/preannotation-result-data-grants.sql"
 
 EXPECTED = {
-    "aap_jobs_v1.claim_batch_result_execution(jsonb)",
-    "aap_jobs_v1.heartbeat_batch_result_execution(jsonb)",
-    "aap_jobs_v1.release_batch_result_execution(jsonb)",
-    "aap_jobs_v1.stage_batch_result_members(jsonb)",
-    "aap_jobs_v1.start_batch_result_execution(jsonb)",
-    "aap_jobs_v1.read_batch_result_execution(jsonb)",
-    "aap_jobs_v1.mark_batch_result_overwrite(jsonb)",
-    "aap_jobs_v1.skip_batch_result_member(jsonb)",
-    "aap_jobs_v1.finish_batch_result_execution(jsonb)",
-    "aap_jobs_v1.start_batch_result_member(jsonb)",
-    "aap_labeling_v1.begin_batch_result(jsonb)",
-    "aap_labeling_v1.put_batch_result_part(jsonb)",
-    "aap_labeling_v1.seal_batch_result(jsonb)",
-    "aap_labeling_v1.read_batch_result(jsonb)",
-    "aap_labeling_v1.read_prediction_retry(jsonb)",
-    "aap_jobs_v1.claim_prediction_retry_deliveries(jsonb)",
-    "aap_jobs_v1.finish_prediction_retry_delivery(jsonb)",
+    "yoao_jobs_v1.claim_batch_result_execution(jsonb)",
+    "yoao_jobs_v1.heartbeat_batch_result_execution(jsonb)",
+    "yoao_jobs_v1.release_batch_result_execution(jsonb)",
+    "yoao_jobs_v1.stage_batch_result_members(jsonb)",
+    "yoao_jobs_v1.start_batch_result_execution(jsonb)",
+    "yoao_jobs_v1.read_batch_result_execution(jsonb)",
+    "yoao_jobs_v1.mark_batch_result_overwrite(jsonb)",
+    "yoao_jobs_v1.skip_batch_result_member(jsonb)",
+    "yoao_jobs_v1.finish_batch_result_execution(jsonb)",
+    "yoao_jobs_v1.start_batch_result_member(jsonb)",
+    "yoao_labeling_v1.begin_batch_result(jsonb)",
+    "yoao_labeling_v1.put_batch_result_part(jsonb)",
+    "yoao_labeling_v1.seal_batch_result(jsonb)",
+    "yoao_labeling_v1.read_batch_result(jsonb)",
+    "yoao_labeling_v1.read_prediction_retry(jsonb)",
+    "yoao_jobs_v1.claim_prediction_retry_deliveries(jsonb)",
+    "yoao_jobs_v1.finish_prediction_retry_delivery(jsonb)",
 }
 
 
@@ -46,7 +46,7 @@ def test_executor_login_gets_only_seventeen_public_operations():
         )
     )
     assert functions == EXPECTED
-    assert "result_role=preannotation_result_client" in script
+    assert "result_role=yoao_preannotation_result_client" in script
     assert "exactly 17 executor capabilities" in script
 
 
@@ -55,7 +55,7 @@ def test_executor_has_no_raw_table_or_writer_capability():
     assert 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"result_role";' in script
     assert 'REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"result_role";' in script
     assert (
-        'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_jobs_v1, aap_labeling_v1 FROM :"result_role";'
+        'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_jobs_v1, yoao_labeling_v1 FROM :"result_role";'
         in script
     )
     assert "has_table_privilege" in script
@@ -87,7 +87,7 @@ def test_executor_has_no_raw_table_or_writer_capability():
 async def test_provisioned_executor_role_has_exact_functions_and_no_table_access(
     db_session,
 ):
-    role = "preannotation_result_client"
+    role = "yoao_preannotation_result_client"
     for signature in EXPECTED:
         assert await db_session.scalar(
             text(
@@ -100,7 +100,7 @@ async def test_provisioned_executor_role_has_exact_functions_and_no_table_access
         text(
             "SELECT count(*) FROM pg_catalog.pg_proc AS proc "
             "JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=proc.pronamespace "
-            "WHERE namespace.nspname IN ('aap_jobs_v1','aap_labeling_v1') "
+            "WHERE namespace.nspname IN ('yoao_jobs_v1','yoao_labeling_v1') "
             "AND proc.prokind='f' AND pg_catalog.has_function_privilege(:role,proc.oid,'EXECUTE')"
         ),
         {"role": role},
@@ -108,13 +108,13 @@ async def test_provisioned_executor_role_has_exact_functions_and_no_table_access
     assert callable_count == 17
 
     for signature in (
-        "aap_jobs_v1.lock_batch_result_execution(jsonb)",
-        "aap_labeling_v1.lock_batch_result_write(jsonb)",
-        "aap_labeling_v1.finish_batch_result_write(jsonb)",
-        "aap_labeling_v1.finish_batch_result_failure(jsonb)",
-        "aap_labeling_v1.admit_prediction_retry(jsonb)",
-        "aap_labeling_v1.finish_prediction_retry_write(jsonb)",
-        "aap_labeling_v1.finish_prediction_retry_failure(jsonb)",
+        "yoao_jobs_v1.lock_batch_result_execution(jsonb)",
+        "yoao_labeling_v1.lock_batch_result_write(jsonb)",
+        "yoao_labeling_v1.finish_batch_result_write(jsonb)",
+        "yoao_labeling_v1.finish_batch_result_failure(jsonb)",
+        "yoao_labeling_v1.admit_prediction_retry(jsonb)",
+        "yoao_labeling_v1.finish_prediction_retry_write(jsonb)",
+        "yoao_labeling_v1.finish_prediction_retry_failure(jsonb)",
     ):
         assert not await db_session.scalar(
             text(

@@ -423,7 +423,7 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege("
-                        "'identity_auth_client','public.users','SELECT')"
+                        "'yoao_identity_auth_client','public.users','SELECT')"
                     )
                 )
                 is False
@@ -432,7 +432,7 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege("
-                        "'identity_auth_client','public.user_invitations','SELECT')"
+                        "'yoao_identity_auth_client','public.user_invitations','SELECT')"
                     )
                 )
                 is False
@@ -441,7 +441,7 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege("
-                        "'identity_invitation_client','public.user_invitations','SELECT')"
+                        "'yoao_identity_invitation_client','public.user_invitations','SELECT')"
                     )
                 )
                 is False

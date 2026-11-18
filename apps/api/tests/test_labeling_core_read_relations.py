@@ -62,7 +62,7 @@ def test_named_and_anonymous_core_row_aliases_keep_public_source_and_identity():
             alias = alias_core_row(row, name=name)
             assert inspect(alias).mapper.class_ is inspect(row).mapper.class_
             sql = str(select(alias).compile(dialect=postgresql.dialect()))
-            assert f"FROM aap_labeling_v1.{relation} AS " in sql
+            assert f"FROM yoao_labeling_v1.{relation} AS " in sql
     with pytest.raises(ValueError, match="published Labeling core-read relation"):
         alias_core_row(Task, name="private_task")
 
@@ -80,9 +80,9 @@ def test_composed_task_annotation_read_stays_on_labeling_relations():
     )
     sql = str(statement.compile(dialect=postgresql.dialect()))
 
-    assert "aap_labeling_v1.task_rows" in sql
-    assert "aap_labeling_v1.batch_rows" in sql
-    assert "aap_labeling_v1.annotation_rows" in sql
+    assert "yoao_labeling_v1.task_rows" in sql
+    assert "yoao_labeling_v1.batch_rows" in sql
+    assert "yoao_labeling_v1.annotation_rows" in sql
     assert "FROM public.tasks" not in sql
     assert "FROM public.annotations" not in sql
 
@@ -96,7 +96,7 @@ def test_video_and_scene_rows_use_only_the_fixed_public_relations():
     )
     for row in rows:
         sql = str(select(row).compile(dialect=postgresql.dialect()))
-        assert "FROM aap_labeling_v1." in sql
+        assert "FROM yoao_labeling_v1." in sql
         assert "FROM public." not in sql
 
 
@@ -111,12 +111,12 @@ def test_active_learning_candidate_query_uses_public_core_and_asset_facts():
     sql = str(query.compile(dialect=postgresql.dialect()))
 
     for relation in (
-        "aap_labeling_v1.task_rows",
-        "aap_labeling_v1.batch_rows",
-        "aap_labeling_v1.annotation_rows",
-        "aap_labeling_v1.annotation_draft_rows",
-        "aap_labeling_v1.task_lock_rows",
-        "aap_assets_v1.labeling_dataset_item_facts",
+        "yoao_labeling_v1.task_rows",
+        "yoao_labeling_v1.batch_rows",
+        "yoao_labeling_v1.annotation_rows",
+        "yoao_labeling_v1.annotation_draft_rows",
+        "yoao_labeling_v1.task_lock_rows",
+        "yoao_assets_v1.labeling_dataset_item_facts",
     ):
         assert relation in sql
     for private_relation in (
@@ -142,7 +142,7 @@ def test_active_learning_candidate_query_uses_public_core_and_asset_facts():
 
 def test_task_event_rows_bind_to_the_existing_public_facts_view():
     sql = str(select(task_event_row).compile(dialect=postgresql.dialect()))
-    assert "FROM aap_labeling_v1.task_event_facts" in sql
+    assert "FROM yoao_labeling_v1.task_event_facts" in sql
     assert "FROM task_events" not in sql
 
 
@@ -155,15 +155,16 @@ def test_task_metrics_compose_only_public_labeling_rows():
     ).select_from(task_row)
     sql = str(statement.compile(dialect=postgresql.dialect()))
 
-    assert "aap_labeling_v1.task_rows" in sql
-    assert "aap_labeling_v1.prediction_rows" in sql
-    assert "aap_labeling_v1.annotation_rows" in sql
-    assert "aap_labeling_v1.video_tracker_job_rows" in sql
+    assert "yoao_labeling_v1.task_rows" in sql
+    assert "yoao_labeling_v1.prediction_rows" in sql
+    assert "yoao_labeling_v1.annotation_rows" in sql
+    assert "yoao_labeling_v1.video_tracker_job_rows" in sql
     assert (
-        "aap_labeling_v1.prediction_rows.task_id = aap_labeling_v1.task_rows.id" in sql
+        "yoao_labeling_v1.prediction_rows.task_id = yoao_labeling_v1.task_rows.id"
+        in sql
     )
     assert (
-        "aap_labeling_v1.video_tracker_job_rows.task_id = aap_labeling_v1.task_rows.id"
+        "yoao_labeling_v1.video_tracker_job_rows.task_id = yoao_labeling_v1.task_rows.id"
         in sql
     )
     assert "FROM public.tasks" not in sql
@@ -208,10 +209,10 @@ def test_data_manager_filters_keep_public_task_and_annotation_rows():
     )
     sql = str(statement.compile(dialect=postgresql.dialect()))
 
-    assert "FROM aap_labeling_v1.task_rows" in sql
-    assert "FROM aap_labeling_v1.batch_rows" in sql
-    assert "FROM aap_labeling_v1.annotation_rows AS" in sql
-    assert "FROM aap_labeling_v1.task_dataset_item_link_rows" in sql
+    assert "FROM yoao_labeling_v1.task_rows" in sql
+    assert "FROM yoao_labeling_v1.batch_rows" in sql
+    assert "FROM yoao_labeling_v1.annotation_rows AS" in sql
+    assert "FROM yoao_labeling_v1.task_dataset_item_link_rows" in sql
     assert "FROM tasks" not in sql
     assert "FROM annotations" not in sql
     assert "FROM task_batches" not in sql
@@ -225,7 +226,7 @@ def test_data_manager_filters_keep_public_task_and_annotation_rows():
         .where(entity_clause)
         .compile(dialect=postgresql.dialect())
     )
-    assert "FROM aap_labeling_v1.annotation_rows" in entity_sql
+    assert "FROM yoao_labeling_v1.annotation_rows" in entity_sql
     assert "FROM annotations" not in entity_sql
 
 
@@ -285,7 +286,7 @@ async def test_task_event_batch_read_uses_one_public_task_query(monkeypatch):
     assert len(accepted) == 1
     assert rejected == []
     assert len(session.sql) == 1
-    assert "FROM aap_labeling_v1.task_rows" in session.sql[0]
+    assert "FROM yoao_labeling_v1.task_rows" in session.sql[0]
     assert "FROM tasks" not in session.sql[0]
 
 
@@ -330,11 +331,11 @@ async def test_row_locks_use_only_fixed_owner_lock_functions():
         session, [row_id], project_id=row_id, batch_id=row_id
     )
 
-    assert "aap_labeling_v1.lock_task_for_core_read" in session.sql[0]
-    assert "aap_labeling_v1.lock_batch_rows_for_core_read" in session.sql[1]
-    assert "aap_labeling_v1.lock_annotation_rows_for_core_read" in session.sql[2]
-    assert "aap_labeling_v1.lock_video_segment_for_core_read" in session.sql[3]
-    assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[4]
+    assert "yoao_labeling_v1.lock_task_for_core_read" in session.sql[0]
+    assert "yoao_labeling_v1.lock_batch_rows_for_core_read" in session.sql[1]
+    assert "yoao_labeling_v1.lock_annotation_rows_for_core_read" in session.sql[2]
+    assert "yoao_labeling_v1.lock_video_segment_for_core_read" in session.sql[3]
+    assert "yoao_labeling_v1.lock_task_rows_for_core_read" in session.sql[4]
     assert all("FOR UPDATE" not in statement for statement in session.sql)
 
 
@@ -351,9 +352,9 @@ async def test_active_learning_feedback_share_locks_use_fixed_owner_functions():
     await lock_active_annotation_rows_for_share(session, task_ids)
 
     assert len(session.sql) == 2
-    assert "aap_labeling_v1.lock_active_learning_feedback_task_rows" in session.sql[0]
+    assert "yoao_labeling_v1.lock_active_learning_feedback_task_rows" in session.sql[0]
     assert (
-        "aap_labeling_v1.lock_active_learning_feedback_annotation_rows"
+        "yoao_labeling_v1.lock_active_learning_feedback_annotation_rows"
         in session.sql[1]
     )
     assert all("ORDER BY" in statement for statement in session.sql)
@@ -371,7 +372,7 @@ async def test_task_rows_lock_accepts_id_only_scope_in_one_query():
 
     assert await lock_task_rows_for_core_read(session, task_ids) == []
     assert len(session.sql) == 1
-    assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[0]
+    assert "yoao_labeling_v1.lock_task_rows_for_core_read" in session.sql[0]
     assert "ORDER BY" in session.sql[0]
     assert "FOR UPDATE" not in session.sql[0]
 
@@ -398,7 +399,7 @@ async def test_batch_task_lock_keeps_select_autoflush_for_empty_ids():
         == []
     )
     assert session.flush_count == 1
-    assert "aap_labeling_v1.lock_task_rows_for_core_read" in session.sql[0]
+    assert "yoao_labeling_v1.lock_task_rows_for_core_read" in session.sql[0]
 
 
 @pytest.mark.asyncio
@@ -425,7 +426,7 @@ async def test_get_core_row_queries_the_public_relation_when_uncached():
     session.identity_map = {}
 
     assert await get_core_row(session, task_row, row_id) is None
-    assert "FROM aap_labeling_v1.task_rows" in session.sql[0]
+    assert "FROM yoao_labeling_v1.task_rows" in session.sql[0]
     assert "FROM public.tasks" not in session.sql[0]
 
 
@@ -436,7 +437,7 @@ async def test_get_core_annotation_row_queries_the_public_relation_when_uncached
     row_id = uuid.UUID("00000000-0000-0000-0000-000000000010")
 
     assert await get_core_row(session, annotation_row, row_id) is None
-    assert "FROM aap_labeling_v1.annotation_rows" in session.sql[0]
+    assert "FROM yoao_labeling_v1.annotation_rows" in session.sql[0]
 
 
 @pytest.mark.asyncio

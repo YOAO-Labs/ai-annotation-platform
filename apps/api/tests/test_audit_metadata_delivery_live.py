@@ -145,7 +145,7 @@ async def _rows(engine, request_id):
                     text(
                         "SELECT actor_id,actor_role,request_id,path,status_code,"
                         "jsonb_typeof(detail_json) AS detail_kind "
-                        "FROM aap_audit_v1.audit_events WHERE request_id=:request"
+                        "FROM yoao_audit_v1.audit_events WHERE request_id=:request"
                     ),
                     {"request": request_id},
                 )
@@ -163,7 +163,9 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
 
     _verify_postgres(test_engine.url)
     _verify_redis()
-    database_url = _role_url("AAP_MODULE_DATA_AUDIT_APPEND_URL", "audit_append_client")
+    database_url = _role_url(
+        "AAP_MODULE_DATA_AUDIT_APPEND_URL", "yoao_audit_append_client"
+    )
     engine = create_async_engine(database_url, hide_parameters=True)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     broker = os.environ["REDIS_URL"]
@@ -219,7 +221,10 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
     trigger_created = False
     try:
         async with engine.connect() as db:
-            assert await db.scalar(text("SELECT current_user")) == "audit_append_client"
+            assert (
+                await db.scalar(text("SELECT current_user"))
+                == "yoao_audit_append_client"
+            )
             assert (
                 await db.scalar(
                     text(

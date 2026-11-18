@@ -20,7 +20,7 @@ def notification_facts():
         column("payload", JSONB),
         column("read_at", DateTime(timezone=True)),
         column("created_at", DateTime(timezone=True)),
-        schema="aap_notifications_v1",
+        schema="yoao_notifications_v1",
     ).alias("notifications_notification_facts")
 
 

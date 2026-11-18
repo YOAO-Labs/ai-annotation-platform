@@ -66,25 +66,25 @@ async def test_batch_cleanup_preserves_json_null_and_caller_transaction(test_eng
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_BATCH_CONTROL_URL",
-                "labeling_batch_control_client",
+                "yoao_labeling_batch_control_client",
             ),
             timeout=5,
             command_timeout=10,
         )
         assert (
             await connection.fetchval("SELECT current_user")
-            == "labeling_batch_control_client"
+            == "yoao_labeling_batch_control_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("batch_control_command", "jsonb")},
-            role="labeling_batch_control_client",
+            role="yoao_labeling_batch_control_client",
         )
 
         async def call(request_json):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.batch_control_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.batch_control_command($1::jsonb)",
                 request_json,
             )
 

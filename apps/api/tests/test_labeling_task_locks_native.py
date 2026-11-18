@@ -35,14 +35,14 @@ def _task_control_dsn(test_engine):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_LABELING_TASK_CONTROL_URL",
-        "labeling_task_control_client",
+        "yoao_labeling_task_control_client",
     )
 
 
 def _data(connection):
     async def call(request):
         return await connection.fetchval(
-            "SELECT aap_labeling_v1.task_edit_lock_command($1::jsonb)",
+            "SELECT yoao_labeling_v1.task_edit_lock_command($1::jsonb)",
             json.dumps(request, ensure_ascii=True, allow_nan=False),
         )
 
@@ -74,9 +74,9 @@ async def test_function_only_task_lock_client_keeps_scope_locks_in_caller_transa
         try:
             await verify_function_only_role(
                 first,
-                schema="aap_labeling_v1",
+                schema="yoao_labeling_v1",
                 functions=_TASK_LOCK_FUNCTIONS,
-                role="labeling_task_control_client",
+                role="yoao_labeling_task_control_client",
             )
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await first.fetchval("SELECT id FROM public.task_locks LIMIT 1")

@@ -52,7 +52,7 @@ async def e2e_consumer(test_engine):
         async with test_engine.begin() as db:
             await db.execute(
                 text(
-                    f'GRANT EXECUTE ON FUNCTION aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb), aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
+                    f'GRANT EXECUTE ON FUNCTION yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb), yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
                 )
             )
         yield consumer.kw["bind"]

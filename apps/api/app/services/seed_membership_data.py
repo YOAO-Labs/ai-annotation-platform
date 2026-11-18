@@ -23,9 +23,9 @@ from yoao_workspace.seed_member_assignment_contract import (
 from app.db.models.project_member import ProjectMember
 
 _UNKNOWN = object()
-_WRITE = text("SELECT aap_workspace_v1.write_seed_members(CAST(:request AS jsonb))")
+_WRITE = text("SELECT yoao_workspace_v1.write_seed_members(CAST(:request AS jsonb))")
 _PIN_ASSIGNMENT = text(
-    "SELECT aap_workspace_v1.pin_seed_member_assignment(CAST(:member_id AS uuid),CAST(:assigned_at AS timestamptz))"
+    "SELECT yoao_workspace_v1.pin_seed_member_assignment(CAST(:member_id AS uuid),CAST(:assigned_at AS timestamptz))"
 )
 
 

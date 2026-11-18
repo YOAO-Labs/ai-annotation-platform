@@ -40,7 +40,7 @@ async def _client(test_engine):
     url = make_url(
         _role_url(
             "AAP_MODULE_DATA_INFERENCE_REGISTRY_INGRESS_URL",
-            "inference_registry_ingress_client",
+            "yoao_inference_registry_ingress_client",
         )
     )
     assert (url.host, url.port, url.database) == (
@@ -72,7 +72,7 @@ async def test_actual_http_ingress_keeps_original_transaction_and_minimal_receip
     try:
         assert (
             await client.fetchval("SELECT current_user")
-            == "inference_registry_ingress_client"
+            == "yoao_inference_registry_ingress_client"
         )
         with pytest.raises(HealthDataUnavailable):
             await RegistryIngressPostgresData.bind(client)
@@ -113,7 +113,7 @@ async def test_actual_http_ingress_keeps_original_transaction_and_minimal_receip
                     )
                     assert (
                         await owner.fetchval(
-                            "SELECT count(*) FROM aap_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
+                            "SELECT count(*) FROM yoao_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
                             request_id,
                         )
                         == 0

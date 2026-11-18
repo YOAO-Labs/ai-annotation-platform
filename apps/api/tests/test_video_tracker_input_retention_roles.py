@@ -26,7 +26,7 @@ async def _function_allowed(db, role: str, signature: str) -> bool:
 
 
 async def test_jobs_input_retention_fact_has_only_labeling_owner_as_caller(db_session):
-    signature = "aap_jobs_v1.video_tracker_input_retention_facts(uuid,uuid)"
+    signature = "yoao_jobs_v1.video_tracker_input_retention_facts(uuid,uuid)"
     owner = await db_session.scalar(
         text(
             "SELECT pg_catalog.pg_get_userbyid(proc.proowner) "
@@ -42,8 +42,8 @@ async def test_jobs_input_retention_fact_has_only_labeling_owner_as_caller(db_se
         ("labeling_code", True),
         ("assets_code", False),
         ("legacy_runtime", False),
-        ("asset_cleanup_client", False),
-        ("video_execution_client", False),
+        ("yoao_asset_cleanup_client", False),
+        ("yoao_video_execution_client", False),
     ):
         assert await _function_allowed(db_session, role, signature) is expected, role
 
@@ -60,6 +60,6 @@ async def test_jobs_input_retention_fact_has_only_labeling_owner_as_caller(db_se
     )
     assert public_execute is False
 
-    assets_fact = "aap_assets_v1.video_execution_input_facts(uuid)"
+    assets_fact = "yoao_assets_v1.video_execution_input_facts(uuid)"
     assert await _function_allowed(db_session, "jobs_code", assets_fact)
     assert not await _function_allowed(db_session, "labeling_code", assets_fact)

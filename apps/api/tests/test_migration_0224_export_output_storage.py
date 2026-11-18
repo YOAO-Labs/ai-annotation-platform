@@ -394,7 +394,7 @@ async def test_controlled_restore_changes_only_bucket_and_identity(owned_db):
             original["endpoint_url"], "exports-restored"
         ),
     }
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await owned_db.execute(
         update(ExportOutput)
         .where(ExportOutput.id == output_id)
@@ -419,7 +419,7 @@ async def test_controlled_restore_changes_only_bucket_and_identity(owned_db):
                     .where(ExportOutput.id == output_id)
                     .values(**changes)
                 )
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='off'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='off'"))
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(
@@ -457,7 +457,7 @@ async def test_runtime_role_cannot_forge_restore_marker(owned_db):
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(text(f"SET LOCAL ROLE {quoted}"))
-            await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+            await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
             await owned_db.execute(
                 update(ExportOutput)
                 .where(ExportOutput.id == output_id)

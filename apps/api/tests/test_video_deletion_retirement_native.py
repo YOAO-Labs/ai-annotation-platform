@@ -96,7 +96,7 @@ async def _seed_unretired(
 
 async def _retire(db, fixture):
     raw = await db.scalar(
-        text("SELECT aap_jobs_v1.video_execution_checkpoint_step('retire',:proof)"),
+        text("SELECT yoao_jobs_v1.video_execution_checkpoint_step('retire',:proof)"),
         {"proof": json.dumps(_proof(fixture["job_id"], fixture["claim"]))},
     )
     reply = json.loads(raw) if isinstance(raw, str) else raw
@@ -152,12 +152,12 @@ async def _delete(db, kind, fixture, *, operation_id=None):
     params = {**fixture, "operation_id": operation_id or uuid.uuid4()}
     if kind == "project":
         sql = (
-            "SELECT aap_workspace_v1.delete_project("
+            "SELECT yoao_workspace_v1.delete_project("
             "CAST(:operation_id AS uuid),CAST(:actor_id AS uuid),CAST(:project_id AS uuid),NULL)"
         )
     else:
         sql = (
-            "SELECT aap_workspace_v1.unlink_dataset("
+            "SELECT yoao_workspace_v1.unlink_dataset("
             "CAST(:operation_id AS uuid),CAST(:actor_id AS uuid),CAST(:dataset_id AS uuid),"
             "CAST(:project_id AS uuid),'video-delete-test',NULL)"
         )
@@ -211,7 +211,7 @@ async def _queue_historical_tracker_input_root(db, fixture):
     )
     await db.execute(
         text(
-            "SELECT aap_assets_v1._video_input_queue_prefix("
+            "SELECT yoao_assets_v1._video_input_queue_prefix("
             ":prefix,'input_expired',pg_catalog.clock_timestamp())"
         ),
         {"prefix": prefix},
@@ -271,7 +271,7 @@ async def test_unretired_cancelled_execution_blocks_cascade(db_session, kind):
         ),
         "execution_retired": await db_session.scalar(
             text(
-                "SELECT execution_retired FROM aap_jobs_v1.video_execution_journals WHERE job_id=:id"
+                "SELECT execution_retired FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:id"
             ),
             {"id": fixture["job_id"]},
         ),
@@ -314,7 +314,7 @@ async def test_job_status_does_not_replace_retirement_proof(db_session, kind, st
     await _no_deletion_receipts(db_session, operation)
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1.video_execution_input_retained(:id)"),
+            text("SELECT yoao_jobs_v1.video_execution_input_retained(:id)"),
             {"id": fixture["input_id"]},
         )
         is True
@@ -334,7 +334,7 @@ async def test_current_run_must_match_even_a_retired_old_journal(db_session, kin
     fixture = await _seed_unretired(db_session, journal=False, bound=False)
     await db_session.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_journals(job_id,run_id,writer_terminal,execution_retired) VALUES(:job,:old_run,true,true)"
+            "INSERT INTO yoao_jobs_v1.video_execution_journals(job_id,run_id,writer_terminal,execution_retired) VALUES(:job,:old_run,true,true)"
         ),
         {"job": fixture["job_id"], "old_run": uuid.uuid4()},
     )
@@ -349,7 +349,7 @@ async def test_live_job_with_inconsistent_retired_journal_is_rejected(db_session
     )
     await db_session.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_journals(job_id,run_id,writer_terminal,execution_retired) VALUES(:job,:run,true,true)"
+            "INSERT INTO yoao_jobs_v1.video_execution_journals(job_id,run_id,writer_terminal,execution_retired) VALUES(:job,:run,true,true)"
         ),
         {"job": fixture["job_id"], "run": uuid.UUID(fixture["claim"]["run_id"])},
     )
@@ -412,7 +412,7 @@ async def test_deletion_block_also_retains_unproven_video_input(db_session, case
         if case == "stale_retired_journal":
             await db_session.execute(
                 text(
-                    "INSERT INTO aap_jobs_v1.video_execution_journals "
+                    "INSERT INTO yoao_jobs_v1.video_execution_journals "
                     "(job_id,run_id,input_id,writer_terminal,execution_retired) "
                     "VALUES(:job,:run,:input,true,true)"
                 ),
@@ -446,7 +446,7 @@ async def test_deletion_block_also_retains_unproven_video_input(db_session, case
 
     deletion = await _delete(db_session, "project", fixture)
     retention_raw = await db_session.scalar(
-        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
         {"id": fixture["input_id"]},
     )
     retention = (
@@ -508,7 +508,7 @@ async def _retire_current_tracker_run_without_routes(db, fixture):
     )
     await db.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "INSERT INTO yoao_jobs_v1.video_execution_journals "
             "(job_id,run_id,input_id,task_id,project_id,source_item_id) "
             "VALUES(:job,:run,:input,:task,:project,:source)"
         ),
@@ -528,7 +528,7 @@ async def _retire_current_tracker_run_without_routes(db, fixture):
         await db.execute(
             text(
                 "SELECT run_id,writer_terminal,execution_retired "
-                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": job.id},
         )
@@ -571,7 +571,7 @@ async def test_proven_safe_inputs_keep_existing_retention_rules(db_session, case
     await db_session.flush()
 
     retention_raw = await db_session.scalar(
-        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
         {"id": fixture["input_id"]},
     )
     retention = (
@@ -641,7 +641,7 @@ async def test_missing_scope_nonready_input_fails_closed_and_gc_skips(db_session
     )
 
     retention_raw = await db_session.scalar(
-        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
         {"id": fixture["input_id"]},
     )
     retention = (
@@ -699,7 +699,7 @@ async def test_tracker_input_retention_lock_contention_fails_closed_and_gc_skips
         )
         retention_raw = await asyncio.wait_for(
             caller.scalar(
-                text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+                text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
                 {"id": fixture["input_id"]},
             ),
             5,
@@ -743,7 +743,7 @@ class _NativeVideoGarbageDatabase:
     async def call(self, operation, request):
         if operation == "claim_accepted_video_input_garbage":
             statement = (
-                "SELECT aap_assets_v1.claim_accepted_video_input_garbage("
+                "SELECT yoao_assets_v1.claim_accepted_video_input_garbage("
                 "CAST(:worker AS uuid),CAST(:lease AS integer),CAST(:page AS integer))"
             )
             parameters = {
@@ -753,7 +753,7 @@ class _NativeVideoGarbageDatabase:
             }
         elif operation == "complete_accepted_video_input_garbage":
             statement = (
-                "SELECT aap_assets_v1.complete_accepted_video_input_garbage("
+                "SELECT yoao_assets_v1.complete_accepted_video_input_garbage("
                 "CAST(:garbage AS uuid),CAST(:token AS uuid))"
             )
             parameters = {
@@ -791,7 +791,7 @@ async def test_due_historical_tracker_tombstone_is_rechecked_before_gc_delete(
 
     deletion = await _delete(db_session, "project", fixture)
     retention_raw = await db_session.scalar(
-        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
         {"id": fixture["input_id"]},
     )
     retention = (
@@ -848,7 +848,7 @@ async def test_unstarted_job_status_outside_deletion_safe_set_retains_input(
     await db_session.flush()
     deletion = await _delete(db_session, "project", fixture)
     jobs_reply_raw = await db_session.scalar(
-        text("SELECT aap_jobs_v1.video_tracker_input_retention_facts(:input,:job)"),
+        text("SELECT yoao_jobs_v1.video_tracker_input_retention_facts(:input,:job)"),
         {"input": fixture["input_id"], "job": fixture["job_id"]},
     )
     jobs_reply = (
@@ -857,7 +857,7 @@ async def test_unstarted_job_status_outside_deletion_safe_set_retains_input(
         else jobs_reply_raw
     )
     retention_raw = await db_session.scalar(
-        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
         {"id": fixture["input_id"]},
     )
     retention = (
@@ -904,7 +904,7 @@ async def test_retired_run_with_nonterminal_status_still_retains_input(
 
     deletion = await _delete(db_session, "project", fixture)
     jobs_reply_raw = await db_session.scalar(
-        text("SELECT aap_jobs_v1.video_tracker_input_retention_facts(:input,:job)"),
+        text("SELECT yoao_jobs_v1.video_tracker_input_retention_facts(:input,:job)"),
         {"input": fixture["input_id"], "job": fixture["job_id"]},
     )
     jobs_reply = (
@@ -913,7 +913,7 @@ async def test_retired_run_with_nonterminal_status_still_retains_input(
         else jobs_reply_raw
     )
     retention_raw = await db_session.scalar(
-        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
         {"id": fixture["input_id"]},
     )
     retention = (
@@ -1021,7 +1021,7 @@ async def test_retained_first_page_does_not_starve_superseded_attempt_cleanup(
     # ready plan now points only at generation 2, never the abandoned root.
     await db_session.execute(
         text(
-            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "INSERT INTO yoao_jobs_v1.video_execution_journals "
             "(job_id,run_id,input_id,writer_terminal,execution_retired) "
             "VALUES(:job,:run,:input,false,false)"
         ),
@@ -1127,7 +1127,7 @@ async def test_cancel_and_native_retire_allow_deletion_with_a_live_lease(
     assert (
         await db_session.scalar(
             text(
-                "SELECT lease_expires_at>clock_timestamp() FROM aap_jobs_v1.video_executions WHERE job_id=:id"
+                "SELECT lease_expires_at>clock_timestamp() FROM yoao_jobs_v1.video_executions WHERE job_id=:id"
             ),
             {"id": fixture["job_id"]},
         )
@@ -1140,7 +1140,7 @@ async def test_cancel_and_native_retire_allow_deletion_with_a_live_lease(
     assert (
         await db_session.scalar(
             text(
-                "SELECT execution_retired FROM aap_jobs_v1.video_execution_journals WHERE job_id=:id"
+                "SELECT execution_retired FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:id"
             ),
             {"id": fixture["job_id"]},
         )
@@ -1148,7 +1148,7 @@ async def test_cancel_and_native_retire_allow_deletion_with_a_live_lease(
     )
     assert (
         await db_session.scalar(
-            text("SELECT aap_jobs_v1.video_execution_input_retained(:id)"),
+            text("SELECT yoao_jobs_v1.video_execution_input_retained(:id)"),
             {"id": fixture["input_id"]},
         )
         is False
@@ -1270,9 +1270,9 @@ async def test_guard_lock_contention_is_busy_and_preserves_the_graph(
     table, column, identity = {
         "task": ("public.tasks", "id", fixture["task_id"]),
         "job": ("public.video_tracker_jobs", "id", fixture["job_id"]),
-        "execution": ("aap_jobs_v1.video_executions", "job_id", fixture["job_id"]),
+        "execution": ("yoao_jobs_v1.video_executions", "job_id", fixture["job_id"]),
         "journal": (
-            "aap_jobs_v1.video_execution_journals",
+            "yoao_jobs_v1.video_execution_journals",
             "job_id",
             fixture["job_id"],
         ),
@@ -1410,7 +1410,7 @@ async def test_proven_retired_orphan_execution_allows_deletion(db_session, kind)
     assert (
         await db_session.scalar(
             text(
-                "SELECT execution_retired FROM aap_jobs_v1.video_execution_journals WHERE job_id=:id"
+                "SELECT execution_retired FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:id"
             ),
             {"id": fixture["job_id"]},
         )
@@ -1424,12 +1424,12 @@ async def test_guard_functions_have_exact_owners_and_only_internal_execution(
     async with async_sessionmaker(test_engine)() as db:
         for signature, owner in (
             (
-                "aap_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)",
+                "yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)",
                 "jobs_code",
             ),
-            ("aap_labeling_v1.guard_project_video_deletion(uuid)", "labeling_code"),
+            ("yoao_labeling_v1.guard_project_video_deletion(uuid)", "labeling_code"),
             (
-                "aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)",
+                "yoao_labeling_v1.guard_dataset_video_deletion(uuid,uuid)",
                 "labeling_code",
             ),
         ):
@@ -1450,8 +1450,8 @@ async def test_guard_functions_have_exact_owners_and_only_internal_execution(
                 {"signature": signature},
             )
             for role in (
-                "workspace_project_deletion_client",
-                "workspace_dataset_unlink_client",
+                "yoao_workspace_project_deletion_client",
+                "yoao_workspace_dataset_unlink_client",
             ):
                 assert not await db.scalar(
                     text(
@@ -1539,7 +1539,7 @@ async def test_blocked_group_does_not_write_partial_never_started_proofs(
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=ANY(CAST(:ids AS uuid[]))"
+                "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=ANY(CAST(:ids AS uuid[]))"
             ),
             {"ids": [fixture["job_id"], other.id]},
         )
@@ -1558,7 +1558,7 @@ async def test_outer_rollback_restores_graph_and_removes_clearance(db_session, k
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:job"
+                "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:job"
             ),
             {"job": fixture["job_id"]},
         )
@@ -1570,7 +1570,7 @@ async def test_outer_rollback_restores_graph_and_removes_clearance(db_session, k
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:job"
+                "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:job"
             ),
             {"job": fixture["job_id"]},
         )
@@ -1584,7 +1584,7 @@ async def test_stale_never_started_clearance_cannot_override_execution(
 ):
     fixture = await _seed_unretired(db_session, claimed=True, bound=False)
     await db_session.execute(
-        text("INSERT INTO aap_jobs_v1.video_deletion_clearances(job_id) VALUES(:id)"),
+        text("INSERT INTO yoao_jobs_v1.video_deletion_clearances(job_id) VALUES(:id)"),
         {"id": fixture["job_id"]},
     )
     assert await _delete(db_session, kind, fixture) == _blocked(kind)
@@ -1622,7 +1622,7 @@ async def test_downgrade_refuses_to_drop_committed_clearance_evidence(test_engin
         assert (
             await db.scalar(
                 text(
-                    "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:id"
+                    "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:id"
                 ),
                 {"id": fixture["job_id"]},
             )
@@ -1631,7 +1631,7 @@ async def test_downgrade_refuses_to_drop_committed_clearance_evidence(test_engin
         assert (
             await db.scalar(
                 text(
-                    "SELECT to_regprocedure('aap_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)') IS NOT NULL"
+                    "SELECT to_regprocedure('yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)') IS NOT NULL"
                 )
             )
             is True
@@ -1645,9 +1645,9 @@ def _function_url(test_engine, kind):
         else "WORKSPACE_DATASET_UNLINK"
     )
     role = (
-        "workspace_project_deletion_client"
+        "yoao_workspace_project_deletion_client"
         if kind == "project"
-        else "workspace_dataset_unlink_client"
+        else "yoao_workspace_dataset_unlink_client"
     )
     url = make_url(os.environ[f"AAP_MODULE_DATA_{key}_URL"])
     assert url.username == role

@@ -118,7 +118,7 @@ async def record(
             await db.execute(
                 text(
                     "SELECT last_progress_at, progress_observation, observed_at "
-                    "FROM aap_jobs_v1.read_job_progress_for_update("
+                    "FROM yoao_jobs_v1.read_job_progress_for_update("
                     "CAST(:job_id AS pg_catalog.uuid), "
                     "CAST(:kind AS pg_catalog.text), "
                     "CAST(:task_id AS pg_catalog.text))"
@@ -152,7 +152,7 @@ async def record(
         }
         changed = await db.scalar(
             text(
-                "SELECT aap_jobs_v1.record_job_progress("
+                "SELECT yoao_jobs_v1.record_job_progress("
                 "CAST(:job_id AS pg_catalog.uuid), "
                 "CAST(:kind AS pg_catalog.text), "
                 "CAST(:task_id AS pg_catalog.text), "

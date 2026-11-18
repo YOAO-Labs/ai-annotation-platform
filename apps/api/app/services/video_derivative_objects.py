@@ -495,7 +495,9 @@ async def _expire_cache(db, model, kind, cutoff, limit):
                 Output.state == "ready",
                 Output.kind == kind,
                 Output.dataset_item_id == model.dataset_item_id,
-                func.aap_assets_v1.fixture_media_ordinary_gc("video_output", Output.id, 0),
+                func.yoao_assets_v1.fixture_media_ordinary_gc(
+                    "video_output", Output.id, 0
+                ),
                 _no_operations(Output.id),
             )
             .order_by(model.last_accessed_at, model.id)
@@ -566,7 +568,9 @@ async def _expire_building(db, now, limit):
                 Output.state == "building",
                 _expired(now),
                 _no_operations(Output.id),
-                func.aap_assets_v1.fixture_media_ordinary_gc("video_output", Output.id, 0),
+                func.yoao_assets_v1.fixture_media_ordinary_gc(
+                    "video_output", Output.id, 0
+                ),
             )
             .order_by(Output.updated_at, Output.id)
             .limit(limit)
@@ -630,7 +634,9 @@ async def retire_fixture(db, control, identifier):
     from app.services.fixture_media_retirement import _retire_output
 
     def retire(target, output, fixture):
-        with physical.open_storage(target=target, single_attempt=True, owned=True) as storage:
+        with physical.open_storage(
+            target=target, single_attempt=True, owned=True
+        ) as storage:
             return physical.delete_output(storage, output, fixture=fixture)
 
     await _retire_output(db, control, "video_output", identifier, Output, retire)
@@ -667,7 +673,9 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
             select(Output.id)
             .where(
                 Output.state != "deleted",
-                func.aap_assets_v1.fixture_media_ordinary_gc("video_output", Output.id, 0),
+                func.yoao_assets_v1.fixture_media_ordinary_gc(
+                    "video_output", Output.id, 0
+                ),
                 Output.updated_at < cutoff,
                 or_(Output.state != "building", _expired(now)),
                 _unreferenced(Output.id),

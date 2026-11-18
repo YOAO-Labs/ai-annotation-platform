@@ -24,7 +24,7 @@ def _dsn() -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_platform_role_client"
+    assert parsed.username == "yoao_identity_platform_role_client"
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -33,7 +33,7 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
     connection = await asyncpg.connect(_dsn())
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "identity_platform_role_client"
+            "yoao_identity_platform_role_client"
         )
         rows = await connection.fetch(
             """
@@ -60,7 +60,7 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
                     AND dependency.deptype = 'e'
               )
               AND (
-                  pg_catalog.left(namespace.nspname,4)='aap_'
+                  (pg_catalog.left(namespace.nspname,4)='aap_' OR pg_catalog.left(namespace.nspname,5)='yoao_')
                   OR function.prosecdef
                   OR EXISTS (
                       SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
@@ -79,16 +79,16 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
             """
         )
         assert {row["signature"] for row in rows} == {
-            "aap_identity_platform_roles_v1.platform_role_policy()",
-            "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
+            "yoao_identity_platform_roles_v1.platform_role_policy()",
+            "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
         }
         assert await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_platform_roles_v1', 'USAGE')"
+            "'yoao_identity_platform_roles_v1', 'USAGE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_platform_roles_v1', 'CREATE')"
+            "'yoao_identity_platform_roles_v1', 'CREATE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')"
@@ -103,7 +103,7 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
                 WHERE namespace.nspname NOT IN (
                     'pg_catalog','information_schema',
-                    'aap_identity_platform_roles_v1','public'
+                    'yoao_identity_platform_roles_v1','public'
                 )
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -164,7 +164,7 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
         )
 
         policy = await connection.fetchval(
-            "SELECT aap_identity_platform_roles_v1.platform_role_policy()"
+            "SELECT yoao_identity_platform_roles_v1.platform_role_policy()"
         )
         assert json.loads(policy) == {
             "schema": "aap-identity-platform-roles-policy/v1",
@@ -172,7 +172,7 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
         }
         for malformed in (None, "null", "[]", "1", '"scalar"', "{}"):
             reply = await connection.fetchval(
-                "SELECT aap_identity_platform_roles_v1.execute_platform_role_command($1::jsonb)",
+                "SELECT yoao_identity_platform_roles_v1.execute_platform_role_command($1::jsonb)",
                 malformed,
             )
             assert json.loads(reply) == {
@@ -188,9 +188,9 @@ async def test_identity_platform_role_login_has_only_two_functions_and_no_tables
         forbidden = (
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.identity_platform_role_operation_receipts LIMIT 1",
-            "SELECT aap_workspace_v1.identity_platform_role_facts(NULL::uuid)",
-            "SELECT aap_workspace_v1.lock_identity_platform_role_owned_projects(NULL::uuid)",
-            "SELECT aap_labeling_v1.identity_platform_role_facts(NULL::uuid, ARRAY[]::uuid[])",
+            "SELECT yoao_workspace_v1.identity_platform_role_facts(NULL::uuid)",
+            "SELECT yoao_workspace_v1.lock_identity_platform_role_owned_projects(NULL::uuid)",
+            "SELECT yoao_labeling_v1.identity_platform_role_facts(NULL::uuid, ARRAY[]::uuid[])",
             "CREATE TEMP TABLE platform_role_forbidden(id integer)",
             "SET ROLE identity_code",
         )
@@ -220,7 +220,7 @@ async def test_platform_role_policy_rejects_an_extra_security_definer_function()
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO identity_platform_role_client"
+                    "TO yoao_identity_platform_role_client"
                 )
             )
 

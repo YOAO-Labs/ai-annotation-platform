@@ -71,7 +71,7 @@ async def begin_admitted(
             payload.pop(name, None)
     body = await call(
         db,
-        "aap_assets_v1.begin_operator_auxiliary",
+        "yoao_assets_v1.begin_operator_auxiliary",
         {"request": payload},
         {"request": "jsonb"},
     )
@@ -81,7 +81,7 @@ async def begin_admitted(
 async def open_operation(db: AsyncSession, creation_id) -> ManagedOriginalOperation:
     data = await ok(
         db,
-        "aap_assets_v1.open_operator_storage_operation",
+        "yoao_assets_v1.open_operator_storage_operation",
         {"creation_id": creation_id},
         {"creation_id": "uuid"},
     )
@@ -91,7 +91,7 @@ async def open_operation(db: AsyncSession, creation_id) -> ManagedOriginalOperat
 async def close_operation(db, creation_id, operation_id, physical_settled: bool):
     await ok(
         db,
-        "aap_assets_v1.close_operator_storage_operation",
+        "yoao_assets_v1.close_operator_storage_operation",
         {
             "creation_id": creation_id,
             "operation_id": operation_id,
@@ -108,7 +108,7 @@ async def close_operation(db, creation_id, operation_id, physical_settled: bool)
 async def prepared(db, creation_id, value: dict):
     await ok(
         db,
-        "aap_assets_v1.record_operator_original_prepared",
+        "yoao_assets_v1.record_operator_original_prepared",
         {"creation_id": creation_id, "prepared": value},
         {"creation_id": "uuid", "prepared": "jsonb"},
     )
@@ -117,7 +117,7 @@ async def prepared(db, creation_id, value: dict):
 async def writing(db, creation_id):
     await ok(
         db,
-        "aap_assets_v1.mark_operator_original_writing",
+        "yoao_assets_v1.mark_operator_original_writing",
         {"creation_id": creation_id},
         {"creation_id": "uuid"},
     )
@@ -126,7 +126,7 @@ async def writing(db, creation_id):
 async def written(db, creation_id, receipt: dict):
     await ok(
         db,
-        "aap_assets_v1.record_operator_original_written",
+        "yoao_assets_v1.record_operator_original_written",
         {"creation_id": creation_id, "receipt": receipt},
         {"creation_id": "uuid", "receipt": "jsonb"},
     )
@@ -135,7 +135,7 @@ async def written(db, creation_id, receipt: dict):
 async def verified(db, creation_id, verification: dict):
     await ok(
         db,
-        "aap_assets_v1.record_operator_original_verified",
+        "yoao_assets_v1.record_operator_original_verified",
         {"creation_id": creation_id, "verification": verification},
         {"creation_id": "uuid", "verification": "jsonb"},
     )
@@ -144,7 +144,7 @@ async def verified(db, creation_id, verification: dict):
 async def fail(db, creation_id, outcome: str, error_code: str, evidence: dict):
     await ok(
         db,
-        "aap_assets_v1.fail_operator_original",
+        "yoao_assets_v1.fail_operator_original",
         {
             "creation_id": creation_id,
             "outcome": outcome,

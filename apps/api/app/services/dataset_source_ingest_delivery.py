@@ -22,7 +22,7 @@ async def claim_dataset_source_ingest_delivery(
     payload = (
         await db.execute(
             text(
-                "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(:lease_token,:lease_seconds)"
+                "SELECT yoao_assets_v1.claim_dataset_source_ingest_delivery(:lease_token,:lease_seconds)"
             ),
             {"lease_token": lease_token, "lease_seconds": lease_seconds},
         )
@@ -41,7 +41,7 @@ async def complete_dataset_source_ingest_delivery(
     payload = (
         await db.execute(
             text(
-                "SELECT aap_assets_v1.complete_dataset_source_ingest_delivery(:delivery_id,:lease_token)"
+                "SELECT yoao_assets_v1.complete_dataset_source_ingest_delivery(:delivery_id,:lease_token)"
             ),
             {"delivery_id": delivery_id, "lease_token": lease_token},
         )

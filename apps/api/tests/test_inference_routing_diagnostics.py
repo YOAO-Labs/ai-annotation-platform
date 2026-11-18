@@ -72,7 +72,7 @@ async def test_runtime_endpoint_retains_active_scope_after_redis_reset(
     before = set(
         await owner.fetchval(
             "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
-            "FROM aap_inference_routing_v1.command_receipts"
+            "FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     namespace = f"routing-diagnostics-test:{uuid.uuid4()}"
@@ -145,11 +145,11 @@ async def test_runtime_endpoint_retains_active_scope_after_redis_reset(
             after = set(
                 await owner.fetchval(
                     "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) "
-                    "FROM aap_inference_routing_v1.command_receipts"
+                    "FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.command_receipts "
+                "DELETE FROM yoao_inference_routing_v1.command_receipts "
                 "WHERE id=ANY($1::uuid[])",
                 list(after - before),
             )

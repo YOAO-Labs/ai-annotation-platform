@@ -45,7 +45,7 @@ async def test_heartbeat_and_authority_share_coexist_and_fence_security(test_eng
             await reader.begin()
             await reader.execute(
                 text(
-                    "SELECT aap_identity_v1.lock_accounts_share(CAST(:ids AS uuid[]), true)"
+                    "SELECT yoao_identity_v1.lock_accounts_share(CAST(:ids AS uuid[]), true)"
                 ),
                 {"ids": [actor_id]},
             )
@@ -91,7 +91,7 @@ async def test_heartbeat_and_authority_share_coexist_and_fence_security(test_eng
             async with maker.begin() as reader:
                 reply = await reader.scalar(
                     text(
-                        "SELECT aap_identity_v1.lock_accounts_share(CAST(:ids AS uuid[]), true)"
+                        "SELECT yoao_identity_v1.lock_accounts_share(CAST(:ids AS uuid[]), true)"
                     ),
                     {"ids": [actor_id]},
                 )
@@ -117,7 +117,7 @@ async def test_heartbeat_and_authority_share_coexist_and_fence_security(test_eng
                 await revoker.execute(text("SET LOCAL lock_timeout='100ms'"))
                 with pytest.raises(DBAPIError) as error:
                     await revoker.scalar(
-                        text("SELECT aap_identity_v1.revoke_jti(:jti,:expires)"),
+                        text("SELECT yoao_identity_v1.revoke_jti(:jti,:expires)"),
                         {"jti": jti, "expires": datetime.now(UTC) + timedelta(hours=1)},
                     )
                 assert error.value.orig.sqlstate == "55P03"
@@ -125,7 +125,7 @@ async def test_heartbeat_and_authority_share_coexist_and_fence_security(test_eng
             await heartbeat.rollback()
         async with maker.begin() as revoker:
             await revoker.scalar(
-                text("SELECT aap_identity_v1.revoke_jti(:jti,:expires)"),
+                text("SELECT yoao_identity_v1.revoke_jti(:jti,:expires)"),
                 {"jti": jti, "expires": datetime.now(UTC) + timedelta(hours=1)},
             )
         async with maker.begin() as heartbeat:

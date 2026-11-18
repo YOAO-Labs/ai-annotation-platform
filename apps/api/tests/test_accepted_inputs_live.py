@@ -198,7 +198,9 @@ async def _prove_cleanup_rescans_late_versions(
     runtime, input_id, tmp_path, native_signer
 ):
     cleanup_url = _guard_role_url(
-        "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client", runtime.test_engine
+        "AAP_MODULE_DATA_ASSET_CLEANUP_URL",
+        "yoao_asset_cleanup_client",
+        runtime.test_engine,
     )
     async with runtime.test_engine.connect() as owner:
         row = (

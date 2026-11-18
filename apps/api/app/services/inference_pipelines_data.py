@@ -10,7 +10,7 @@ from sqlalchemy.exc import DBAPIError
 
 from yoao_inference.pipeline_contract import PipelineRejected
 
-PIPELINE_SCHEMA = "aap_inference_pipelines_v1"
+PIPELINE_SCHEMA = "yoao_inference_pipelines_v1"
 
 _STEP = text(
     f"SELECT {PIPELINE_SCHEMA}.pipeline_step("

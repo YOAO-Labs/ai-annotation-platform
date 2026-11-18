@@ -46,15 +46,15 @@ _SCHEMA_ARTIFACT = (
     / "0206_dataset_source_guards.schema.json"
 )
 _GUARD_LEARNING = text(
-    "SELECT aap_learning_v1.guard_dataset_source_deletion("
+    "SELECT yoao_learning_v1.guard_dataset_source_deletion("
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
 )
 _GUARD_LABELING = text(
-    "SELECT aap_labeling_v1.guard_dataset_source_deletion("
+    "SELECT yoao_labeling_v1.guard_dataset_source_deletion("
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
 )
 _DETACH_ATTRIBUTION = text(
-    "SELECT aap_labeling_v1.detach_deleted_dataset_attribution("
+    "SELECT yoao_labeling_v1.detach_deleted_dataset_attribution("
     "CAST(:dataset_id AS uuid))"
 )
 

@@ -65,7 +65,7 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT aap_identity_v1.replace_fixture_preferences(:id,CAST(:preferences AS jsonb))"
+                        "SELECT yoao_identity_v1.replace_fixture_preferences(:id,CAST(:preferences AS jsonb))"
                     ),
                     {
                         "id": ids["recorder"],
@@ -79,7 +79,7 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
         async with test_engine.connect() as db:
             assert not await db.scalar(
                 text(
-                    "SELECT has_function_privilege('identity_api_consumer','aap_identity_v1.replace_fixture_preferences(uuid,jsonb)','EXECUTE')"
+                    "SELECT has_function_privilege('identity_api_consumer','yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)','EXECUTE')"
                 )
             )
         record_property("fixture_preferences_node", json.loads(result.stdout))
@@ -162,7 +162,7 @@ async def isolated_preference_database(test_engine, suffix):
             test_engine.url.set(database=name), hide_parameters=True
         )
         async with engine.begin() as db:
-            await db.execute(text("CREATE SCHEMA aap_identity_v1"))
+            await db.execute(text("CREATE SCHEMA yoao_identity_v1"))
             await db.execute(
                 text(
                     "CREATE TABLE public.users(id uuid PRIMARY KEY,preferences jsonb NOT NULL DEFAULT '{}'::jsonb)"
@@ -181,7 +181,7 @@ async def isolated_preference_database(test_engine, suffix):
                 if statement.strip():
                     await db.execute(text(statement))
             await db.execute(
-                text("GRANT USAGE ON SCHEMA aap_identity_v1,public TO identity_code")
+                text("GRANT USAGE ON SCHEMA yoao_identity_v1,public TO identity_code")
             )
             await db.execute(
                 text(
@@ -190,7 +190,7 @@ async def isolated_preference_database(test_engine, suffix):
             )
             await db.execute(
                 text(
-                    "ALTER FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb) OWNER TO identity_code"
+                    "ALTER FUNCTION yoao_identity_v1.replace_fixture_preferences(uuid,jsonb) OWNER TO identity_code"
                 )
             )
         yield engine
@@ -225,7 +225,7 @@ async def test_fixture_preferences_uses_actual_case_sensitive_database_name(
 ):
     async with isolated_preference_database(test_engine, suffix) as engine:
         command = text(
-            "SELECT aap_identity_v1.replace_fixture_preferences('10000000-0000-0000-0000-000000000001'::uuid,CAST(:preferences AS jsonb))"
+            "SELECT yoao_identity_v1.replace_fixture_preferences('10000000-0000-0000-0000-000000000001'::uuid,CAST(:preferences AS jsonb))"
         ).bindparams(preferences=json.dumps({"scope": True}))
         if suffix == "_e2e":
             async with engine.begin() as db:

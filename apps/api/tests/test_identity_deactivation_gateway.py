@@ -164,7 +164,7 @@ async def test_remote_deactivation_failure_never_selects_local_writer(monkeypatc
 
 
 @pytest.mark.parametrize(
-    "binding", ["identity_deactivation", "identity_deactivation_operator"]
+    "binding", ["identity_deactivation", "yoao_identity_deactivation_operator"]
 )
 async def test_explicit_deactivation_binding_failure_never_selects_caller_sql(
     monkeypatch, binding

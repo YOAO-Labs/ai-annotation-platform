@@ -336,7 +336,7 @@ async def test_installed_owner_node_replay_current_revocation_and_no_reason_echo
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "SELECT aap_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)"
+                    "SELECT yoao_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)"
                 ),
                 {"jti": jtis[0], "retain_until": datetime.now(UTC) + timedelta(days=8)},
             )
@@ -904,11 +904,11 @@ async def test_container_due_pages_stay_bounded_and_owner_grants_are_narrow(
         async with maker.begin() as db:
             for role, expected in (
                 (
-                    "identity_deactivation_client",
+                    "yoao_identity_deactivation_client",
                     {"deactivation_policy", "execute_deactivation_command"},
                 ),
                 (
-                    "identity_deactivation_operator",
+                    "yoao_identity_deactivation_operator",
                     {"due_policy", "process_due_deactivations"},
                 ),
             ):
@@ -918,7 +918,7 @@ async def test_container_due_pages_stay_bounded_and_owner_grants_are_narrow(
                             text(
                                 "SELECT proc.proname FROM pg_catalog.pg_proc AS proc "
                                 "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                                "WHERE ns.nspname='aap_identity_deactivation_v1' "
+                                "WHERE ns.nspname='yoao_identity_deactivation_v1' "
                                 "AND pg_catalog.has_function_privilege(:role,proc.oid,'EXECUTE')"
                             ),
                             {"role": role},

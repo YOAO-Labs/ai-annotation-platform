@@ -38,7 +38,7 @@ class NotificationDeliveryData:
         async with self.session_factory() as db:
             try:
                 async with asyncio.timeout(10):
-                    statement = f"SELECT aap_notifications_v1.{function}("
+                    statement = f"SELECT yoao_notifications_v1.{function}("
                     parameters = {}
                     if request is not None:
                         statement += "CAST(:command AS jsonb)"

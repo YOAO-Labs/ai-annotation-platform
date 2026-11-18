@@ -31,7 +31,7 @@ pytestmark = [
 async def test_standalone_calibration_binding_commits_and_replays(test_engine):
     raw_url = os.environ[_CATALOG_URL]
     target = make_url(raw_url)
-    assert target.username == "asset_catalog_client"
+    assert target.username == "yoao_asset_catalog_client"
     assert target.database == test_engine.url.database and target.database.endswith(
         "_test"
     )

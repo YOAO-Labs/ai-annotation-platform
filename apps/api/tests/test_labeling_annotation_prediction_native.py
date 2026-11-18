@@ -102,19 +102,19 @@ async def test_annotation_prediction_owner_keeps_provenance_and_outer_rollback(
             _dsn(
                 test_engine,
                 "AAP_MODULE_DATA_LABELING_PREDICTION_URL",
-                "labeling_prediction_client",
+                "yoao_labeling_prediction_client",
             ),
             timeout=5,
             command_timeout=10,
         )
         assert (
             await connection.fetchval("SELECT current_user")
-            == "labeling_prediction_client"
+            == "yoao_labeling_prediction_client"
         )
 
         async def execute(payload):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_prediction_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_prediction_command($1::jsonb)",
                 payload,
             )
 

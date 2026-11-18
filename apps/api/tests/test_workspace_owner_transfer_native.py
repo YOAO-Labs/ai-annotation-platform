@@ -434,7 +434,7 @@ async def test_owner_transfer_fails_closed_on_malformed_identity_lock_rows(
         started = True
         await owner.execute(
             """
-            CREATE OR REPLACE FUNCTION aap_identity_v1.lock_accounts_update(
+            CREATE OR REPLACE FUNCTION yoao_identity_v1.lock_accounts_update(
                 p_account_ids uuid[], p_nowait boolean
             ) RETURNS jsonb
             LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -480,7 +480,7 @@ async def test_owner_transfer_fails_closed_on_malformed_identity_lock_rows(
             functiondef = await session.scalar(
                 text(
                     "SELECT pg_catalog.pg_get_functiondef("
-                    "'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure)"
+                    "'yoao_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure)"
                 )
             )
             assert "FOR UPDATE OF account NOWAIT" in functiondef

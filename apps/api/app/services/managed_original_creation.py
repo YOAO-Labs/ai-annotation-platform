@@ -1162,7 +1162,7 @@ async def _allocate(
         if fixture_auxiliary is not None:
             material = await current.scalar(
                 text(
-                    "SELECT aap_assets_v1._managed_original_facts(creation) "
+                    "SELECT yoao_assets_v1._managed_original_facts(creation) "
                     "FROM public.managed_original_creations AS creation WHERE creation.id=:id"
                 ),
                 {"id": creation_id},
@@ -1686,7 +1686,9 @@ async def _execute(db, allocation, stream):
                     "physical_outcome": (
                         "unknown"
                         if not settled
-                        else "written" if observed_receipt is not None else "not_written"
+                        else "written"
+                        if observed_receipt is not None
+                        else "not_written"
                     ),
                 }
                 if observed_receipt is not None:

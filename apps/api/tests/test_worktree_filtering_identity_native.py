@@ -136,7 +136,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
         async with runtime_engine.connect() as db:
             assert (
                 await db.scalar(
-                    text("SELECT count(*) FROM aap_identity_v1.account_profiles")
+                    text("SELECT count(*) FROM yoao_identity_v1.account_profiles")
                 )
                 == 1
             )
@@ -177,7 +177,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             counts = (
                 await db.execute(
                     text(
-                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM aap_labeling_v1.task_rows)"
+                        "SELECT (SELECT count(*) FROM yoao_identity_v1.account_profiles), (SELECT count(*) FROM yoao_workspace_v1.project_facts), (SELECT count(*) FROM yoao_labeling_v1.task_rows)"
                     )
                 )
             ).one()
@@ -196,14 +196,14 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             assert (
                 await db.execute(
                     text(
-                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM aap_labeling_v1.task_rows)"
+                        "SELECT (SELECT count(*) FROM yoao_identity_v1.account_profiles), (SELECT count(*) FROM yoao_workspace_v1.project_facts), (SELECT count(*) FROM yoao_labeling_v1.task_rows)"
                     )
                 )
             ).one() == counts
             assert (
                 await db.scalar(
                     text(
-                        "SELECT name FROM aap_workspace_v1.project_facts WHERE id=:id"
+                        "SELECT name FROM yoao_workspace_v1.project_facts WHERE id=:id"
                     ),
                     {"id": project_id},
                 )

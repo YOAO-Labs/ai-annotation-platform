@@ -425,7 +425,7 @@ class _LegacyUploadData:
     async def read(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
         payload = await self._db.scalar(
             text(
-                "SELECT aap_assets_v1.read_legacy_dataset_upload("
+                "SELECT yoao_assets_v1.read_legacy_dataset_upload("
                 "CAST(:operation AS uuid), CAST(:actor AS uuid), "
                 "CAST(:dataset AS uuid), CAST(:item AS uuid))"
             ),
@@ -443,7 +443,7 @@ class _LegacyUploadData:
     async def lock(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
         payload = await self._db.scalar(
             text(
-                "SELECT aap_assets_v1.lock_legacy_dataset_upload("
+                "SELECT yoao_assets_v1.lock_legacy_dataset_upload("
                 "CAST(:operation AS uuid), CAST(:actor AS uuid), "
                 "CAST(:dataset AS uuid), CAST(:item AS uuid))"
             ),
@@ -461,7 +461,7 @@ class _LegacyUploadData:
     async def complete(self, request: LegacyUploadCompletion) -> LegacyUploadState:
         payload = await self._db.scalar(
             text(
-                "SELECT aap_assets_v1.complete_legacy_dataset_upload("
+                "SELECT yoao_assets_v1.complete_legacy_dataset_upload("
                 "CAST(:operation AS uuid), CAST(:actor AS uuid), "
                 "CAST(:dataset AS uuid), CAST(:item AS uuid), "
                 "CAST(:file_path AS text), CAST(:file_size AS bigint), "

@@ -519,7 +519,7 @@ class IdentityModuleStack:
             verifier_database_url(
                 self._required_environment("AAP_MODULE_DATA_JOBS_PUBLICATION_URL"),
                 test_engine.url,
-                expected_role="jobs_publication_client",
+                expected_role="yoao_jobs_publication_client",
                 container_name=self._postgres_name,
             )
             if self._jobs_queue_enabled
@@ -529,7 +529,7 @@ class IdentityModuleStack:
             verifier_database_url(
                 notification_delivery_database_url,
                 test_engine.url,
-                expected_role="notification_delivery_read_client",
+                expected_role="yoao_notification_delivery_read_client",
                 container_name=self._postgres_name,
             )
             if notification_delivery_database_url is not None
@@ -539,7 +539,7 @@ class IdentityModuleStack:
             verifier_database_url(
                 identity_actor_status_database_url,
                 test_engine.url,
-                expected_role="identity_actor_status_client",
+                expected_role="yoao_identity_actor_status_client",
                 container_name=self._postgres_name,
             )
             if identity_actor_status_database_url is not None
@@ -641,9 +641,13 @@ class IdentityModuleStack:
             address = ipaddress.IPv4Address(endpoint["IPAddress"])
             member_address = ipaddress.IPv4Interface(member["IPv4Address"]).ip
         except (KeyError, ValueError):
-            raise RuntimeError("Jobs queue attachment has no valid IPv4 identity") from None
+            raise RuntimeError(
+                "Jobs queue attachment has no valid IPv4 identity"
+            ) from None
         if address != member_address or address.is_unspecified or address.is_loopback:
-            raise RuntimeError("Jobs queue attachment address does not match its network")
+            raise RuntimeError(
+                "Jobs queue attachment address does not match its network"
+            )
         return f"http://{address}:8190"
 
     @property
@@ -746,7 +750,10 @@ class IdentityModuleStack:
                         ).items()
                     },
                     "mount_sources": [
-                        {"source": mount.get("Source"), "destination": mount.get("Destination")}
+                        {
+                            "source": mount.get("Source"),
+                            "destination": mount.get("Destination"),
+                        }
                         for mount in details.get("Mounts") or []
                     ],
                     "state": details.get("State"),
@@ -775,7 +782,9 @@ class IdentityModuleStack:
 
     async def stop(self) -> None:
         if self.retention_required:
-            raise RuntimeError("Identity assembly retained: owner retirement is unproved")
+            raise RuntimeError(
+                "Identity assembly retained: owner retirement is unproved"
+            )
         if not self._compose_env_file.is_file() or not self._override_file.is_file():
             return
         containers = self._verify_project_ownership()
@@ -834,8 +843,7 @@ class IdentityModuleStack:
             == "minio"
             and len(bindings) == 1
             and (
-                shared is not None
-                or bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
+                shared is not None or bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
             )
             and bindings[0].get("HostPort") == str(endpoint.port)
         ):
@@ -860,11 +868,16 @@ class IdentityModuleStack:
         from tests.test_asset_storage_cleanup_runtime import _shared_bootstrap_minio
 
         shared = _shared_bootstrap_minio(settings, container_id=self._minio["id"])
-        if shared is None or any(
-            details.get(name) != shared.get(name) for name in ("Id", "Name", "Image")
-        ) or any(
-            details.get(name) != self._minio[key]
-            for name, key in (("Id", "id"), ("Name", "name"), ("Image", "image_id"))
+        if (
+            shared is None
+            or any(
+                details.get(name) != shared.get(name)
+                for name in ("Id", "Name", "Image")
+            )
+            or any(
+                details.get(name) != self._minio[key]
+                for name, key in (("Id", "id"), ("Name", "name"), ("Image", "image_id"))
+            )
         ):
             raise RuntimeError("Shared bootstrap MinIO identity changed")
 
@@ -1010,7 +1023,9 @@ class IdentityModuleStack:
 
     async def switch_database(self, database_name: str) -> None:
         if self.retention_required:
-            raise RuntimeError("Identity assembly retained: owner retirement is unproved")
+            raise RuntimeError(
+                "Identity assembly retained: owner retirement is unproved"
+            )
         database_name = self._validate_database_name(database_name)
         self._prepare_files()
         containers = self._verify_project_ownership()

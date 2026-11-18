@@ -138,7 +138,7 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
     media = (ROOT / "infra/docker/assets-media-grants.sql").read_text()
     worker = (ROOT / "infra/docker/assets-image-grants.sql").read_text()
     workflow_capture = (
-        "aap_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)"
+        "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)"
     )
     for table in TABLES:
         assert f'"{table}"' in native_schema
@@ -147,12 +147,12 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
         assert f"public.{table}" not in worker
     assert workflow_capture in _compact(modules)
     assert all(
-        f"aap_assets_v1.{name}({arguments.replace(', ', ',')})" in _compact(media)
+        f"yoao_assets_v1.{name}({arguments.replace(', ', ',')})" in _compact(media)
         for name, (role, arguments) in OPERATIONS.items()
         if role == "control"
     )
     assert all(
-        f"aap_assets_v1.{name}({arguments})" not in worker
+        f"yoao_assets_v1.{name}({arguments})" not in worker
         for name, (_role, arguments) in OPERATIONS.items()
     )
 

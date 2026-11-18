@@ -30,7 +30,7 @@ async def test_task_target_keeps_project_batch_task_lock_order_and_scope(monkeyp
 
     async def read_target(_db, statement):
         compiled = str(statement.compile(dialect=postgresql.dialect()))
-        assert "aap_labeling_v1.task_rows" in compiled
+        assert "yoao_labeling_v1.task_rows" in compiled
         assert "FROM public.tasks" not in compiled
         events.append("target")
         return SimpleNamespace(one_or_none=lambda: (project_id, batch_id))
@@ -165,9 +165,9 @@ def test_discussion_counts_correlate_only_to_public_labeling_rows():
     ).select_from(task_row)
     sql = str(statement.compile(dialect=postgresql.dialect()))
 
-    assert "aap_labeling_v1.task_rows" in sql
-    assert "aap_labeling_v1.annotation_rows" in sql
-    assert "FROM aap_labeling_v1.task_rows AS root_task" in sql
-    assert "FROM aap_labeling_v1.annotation_rows AS root_annotation" in sql
+    assert "yoao_labeling_v1.task_rows" in sql
+    assert "yoao_labeling_v1.annotation_rows" in sql
+    assert "FROM yoao_labeling_v1.task_rows AS root_task" in sql
+    assert "FROM yoao_labeling_v1.annotation_rows AS root_annotation" in sql
     assert "FROM tasks AS root_task" not in sql
     assert "FROM annotations AS root_annotation" not in sql

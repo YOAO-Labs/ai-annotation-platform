@@ -79,7 +79,7 @@ async def test_operator_native_binding_flushes_pending_state_but_never_commits()
     assert [call[0] for call in db.mock_calls[:2]] == ["flush", "execute"]
     statement, parameters = db.execute.await_args.args
     assert str(statement) == (
-        "SELECT aap_assets_v1.append_operator_items(CAST(:operation_id AS uuid), "
+        "SELECT yoao_assets_v1.append_operator_items(CAST(:operation_id AS uuid), "
         "CAST(:dataset_id AS uuid), CAST(:entries AS jsonb))"
     )
     assert parameters["operation_id"] == request.operation_id

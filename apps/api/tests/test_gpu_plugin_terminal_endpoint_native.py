@@ -77,7 +77,7 @@ async def test_terminal_endpoint_requires_exact_authorized_unsettled_intent(
             endpoint = row.url
             digest = await db.scalar(
                 text(
-                    "SELECT encode(digest(convert_to(aap_inference_backend_endpoint_v1._endpoint_record(:id)::text, 'UTF8'), 'sha256'), 'hex')"
+                    "SELECT encode(digest(convert_to(yoao_inference_backend_endpoint_v1._endpoint_record(:id)::text, 'UTF8'), 'sha256'), 'hex')"
                 ),
                 {"id": backend_id},
             )
@@ -102,18 +102,18 @@ async def test_terminal_endpoint_requires_exact_authorized_unsettled_intent(
         }
         prepared = (await _step(factory, "installation_terminal", args))["preparation"]
         request_id = uuid4()
-        sql = "SELECT aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint($1,$2,$3,$4,$5)"
+        sql = "SELECT yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint($1,$2,$3,$4,$5)"
         async with factory.begin() as db:
             assert not await db.scalar(
                 text(
                     "SELECT EXISTS (SELECT FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a "
-                    "WHERE p.oid='aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)'::regprocedure "
+                    "WHERE p.oid='yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)'::regprocedure "
                     "AND a.grantee=0 AND a.privilege_type='EXECUTE')"
                 )
             )
             opener_oid = await db.scalar(
                 text(
-                    "SELECT 'aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)'::regprocedure::oid"
+                    "SELECT 'yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)'::regprocedure::oid"
                 )
             )
         async with factory._authority_pool.acquire() as conn:
@@ -124,7 +124,7 @@ async def test_terminal_endpoint_requires_exact_authorized_unsettled_intent(
         async with _owner_connection(test_engine) as conn:
             with pytest.raises(asyncpg.PostgresError):
                 await conn.fetchval(
-                    "SELECT aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject($1,$2,$3,$4)",
+                    "SELECT yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject($1,$2,$3,$4)",
                     backend_id,
                     request_id,
                     "terminal_drain",
@@ -345,17 +345,17 @@ async def test_terminal_commands_preserve_uncertain_route_and_require_exact_proo
             assert closed["scope"]["state"] == "uncertain"
             control_id = uuid4()
             await owner.execute(
-                "INSERT INTO aap_inference_routing_v1.controls "
+                "INSERT INTO yoao_inference_routing_v1.controls "
                 "(id,registry_id,kind,phase,new_epoch,challenge,config_revision,realm) "
                 "SELECT $1,registry_id,'epoch','uncertain',$2,$3,config_revision,realm "
-                "FROM aap_inference_routing_v1.registry_state WHERE registry_id=$4",
+                "FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$4",
                 control_id,
                 uuid4(),
                 "b" * 64,
                 backend_id,
             )
             held_control = await owner.fetchval(
-                "SELECT row_to_json(c)::text FROM aap_inference_routing_v1.controls c WHERE id=$1",
+                "SELECT row_to_json(c)::text FROM yoao_inference_routing_v1.controls c WHERE id=$1",
                 control_id,
             )
             blocked_scope = uuid4()
@@ -389,11 +389,11 @@ async def test_terminal_commands_preserve_uncertain_route_and_require_exact_proo
             assert ordinary_route["status"] == "rejected"
             assert ordinary_route["reason"] == "management_busy"
             assert not await owner.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM aap_inference_routing_v1.scopes WHERE id=$1)",
+                "SELECT EXISTS (SELECT 1 FROM yoao_inference_routing_v1.scopes WHERE id=$1)",
                 blocked_scope,
             )
             before = await owner.fetchrow(
-                "SELECT config_revision FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+                "SELECT config_revision FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
                 backend_id,
             )
             with pytest.raises(asyncpg.PostgresError) as blocked:
@@ -402,7 +402,7 @@ async def test_terminal_commands_preserve_uncertain_route_and_require_exact_proo
                     backend_id,
                 )
             assert blocked.value.sqlstate == "55P03"
-            command = "SELECT aap_inference_topology_v1.command_plugin_installation($1,$2,$3,$4)"
+            command = "SELECT yoao_inference_topology_v1.command_plugin_installation($1,$2,$3,$4)"
             disabled = json.loads(
                 await owner.fetchval(command, backend_id, 3, "disable", None)
             )
@@ -504,7 +504,7 @@ async def test_terminal_commands_preserve_uncertain_route_and_require_exact_proo
             assert retired["installation"]["status"] == "retired"
             assert (
                 await owner.fetchval(
-                    "SELECT config_revision FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+                    "SELECT config_revision FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
                     backend_id,
                 )
                 == before["config_revision"] + 3
@@ -519,28 +519,28 @@ async def test_terminal_commands_preserve_uncertain_route_and_require_exact_proo
             assert status["attempts"][0]["state"] == "uncertain"
             assert (
                 await owner.fetchval(
-                    "SELECT row_to_json(c)::text FROM aap_inference_routing_v1.controls c WHERE id=$1",
+                    "SELECT row_to_json(c)::text FROM yoao_inference_routing_v1.controls c WHERE id=$1",
                     control_id,
                 )
                 == held_control
             )
             assert (
                 await owner.fetchval(
-                    "SELECT count(*) FROM aap_inference_routing_v1.plugin_terminal_update_guard"
+                    "SELECT count(*) FROM yoao_inference_routing_v1.plugin_terminal_update_guard"
                 )
                 == 0
             )
     finally:
         async with _owner_connection(test_engine) as owner:
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.attempts WHERE scope_id=$1",
+                "DELETE FROM yoao_inference_routing_v1.attempts WHERE scope_id=$1",
                 scope_id,
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.scopes WHERE id=$1", scope_id
+                "DELETE FROM yoao_inference_routing_v1.scopes WHERE id=$1", scope_id
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+                "DELETE FROM yoao_inference_routing_v1.controls WHERE registry_id=$1",
                 backend_id,
             )
         await _cleanup_backends(factory, ids)

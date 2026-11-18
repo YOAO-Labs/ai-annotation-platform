@@ -68,9 +68,9 @@ async def e2e_consumer(test_engine):
         async with test_engine.begin() as db:
             await db.execute(
                 text(
-                    f"GRANT EXECUTE ON FUNCTION aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), "
-                    f"aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb), "
-                    f'aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
+                    f"GRANT EXECUTE ON FUNCTION yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), "
+                    f"yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb), "
+                    f'yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
                 )
             )
         async with producer() as db:
@@ -254,7 +254,7 @@ async def test_fixture_writes_keep_cache_pending_work_and_transaction(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT id FROM aap_workspace_v1.project_member_facts WHERE id=:id"
+                        "SELECT id FROM yoao_workspace_v1.project_member_facts WHERE id=:id"
                     ),
                     {"id": member.id},
                 )
@@ -393,7 +393,7 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
             with pytest.raises(DBAPIError) as error:
                 await db.scalar(
                     text(
-                        "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:ids AS uuid[]))"
+                        "SELECT yoao_workspace_fixture_v1.delete_projects(CAST(:ids AS uuid[]))"
                     ),
                     {"ids": [project_id]},
                 )
@@ -410,7 +410,7 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:id"
+                        "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:id"
                     ),
                     {"id": job_id},
                 )
@@ -483,7 +483,7 @@ async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
     operation = "delete_projects" if kind == "project" else "delete_templates"
 
     async def controlled_failure(self, statement, *args, **kwargs):
-        if str(statement).startswith("SELECT aap_workspace_fixture_v1." + operation):
+        if str(statement).startswith("SELECT yoao_workspace_fixture_v1." + operation):
             raise RuntimeError("controlled fixture deletion failure")
         return await original(self, statement, *args, **kwargs)
 
@@ -603,12 +603,12 @@ async def test_fixture_capabilities_require_explicit_operator_profile(test_engin
         )
         async with test_engine.connect() as owner:
             view_oid = await owner.scalar(
-                text("SELECT 'aap_workspace_fixture_v1.templates'::regclass::oid")
+                text("SELECT 'yoao_workspace_fixture_v1.templates'::regclass::oid")
             )
             function_oids = [
                 await owner.scalar(
                     text("SELECT CAST(:signature AS regprocedure)::oid"),
-                    {"signature": "aap_workspace_fixture_v1." + signature},
+                    {"signature": "yoao_workspace_fixture_v1." + signature},
                 )
                 for signature in signatures
             ]
@@ -717,7 +717,7 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
 
     async def denied(self, statement, *args, **kwargs):
         if str(statement).startswith(
-            "SELECT aap_workspace_fixture_v1.delete_projects("
+            "SELECT yoao_workspace_fixture_v1.delete_projects("
         ):
             raise IntegrityError(
                 str(statement), {}, ControlledDenial("video_execution_not_retired")
@@ -755,7 +755,7 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:id"
+                        "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:id"
                     ),
                     {"id": job_id},
                 )

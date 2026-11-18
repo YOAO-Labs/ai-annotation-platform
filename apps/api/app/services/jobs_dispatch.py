@@ -41,7 +41,7 @@ def jobs_dispatch_data(db: AsyncSession) -> JobsDispatchDataClient:
         if function_name == JOBS_DISPATCH_FUNCTIONS["status"]:
             return await db.scalar(
                 text(
-                    "SELECT aap_jobs_v1.dispatch_status("
+                    "SELECT yoao_jobs_v1.dispatch_status("
                     "CAST(:intent_id AS pg_catalog.uuid))"
                 ),
                 {"intent_id": arguments["intent_id"]},

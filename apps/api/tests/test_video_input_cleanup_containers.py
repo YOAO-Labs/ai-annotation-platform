@@ -39,7 +39,7 @@ async def test_cleanup_container_reaps_video_attempts_and_late_versions(
     image_ref = _required_env("AAP_VIDEO_CONSUMER_CLEANUP_IMAGE")
     image_id, _ = _owned_image_ref(image_ref)
     cleanup_url = _guard_role_url(
-        "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client", test_engine
+        "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "yoao_asset_cleanup_client", test_engine
     )
     resources = _verified_resource_manifest(test_engine, cleanup_url)
     original_start, original_stop = video._start_process, video._stop_process

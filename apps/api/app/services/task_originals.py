@@ -299,7 +299,7 @@ async def publish(db, task, allocation, created, *, actor_id):
         await db.execute(
             text(
                 "SELECT original_id, status, version "
-                "FROM aap_labeling_v1.publish_task_original("
+                "FROM yoao_labeling_v1.publish_task_original("
                 "CAST(:task_id AS uuid), CAST(:project_id AS uuid), "
                 "CAST(:actor_id AS uuid), CAST(:original_id AS uuid), "
                 "CAST(:creation_id AS uuid), CAST(:expected_status AS text))"

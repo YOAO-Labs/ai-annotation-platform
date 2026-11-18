@@ -62,7 +62,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
             _assert_ok(
                 await _native(
                     db_session,
-                    "aap_labeling_v1",
+                    "yoao_labeling_v1",
                     "begin_batch_result",
                     lease_scope
                     | {
@@ -80,7 +80,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
             _assert_ok(
                 await _native(
                     db_session,
-                    "aap_labeling_v1",
+                    "yoao_labeling_v1",
                     "begin_batch_result",
                     lease_scope
                     | {
@@ -97,7 +97,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
         put = _assert_ok(
             await _native(
                 db_session,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "put_batch_result_part",
                 lease_scope
                 | {
@@ -116,7 +116,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
         sealed = _assert_ok(
             await _native(
                 db_session,
-                "aap_labeling_v1",
+                "yoao_labeling_v1",
                 "seal_batch_result",
                 lease_scope | {"ordinal": 1, "stage": stage},
             )
@@ -134,7 +134,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
     _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "lock_batch_result_write",
             lease_scope
             | {
@@ -182,7 +182,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
     applied = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "finish_batch_result_write",
             lease_scope
             | {
@@ -299,7 +299,7 @@ async def test_delete_batch_predict_jobs_rolls_back_and_retains_applied_receipt(
     receipt = _assert_ok(
         await _native(
             db_session,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             "read_batch_result",
             base_scope
             | {

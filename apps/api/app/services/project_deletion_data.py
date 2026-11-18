@@ -23,7 +23,7 @@ class ProjectDeletionData:
         await self.db.flush()
         return await self.db.scalar(
             text(
-                "SELECT aap_workspace_v1.delete_project("
+                "SELECT yoao_workspace_v1.delete_project("
                 "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
                 "CAST(:project_id AS uuid), CAST(:audit_context AS jsonb))"
             ),

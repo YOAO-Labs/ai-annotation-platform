@@ -115,7 +115,7 @@ async def _assert_inference_scope(engine, world) -> None:
                   FROM pg_catalog.pg_proc AS function
                   JOIN pg_catalog.pg_namespace AS namespace
                     ON namespace.oid = function.pronamespace
-                 WHERE namespace.nspname = 'aap_workspace_v1'
+                 WHERE namespace.nspname = 'yoao_workspace_v1'
                    AND pg_catalog.has_function_privilege(
                        'inference_code', function.oid, 'EXECUTE'
                    )"""
@@ -125,8 +125,8 @@ async def _assert_inference_scope(engine, world) -> None:
             # Inference serializes its topology writes against this Project row
             # lock; the fix(inference) capability grant and the module-data
             # verifier both fix project_lock as an Inference privilege.
-            "aap_workspace_v1.lock_project_reference(uuid)",
-            "aap_workspace_v1.clear_primary_backend_bindings(uuid)",
+            "yoao_workspace_v1.lock_project_reference(uuid)",
+            "yoao_workspace_v1.clear_primary_backend_bindings(uuid)",
         }
 
         inference = await _connect_inference(engine)
@@ -150,11 +150,11 @@ async def _assert_inference_scope(engine, world) -> None:
                 await inference.fetch(statement, *parameters)
 
         private_calls = (
-            "SELECT aap_workspace_configuration_v1._class_rename_project_row(NULL::uuid,'key_share')",
-            "SELECT aap_workspace_configuration_v1._class_rename_member_rows(NULL::uuid,NULL::uuid)",
-            "SELECT aap_workspace_v1._project_read_failure('private')",
-            "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid,NULL::uuid)",
-            "SELECT aap_labeling_v1.workspace_project_query_counters(ARRAY[]::uuid[])",
+            "SELECT yoao_workspace_configuration_v1._class_rename_project_row(NULL::uuid,'key_share')",
+            "SELECT yoao_workspace_configuration_v1._class_rename_member_rows(NULL::uuid,NULL::uuid)",
+            "SELECT yoao_workspace_v1._project_read_failure('private')",
+            "SELECT yoao_workspace_v1.lock_project_manager(NULL::uuid,NULL::uuid)",
+            "SELECT yoao_labeling_v1.workspace_project_query_counters(ARRAY[]::uuid[])",
         )
         for statement in private_calls:
             with pytest.raises(asyncpg.InsufficientPrivilegeError):

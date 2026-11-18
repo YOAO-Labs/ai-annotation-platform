@@ -57,7 +57,7 @@ async def test_delivery_lease_uses_wall_clock_inside_held_transactions(
             null_lease = (
                 await connection.execute(
                     text(
-                        "SELECT aap_assets_v1.claim_dataset_import_delivery("
+                        "SELECT yoao_assets_v1.claim_dataset_import_delivery("
                         ":lease_token, NULL)"
                     ),
                     {"lease_token": uuid4()},
@@ -72,7 +72,7 @@ async def test_delivery_lease_uses_wall_clock_inside_held_transactions(
             claimed = (
                 await connection.execute(
                     text(
-                        "SELECT aap_assets_v1.claim_dataset_import_delivery("
+                        "SELECT yoao_assets_v1.claim_dataset_import_delivery("
                         ":lease_token, 30)"
                     ),
                     {"lease_token": lease_token},
@@ -86,7 +86,7 @@ async def test_delivery_lease_uses_wall_clock_inside_held_transactions(
             second_claim = (
                 await connection.execute(
                     text(
-                        "SELECT aap_assets_v1.claim_dataset_import_delivery("
+                        "SELECT yoao_assets_v1.claim_dataset_import_delivery("
                         ":lease_token, 30)"
                     ),
                     {"lease_token": next_token},
@@ -112,7 +112,7 @@ async def test_delivery_lease_uses_wall_clock_inside_held_transactions(
             expired = (
                 await connection.execute(
                     text(
-                        "SELECT aap_assets_v1.complete_dataset_import_delivery("
+                        "SELECT yoao_assets_v1.complete_dataset_import_delivery("
                         ":delivery_id, :lease_token)"
                     ),
                     {"delivery_id": delivery_id, "lease_token": lease_token},

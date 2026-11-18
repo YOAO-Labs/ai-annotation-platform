@@ -49,8 +49,8 @@ async def _seed_world(test_engine):
             await managed_original_creation.bootstrap(db)
         async with api() as db:
             for signature in (
-                "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
-                "aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
+                "yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
+                "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
             ):
                 assert not await db.scalar(
                     text(
@@ -71,7 +71,7 @@ async def _seed_world(test_engine):
                         text(
                             "SELECT p.oid::regprocedure::text FROM pg_proc p "
                             "JOIN pg_namespace n ON n.oid=p.pronamespace "
-                            "WHERE n.nspname='aap_assets_v1' "
+                            "WHERE n.nspname='yoao_assets_v1' "
                             "AND has_function_privilege('legacy_runtime',p.oid,'EXECUTE')"
                         )
                     )
@@ -92,8 +92,8 @@ async def _seed_world(test_engine):
                 )
             )
             for signature in (
-                "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
-                "aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
+                "yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
+                "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
             ):
                 assert not await db.scalar(
                     text(
@@ -129,7 +129,7 @@ async def test_seed_profile_rejects_a_child_that_could_inherit_operator_writes(
                 assert not await db.scalar(
                     text(
                         "SELECT has_function_privilege(current_user,"
-                        "'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)','EXECUTE')"
+                        "'yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)','EXECUTE')"
                     )
                 )
         finally:
@@ -330,9 +330,13 @@ async def test_seed_native_descriptor_restrictions_errors_and_rollback(test_engi
     try:
         project_id = uuid.uuid4()
         display_id = "P-NATIVE-" + uuid.uuid4().hex[:8]
-        create = "SELECT aap_workspace_v1.create_point_cloud_seed_project($1,$2,$3,$4,$5::jsonb)"
-        write = "SELECT aap_workspace_v1.write_nuscenes_seed_defaults($1,$2,$3::jsonb)"
-        for role in ("identity_api_consumer", "append_client", "asset_operator_client"):
+        create = "SELECT yoao_workspace_v1.create_point_cloud_seed_project($1,$2,$3,$4,$5::jsonb)"
+        write = "SELECT yoao_workspace_v1.write_nuscenes_seed_defaults($1,$2,$3::jsonb)"
+        for role in (
+            "identity_api_consumer",
+            "yoao_append_client",
+            "yoao_asset_operator_client",
+        ):
             async with maker() as db:
                 for function in expected["x-native-capabilities"]["functions"]:
                     assert not await db.scalar(

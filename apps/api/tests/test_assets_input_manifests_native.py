@@ -15,38 +15,38 @@ from tests.test_assets_catalog_native import _seed_actor
 pytestmark = pytest.mark.asyncio
 
 _CAPTURE = text(
-    "SELECT aap_assets_v1.capture_accepted_image_input_manifest("
+    "SELECT yoao_assets_v1.capture_accepted_image_input_manifest("
     "CAST(:job_id AS uuid), CAST(:actor_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:selection AS jsonb))"
 )
 _READ = text(
-    "SELECT aap_assets_v1.read_accepted_image_input_manifest("
+    "SELECT yoao_assets_v1.read_accepted_image_input_manifest("
     "CAST(:job_id AS uuid), CAST(:actor_id AS uuid), CAST(:project_id AS uuid))"
 )
 _PAGE = text(
-    "SELECT aap_assets_v1.read_accepted_image_input_manifest_page("
+    "SELECT yoao_assets_v1.read_accepted_image_input_manifest_page("
     "CAST(:job_id AS uuid), CAST(:actor_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:selection_digest AS text), CAST(:sealed_digest AS text), "
     "CAST(:cursor AS bigint), CAST(:page_size AS integer))"
 )
 _PREPARE = text(
-    "SELECT aap_assets_v1.prepare_accepted_image_input_manifest_member("
+    "SELECT yoao_assets_v1.prepare_accepted_image_input_manifest_member("
     "CAST(:job_id AS uuid), CAST(:actor_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:selection_digest AS text), CAST(:ordinal AS bigint), "
     "CAST(:task_id AS uuid), CAST(:source_snapshot AS text), "
     "CAST(:object_identity AS jsonb), CAST(:terminal_error AS text))"
 )
 _CLAIM = text(
-    "SELECT aap_assets_v1.claim_accepted_image_input("
+    "SELECT yoao_assets_v1.claim_accepted_image_input("
     "CAST(:worker_id AS uuid), CAST(:input_id AS uuid), :lease_seconds)"
 )
 _FINISH = text(
-    "SELECT aap_assets_v1.finish_accepted_image_input("
+    "SELECT yoao_assets_v1.finish_accepted_image_input("
     "CAST(:input_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), CAST(:blob AS jsonb))"
 )
 _SEAL = text(
-    "SELECT aap_assets_v1.seal_accepted_image_input_manifest("
+    "SELECT yoao_assets_v1.seal_accepted_image_input_manifest("
     "CAST(:job_id AS uuid), CAST(:actor_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:selection_digest AS text))"
 )
@@ -313,7 +313,7 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
     pin = _reply(
         await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1.attach_annotation_input_source(:annotation, :input, :sha)"
+                "SELECT yoao_labeling_v1.attach_annotation_input_source(:annotation, :input, :sha)"
             ),
             {
                 "annotation": annotation.id,
@@ -335,7 +335,7 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
     work = _data(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.read_accepted_image_input_work(:input, :job, :task)"
+                "SELECT yoao_assets_v1.read_accepted_image_input_work(:input, :job, :task)"
             ),
             {
                 "input": claim["input"]["input_id"],
@@ -350,7 +350,7 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
     locked = _data(
         await db_session.scalar(
             text(
-                "SELECT aap_assets_v1.lock_accepted_image_input(:input, :task, :project)"
+                "SELECT yoao_assets_v1.lock_accepted_image_input(:input, :task, :project)"
             ),
             {
                 "input": claim["input"]["input_id"],

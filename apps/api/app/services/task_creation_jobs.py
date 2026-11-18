@@ -32,7 +32,7 @@ class TaskCreationJobs:
         await self.db.flush()
         payload = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.create_task_creation_job("
+                "SELECT yoao_jobs_v1.create_task_creation_job("
                 "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
                 "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
                 "CAST(:association_id AS uuid))"
@@ -62,7 +62,7 @@ class TaskCreationJobs:
     ) -> CreationJobDiscovery:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.find_task_creation_job("
+                "SELECT yoao_jobs_v1.find_task_creation_job("
                 "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), "
                 "CAST(:project_id AS uuid), CAST(:association_id AS uuid))"
             ),
@@ -80,7 +80,7 @@ class TaskCreationJobs:
     async def claim(self, job_id: UUID, execution_id: str | None) -> CreationJobClaim:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.claim_task_creation_job("
+                "SELECT yoao_jobs_v1.claim_task_creation_job("
                 "CAST(:job_id AS uuid), :execution_id)"
             ),
             {"job_id": job_id, "execution_id": execution_id},
@@ -95,7 +95,7 @@ class TaskCreationJobs:
     async def finish(self, job_id: UUID, operation_id: UUID) -> CreationJobFinished:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.finish_task_creation_job("
+                "SELECT yoao_jobs_v1.finish_task_creation_job("
                 "CAST(:job_id AS uuid), CAST(:operation_id AS uuid))"
             ),
             {"job_id": job_id, "operation_id": operation_id},
@@ -109,7 +109,7 @@ class TaskCreationJobs:
     ) -> CreationJobFinished:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.fail_task_creation_job("
+                "SELECT yoao_jobs_v1.fail_task_creation_job("
                 "CAST(:job_id AS uuid), CAST(:operation_id AS uuid), :code)"
             ),
             {"job_id": job_id, "operation_id": operation_id, "code": code},
@@ -121,7 +121,7 @@ class TaskCreationJobs:
     async def cancel(self, actor_id: UUID, job_id: UUID) -> CreationJobFinished:
         payload = await self.db.scalar(
             text(
-                "SELECT aap_jobs_v1.cancel_task_creation_job("
+                "SELECT yoao_jobs_v1.cancel_task_creation_job("
                 "CAST(:actor_id AS uuid), CAST(:job_id AS uuid))"
             ),
             {"actor_id": actor_id, "job_id": job_id},

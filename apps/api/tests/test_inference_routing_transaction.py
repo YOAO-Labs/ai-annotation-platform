@@ -59,7 +59,7 @@ async def test_admission_keeps_pending_prediction_and_outer_rollback(
         monkeypatch.setattr(settings, name, value)
     before_receipts = set(
         await owner.fetchval(
-            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -119,11 +119,11 @@ async def test_admission_keeps_pending_prediction_and_outer_rollback(
         try:
             after_receipts = set(
                 await owner.fetchval(
-                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
                 list(after_receipts - before_receipts),
             )
             await _cleanup(owner, world)

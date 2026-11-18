@@ -48,8 +48,8 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_routing_v1"
-_ROLE = "inference_routing_client"
+_SCHEMA = "yoao_inference_routing_v1"
+_ROLE = "yoao_inference_routing_client"
 
 
 async def _routing_snapshot(engine, world: dict, receipt_ids: list[uuid.UUID]) -> dict:
@@ -628,7 +628,7 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         await clone_transaction.start()
         with pytest.raises(RoutingUnavailable):
             await RoutingPostgresData.bind(
-                clone_connection, expected_login="inference_routing_client"
+                clone_connection, expected_login="yoao_inference_routing_client"
             )
         # Core Native reads allow inspection without exposing copied receipts.
         for source_command in (world["begin_command"], world["acquire_command"]):

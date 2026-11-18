@@ -50,7 +50,7 @@ def _provisioning_dsn(test_engine) -> str:
         pytest.skip("Identity provisioning client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith("_test")
-    assert parsed.username == "identity_provisioning_client"
+    assert parsed.username == "yoao_identity_provisioning_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -90,7 +90,7 @@ class _SessionProvisioningData:
 
     async def lookup_account(self, request: ProvisioningLookupRequest) -> dict:
         result = await self.session.execute(
-            text("SELECT aap_identity_v1.read_provisioning_account(:email)"),
+            text("SELECT yoao_identity_v1.read_provisioning_account(:email)"),
             {"email": request.email},
         )
         return _json_reply(result.scalar_one())
@@ -99,7 +99,7 @@ class _SessionProvisioningData:
         payload = request.model_dump(mode="json", by_alias=True)
         result = await self.session.execute(
             text(
-                "SELECT aap_identity_v1.create_provisioning_account("
+                "SELECT yoao_identity_v1.create_provisioning_account("
                 "CAST(:payload AS jsonb))"
             ),
             {"payload": json.dumps(payload, ensure_ascii=False)},
@@ -180,11 +180,11 @@ def test_provisioning_schema_sql_and_function_allowlist_are_frozen():
     assert "INSERT INTO public.audit_logs" in support
     assert "INSERT INTO public.audit_logs" not in artifact
     assert "preferences" in module_grants
-    assert "identity_provisioning_client" in role_grants
-    assert "aap_identity_v1.create_provisioning_account(jsonb)" in role_grants
-    assert "aap_identity_v1.read_provisioning_account(text)" in role_grants
-    assert "aap_identity_v1.create_provisioning_account(jsonb)" in lan_grants
-    assert '"PROVISIONING": "identity_provisioning_client"' in verifier
+    assert "yoao_identity_provisioning_client" in role_grants
+    assert "yoao_identity_v1.create_provisioning_account(jsonb)" in role_grants
+    assert "yoao_identity_v1.read_provisioning_account(text)" in role_grants
+    assert "yoao_identity_v1.create_provisioning_account(jsonb)" in lan_grants
+    assert '"PROVISIONING": "yoao_identity_provisioning_client"' in verifier
     assert '"0252_identity_provisioning.sql"' in verifier
     assert '"0252_identity_provisioning.schema.json"' in verifier
 
@@ -523,7 +523,7 @@ async def test_duplicate_email_keeps_raw_unique_and_aborted_transaction_errors(
     await transaction.start()
     try:
         first = await connection.fetchval(
-            "SELECT aap_identity_v1.create_provisioning_account($1::jsonb)",
+            "SELECT yoao_identity_v1.create_provisioning_account($1::jsonb)",
             json.dumps(
                 _create_payload(
                     account_id=account_id, email=email, request_id=request_id
@@ -534,7 +534,7 @@ async def test_duplicate_email_keeps_raw_unique_and_aborted_transaction_errors(
 
         with pytest.raises(asyncpg.UniqueViolationError) as duplicate:
             await connection.fetchval(
-                "SELECT aap_identity_v1.create_provisioning_account($1::jsonb)",
+                "SELECT yoao_identity_v1.create_provisioning_account($1::jsonb)",
                 json.dumps(
                     _create_payload(
                         account_id=duplicate_id,
@@ -578,7 +578,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
     account_id = uuid.uuid4()
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "identity_provisioning_client"
+            "yoao_identity_provisioning_client"
         )
         rows = await connection.fetch(
             """
@@ -605,7 +605,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
                     AND dependency.deptype = 'e'
               )
               AND (
-                  pg_catalog.left(namespace.nspname,4)='aap_'
+                  (pg_catalog.left(namespace.nspname,4)='aap_' OR pg_catalog.left(namespace.nspname,5)='yoao_')
                   OR function.prosecdef
                   OR EXISTS (
                       SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
@@ -626,17 +626,17 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
             """
         )
         assert [row["signature"] for row in rows] == [
-            "aap_identity_v1.create_provisioning_account(jsonb)",
-            "aap_identity_v1.create_seed_persona_account(jsonb)",
-            "aap_identity_v1.read_provisioning_account(text)",
+            "yoao_identity_v1.create_provisioning_account(jsonb)",
+            "yoao_identity_v1.create_seed_persona_account(jsonb)",
+            "yoao_identity_v1.read_provisioning_account(text)",
         ]
         assert await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_v1', 'USAGE')"
+            "'yoao_identity_v1', 'USAGE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, "
-            "'aap_identity_v1', 'CREATE')"
+            "'yoao_identity_v1', 'CREATE')"
         )
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')"
@@ -663,7 +663,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
             parameters = [] if payload is None else [json.dumps(payload)]
             with pytest.raises(asyncpg.PostgresError) as invalid:
                 await connection.fetchval(
-                    f"SELECT aap_identity_v1.create_provisioning_account({expression})",
+                    f"SELECT yoao_identity_v1.create_provisioning_account({expression})",
                     *parameters,
                 )
             assert invalid.value.sqlstate == "22023"
@@ -673,7 +673,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
             with pytest.raises(_AbortProvisioning):
                 async with transaction:
                     created = await connection.fetchval(
-                        "SELECT aap_identity_v1.create_provisioning_account($1::jsonb)",
+                        "SELECT yoao_identity_v1.create_provisioning_account($1::jsonb)",
                         json.dumps(_create_payload(account_id=account_id, email=email)),
                     )
                     assert set(json.loads(created)) == {
@@ -686,7 +686,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
         except _AbortProvisioning:
             pass
         lookup = await connection.fetchval(
-            "SELECT aap_identity_v1.read_provisioning_account($1)", email
+            "SELECT yoao_identity_v1.read_provisioning_account($1)", email
         )
         assert json.loads(lookup) == {
             "schema": "aap-identity-provisioning/v1",
@@ -697,7 +697,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
         forbidden = (
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.audit_logs LIMIT 1",
-            "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text)",
+            "SELECT yoao_identity_v1.read_actor_context(NULL::uuid,NULL::text)",
             "CREATE TEMP TABLE provisioning_forbidden(id integer)",
             "SET ROLE identity_code",
         )

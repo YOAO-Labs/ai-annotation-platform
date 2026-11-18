@@ -53,7 +53,10 @@ async def _world(
     urls = {}
     for role, key in (
         ("legacy_runtime", "AAP_MODULE_DATA_LEGACY_RUNTIME_URL"),
-        ("preannotation_result_client", "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"),
+        (
+            "yoao_preannotation_result_client",
+            "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
+        ),
     ):
         raw = os.environ.get(key)
         if not raw:
@@ -177,7 +180,7 @@ async def _world(
     engines = {role: create_async_engine(url) for role, url in urls.items()}
     writers = async_sessionmaker(engines["legacy_runtime"], expire_on_commit=False)
     executors = async_sessionmaker(
-        engines["preannotation_result_client"], expire_on_commit=False
+        engines["yoao_preannotation_result_client"], expire_on_commit=False
     )
     execution = BatchResultExecution(
         request, writers, execution_id=str(job_id), executor_session_factory=executors
@@ -362,7 +365,7 @@ async def test_mask_producer_cannot_start_after_execution_takeover(test_engine):
                 async with world.owner_factory() as owner:
                     object_id = await owner.scalar(
                         text(
-                            "SELECT object_id FROM aap_jobs_v1.prediction_mask_producer_objects WHERE producer_id=:id"
+                            "SELECT object_id FROM yoao_jobs_v1.prediction_mask_producer_objects WHERE producer_id=:id"
                         ),
                         {"id": producer_id},
                     )
@@ -379,7 +382,7 @@ async def test_mask_producer_cannot_start_after_execution_takeover(test_engine):
                 async with world.owner_factory() as owner:
                     admitted = await owner.scalar(
                         text(
-                            "SELECT aap_jobs_v1.bind_prediction_mask_object(:producer,:object)"
+                            "SELECT yoao_jobs_v1.bind_prediction_mask_object(:producer,:object)"
                         ),
                         {"producer": producer_id, "object": object_id},
                     )
@@ -389,7 +392,7 @@ async def test_mask_producer_cannot_start_after_execution_takeover(test_engine):
             assert (
                 await owner.scalar(
                     text(
-                        "SELECT state FROM aap_jobs_v1.prediction_mask_producers WHERE id=:id"
+                        "SELECT state FROM yoao_jobs_v1.prediction_mask_producers WHERE id=:id"
                     ),
                     {"id": producer_id},
                 )

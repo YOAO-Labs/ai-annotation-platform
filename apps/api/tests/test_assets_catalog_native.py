@@ -22,45 +22,45 @@ pytestmark = pytest.mark.asyncio
 
 _LIST = text(
     """
-    SELECT aap_assets_v1.list_catalog_datasets(
+    SELECT yoao_assets_v1.list_catalog_datasets(
         CAST(:actor_id AS uuid), CAST(:search AS text), CAST(:data_type AS text),
         CAST(:has_scenes AS boolean), CAST(:limit AS integer), CAST(:offset AS bigint)
     )
     """
 )
 _GET = text(
-    "SELECT aap_assets_v1.get_catalog_dataset(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.get_catalog_dataset(CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid))"
 )
 _ITEMS = text(
-    "SELECT aap_assets_v1.list_catalog_items(CAST(:actor_id AS uuid), "
+    "SELECT yoao_assets_v1.list_catalog_items(CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:limit AS integer), CAST(:offset AS bigint))"
 )
 _CREATE = text(
-    "SELECT aap_assets_v1.create_catalog_dataset(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.create_catalog_dataset(CAST(:operation_id AS uuid), "
     "CAST(:actor_id AS uuid), CAST(:request AS jsonb))"
 )
 _UPDATE = text(
-    "SELECT aap_assets_v1.update_catalog_dataset(CAST(:operation_id AS uuid), "
+    "SELECT yoao_assets_v1.update_catalog_dataset(CAST(:operation_id AS uuid), "
     "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), CAST(:patch AS jsonb))"
 )
 _ROLE_ACCEPTANCE = os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
 _CATALOG_URL = "AAP_MODULE_DATA_ASSET_CATALOG_URL"
 _CATALOG_FUNCTIONS = (
-    "aap_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
-    "aap_assets_v1.get_catalog_dataset(uuid,uuid)",
-    "aap_assets_v1.list_catalog_items(uuid,uuid,integer,bigint)",
-    "aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)",
-    "aap_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)",
+    "yoao_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
+    "yoao_assets_v1.get_catalog_dataset(uuid,uuid)",
+    "yoao_assets_v1.list_catalog_items(uuid,uuid,integer,bigint)",
+    "yoao_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)",
+    "yoao_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)",
 )
 _CATALOG_LOGIN_FUNCTIONS = (
     _CATALOG_FUNCTIONS
     + (
-        "aap_assets_v1.list_dataset_projects(uuid,uuid)",
-        "aap_assets_v1.list_project_datasets(uuid,uuid)",
+        "yoao_assets_v1.list_dataset_projects(uuid,uuid)",
+        "yoao_assets_v1.list_project_datasets(uuid,uuid)",
     )
     + tuple(
-        f"aap_assets_v1.{name}({types})"
+        f"yoao_assets_v1.{name}({types})"
         for name, types in SPATIAL_NATIVE_SIGNATURES.items()
     )
 )
@@ -797,7 +797,7 @@ async def test_catalog_rejects_malformed_identity_facts_and_allows_unknown_read_
         encoded = json.dumps(reply)
         await db_session.execute(
             text(
-                "CREATE OR REPLACE FUNCTION aap_identity_v1.lock_active_actor("
+                "CREATE OR REPLACE FUNCTION yoao_identity_v1.lock_active_actor("
                 "p_actor_id uuid) RETURNS jsonb LANGUAGE sql VOLATILE "
                 "PARALLEL UNSAFE SECURITY DEFINER "
                 "SET search_path = pg_catalog, pg_temp "
@@ -966,27 +966,29 @@ async def test_catalog_login_is_limited_to_the_seven_catalog_capabilities():
     if not raw_url:
         pytest.fail(f"the module-data verifier did not provide {_CATALOG_URL}")
     url = make_url(raw_url)
-    if url.username != "asset_catalog_client" or not url.database.endswith("_test"):
+    if url.username != "yoao_asset_catalog_client" or not url.database.endswith(
+        "_test"
+    ):
         pytest.fail("catalog LOGIN URL does not target the owned test database")
     engine = create_async_engine(url, hide_parameters=True)
     try:
         async with engine.connect() as catalog:
             assert (
                 await catalog.scalar(text("SELECT current_user"))
-                == "asset_catalog_client"
+                == "yoao_asset_catalog_client"
             )
             assert (
                 await catalog.scalar(text("SELECT session_user"))
-                == "asset_catalog_client"
+                == "yoao_asset_catalog_client"
             )
             assert await catalog.scalar(
                 text(
-                    "SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'USAGE')"
+                    "SELECT has_schema_privilege(current_user, 'yoao_assets_v1', 'USAGE')"
                 )
             )
             assert not await catalog.scalar(
                 text(
-                    "SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')"
+                    "SELECT has_schema_privilege(current_user, 'yoao_assets_v1', 'CREATE')"
                 )
             )
             for signature in _CATALOG_LOGIN_FUNCTIONS:
@@ -999,7 +1001,7 @@ async def test_catalog_login_is_limited_to_the_seven_catalog_capabilities():
             assert not await catalog.scalar(
                 text(
                     "SELECT has_function_privilege(current_user, "
-                    "'aap_assets_v1._catalog_actor(uuid,boolean)', 'EXECUTE')"
+                    "'yoao_assets_v1._catalog_actor(uuid,boolean)', 'EXECUTE')"
                 )
             )
             allowed = await catalog.execute(
@@ -1016,16 +1018,16 @@ async def test_catalog_login_is_limited_to_the_seven_catalog_capabilities():
                 signature.replace(", ", ",") for signature in _CATALOG_LOGIN_FUNCTIONS
             }
             for schema in (
-                "aap_identity_v1",
-                "aap_workspace_v1",
-                "aap_labeling_v1",
-                "aap_jobs_v1",
-                "aap_learning_v1",
-                "aap_inference_v1",
+                "yoao_identity_v1",
+                "yoao_workspace_v1",
+                "yoao_labeling_v1",
+                "yoao_jobs_v1",
+                "yoao_learning_v1",
+                "yoao_inference_v1",
                 "yoao_insights_v1",
                 "yoao_diagnostics_v1",
-                "aap_export_v1",
-                "aap_audit_v1",
+                "yoao_export_v1",
+                "yoao_audit_v1",
             ):
                 assert not await catalog.scalar(
                     text("SELECT has_schema_privilege(current_user, :schema, 'USAGE')"),

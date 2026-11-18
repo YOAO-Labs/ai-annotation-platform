@@ -87,7 +87,7 @@ def _apply_command(
 async def _prepare(session: AsyncSession, request: dict) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_recovery_v1.prepare_recovery_command("
+            "SELECT yoao_identity_recovery_v1.prepare_recovery_command("
             "CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(request)},
@@ -98,7 +98,7 @@ async def _prepare(session: AsyncSession, request: dict) -> dict:
 async def _apply(session: AsyncSession, request: dict) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_recovery_v1.apply_recovery_command("
+            "SELECT yoao_identity_recovery_v1.apply_recovery_command("
             "CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(request)},
@@ -200,7 +200,7 @@ def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
         "ALTER TABLE public.email_verification_tokens RENAME COLUMN token TO token_hash"
         in artifact
     )
-    assert "aap_identity_v1.retire_account_credentials" not in artifact
+    assert "yoao_identity_v1.retire_account_credentials" not in artifact
 
     assert (
         "password_reset_tokens" in migration
@@ -210,8 +210,8 @@ def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
     assert "identity_recovery_policy(jsonb)" in module_grants
     assert "record_identity_recovery_event" in module_grants
     assert "token_hash, issued_email" in module_grants
-    assert "identity_mail_settings_client" in grants
-    assert "aap_settings_v1.mail_delivery_policy(jsonb)" in grants
+    assert "yoao_identity_mail_settings_client" in grants
+    assert "yoao_settings_v1.mail_delivery_policy(jsonb)" in grants
     assert "pg_advisory_xact_lock" in artifact
     assert "FOR UPDATE" in artifact
 

@@ -21,51 +21,51 @@ from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _CLAIM = text(
-    "SELECT aap_assets_v1.claim_video_media("
+    "SELECT yoao_assets_v1.claim_video_media("
     "CAST(:worker_id AS uuid),CAST(:job_id AS uuid),120,"
     "ARRAY[:kind]::text[])"
 )
 _STAGE = text(
-    "SELECT aap_assets_v1.stage_video_timetable("
+    "SELECT yoao_assets_v1.stage_video_timetable("
     "CAST(:job_id AS uuid),CAST(:generation AS bigint),"
     "CAST(:lease_token AS uuid),CAST(:rows AS jsonb))"
 )
 _FINISH = text(
-    "SELECT aap_assets_v1.finish_video_media("
+    "SELECT yoao_assets_v1.finish_video_media("
     "CAST(:job_id AS uuid),CAST(:generation AS bigint),"
     "CAST(:lease_token AS uuid),CAST(:result AS jsonb))"
 )
 _FAIL = text(
-    "SELECT aap_assets_v1.fail_video_media("
+    "SELECT yoao_assets_v1.fail_video_media("
     "CAST(:job_id AS uuid),CAST(:generation AS bigint),"
     "CAST(:lease_token AS uuid),:error_code,:error_detail)"
 )
 _ENSURE = text(
-    "SELECT aap_assets_v1.ensure_video_media("
+    "SELECT yoao_assets_v1.ensure_video_media("
     "CAST(:actor_id AS uuid),CAST(:item_id AS uuid),NULL,CAST(:selection AS jsonb))"
 )
 _FAILURES = text(
-    "SELECT aap_assets_v1.read_video_failures(CAST(:actor_id AS uuid),50,0)"
+    "SELECT yoao_assets_v1.read_video_failures(CAST(:actor_id AS uuid),50,0)"
 )
 _READ_TIMETABLE = text(
-    "SELECT aap_assets_v1.read_video_timetable("
+    "SELECT yoao_assets_v1.read_video_timetable("
     "CAST(:actor_id AS uuid),CAST(:item_id AS uuid),NULL,NULL,NULL,"
     "CAST(:after_frame AS integer),500)"
 )
 _CLAIM_GARBAGE = text(
-    "SELECT aap_assets_v1.claim_video_media_garbage(CAST(:worker_id AS uuid),120,20)"
+    "SELECT yoao_assets_v1.claim_video_media_garbage(CAST(:worker_id AS uuid),120,20)"
 )
 _COMPLETE_GARBAGE = text(
-    "SELECT aap_assets_v1.complete_video_media_garbage("
+    "SELECT yoao_assets_v1.complete_video_media_garbage("
     "CAST(:garbage_id AS uuid),CAST(:lease_token AS uuid))"
 )
 _ADVANCE_BACKFILL = text(
-    "SELECT aap_assets_v1.advance_video_backfill("
+    "SELECT yoao_assets_v1.advance_video_backfill("
     "CAST(:job_id AS uuid),CAST(:generation AS bigint),"
     "CAST(:lease_token AS uuid),1)"
 )
 _RESOLVE_INTERNAL_SOURCE = text(
-    "SELECT aap_assets_v1.resolve_internal_media_source("
+    "SELECT yoao_assets_v1.resolve_internal_media_source("
     "CAST(:item AS uuid),CAST(:snapshot AS text),CAST(:identity AS jsonb))"
 )
 
@@ -876,7 +876,7 @@ async def test_worker_failure_marks_current_projection_for_failed_only_and_listi
     )
     snapshot = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_source_snapshot(item) "
+            "SELECT yoao_assets_v1._media_source_snapshot(item) "
             "FROM public.dataset_items AS item WHERE item.id=:item"
         ),
         {"item": item_id},
@@ -1151,7 +1151,7 @@ async def test_worker_failure_preserves_ready_old_output_and_newer_source_projec
     )
     snapshot = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_source_snapshot(item) "
+            "SELECT yoao_assets_v1._media_source_snapshot(item) "
             "FROM public.dataset_items AS item WHERE item.id=:item"
         ),
         {"item": item_id},
@@ -1209,7 +1209,7 @@ async def test_worker_failure_preserves_ready_old_output_and_newer_source_projec
     )
     changed_snapshot = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_source_snapshot(item) "
+            "SELECT yoao_assets_v1._media_source_snapshot(item) "
             "FROM public.dataset_items AS item WHERE item.id=:item"
         ),
         {"item": changed_item_id},
@@ -1282,7 +1282,7 @@ async def test_stale_fail_lease_cannot_change_current_projection(db_session):
     )
     snapshot = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_source_snapshot(item) "
+            "SELECT yoao_assets_v1._media_source_snapshot(item) "
             "FROM public.dataset_items AS item WHERE item.id=:item"
         ),
         {"item": item_id},
@@ -1446,7 +1446,7 @@ async def test_legacy_md5_hint_is_not_compared_to_worker_sha256(db_session):
     await db_session.flush()
     snapshot = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_source_snapshot(item) "
+            "SELECT yoao_assets_v1._media_source_snapshot(item) "
             "FROM public.dataset_items AS item WHERE item.id=:item"
         ),
         {"item": item_id},
@@ -1454,7 +1454,7 @@ async def test_legacy_md5_hint_is_not_compared_to_worker_sha256(db_session):
     identity = {"etag": "legacy-etag", "byte_size": 100, "version_id": None}
     reply = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_reconcile_source("
+            "SELECT yoao_assets_v1._media_reconcile_source("
             "CAST(:item AS uuid),:snapshot,CAST(:identity AS jsonb),:observed_sha)"
         ),
         {
@@ -1470,7 +1470,7 @@ async def test_legacy_md5_hint_is_not_compared_to_worker_sha256(db_session):
     assert data["content_hash"] == "b" * 32
     after = await db_session.scalar(
         text(
-            "SELECT aap_assets_v1._media_source_snapshot(item) "
+            "SELECT yoao_assets_v1._media_source_snapshot(item) "
             "FROM public.dataset_items AS item WHERE item.id=:item"
         ),
         {"item": item_id},
@@ -1505,7 +1505,7 @@ async def test_internal_source_reads_all_item_types_without_item_lock(test_engin
             await owner.flush()
             snapshot = await owner.scalar(
                 text(
-                    "SELECT aap_assets_v1._media_source_snapshot(item) "
+                    "SELECT yoao_assets_v1._media_source_snapshot(item) "
                     "FROM public.dataset_items AS item WHERE item.id=:item"
                 ),
                 {"item": item_id},
@@ -1547,7 +1547,7 @@ async def test_internal_source_reads_all_item_types_without_item_lock(test_engin
             )
             snapshot = await owner.scalar(
                 text(
-                    "SELECT aap_assets_v1._media_source_snapshot(item) "
+                    "SELECT yoao_assets_v1._media_source_snapshot(item) "
                     "FROM public.dataset_items AS item WHERE item.id=:item"
                 ),
                 {"item": item_id},
@@ -1593,7 +1593,7 @@ async def test_internal_source_reads_all_item_types_without_item_lock(test_engin
             )
             snapshot = await owner.scalar(
                 text(
-                    "SELECT aap_assets_v1._media_source_snapshot(item) "
+                    "SELECT yoao_assets_v1._media_source_snapshot(item) "
                     "FROM public.dataset_items AS item WHERE item.id=:item"
                 ),
                 {"item": item_id},

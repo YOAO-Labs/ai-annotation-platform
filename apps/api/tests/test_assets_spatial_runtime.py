@@ -107,7 +107,7 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
     from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 
     catalog_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_CATALOG_URL"))
-    assert catalog_url.username == "asset_catalog_client"
+    assert catalog_url.username == "yoao_asset_catalog_client"
     assert catalog_url.host == "127.0.0.1"
     assert catalog_url.database == test_engine.url.database
     _verify_postgres(catalog_url)

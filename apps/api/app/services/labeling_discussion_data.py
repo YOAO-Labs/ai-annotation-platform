@@ -38,7 +38,7 @@ async def discussion_command(
         with db.no_autoflush:
             return await db.scalar(
                 text(
-                    "SELECT aap_labeling_v1.discussion_command(CAST(:request AS jsonb))"
+                    "SELECT yoao_labeling_v1.discussion_command(CAST(:request AS jsonb))"
                 ),
                 {"request": payload},
             )
@@ -85,7 +85,7 @@ async def task_event_command(
         with db.no_autoflush:
             return await db.scalar(
                 text(
-                    "SELECT aap_labeling_v1.task_event_command(CAST(:request AS jsonb))"
+                    "SELECT yoao_labeling_v1.task_event_command(CAST(:request AS jsonb))"
                 ),
                 {"request": payload},
             )

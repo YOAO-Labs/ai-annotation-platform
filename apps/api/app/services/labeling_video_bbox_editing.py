@@ -101,7 +101,7 @@ class LabelingVideoBBoxEditingService:
         async def execute(request_json: str):
             return await self.db.scalar(
                 text(
-                    "SELECT aap_labeling_v1.video_bbox_editing_command("
+                    "SELECT yoao_labeling_v1.video_bbox_editing_command("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": request_json},

@@ -68,11 +68,11 @@ _MODULE_GRANT_VARIABLES = {
     "audit_owner": "audit_code",
     "settings_owner": "settings_code",
     "notifications_owner": "notifications_code",
-    "workflow_role": "append_client",
-    "asset_cleanup_role": "asset_cleanup_client",
-    "mask_gc_role": "labeling_mask_gc_client",
-    "inference_registry_ingress_role": "inference_registry_ingress_client",
-    "inference_routing_role": "inference_routing_client",
+    "workflow_role": "yoao_append_client",
+    "asset_cleanup_role": "yoao_asset_cleanup_client",
+    "mask_gc_role": "yoao_labeling_mask_gc_client",
+    "inference_registry_ingress_role": "yoao_inference_registry_ingress_client",
+    "inference_routing_role": "yoao_inference_routing_client",
 }
 _OWNER_TRANSFER_GRANT_VARIABLES = {
     "migration_role": "owner",
@@ -161,10 +161,7 @@ def _psql_script(database: str, sql: str, variables: dict[str, str]) -> None:
         evidence.parent.mkdir(parents=True, exist_ok=True)
         evidence.write_text(result.stderr, encoding="utf-8")
         evidence.chmod(0o600)
-        pytest.fail(
-            "checked-in grant installer failed; stderr retained at "
-            f"{evidence}"
-        )
+        pytest.fail(f"checked-in grant installer failed; stderr retained at {evidence}")
 
 
 def _sqlstate(value: BaseException) -> str | None:
@@ -368,7 +365,9 @@ async def _assert_preflight_unchanged(
     await _assert_quiescent(engine, database)
     async with engine.connect() as connection:
         assert (
-            await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
+            await connection.scalar(
+                text("SELECT version_num FROM public.alembic_version")
+            )
             == "bo0459"
         )
         assert (
@@ -381,10 +380,15 @@ async def _assert_preflight_unchanged(
             text("SELECT to_regnamespace(:name)"), {"name": NEW_SCHEMA}
         )
         assert (present is not None) is destination_present
-        assert await connection.scalar(
-            text("SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname = :name"),
-            {"name": LEGACY_LOGIN},
-        ) is legacy_login
+        assert (
+            await connection.scalar(
+                text(
+                    "SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname = :name"
+                ),
+                {"name": LEGACY_LOGIN},
+            )
+            is legacy_login
+        )
         assert (
             await _boundary_state(connection, OLD_SCHEMA, project_id, operation_id)
             == baseline
@@ -395,9 +399,8 @@ async def _grab_new_login(engine, database: str):
     dsn_url = make_url(os.environ["AAP_MODULE_DATA_WORKSPACE_OWNER_TRANSFER_URL"])
     assert dsn_url.username == NEW_LOGIN
     assert (dsn_url.host, dsn_url.port) == (engine.url.host, engine.url.port)
-    dsn = (
-        dsn_url.set(database=database, drivername="postgresql")
-        .render_as_string(hide_password=False)
+    dsn = dsn_url.set(database=database, drivername="postgresql").render_as_string(
+        hide_password=False
     )
     connection = await asyncpg.connect(dsn)
     assert await connection.fetchval("SELECT current_user") == NEW_LOGIN
@@ -407,14 +410,12 @@ async def _grab_new_login(engine, database: str):
 def _legacy_dsn(engine, database: str, password: str) -> str:
     value = make_url(os.environ["AAP_MODULE_DATA_WORKSPACE_OWNER_TRANSFER_URL"])
     assert (value.host, value.port) == (engine.url.host, engine.url.port)
-    return (
-        value.set(
-            username=LEGACY_LOGIN,
-            password=password,
-            database=database,
-            drivername="postgresql",
-        ).render_as_string(hide_password=False)
-    )
+    return value.set(
+        username=LEGACY_LOGIN,
+        password=password,
+        database=database,
+        drivername="postgresql",
+    ).render_as_string(hide_password=False)
 
 
 async def test_workspace_owner_transfer_namespace_migration_preserves_populated_boundary(
@@ -495,19 +496,25 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 )
             ).all()
         async with admin.connect() as connection:
-            await connection.execute(text(f'CREATE DATABASE "{database}" TEMPLATE template0'))
+            await connection.execute(
+                text(f'CREATE DATABASE "{database}" TEMPLATE template0')
+            )
             created = True
             identity = (
-                await connection.execute(
-                    text(
-                        "SELECT database.oid, database.datdba, "
-                        "pg_catalog.pg_get_userbyid(database.datdba) AS owner "
-                        "FROM pg_catalog.pg_database AS database "
-                        "WHERE database.datname = :name"
-                    ),
-                    {"name": database},
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT database.oid, database.datdba, "
+                            "pg_catalog.pg_get_userbyid(database.datdba) AS owner "
+                            "FROM pg_catalog.pg_database AS database "
+                            "WHERE database.datname = :name"
+                        ),
+                        {"name": database},
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             db_oid = identity["oid"]
             db_owner_oid = identity["datdba"]
             db_owner_name = identity["owner"]
@@ -516,20 +523,26 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 text(f"COMMENT ON DATABASE \"{database}\" IS '{ownership}'")
             )
             quote = connection.dialect.identifier_preparer.quote_identifier
-            await connection.execute(text(f'REVOKE ALL ON DATABASE "{database}" FROM PUBLIC'))
+            await connection.execute(
+                text(f'REVOKE ALL ON DATABASE "{database}" FROM PUBLIC')
+            )
             for grantee, privilege, grantable in acl:
                 assert privilege in {"CREATE", "CONNECT", "TEMPORARY"}
                 role = "PUBLIC" if grantee == "PUBLIC" else quote(grantee)
                 suffix = " WITH GRANT OPTION" if grantable else ""
                 await connection.execute(
-                    text(f'GRANT {privilege} ON DATABASE "{database}" TO {role}{suffix}')
+                    text(
+                        f'GRANT {privilege} ON DATABASE "{database}" TO {role}{suffix}'
+                    )
                 )
 
         config = _config(target)
         await asyncio.to_thread(command.upgrade, config, "bo0459")
         async with scratch.connect() as connection:
             assert (
-                await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
+                await connection.scalar(
+                    text("SELECT version_num FROM public.alembic_version")
+                )
                 == "bo0459"
             )
             assert (
@@ -586,7 +599,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             ), "the explicit new owner-transfer LOGIN is not provisioned"
             assert (
                 await connection.scalar(
-                    text("SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname = :name"),
+                    text(
+                        "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname = :name"
+                    ),
                     {"name": LEGACY_LOGIN},
                 )
                 == 0
@@ -650,9 +665,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             )
             role_created = True
             role_oid = await connection.scalar(
-                text(
-                    "SELECT oid FROM pg_catalog.pg_roles WHERE rolname = :name"
-                ),
+                text("SELECT oid FROM pg_catalog.pg_roles WHERE rolname = :name"),
                 {"name": LEGACY_LOGIN},
             )
             assert role_oid is not None
@@ -680,7 +693,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             _legacy_dsn(test_engine, database, legacy_password)
         )
         try:
-            assert await legacy_connection.fetchval("SELECT current_user") == LEGACY_LOGIN
+            assert (
+                await legacy_connection.fetchval("SELECT current_user") == LEGACY_LOGIN
+            )
             await verify_function_only_role(
                 legacy_connection,
                 schema=OLD_SCHEMA,
@@ -721,12 +736,15 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             )
             assert receipt_json is not None
             receipt = json.loads(receipt_json)
-            assert receipt["request_hash"] == hashlib.sha256(
-                (
-                    f"{WIRE_SCHEMA}|{operation_id}|{actor_id}|{project_id}|"
-                    f"{first_owner_id}"
-                ).encode()
-            ).hexdigest()
+            assert (
+                receipt["request_hash"]
+                == hashlib.sha256(
+                    (
+                        f"{WIRE_SCHEMA}|{operation_id}|{actor_id}|{project_id}|"
+                        f"{first_owner_id}"
+                    ).encode()
+                ).hexdigest()
+            )
             assert receipt["result"] == old_reply
             baseline = await _boundary_state(
                 connection, OLD_SCHEMA, project_id, operation_id
@@ -765,7 +783,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             _legacy_dsn(test_engine, database, legacy_password)
         )
         try:
-            await legacy_connection.fetchval(f"SELECT {OLD_SCHEMA}.owner_transfer_policy()")
+            await legacy_connection.fetchval(
+                f"SELECT {OLD_SCHEMA}.owner_transfer_policy()"
+            )
             async with admin.connect() as connection:
                 await connection.execute(text(f'ALTER ROLE "{LEGACY_LOGIN}" NOLOGIN'))
             assert await legacy_connection.fetchval("SELECT 1") == 1
@@ -796,7 +816,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         assert _sqlstate(shape_refusal.value) == "55000"
         async with scratch.connect() as connection:
             assert (
-                await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
+                await connection.scalar(
+                    text("SELECT version_num FROM public.alembic_version")
+                )
                 == "bo0459"
             )
             assert (
@@ -862,7 +884,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         async with scratch.begin() as connection:
             await connection.execute(text(f'CREATE SCHEMA "{NEW_SCHEMA}"'))
             await connection.execute(
-                text(f'CREATE TABLE "{NEW_SCHEMA}".cutover_sentinel (marker text NOT NULL)')
+                text(
+                    f'CREATE TABLE "{NEW_SCHEMA}".cutover_sentinel (marker text NOT NULL)'
+                )
             )
             await connection.execute(
                 text(
@@ -909,7 +933,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         await asyncio.to_thread(command.upgrade, config, "bo0460")
         async with scratch.connect() as connection:
             assert (
-                await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
+                await connection.scalar(
+                    text("SELECT version_num FROM public.alembic_version")
+                )
                 == "bo0460"
             )
             assert (
@@ -962,10 +988,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                     for entry in upgraded["function_acl"][signature]
                 )
             assert not await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_schema_privilege("
-                    ":role, :schema, 'USAGE')"
-                ),
+                text("SELECT pg_catalog.has_schema_privilege(:role, :schema, 'USAGE')"),
                 {"role": LEGACY_LOGIN, "schema": NEW_SCHEMA},
             )
             assert not await connection.scalar(
@@ -983,7 +1006,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         head = ScriptDirectory.from_config(config).get_current_head()
         async with scratch.connect() as connection:
             assert (
-                await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
+                await connection.scalar(
+                    text("SELECT version_num FROM public.alembic_version")
+                )
                 == head
             )
             assert (
@@ -1164,29 +1189,33 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             if created:
                 async with admin.connect() as connection:
                     identity = (
-                        await connection.execute(
-                            text(
-                                "SELECT database.oid, database.datdba, "
-                                "pg_catalog.pg_get_userbyid(database.datdba) AS owner, "
-                                "pg_catalog.shobj_description(database.oid, 'pg_database') "
-                                "AS marker "
-                                "FROM pg_catalog.pg_database AS database "
-                                "WHERE database.datname = :name"
-                            ),
-                            {"name": database},
+                        (
+                            await connection.execute(
+                                text(
+                                    "SELECT database.oid, database.datdba, "
+                                    "pg_catalog.pg_get_userbyid(database.datdba) AS owner, "
+                                    "pg_catalog.shobj_description(database.oid, 'pg_database') "
+                                    "AS marker "
+                                    "FROM pg_catalog.pg_database AS database "
+                                    "WHERE database.datname = :name"
+                                ),
+                                {"name": database},
+                            )
                         )
-                    ).mappings().one_or_none()
+                        .mappings()
+                        .one_or_none()
+                    )
                     assert identity is not None, "created database identity is missing"
                     assert identity["oid"] == db_oid, "created database OID changed"
-                    assert (
-                        identity["datdba"] == db_owner_oid
-                    ), "created database owner changed"
+                    assert identity["datdba"] == db_owner_oid, (
+                        "created database owner changed"
+                    )
                     assert (
                         identity["owner"] == db_owner_name == test_engine.url.username
                     )
-                    assert (
-                        identity["marker"] == ownership
-                    ), "created database ownership marker changed"
+                    assert identity["marker"] == ownership, (
+                        "created database ownership marker changed"
+                    )
                     deadline = time.monotonic() + 10
                     while True:
                         sessions = await connection.scalar(
@@ -1205,9 +1234,9 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                         await asyncio.sleep(0.1)
                     await connection.execute(text(f'DROP DATABASE "{database}"'))
                     if role_created:
-                        assert (
-                            role_oid is not None
-                        ), "created role identity was not recorded"
+                        assert role_oid is not None, (
+                            "created role identity was not recorded"
+                        )
                         observed_role_oid = await connection.scalar(
                             text(
                                 "SELECT oid FROM pg_catalog.pg_roles "
@@ -1215,9 +1244,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                             ),
                             {"name": LEGACY_LOGIN},
                         )
-                        assert (
-                            observed_role_oid == role_oid
-                        ), "created role OID changed"
+                        assert observed_role_oid == role_oid, "created role OID changed"
                         await connection.execute(text(f'DROP ROLE "{LEGACY_LOGIN}"'))
         finally:
             await admin.dispose()

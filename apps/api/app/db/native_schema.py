@@ -60,7 +60,7 @@ NATIVE_MANAGED_TABLES = frozenset(
 NATIVE_MANAGED_RELATIONS = frozenset(
     {("public", name) for name in NATIVE_MANAGED_TABLES}
     | {
-        ("aap_jobs_v1", name)
+        ("yoao_jobs_v1", name)
         for name in (
             "video_execution_authority",
             "video_executions",
@@ -77,13 +77,13 @@ NATIVE_MANAGED_RELATIONS = frozenset(
         )
     }
     | {
-        ("aap_labeling_v1", "video_execution_checkpoint_mask_sets"),
-        ("aap_labeling_v1", "video_writer_receipts"),
-        ("aap_inference_routing_v1", "video_execution_scope_permits"),
-        ("aap_inference_backend_endpoint_v1", "endpoint_secret"),
+        ("yoao_labeling_v1", "video_execution_checkpoint_mask_sets"),
+        ("yoao_labeling_v1", "video_writer_receipts"),
+        ("yoao_inference_routing_v1", "video_execution_scope_permits"),
+        ("yoao_inference_backend_endpoint_v1", "endpoint_secret"),
     }
     | {
-        ("aap_inference_routing_v1", name)
+        ("yoao_inference_routing_v1", name)
         for name in (
             "video_restore_records",
             "video_restore_contexts",

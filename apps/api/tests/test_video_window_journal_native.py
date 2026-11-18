@@ -54,7 +54,7 @@ pytestmark = pytest.mark.asyncio
 
 async def _call(db, action, request):
     raw = await db.scalar(
-        text("SELECT aap_jobs_v1.video_execution_checkpoint_step(:action,:arguments)"),
+        text("SELECT yoao_jobs_v1.video_execution_checkpoint_step(:action,:arguments)"),
         {"action": action, "arguments": request_bytes(action, request).decode()},
     )
     return decode_native_reply(action, request, raw)
@@ -246,7 +246,7 @@ async def test_native_window_parts_are_atomic_immutable_and_claim_bound(db_sessi
     assert (await _call(db, "read_part", read))["part"] == part
     await db.execute(
         text(
-            "UPDATE aap_jobs_v1.video_executions SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' WHERE job_id=:job"
+            "UPDATE yoao_jobs_v1.video_executions SET lease_expires_at=pg_catalog.clock_timestamp()-interval '1 second' WHERE job_id=:job"
         ),
         {"job": job.id},
     )
@@ -318,7 +318,7 @@ async def test_success_requires_all_windows_but_cancellation_preserves_partial_r
     assert (
         await db.scalar(
             text(
-                "SELECT writer_terminal FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "SELECT writer_terminal FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": proof.job_id},
         )
@@ -334,7 +334,7 @@ async def test_success_requires_all_windows_but_cancellation_preserves_partial_r
     assert (
         await db.scalar(
             text(
-                "SELECT writer_terminal_outcome FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "SELECT writer_terminal_outcome FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": proof.job_id},
         )
@@ -361,7 +361,7 @@ async def test_complete_window_chain_finishes_with_source_retired(db_session):
     flags = (
         await db.execute(
             text(
-                "SELECT writer_terminal,execution_retired FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "SELECT writer_terminal,execution_retired FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": proof.job_id},
         )

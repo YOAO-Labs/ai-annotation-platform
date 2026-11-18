@@ -26,7 +26,7 @@ from app.db.models.user import User
 pytestmark = pytest.mark.asyncio
 
 _TASK_REFERENCES = text(
-    "SELECT task_id FROM aap_labeling_v1.project_task_references(:project_id)"
+    "SELECT task_id FROM yoao_labeling_v1.project_task_references(:project_id)"
 )
 
 
@@ -374,7 +374,7 @@ async def test_assets_cleanup_uses_labeling_task_reference_capability(test_engin
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_assets_v1",
+                    "yoao_assets_v1",
                     "delete_project_owned_records",
                     fixture["project_id"],
                 )
@@ -441,7 +441,7 @@ async def test_project_cleanup_helpers_preserve_retained_history_and_caller_roll
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_inference_v1",
+                    "yoao_inference_v1",
                     "clear_project_ml_backend_pool",
                     fixture["project_id"],
                 )
@@ -450,7 +450,7 @@ async def test_project_cleanup_helpers_preserve_retained_history_and_caller_roll
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_inference_v1",
+                    "yoao_inference_v1",
                     "clear_project_pipelines",
                     fixture["project_id"],
                 )
@@ -477,7 +477,7 @@ async def test_project_cleanup_helpers_preserve_retained_history_and_caller_roll
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_export_v1",
+                    "yoao_export_v1",
                     "clear_project_export_artifacts",
                     fixture["project_id"],
                 )
@@ -486,7 +486,7 @@ async def test_project_cleanup_helpers_preserve_retained_history_and_caller_roll
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_jobs_v1",
+                    "yoao_jobs_v1",
                     "detach_project_references",
                     fixture["project_id"],
                 )

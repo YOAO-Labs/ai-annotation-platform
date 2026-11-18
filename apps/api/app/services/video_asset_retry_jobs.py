@@ -18,7 +18,7 @@ async def observe(db, output, user_id: uuid.UUID, asset_type: str):
     await db.flush()
     job_id = await db.scalar(
         text(
-            "SELECT aap_jobs_v1.find_video_retry_job("
+            "SELECT yoao_jobs_v1.find_video_retry_job("
             "CAST(:output_id AS uuid), CAST(:user_id AS uuid), CAST(:asset_type AS text))"
         ),
         {"output_id": output.id, "user_id": user_id, "asset_type": asset_type},
@@ -95,7 +95,7 @@ async def sync_output(db, output):
     await db.flush()
     identifiers = await db.scalars(
         text(
-            "SELECT * FROM aap_jobs_v1.lock_video_retry_jobs(CAST(:output_id AS uuid))"
+            "SELECT * FROM yoao_jobs_v1.lock_video_retry_jobs(CAST(:output_id AS uuid))"
         ),
         {"output_id": output.id},
     )

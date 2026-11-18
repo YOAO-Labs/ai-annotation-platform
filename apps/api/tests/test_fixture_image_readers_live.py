@@ -138,9 +138,9 @@ if "celery" in getattr(sys, "orig_argv", ()):
             expected = json.loads(expected_path.read_text())
             if self.kind in ("pyramid", "independent") and str(asset) == expected["asset"]:
                 assert generation == expected["generation"]
-                function = ("aap_jobs_v1.bind_fixture_media_child_generation"
+                function = ("yoao_jobs_v1.bind_fixture_media_child_generation"
                             if self.kind == "pyramid"
-                            else "aap_assets_v1.bind_fixture_independent_pyramid")
+                            else "yoao_assets_v1.bind_fixture_independent_pyramid")
                 statement = text("SELECT " + function + "(:id,:token,:asset,:generation)")
                 parameters = {{"id": self.identifier, "token": self.token,
                               "asset": uuid.uuid4(), "generation": generation}}
@@ -437,7 +437,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                         await db.execute(
                             text(
                                 "SELECT source_operation_id,creation_id,run_id,item_id,job_generation,"
-                                "lease_token,source_snapshot,state FROM aap_assets_v1.fixture_external_media_sources "
+                                "lease_token,source_snapshot,state FROM yoao_assets_v1.fixture_external_media_sources "
                                 "WHERE family='image' AND job_id=:job"
                             ),
                             {"job": job_a},
@@ -462,7 +462,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                 assert source["state"] == "open"
                 assert not await db.scalar(
                     text(
-                        "SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                        "SELECT EXISTS(SELECT 1 FROM yoao_assets_v1.fixture_native_media_jobs "
                         "WHERE family='image' AND job_id=:job)"
                     ),
                     {"job": job_a},
@@ -529,7 +529,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                 assert (
                     await db.scalar(
                         text(
-                            "SELECT state FROM aap_assets_v1.fixture_external_media_sources "
+                            "SELECT state FROM yoao_assets_v1.fixture_external_media_sources "
                             "WHERE source_operation_id=:operation"
                         ),
                         {"operation": operations[0]["id"]},
@@ -698,7 +698,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     async with test_engine.begin() as db:
         await db.execute(
             text(
-                "GRANT EXECUTE ON FUNCTION aap_assets_v1.get_catalog_dataset(uuid,uuid) "
+                "GRANT EXECUTE ON FUNCTION yoao_assets_v1.get_catalog_dataset(uuid,uuid) "
                 f'TO "{role}"'
             )
         )
@@ -741,7 +741,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         publication_url = (
             _guard_role_url(
                 "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-                "jobs_publication_client",
+                "yoao_jobs_publication_client",
                 test_engine,
             )
             .set(drivername="postgresql")
@@ -817,7 +817,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                     await db.execute(
                         text(
                             "SELECT source_operation_id,job_generation,lease_token,state "
-                            "FROM aap_assets_v1.fixture_external_media_sources "
+                            "FROM yoao_assets_v1.fixture_external_media_sources "
                             "WHERE family='image' AND job_id=:job"
                         ),
                         {"job": native_job},
@@ -858,9 +858,9 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             async with test_engine.connect() as db:
                 child_id = await db.scalar(
                     text(
-                        "SELECT child.child_id FROM aap_jobs_v1.fixture_media_children AS child "
+                        "SELECT child.child_id FROM yoao_jobs_v1.fixture_media_children AS child "
                         "JOIN public.async_jobs AS job ON job.id=child.job_id "
-                        "JOIN aap_assets_v1.fixture_independent_media_executions AS independent "
+                        "JOIN yoao_assets_v1.fixture_independent_media_executions AS independent "
                         "ON independent.delivery_id=:delivery "
                         "WHERE child.job_id=:job AND child.item_id=:item "
                         "AND child.state='settled' AND independent.state='settled' "
@@ -894,7 +894,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                     await db.execute(
                         text(
                             "SELECT consumer_kind,consumer_id,asset_id,generation,job_id,job_generation,"
-                            "lease_token,source_operation_id FROM aap_assets_v1.fixture_external_pyramid_reuses "
+                            "lease_token,source_operation_id FROM yoao_assets_v1.fixture_external_pyramid_reuses "
                             "WHERE run_id=:run AND item_id=:item"
                         ),
                         {"run": run.run_id, "item": item},
@@ -925,14 +925,14 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 )
             assert not await db.scalar(
                 text(
-                    "SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_media_births "
+                    "SELECT EXISTS(SELECT 1 FROM yoao_assets_v1.fixture_media_births "
                     "WHERE owner_kind='pyramid_generation' AND owner_id=:asset AND generation=:generation)"
                 ),
                 {"asset": asset, "generation": generation},
             )
             assert not await db.scalar(
                 text(
-                    "SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                    "SELECT EXISTS(SELECT 1 FROM yoao_assets_v1.fixture_native_media_jobs "
                     "WHERE family='image' AND job_id=:job)"
                 ),
                 {"job": native_job},
@@ -940,7 +940,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT aap_assets_v1.fixture_dataset_media_producers_quiescent(:run,:dataset)"
+                        "SELECT yoao_assets_v1.fixture_dataset_media_producers_quiescent(:run,:dataset)"
                     ),
                     {"run": run.run_id, "dataset": dataset},
                 )
@@ -949,14 +949,14 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             dispatch_ids = tuple(
                 await db.scalars(
                     text(
-                        "SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
+                        "SELECT intent_id FROM yoao_jobs_v1.fixture_media_dispatches "
                         "WHERE job_id=:job ORDER BY intent_id"
                     ),
                     {"job": backfill},
                 )
             )
         delete_backfills = text(
-            "SELECT aap_jobs_v1.delete_fixture_media_backfills(:run,:dataset)"
+            "SELECT yoao_jobs_v1.delete_fixture_media_backfills(:run,:dataset)"
         )
         async with e2e_consumer.connect() as db:
             with pytest.raises(DBAPIError) as forbidden:
@@ -975,7 +975,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 "lease": job["lease_token"],
             }
             check = text(
-                "SELECT aap_assets_v1.fixture_external_image_attempt_sources_settled("
+                "SELECT yoao_assets_v1.fixture_external_image_attempt_sources_settled("
                 ":run,:dataset,:item,:job,:generation,:lease)"
             )
             assert await db.scalar(check, evidence) is False
@@ -1030,7 +1030,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 assert (
                     await db.scalar(
                         text(
-                            "SELECT state FROM aap_assets_v1.fixture_external_media_sources "
+                            "SELECT state FROM yoao_assets_v1.fixture_external_media_sources "
                             "WHERE source_operation_id=:id"
                         ),
                         {"id": attempt["source_operation_id"]},
@@ -1049,7 +1049,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 assert (
                     await db.scalar(
                         text(
-                            "SELECT state FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                            "SELECT state FROM yoao_jobs_v1.fixture_media_backfills WHERE job_id=:job"
                         ),
                         {"job": backfill},
                     )
@@ -1059,7 +1059,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                     tuple(
                         await db.scalars(
                             text(
-                                "SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
+                                "SELECT intent_id FROM yoao_jobs_v1.fixture_media_dispatches "
                                 "WHERE job_id=:job ORDER BY intent_id"
                             ),
                             {"job": backfill},
@@ -1068,7 +1068,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                     == dispatch_ids
                 )
                 proven = text(
-                    "SELECT aap_assets_v1.fixture_external_image_attempt_sources_proven("
+                    "SELECT yoao_assets_v1.fixture_external_image_attempt_sources_proven("
                     ":run,:dataset,:item,:job,:generation,:lease)"
                 )
                 assert await db.scalar(proven, evidence) is True

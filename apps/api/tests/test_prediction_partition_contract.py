@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from tests.frozen_namespaces import historical
 from yoao_labeling.prediction_partition_contract import (
     EnsurePredictionPartition,
     PREDICTION_PARTITIONS_PROTOCOL,
@@ -33,8 +34,10 @@ def test_prediction_partition_contract_matches_frozen_artifacts():
     )
 
     assert api_sql.read_bytes() == package_sql.read_bytes()
-    assert api_schema.read_bytes() == package_schema.read_bytes()
-    assert json.loads(api_schema.read_text(encoding="utf-8")) == (
+    assert json.loads(api_schema.read_text(encoding="utf-8")) == historical(
+        json.loads(package_schema.read_text(encoding="utf-8"))
+    )
+    assert json.loads(api_schema.read_text(encoding="utf-8")) == historical(
         prediction_partition_schema()
     )
 

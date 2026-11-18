@@ -28,8 +28,8 @@ pytestmark = [
     ),
 ]
 
-_FUNCTION = "aap_workspace_v1.clear_primary_backend_bindings(uuid)"
-_FUNCTION_CALL = "aap_workspace_v1.clear_primary_backend_bindings"
+_FUNCTION = "yoao_workspace_v1.clear_primary_backend_bindings(uuid)"
+_FUNCTION_CALL = "yoao_workspace_v1.clear_primary_backend_bindings"
 _FIXED_TIME = datetime(2000, 1, 1, tzinfo=UTC)
 
 
@@ -242,7 +242,7 @@ async def test_inference_code_has_only_the_fixed_binding_write(test_engine):
                FROM pg_catalog.pg_proc AS function
                JOIN pg_catalog.pg_namespace AS namespace
                  ON namespace.oid = function.pronamespace
-               WHERE namespace.nspname = 'aap_workspace_v1'
+               WHERE namespace.nspname = 'yoao_workspace_v1'
                  AND function.prokind = 'f'
                  AND pg_catalog.has_function_privilege(
                      'inference_code', function.oid, 'EXECUTE'
@@ -250,9 +250,9 @@ async def test_inference_code_has_only_the_fixed_binding_write(test_engine):
                ORDER BY function.proname, pg_catalog.oidvectortypes(function.proargtypes)"""
         )
         assert [row["signature"] for row in workspace_functions] == [
-            "aap_workspace_v1.clear_primary_backend_bindings(uuid)",
-            "aap_workspace_v1.lock_project_reference(uuid)",
-            "aap_workspace_v1.project_access_step(uuid, uuid, text)",
+            "yoao_workspace_v1.clear_primary_backend_bindings(uuid)",
+            "yoao_workspace_v1.lock_project_reference(uuid)",
+            "yoao_workspace_v1.project_access_step(uuid, uuid, text)",
         ]
         assert (
             await connection.fetchval(

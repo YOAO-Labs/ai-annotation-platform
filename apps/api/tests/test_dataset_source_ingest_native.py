@@ -94,7 +94,7 @@ class _World:
 async def ingest_world(test_engine):
     raw = os.environ["AAP_MODULE_DATA_ASSET_SOURCE_URL"]
     url = make_url(raw)
-    assert url.username == "asset_source_client"
+    assert url.username == "yoao_asset_source_client"
     assert (url.host, url.port, url.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -214,7 +214,7 @@ async def _invoke(
             value["authority"] = command.authority.model_dump(mode="json")
         parameters["payload"] = json.dumps(value)
     reply = await db.scalar(
-        text("SELECT aap_assets_v1." + function + "(" + ",".join(arguments) + ")"),
+        text("SELECT yoao_assets_v1." + function + "(" + ",".join(arguments) + ")"),
         parameters,
     )
     result = decode_ingest_reply(reply, result_type)
@@ -821,9 +821,9 @@ async def test_exact_source_login_cannot_read_business_tables_or_foreign_capabil
     for statement in (
         "SELECT * FROM public.dataset_items LIMIT 1",
         "SELECT dataset_id FROM public.dataset_sources LIMIT 1",
-        "SELECT aap_identity_v1.lock_active_actor(NULL::uuid)",
-        "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer)",
-        "SELECT aap_assets_v1.complete_dataset_source_ingest_delivery(NULL::uuid,NULL::uuid)",
+        "SELECT yoao_identity_v1.lock_active_actor(NULL::uuid)",
+        "SELECT yoao_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer)",
+        "SELECT yoao_assets_v1.complete_dataset_source_ingest_delivery(NULL::uuid,NULL::uuid)",
         "SET ROLE owner",
     ):
         async with world.source_maker() as db:
@@ -848,7 +848,7 @@ async def test_nonimage_delivery_requires_current_lease_without_private_table_ac
         await _finish(db, command)
     url = make_url(os.environ["AAP_MODULE_DATA_APPEND_URL"])
     reference = world.source_maker.kw["bind"].url
-    assert url.username == "append_client"
+    assert url.username == "yoao_append_client"
     assert (url.host, url.port, url.database) == (
         reference.host,
         reference.port,
@@ -984,7 +984,7 @@ async def test_layout_ignores_invalid_logical_markers_in_legacy_metadata(ingest_
             )
         await db.flush()
         before = await db.scalar(
-            text("SELECT aap_assets_v1._dataset_source_ingest_dataset_snapshot(:id)"),
+            text("SELECT yoao_assets_v1._dataset_source_ingest_dataset_snapshot(:id)"),
             {"id": world.dataset_id},
         )
         await db.execute(
@@ -994,7 +994,7 @@ async def test_layout_ignores_invalid_logical_markers_in_legacy_metadata(ingest_
             {"id": identifiers[0]},
         )
         after = await db.scalar(
-            text("SELECT aap_assets_v1._dataset_source_ingest_dataset_snapshot(:id)"),
+            text("SELECT yoao_assets_v1._dataset_source_ingest_dataset_snapshot(:id)"),
             {"id": world.dataset_id},
         )
         assert before == after

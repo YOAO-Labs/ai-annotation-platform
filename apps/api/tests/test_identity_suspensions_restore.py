@@ -179,8 +179,8 @@ async def test_restored_suspension_receipt_replays_and_populated_downgrade_refus
         await _assert_exact_identity_functions(
             dsn("SUSPENSION"),
             {
-                "aap_identity_suspensions_v1.suspension_policy()",
-                "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
+                "yoao_identity_suspensions_v1.suspension_policy()",
+                "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
             },
         )
         restored_manager = manager(dsn("SUSPENSION"), dsn("AUTH"), secret)

@@ -30,14 +30,14 @@ def _require_cleanup_allowed(reply):
 async def create_scale_seed_project(db, *, owner_id, marker, total_tasks):
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.create_scale_seed_project(CAST(:owner AS uuid),CAST(:marker AS text))"
+            "SELECT yoao_workspace_v1.create_scale_seed_project(CAST(:owner AS uuid),CAST(:marker AS text))"
         ),
         {"owner": owner_id, "marker": marker},
     )
     project_id = decode_scale_seed_project_id(raw)
     updated = await db.scalar(
         text(
-            "SELECT aap_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
+            "SELECT yoao_labeling_v1.write_project_counter_projection(CAST(:id AS uuid),CAST(:patch AS jsonb))"
         ),
         {
             "id": project_id,
@@ -52,7 +52,7 @@ async def create_scale_seed_project(db, *, owner_id, marker, total_tasks):
 async def ensure_scale_seed_member(db, *, project_id, annotator_id, owner_id):
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.ensure_scale_seed_member(CAST(:project AS uuid),CAST(:annotator AS uuid),CAST(:owner AS uuid))"
+            "SELECT yoao_workspace_v1.ensure_scale_seed_member(CAST(:project AS uuid),CAST(:annotator AS uuid),CAST(:owner AS uuid))"
         ),
         {"project": project_id, "annotator": annotator_id, "owner": owner_id},
     )
@@ -64,7 +64,7 @@ async def guard_scale_seed_sources(db, dataset_ids, *, after_task_cleanup):
         raw = await _locked_access_row(
             db,
             text(
-                "SELECT aap_assets_v1.guard_scale_seed_dataset_cleanup(CAST(:dataset AS uuid),CAST(:after_tasks AS boolean))"
+                "SELECT yoao_assets_v1.guard_scale_seed_dataset_cleanup(CAST(:dataset AS uuid),CAST(:after_tasks AS boolean))"
             ),
             parameters={"dataset": dataset_id, "after_tasks": after_task_cleanup},
             busy_reason="source_busy",
@@ -90,7 +90,9 @@ async def prepare_scale_seed_cleanup(db, marker):
     await guard_scale_seed_sources(db, dataset_ids, after_task_cleanup=False)
     raw = await _locked_access_row(
         db,
-        text("SELECT aap_workspace_v1.guard_scale_seed_cleanup(CAST(:marker AS text))"),
+        text(
+            "SELECT yoao_workspace_v1.guard_scale_seed_cleanup(CAST(:marker AS text))"
+        ),
         parameters={"marker": marker},
         busy_reason="project_busy",
     )
@@ -102,7 +104,7 @@ async def prepare_scale_seed_cleanup(db, marker):
 async def delete_scale_seed_projects(db, *, marker, project_ids):
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.delete_scale_seed_projects(CAST(:marker AS text),CAST(:ids AS uuid[]))"
+            "SELECT yoao_workspace_v1.delete_scale_seed_projects(CAST(:marker AS text),CAST(:ids AS uuid[]))"
         ),
         {"marker": marker, "ids": project_ids},
     )

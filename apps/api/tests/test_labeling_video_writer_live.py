@@ -66,9 +66,9 @@ pytestmark = [
 ]
 
 ROOT = Path(__file__).resolve().parents[3]
-_JOBS_SCHEMA = "aap_jobs_v1"
-_ROUTING_SCHEMA = "aap_inference_routing_v1"
-_WRITER_ROLE = "labeling_video_writer_client"
+_JOBS_SCHEMA = "yoao_jobs_v1"
+_ROUTING_SCHEMA = "yoao_inference_routing_v1"
+_WRITER_ROLE = "yoao_labeling_video_writer_client"
 
 
 def _reserve_listener() -> tuple[socket.socket, str]:
@@ -699,7 +699,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                                         text(
                                             "SELECT operation_id,run_id,"
                                             "request_digest FROM "
-                                            "aap_labeling_v1.video_writer_receipts "
+                                            "yoao_labeling_v1.video_writer_receipts "
                                             "WHERE job_id=:job"
                                         ),
                                         {"job": job_id},
@@ -837,7 +837,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                                 text(
                                     "SELECT operation_id,run_id,request_digest,"
                                     "outcome,status,staged_sha256,staged_byte_size FROM "
-                                    "aap_labeling_v1.video_writer_receipts "
+                                    "yoao_labeling_v1.video_writer_receipts "
                                     "WHERE job_id=:job"
                                 ),
                                 {"job": job_id},
@@ -906,7 +906,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                         await db.execute(
                             text(
                                 "SELECT root_kind,object_key FROM public.mask_gc_roots "
-                                "WHERE aap_labeling_v1._mask_gc_root_entry_live("
+                                "WHERE yoao_labeling_v1._mask_gc_root_entry_live("
                                 "root_kind,root_id,valid_until,true) AND "
                                 "((root_kind='video_tracker_jobs' "
                                 "AND root_id=:job) "

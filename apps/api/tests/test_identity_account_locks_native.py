@@ -22,9 +22,9 @@ from yoao_identity.account_lock_contract import (
 from tests.test_identity_auth_native import _cleanup, _seed
 
 _FUNCTIONS = {
-    "share": "aap_identity_v1.lock_accounts_share",
-    "update": "aap_identity_v1.lock_accounts_update",
-    "key_share": "aap_identity_v1.lock_accounts_key_share",
+    "share": "yoao_identity_v1.lock_accounts_share",
+    "update": "yoao_identity_v1.lock_accounts_update",
+    "key_share": "yoao_identity_v1.lock_accounts_key_share",
 }
 _SIGNATURES = {
     mode: f"{function}(uuid[],boolean)" for mode, function in _FUNCTIONS.items()
@@ -270,11 +270,11 @@ async def test_account_lock_execute_grants_are_limited_to_required_callers(test_
         "labeling_code": {"share"},
         "inference_code": {"update"},
         "learning_code": {"share"},
-        "append_client": {"share", "update", "key_share"},
-        "identity_auth_client": set(),
-        "identity_command_client": set(),
-        "identity_fence_client": set(),
-        "identity_session_operator": set(),
+        "yoao_append_client": {"share", "update", "key_share"},
+        "yoao_identity_auth_client": set(),
+        "yoao_identity_command_client": set(),
+        "yoao_identity_fence_client": set(),
+        "yoao_identity_session_operator": set(),
     }
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
@@ -291,7 +291,7 @@ async def test_account_lock_execute_grants_are_limited_to_required_callers(test_
         assert await session.scalar(
             text(
                 "SELECT pg_catalog.has_function_privilege("
-                "'append_client', 'aap_identity_v1.read_actor_facts(uuid)', "
+                "'yoao_append_client', 'yoao_identity_v1.read_actor_facts(uuid)', "
                 "'EXECUTE')"
             )
         )
@@ -309,7 +309,7 @@ async def test_workflow_login_has_only_account_function_capabilities_and_no_user
     parsed, expected = make_url(url), make_url(test_url)
     assert (
         parsed.drivername == "postgresql+asyncpg"
-        and parsed.username == "append_client"
+        and parsed.username == "yoao_append_client"
         and parsed.host == "127.0.0.1"
         and parsed.port == expected.port
         and parsed.database == expected.database
@@ -318,11 +318,12 @@ async def test_workflow_login_has_only_account_function_capabilities_and_no_user
     try:
         async with engine.connect() as connection:
             assert (
-                await connection.scalar(text("SELECT current_user")) == "append_client"
+                await connection.scalar(text("SELECT current_user"))
+                == "yoao_append_client"
             )
             for signature in [
                 *_SIGNATURES.values(),
-                "aap_identity_v1.read_actor_facts(uuid)",
+                "yoao_identity_v1.read_actor_facts(uuid)",
             ]:
                 assert await connection.scalar(
                     text(
@@ -346,14 +347,14 @@ async def test_workflow_login_has_only_account_function_capabilities_and_no_user
             assert _json_object(
                 await connection.scalar(
                     text(
-                        "SELECT aap_identity_v1.lock_accounts_share("
+                        "SELECT yoao_identity_v1.lock_accounts_share("
                         "ARRAY[]::uuid[], TRUE)"
                     )
                 )
             ) == {"schema": ACCOUNT_LOCK_PROTOCOL, "accounts": []}
             assert (
                 await connection.scalar(
-                    text("SELECT actor_id FROM aap_identity_v1.read_actor_facts(:id)"),
+                    text("SELECT actor_id FROM yoao_identity_v1.read_actor_facts(:id)"),
                     {"id": uuid.uuid4()},
                 )
                 is None

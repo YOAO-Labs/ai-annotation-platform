@@ -45,7 +45,7 @@ pytestmark = [
 def _url(test_engine):
     _verify_postgres(test_engine.url)
     url = make_url(os.environ["AAP_MODULE_DATA_WORKSPACE_PROJECT_DELETION_URL"])
-    assert url.username == "workspace_project_deletion_client"
+    assert url.username == "yoao_workspace_project_deletion_client"
     assert (url.host, url.port, url.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -98,15 +98,15 @@ async def test_frozen_receipt_and_deletion_only_capability(test_engine):
     async with _world(test_engine) as (fixture, connection):
         functions = await connection.fetch(
             "SELECT n.nspname||'.'||p.proname AS name FROM pg_proc p "
-            "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname LIKE 'aap_%' "
+            "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (n.nspname LIKE 'aap_%' OR n.nspname LIKE 'yoao_%') "
             "AND has_function_privilege(current_user,p.oid,'EXECUTE') ORDER BY name"
         )
-        assert [r["name"] for r in functions] == ["aap_workspace_v1.delete_project"]
+        assert [r["name"] for r in functions] == ["yoao_workspace_v1.delete_project"]
         for query in (
             "SELECT id FROM public.projects",
-            "SELECT aap_labeling_v1.delete_project_owned_records($1)",
-            "SELECT aap_identity_v1.lock_audit_actor($1)",
-            "SELECT aap_workspace_v1.read_import_project('denied')",
+            "SELECT yoao_labeling_v1.delete_project_owned_records($1)",
+            "SELECT yoao_identity_v1.lock_audit_actor($1)",
+            "SELECT yoao_workspace_v1.read_import_project('denied')",
             "CREATE TEMP TABLE deletion_forbidden(id integer)",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
@@ -231,7 +231,7 @@ async def test_bad_receipt_binding_aborts_actual_native_mutation(test_engine):
 
             async def fetchval(self, query, *args, **kwargs):
                 raw = await connection.fetchval(query, *args, **kwargs)
-                if "aap_workspace_v1.delete_project(" in query:
+                if "yoao_workspace_v1.delete_project(" in query:
                     payload = json.loads(raw)
                     payload["data"]["actor_id"] = str(uuid.uuid4())
                     return json.dumps(payload)

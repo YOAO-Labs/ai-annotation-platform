@@ -16,7 +16,7 @@ class JobsDomainQueryPostgresData:
     async def lock_cross_frame_singleflight(self, actor_id, singleflight_key):
         await self.db.execute(
             text(
-                "SELECT aap_jobs_v1.lock_cross_frame_singleflight("
+                "SELECT yoao_jobs_v1.lock_cross_frame_singleflight("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:singleflight_key AS pg_catalog.text))"
             ),
@@ -28,14 +28,14 @@ class JobsDomainQueryPostgresData:
             select(AsyncJob).from_statement(
                 text(
                     "SELECT job.*, "
-                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
                     "progress.progress_observation FROM "
-                    "aap_jobs_v1.active_cross_frame_job("
+                    "yoao_jobs_v1.active_cross_frame_job("
                     "CAST(:actor_id AS pg_catalog.uuid), "
                     "CAST(:singleflight_key AS pg_catalog.text)) AS job "
                     "CROSS JOIN LATERAL "
-                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
+                    "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"actor_id": actor_id, "singleflight_key": singleflight_key},
@@ -47,15 +47,15 @@ class JobsDomainQueryPostgresData:
             select(AsyncJob).from_statement(
                 text(
                     "SELECT job.*, "
-                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
                     "progress.progress_observation FROM "
-                    "aap_jobs_v1.cross_frame_job_page("
+                    "yoao_jobs_v1.cross_frame_job_page("
                     "CAST(:actor_id AS pg_catalog.uuid), "
                     "CAST(:scene_id AS pg_catalog.text), "
                     "CAST(:limit AS pg_catalog.int4)) AS job "
                     "CROSS JOIN LATERAL "
-                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
+                    "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"actor_id": actor_id, "scene_id": scene_id, "limit": limit},
@@ -67,7 +67,7 @@ class JobsDomainQueryPostgresData:
             await self.db.flush()
         result = await self.db.execute(
             text(
-                "SELECT aap_jobs_v1.cross_frame_job_count("
+                "SELECT yoao_jobs_v1.cross_frame_job_count("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:scene_id AS pg_catalog.text))"
             ),
@@ -80,7 +80,7 @@ class JobsDomainQueryPostgresData:
             await self.db.flush()
         result = await self.db.execute(
             text(
-                "SELECT * FROM aap_jobs_v1.latest_batch_prediction_times("
+                "SELECT * FROM yoao_jobs_v1.latest_batch_prediction_times("
                 "CAST(:project_ids AS pg_catalog.uuid[]))"
             ),
             {"project_ids": project_ids},
@@ -96,7 +96,7 @@ class JobsDomainQueryPostgresData:
         result = await self.db.execute(
             text(
                 "SELECT active_jobs, retryable_failures FROM "
-                "aap_jobs_v1.frozen_deployment_usage("
+                "yoao_jobs_v1.frozen_deployment_usage("
                 "CAST(:deployment_id AS uuid), CAST(:registry_id AS uuid), "
                 "CAST(:model_version_id AS uuid))"
             ),
@@ -107,7 +107,7 @@ class JobsDomainQueryPostgresData:
     async def lock_action_idempotency(self, *, action, project_id, actor_id, key):
         await self.db.execute(
             text(
-                "SELECT aap_jobs_v1.lock_action_idempotency("
+                "SELECT yoao_jobs_v1.lock_action_idempotency("
                 "CAST(:action AS pg_catalog.text), CAST(:project_id AS pg_catalog.uuid), "
                 "CAST(:actor_id AS pg_catalog.uuid), CAST(:key AS pg_catalog.text))"
             ),
@@ -124,14 +124,14 @@ class JobsDomainQueryPostgresData:
             select(AsyncJob).from_statement(
                 text(
                     "SELECT job.*, "
-                    "aap_jobs_v1.read_job_execution_snapshot(job.id) "
+                    "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
                     "progress.progress_observation FROM "
-                    "aap_jobs_v1.find_action_idempotent_jobs("
+                    "yoao_jobs_v1.find_action_idempotent_jobs("
                     "CAST(:kind AS pg_catalog.text), CAST(:project_id AS pg_catalog.uuid), "
                     "CAST(:actor_id AS pg_catalog.uuid), CAST(:key AS pg_catalog.text)) "
                     "AS job CROSS JOIN LATERAL "
-                    "aap_jobs_v1.read_job_progress(job.id) AS progress"
+                    "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
             ),
             {"kind": kind, "project_id": project_id, "actor_id": actor_id, "key": key},

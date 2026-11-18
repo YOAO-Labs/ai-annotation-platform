@@ -2442,7 +2442,7 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         )
     await db_session.execute(
         text(
-            "SELECT aap_inference_topology_v1.set_plugin_asset_approval"
+            "SELECT yoao_inference_topology_v1.set_plugin_asset_approval"
             "(:id, 0, :decision)"
         ),
         {"id": approved_id, "decision": json.dumps(decision)},
@@ -2460,14 +2460,14 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         }
         await db_session.execute(
             text(
-                "SELECT aap_inference_topology_v1.set_plugin_asset_approval"
+                "SELECT yoao_inference_topology_v1.set_plugin_asset_approval"
                 "(:id, 0, :decision)"
             ),
             {"id": unapproved_id, "decision": json.dumps(partial)},
         )
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.registry_state "
+            "UPDATE yoao_inference_routing_v1.registry_state "
             "SET continuity='ready', backend_incarnation=gen_random_uuid() "
             "WHERE registry_id IN (:approved, :unapproved)"
         ),
@@ -2478,7 +2478,7 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
     class NativeData:
         async def step(self, action, arguments):
             raw = await db_session.scalar(
-                text("SELECT aap_inference_routing_v1.routing_step(:action, :args)"),
+                text("SELECT yoao_inference_routing_v1.routing_step(:action, :args)"),
                 {"action": action, "args": json.dumps(arguments)},
             )
             return json.loads(raw) if isinstance(raw, str) else raw
@@ -2486,7 +2486,7 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         async def video_execution_scope_step(self, action, arguments):
             raw = await db_session.scalar(
                 text(
-                    "SELECT aap_inference_routing_v1.video_execution_scope_step"
+                    "SELECT yoao_inference_routing_v1.video_execution_scope_step"
                     "(:action, :args)"
                 ),
                 {"action": action, "args": json.dumps(arguments)},
@@ -2549,7 +2549,7 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
     scope = (
         await db_session.execute(
             text(
-                "SELECT registry_id, pool_id, owner FROM aap_inference_routing_v1.scopes "
+                "SELECT registry_id, pool_id, owner FROM yoao_inference_routing_v1.scopes "
                 "WHERE owner=:owner"
             ),
             {"owner": f"tracker:{job_id}"},
@@ -2560,8 +2560,8 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         await db_session.execute(
             text(
                 "SELECT intent.state, execution.route_request_id=intent.request_id "
-                "FROM aap_jobs_v1.video_execution_route_intents intent "
-                "JOIN aap_jobs_v1.video_executions execution ON execution.job_id=intent.job_id "
+                "FROM yoao_jobs_v1.video_execution_route_intents intent "
+                "JOIN yoao_jobs_v1.video_executions execution ON execution.job_id=intent.job_id "
                 "WHERE intent.job_id=:job"
             ),
             {"job": job_id},

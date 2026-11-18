@@ -63,7 +63,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_mask_edit_client"
+_ROLE = "yoao_labeling_mask_edit_client"
 _FUNCTIONS = {
     ("mask_edit_command", "jsonb"),
     ("mask_revision_command", "jsonb"),
@@ -222,12 +222,12 @@ async def test_mask_edit_and_acceptance_owners_share_transaction_and_hide_privat
         )
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
-            connection, schema="aap_labeling_v1", functions=_FUNCTIONS, role=_ROLE
+            connection, schema="yoao_labeling_v1", functions=_FUNCTIONS, role=_ROLE
         )
 
         async def execute(function: str, payload: str):
             return await connection.fetchval(
-                f"SELECT aap_labeling_v1.{function}($1::jsonb)", payload
+                f"SELECT yoao_labeling_v1.{function}($1::jsonb)", payload
             )
 
         edits = MaskEditDataClient(
@@ -658,7 +658,7 @@ async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
 
         async def execute(payload):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.ai_mask_accept_command($1::jsonb)", payload
+                "SELECT yoao_labeling_v1.ai_mask_accept_command($1::jsonb)", payload
             )
 
         client = AiMaskAcceptDataClient(execute)
@@ -760,7 +760,7 @@ async def test_acceptance_history_runs_under_existing_function_only_role(test_en
 
         async def execute(payload):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.mask_edit_command($1::jsonb)", payload
+                "SELECT yoao_labeling_v1.mask_edit_command($1::jsonb)", payload
             )
 
         client = MaskEditDataClient(execute)
@@ -804,7 +804,7 @@ async def test_acceptance_history_runs_under_existing_function_only_role(test_en
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             async with connection.transaction():
                 await connection.fetchval(
-                    "SELECT aap_assets_v1._acceptance_history_source($1::uuid)",
+                    "SELECT yoao_assets_v1._acceptance_history_source($1::uuid)",
                     uuid.uuid4(),
                 )
         await transaction.rollback()
@@ -901,7 +901,7 @@ async def test_acceptance_history_fences_assets_item_under_existing_mask_role(
 
         async def execute(payload):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.mask_edit_command($1::jsonb)", payload
+                "SELECT yoao_labeling_v1.mask_edit_command($1::jsonb)", payload
             )
 
         client = MaskEditDataClient(execute)

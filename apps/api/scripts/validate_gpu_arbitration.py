@@ -1411,7 +1411,7 @@ async def refresh_runtime_proofs(
 
         refresher = PersistedGPUHealthRefresher(
             _owner_database_url("INFERENCE_HEALTH_DATA_DATABASE_URL"),
-            expected_role="inference_health_data_client",
+            expected_role="yoao_inference_health_data_client",
             options=settings,
             capability_limits_factory=capability_limits_from_settings,
         )
@@ -2968,7 +2968,7 @@ async def run_validation(
 
         authority = GPUAuthorityPoolData(
             await owner_pool("INFERENCE_GPU_DATABASE_URL"),
-            expected_role="inference_gpu_authority_client",
+            expected_role="yoao_inference_gpu_authority_client",
         )
         endpoint_source = GPUOwnedBackendEndpointSource(
             {
@@ -2980,7 +2980,7 @@ async def run_validation(
         )
         persisted_health = PersistedGPUHealthRefresher(
             _owner_database_url("INFERENCE_HEALTH_DATA_DATABASE_URL"),
-            expected_role="inference_health_data_client",
+            expected_role="yoao_inference_health_data_client",
             options=config,
             capability_limits_factory=capability_limits_from_settings,
         )

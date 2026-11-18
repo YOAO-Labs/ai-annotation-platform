@@ -544,7 +544,7 @@ async def test_installed_group_owner_node_all_operations_restart_and_revocation(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "SELECT aap_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)"
+                    "SELECT yoao_identity_v1.revoke_jti(CAST(:jti AS uuid), :retain_until)"
                 ),
                 {"jti": jtis[0], "retain_until": datetime.now(UTC) + timedelta(days=8)},
             )
@@ -855,9 +855,9 @@ async def test_group_container_preserves_unpaginated_catalog_and_narrow_grants(
                             "SELECT proc.proname "
                             "FROM pg_catalog.pg_proc AS proc "
                             "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                            "WHERE ns.nspname='aap_identity_groups_v1' "
+                            "WHERE ns.nspname='yoao_identity_groups_v1' "
                             "AND pg_catalog.has_function_privilege("
-                            "'identity_group_client',proc.oid,'EXECUTE')"
+                            "'yoao_identity_group_client',proc.oid,'EXECUTE')"
                         )
                     )
                 ).scalars()
@@ -867,7 +867,7 @@ async def test_group_container_preserves_unpaginated_catalog_and_narrow_grants(
                 assert not await db.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege("
-                        "'identity_group_client',:table_name,'SELECT')"
+                        "'yoao_identity_group_client',:table_name,'SELECT')"
                     ),
                     {"table_name": f"public.{table}"},
                 )

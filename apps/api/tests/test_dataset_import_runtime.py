@@ -275,14 +275,17 @@ async def _import_stack(
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"))
     assert (
-        role_url.username == "asset_import_client"
+        role_url.username == "yoao_asset_import_client"
         and role_url.database == test_engine.url.database
     )
     _verify_postgres(role_url)
     resources = _verified_resource_manifest(test_engine, role_url)
-    if _shared_bootstrap_minio(
-        settings, container_id=_required_env("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
-    ) is None:
+    if (
+        _shared_bootstrap_minio(
+            settings, container_id=_required_env("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+        )
+        is None
+    ):
         pytest.fail(
             "import acceptance requires a verified shared bootstrap MinIO gateway"
         )
@@ -356,7 +359,7 @@ async def _import_stack(
             prefix="assets-import-runtime-", dir=os.environ["TMPDIR"]
         ) as directory:
             source_role = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
-            assert source_role.username == "asset_source_client"
+            assert source_role.username == "yoao_asset_source_client"
             assert source_role.database == test_engine.url.database
             _verify_postgres(source_role)
             verify_token = secrets.token_urlsafe(32)
@@ -375,7 +378,9 @@ async def _import_stack(
                 "ASSETS_SOURCE_DATASETS_BUCKET": resources["buckets"][
                     "MINIO_DATASETS_BUCKET"
                 ],
-                "ASSETS_SOURCE_IMPORT_BUCKET": resources["buckets"]["MINIO_IMPORT_BUCKET"],
+                "ASSETS_SOURCE_IMPORT_BUCKET": resources["buckets"][
+                    "MINIO_IMPORT_BUCKET"
+                ],
                 "ASSETS_SOURCE_MEDIA_CACHE_BUCKET": resources["buckets"][
                     "MINIO_MEDIA_CACHE_BUCKET"
                 ],
@@ -388,9 +393,9 @@ async def _import_stack(
             )
             await _wait_healthy(source_container)
             source_origin = _source_origin(source_container, source_image, identity)
-            source_ip = _inspect_docker(source_container)["NetworkSettings"]["Networks"][
-                "bridge"
-            ]["IPAddress"]
+            source_ip = _inspect_docker(source_container)["NetworkSettings"][
+                "Networks"
+            ]["bridge"]["IPAddress"]
             assert source_ip
             values = {
                 "ASSETS_IMPORT_DATABASE_URL": _container_database_url(role_url),
@@ -678,9 +683,10 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
             Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
         )["Body"].read()
         assert raw == data
-        assert facts.items[0]["content_hash"] == hashlib.md5(
-            data, usedforsecurity=False
-        ).hexdigest()
+        assert (
+            facts.items[0]["content_hash"]
+            == hashlib.md5(data, usedforsecurity=False).hexdigest()
+        )
         async with stack.world.maker() as owner:
             creation = (
                 await owner.execute(
@@ -701,18 +707,22 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
             assert creation.requested_by == stack.world.actor_id
         async with stack.world.maker() as owner:
             entries = (
-                await owner.execute(
-                    text(
-                        "SELECT entry.entry_index, entry.status, entry.publication_id, entry.file_size, "
-                        "entry.content_hash, entry.width, entry.height, receipt.operation_id "
-                        "FROM public.dataset_import_entries entry "
-                        "JOIN aap_assets_v1.import_original_verifications receipt ON receipt.job_id=entry.job_id "
-                        "AND receipt.entry_index=entry.entry_index AND receipt.state='completed' "
-                        "WHERE entry.job_id=:job ORDER BY entry.entry_index"
-                    ),
-                    {"job": job},
+                (
+                    await owner.execute(
+                        text(
+                            "SELECT entry.entry_index, entry.status, entry.publication_id, entry.file_size, "
+                            "entry.content_hash, entry.width, entry.height, receipt.operation_id "
+                            "FROM public.dataset_import_entries entry "
+                            "JOIN yoao_assets_v1.import_original_verifications receipt ON receipt.job_id=entry.job_id "
+                            "AND receipt.entry_index=entry.entry_index AND receipt.state='completed' "
+                            "WHERE entry.job_id=:job ORDER BY entry.entry_index"
+                        ),
+                        {"job": job},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             assert [entry["status"] for entry in entries] == ["added", "skipped"]
             for entry in entries:
                 completion = {
@@ -725,7 +735,7 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
                 }
                 replay = await owner.scalar(
                     text(
-                        "SELECT aap_assets_v1.complete_dataset_import_entry("
+                        "SELECT yoao_assets_v1.complete_dataset_import_entry("
                         ":job, :token, :index, :publication, CAST(:completion AS jsonb))"
                     ),
                     {
@@ -796,7 +806,9 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
 async def test_definitive_source_rejection_recovers_unstarted_written_creation(
     test_engine, app_module, monkeypatch, importer_image, rejection, expected_error
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("blue")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
@@ -805,7 +817,14 @@ async def test_definitive_source_rejection_recovers_unstarted_written_creation(
 
         class InvalidReceiptHandler(BaseHTTPRequestHandler):
             def do_POST(self):
-                observed.append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+                observed.append(
+                    (
+                        self.path,
+                        json.loads(
+                            self.rfile.read(int(self.headers["Content-Length"]))
+                        ),
+                    )
+                )
                 body = b'{"state":"completed","result":{"sha256":"invalid"}}'
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
@@ -820,12 +839,18 @@ async def test_definitive_source_rejection_recovers_unstarted_written_creation(
         try:
             values = dict(stack.values)
             if rejection == "wrong-token":
-                values["ASSETS_IMPORT_VERIFY_TOKEN"] = "wrong-verification-token-" + "x" * 40
+                values["ASSETS_IMPORT_VERIFY_TOKEN"] = (
+                    "wrong-verification-token-" + "x" * 40
+                )
             else:
                 server = ThreadingHTTPServer(("0.0.0.0", 0), InvalidReceiptHandler)
-                server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+                server_thread = threading.Thread(
+                    target=server.serve_forever, daemon=True
+                )
                 server_thread.start()
-                values["ASSETS_IMPORT_VERIFY_URL"] = f"http://host.docker.internal:{server.server_port}"
+                values["ASSETS_IMPORT_VERIFY_URL"] = (
+                    f"http://host.docker.internal:{server.server_port}"
+                )
             job = await _accept(stack)
             worker = _start_importer(stack, f"rejected-{rejection}", values=values)
             await _wait_healthy(worker)
@@ -837,52 +862,80 @@ async def test_definitive_source_rejection_recovers_unstarted_written_creation(
                 while True:
                     async with stack.world.maker() as observer:
                         creation = (
-                            await observer.execute(
-                                text(
-                                    "SELECT creation.id,creation.status,creation.operation_id,creation.object_key,"
-                                    "creation.version_id,creation.receipt,creation.error_code,"
-                                    "EXISTS(SELECT 1 FROM public.storage_operations permit "
-                                    "WHERE permit.id=creation.operation_id) AS permit_retained "
-                                    "FROM public.managed_original_creations creation "
-                                    "WHERE creation.authority->>'job_id'=:job"
-                                ),
-                                {"job": str(job)},
-                            )
-                        ).mappings().one()
-                        if creation["status"] == "failed":
-                            assert creation["error_code"] == "import_verification_not_started"
-                            assert not creation["permit_retained"]
-                            mutation = (
+                            (
                                 await observer.execute(
                                     text(
-                                        "SELECT physical_outcome,finished_at,evidence FROM public.storage_usage_mutations "
-                                        "WHERE owner_id=:creation AND producer='managed_original_creation' "
-                                        "AND kind='create'"
+                                        "SELECT creation.id,creation.status,creation.operation_id,creation.object_key,"
+                                        "creation.version_id,creation.receipt,creation.error_code,"
+                                        "EXISTS(SELECT 1 FROM public.storage_operations permit "
+                                        "WHERE permit.id=creation.operation_id) AS permit_retained "
+                                        "FROM public.managed_original_creations creation "
+                                        "WHERE creation.authority->>'job_id'=:job"
                                     ),
-                                    {"creation": creation["id"]},
+                                    {"job": str(job)},
                                 )
-                            ).mappings().one()
+                            )
+                            .mappings()
+                            .one()
+                        )
+                        if creation["status"] == "failed":
+                            assert (
+                                creation["error_code"]
+                                == "import_verification_not_started"
+                            )
+                            assert not creation["permit_retained"]
+                            mutation = (
+                                (
+                                    await observer.execute(
+                                        text(
+                                            "SELECT physical_outcome,finished_at,evidence FROM public.storage_usage_mutations "
+                                            "WHERE owner_id=:creation AND producer='managed_original_creation' "
+                                            "AND kind='create'"
+                                        ),
+                                        {"creation": creation["id"]},
+                                    )
+                                )
+                                .mappings()
+                                .one()
+                            )
                             assert mutation["physical_outcome"] == "written"
                             assert mutation["finished_at"] is not None
-                            assert mutation["evidence"]["receipt"] == creation["receipt"]
+                            assert (
+                                mutation["evidence"]["receipt"] == creation["receipt"]
+                            )
                             assert mutation["evidence"]["physical_settled"] is True
-                            assert await observer.scalar(
-                                text("SELECT count(*) FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"),
-                                {"job": job},
-                            ) == 0
+                            assert (
+                                await observer.scalar(
+                                    text(
+                                        "SELECT count(*) FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                                    ),
+                                    {"job": job},
+                                )
+                                == 0
+                            )
                             break
                     await asyncio.sleep(0.1)
-            get = {"Bucket": stack.storage.datasets_bucket, "Key": creation["object_key"]}
+            get = {
+                "Bucket": stack.storage.datasets_bucket,
+                "Key": creation["object_key"],
+            }
             if creation["version_id"] is not None:
                 get["VersionId"] = creation["version_id"]
             assert stack.storage.client.get_object(**get)["Body"].read() == data
             if rejection == "invalid-status":
                 assert [path for path, _ in observed] == [
-                    "/v1/import/verify", "/v1/import/verify-status"
+                    "/v1/import/verify",
+                    "/v1/import/verify-status",
                 ]
                 assert observed[0][1] == observed[1][1]
                 assert set(observed[0][1]) == {
-                    "job_id", "lease_token", "entry_index", "item_id", "creation_id", "operation_id", "mode"
+                    "job_id",
+                    "lease_token",
+                    "entry_index",
+                    "item_id",
+                    "creation_id",
+                    "operation_id",
+                    "mode",
                 }
         finally:
             if server is not None:
@@ -912,9 +965,12 @@ async def test_import_accepted_before_account_deactivation_finishes(
         facts = await _wait_job(stack, job)
         assert facts.file_count == facts.tasks == facts.total_tasks == 1
         assert facts.jobs[0]["result"]["added"] == 1
-        assert stack.storage.client.get_object(
-            Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
-        )["Body"].read() == data
+        assert (
+            stack.storage.client.get_object(
+                Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
+            )["Body"].read()
+            == data
+        )
 
 
 async def test_import_rejects_unpublishable_entry_and_continues(
@@ -955,9 +1011,12 @@ async def test_import_rejects_unpublishable_entry_and_continues(
             ]
         assert facts.file_count == facts.tasks == facts.total_tasks == 1
         assert facts.items[0]["file_name"] == "z-valid.png"
-        assert stack.storage.client.get_object(
-            Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
-        )["Body"].read() == data
+        assert (
+            stack.storage.client.get_object(
+                Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
+            )["Body"].read()
+            == data
+        )
 
 
 @asynccontextmanager
@@ -965,9 +1024,7 @@ async def _publication_gate(stack, test_engine, *, after_settlement=False):
     signature = "uuid,uuid,bigint,uuid,jsonb"
     alias = "_acceptance_import_completion"
     gate = secrets.randbits(60)
-    settlement = (
-        f"v_reply := aap_assets_v1.{alias}(p_job,p_token,p_index,p_publication,p_completion);"
-    )
+    settlement = f"v_reply := yoao_assets_v1.{alias}(p_job,p_token,p_index,p_publication,p_completion);"
     gate_lock = f"PERFORM pg_catalog.pg_advisory_xact_lock({gate});"
     steps = (
         f"{settlement} {gate_lock}" if after_settlement else f"{gate_lock} {settlement}"
@@ -978,17 +1035,17 @@ async def _publication_gate(stack, test_engine, *, after_settlement=False):
         async with stack.world.maker.begin() as owner:
             await owner.execute(
                 text(
-                    f"ALTER FUNCTION aap_assets_v1.complete_dataset_import_entry({signature}) RENAME TO {alias}"
+                    f"ALTER FUNCTION yoao_assets_v1.complete_dataset_import_entry({signature}) RENAME TO {alias}"
                 )
             )
             await owner.execute(
                 text(
-                    f"REVOKE ALL ON FUNCTION aap_assets_v1.{alias}({signature}) FROM asset_import_client"
+                    f"REVOKE ALL ON FUNCTION yoao_assets_v1.{alias}({signature}) FROM yoao_asset_import_client"
                 )
             )
             await owner.execute(
                 text(f"""
-                CREATE FUNCTION aap_assets_v1.complete_dataset_import_entry(
+                CREATE FUNCTION yoao_assets_v1.complete_dataset_import_entry(
                     p_job uuid,p_token uuid,p_index bigint,p_publication uuid,p_completion jsonb
                 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
                 SET search_path=pg_catalog,pg_temp AS $body$
@@ -1002,17 +1059,17 @@ async def _publication_gate(stack, test_engine, *, after_settlement=False):
             )
             await owner.execute(
                 text(
-                    f"REVOKE ALL ON FUNCTION aap_assets_v1.complete_dataset_import_entry({signature}) FROM PUBLIC"
+                    f"REVOKE ALL ON FUNCTION yoao_assets_v1.complete_dataset_import_entry({signature}) FROM PUBLIC"
                 )
             )
             await owner.execute(
                 text(
-                    f"ALTER FUNCTION aap_assets_v1.complete_dataset_import_entry({signature}) OWNER TO assets_code"
+                    f"ALTER FUNCTION yoao_assets_v1.complete_dataset_import_entry({signature}) OWNER TO assets_code"
                 )
             )
             await owner.execute(
                 text(
-                    f"GRANT EXECUTE ON FUNCTION aap_assets_v1.complete_dataset_import_entry({signature}) TO asset_import_client"
+                    f"GRANT EXECUTE ON FUNCTION yoao_assets_v1.complete_dataset_import_entry({signature}) TO yoao_asset_import_client"
                 )
             )
         released = False
@@ -1050,26 +1107,33 @@ async def _publication_gate(stack, test_engine, *, after_settlement=False):
             async with stack.world.maker.begin() as owner:
                 await owner.execute(
                     text(
-                        f"DROP FUNCTION aap_assets_v1.complete_dataset_import_entry({signature})"
+                        f"DROP FUNCTION yoao_assets_v1.complete_dataset_import_entry({signature})"
                     )
                 )
                 await owner.execute(
                     text(
-                        f"ALTER FUNCTION aap_assets_v1.{alias}({signature}) RENAME TO complete_dataset_import_entry"
+                        f"ALTER FUNCTION yoao_assets_v1.{alias}({signature}) RENAME TO complete_dataset_import_entry"
                     )
                 )
                 await owner.execute(
                     text(
-                        f"GRANT EXECUTE ON FUNCTION aap_assets_v1.complete_dataset_import_entry({signature}) TO asset_import_client"
+                        f"GRANT EXECUTE ON FUNCTION yoao_assets_v1.complete_dataset_import_entry({signature}) TO yoao_asset_import_client"
                     )
                 )
 
 
 @asynccontextmanager
 async def _verification_finish_gate(
-    stack, test_engine, *, function="finish_import_original_verification", gated_lease=None
+    stack,
+    test_engine,
+    *,
+    function="finish_import_original_verification",
+    gated_lease=None,
 ):
-    assert function in {"finish_import_original_verification", "record_import_original_read"}
+    assert function in {
+        "finish_import_original_verification",
+        "record_import_original_read",
+    }
     alias = f"_acceptance_{function}"
     gate = secrets.randbits(60)
     gate_statement = f"PERFORM pg_catalog.pg_advisory_xact_lock({gate});"
@@ -1078,44 +1142,58 @@ async def _verification_finish_gate(
             f"IF p->>'lease_token'='{gated_lease}' THEN {gate_statement} END IF;"
         )
     role = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL")).username
-    assert role == "asset_source_client"
+    assert role == "yoao_asset_source_client"
     async with test_engine.connect() as holder:
         await holder.execute(text("SELECT pg_advisory_lock(:gate)"), {"gate": gate})
         await holder.commit()
         async with stack.world.maker.begin() as owner:
-            await owner.execute(text(
-                f"ALTER FUNCTION aap_assets_v1.{function}(jsonb,jsonb) RENAME TO {alias}"
-            ))
-            await owner.execute(text(
-                f"REVOKE ALL ON FUNCTION aap_assets_v1.{alias}(jsonb,jsonb) "
-                "FROM asset_source_client"
-            ))
-            await owner.execute(text(f"""
-                CREATE FUNCTION aap_assets_v1.{function}(p jsonb, r jsonb)
+            await owner.execute(
+                text(
+                    f"ALTER FUNCTION yoao_assets_v1.{function}(jsonb,jsonb) RENAME TO {alias}"
+                )
+            )
+            await owner.execute(
+                text(
+                    f"REVOKE ALL ON FUNCTION yoao_assets_v1.{alias}(jsonb,jsonb) "
+                    "FROM yoao_asset_source_client"
+                )
+            )
+            await owner.execute(
+                text(f"""
+                CREATE FUNCTION yoao_assets_v1.{function}(p jsonb, r jsonb)
                 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
                 SET search_path=pg_catalog,pg_temp AS $body$
                 BEGIN
                     {gate_statement}
-                    RETURN aap_assets_v1.{alias}(p,r);
+                    RETURN yoao_assets_v1.{alias}(p,r);
                 END;
                 $body$;
-            """))
-            await owner.execute(text(
-                f"REVOKE ALL ON FUNCTION aap_assets_v1.{function}(jsonb,jsonb) FROM PUBLIC"
-            ))
-            await owner.execute(text(
-                f"ALTER FUNCTION aap_assets_v1.{function}(jsonb,jsonb) OWNER TO assets_code"
-            ))
-            await owner.execute(text(
-                f"GRANT EXECUTE ON FUNCTION aap_assets_v1.{function}(jsonb,jsonb) "
-                "TO asset_source_client"
-            ))
+            """)
+            )
+            await owner.execute(
+                text(
+                    f"REVOKE ALL ON FUNCTION yoao_assets_v1.{function}(jsonb,jsonb) FROM PUBLIC"
+                )
+            )
+            await owner.execute(
+                text(
+                    f"ALTER FUNCTION yoao_assets_v1.{function}(jsonb,jsonb) OWNER TO assets_code"
+                )
+            )
+            await owner.execute(
+                text(
+                    f"GRANT EXECUTE ON FUNCTION yoao_assets_v1.{function}(jsonb,jsonb) "
+                    "TO yoao_asset_source_client"
+                )
+            )
         released = False
 
         async def release():
             nonlocal released
             if not released:
-                await holder.execute(text("SELECT pg_advisory_unlock(:gate)"), {"gate": gate})
+                await holder.execute(
+                    text("SELECT pg_advisory_unlock(:gate)"), {"gate": gate}
+                )
                 await holder.commit()
                 released = True
 
@@ -1131,6 +1209,7 @@ async def _verification_finish_gate(
                         {"high": gate >> 32, "low": gate & 0xFFFFFFFF},
                     ):
                         await asyncio.sleep(0.05)
+
         try:
             yield release, wait_for_gate
         finally:
@@ -1139,23 +1218,31 @@ async def _verification_finish_gate(
                 if _inspect_docker(container)["State"].get("Running"):
                     _docker("stop", "--time", "3", container)
             async with stack.world.maker.begin() as owner:
-                await owner.execute(text(
-                    f"DROP FUNCTION aap_assets_v1.{function}(jsonb,jsonb)"
-                ))
-                await owner.execute(text(
-                    f"ALTER FUNCTION aap_assets_v1.{alias}(jsonb,jsonb) RENAME TO {function}"
-                ))
-                await owner.execute(text(
-                    f"GRANT EXECUTE ON FUNCTION aap_assets_v1.{function}(jsonb,jsonb) "
-                    "TO asset_source_client"
-                ))
+                await owner.execute(
+                    text(f"DROP FUNCTION yoao_assets_v1.{function}(jsonb,jsonb)")
+                )
+                await owner.execute(
+                    text(
+                        f"ALTER FUNCTION yoao_assets_v1.{alias}(jsonb,jsonb) RENAME TO {function}"
+                    )
+                )
+                await owner.execute(
+                    text(
+                        f"GRANT EXECUTE ON FUNCTION yoao_assets_v1.{function}(jsonb,jsonb) "
+                        "TO yoao_asset_source_client"
+                    )
+                )
 
 
-@pytest.mark.parametrize("locked_row", ["dataset", "job", "maintenance", "budget", "inner-timeout"])
+@pytest.mark.parametrize(
+    "locked_row", ["dataset", "job", "maintenance", "budget", "inner-timeout"]
+)
 async def test_original_source_request_retries_admission_lock_contention(
     test_engine, app_module, monkeypatch, importer_image, locked_row
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("orange")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
@@ -1185,7 +1272,12 @@ async def test_original_source_request_retries_admission_lock_contention(
                     trust_env=False,
                 )
                 if self.path == "/v1/import/verify":
-                    original.append((response.status_code, response.json() if response.status_code == 200 else None))
+                    original.append(
+                        (
+                            response.status_code,
+                            response.json() if response.status_code == 200 else None,
+                        )
+                    )
                     finished.set()
                 try:
                     self.send_response(response.status_code)
@@ -1207,14 +1299,21 @@ async def test_original_source_request_retries_admission_lock_contention(
                 path = stack.directory / "source-admission-budget.env"
                 override = (
                     {"ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": "0.5"}
-                    if locked_row == "budget" else {"ASSETS_SOURCE_SQL_TIMEOUT_SECONDS": "0.3"}
+                    if locked_row == "budget"
+                    else {"ASSETS_SOURCE_SQL_TIMEOUT_SECONDS": "0.3"}
                 )
                 _write_environment(path, {**stack.source_values, **override})
                 short_source = await asyncio.to_thread(
-                    _start_source, stack.source_image, stack.identity, path, "-short-budget"
+                    _start_source,
+                    stack.source_image,
+                    stack.identity,
+                    path,
+                    "-short-budget",
                 )
                 await _wait_healthy(short_source)
-                origin = _source_origin(short_source, stack.source_image, stack.identity)
+                origin = _source_origin(
+                    short_source, stack.source_image, stack.identity
+                )
             values = {
                 **stack.values,
                 "ASSETS_IMPORT_VERIFY_URL": f"http://host.docker.internal:{server.server_port}",
@@ -1228,15 +1327,20 @@ async def test_original_source_request_retries_admission_lock_contention(
                         text(
                             "SELECT location_id FROM public.managed_original_creations "
                             "WHERE authority->>'job_id'=:job"
-                        ), {"job": str(job)},
+                        ),
+                        {"job": str(job)},
                     )
                     gate = await owner.scalar(
-                        text("SELECT state FROM public.storage_maintenance_gates WHERE location_id=:id"),
+                        text(
+                            "SELECT state FROM public.storage_maintenance_gates WHERE location_id=:id"
+                        ),
                         {"id": gate_id},
                     )
                     assert gate == "active"
                     await owner.execute(
-                        text("UPDATE public.storage_maintenance_gates SET state='draining' WHERE location_id=:id"),
+                        text(
+                            "UPDATE public.storage_maintenance_gates SET state='draining' WHERE location_id=:id"
+                        ),
                         {"id": gate_id},
                     )
             async with test_engine.connect() as locker:
@@ -1244,12 +1348,16 @@ async def test_original_source_request_retries_admission_lock_contention(
                 try:
                     if locked_row == "dataset":
                         await locker.execute(
-                            text("SELECT id FROM public.datasets WHERE id=:id FOR NO KEY UPDATE"),
+                            text(
+                                "SELECT id FROM public.datasets WHERE id=:id FOR NO KEY UPDATE"
+                            ),
                             {"id": stack.world.dataset_id},
                         )
                     elif locked_row == "job":
                         await locker.execute(
-                            text("SELECT id FROM public.async_jobs WHERE id=:id FOR UPDATE"),
+                            text(
+                                "SELECT id FROM public.async_jobs WHERE id=:id FOR UPDATE"
+                            ),
                             {"id": job},
                         )
                     elif locked_row in {"budget", "inner-timeout"}:
@@ -1258,25 +1366,35 @@ async def test_original_source_request_retries_admission_lock_contention(
                                 "SELECT gate.location_id FROM public.storage_maintenance_gates gate "
                                 "JOIN public.managed_original_creations creation ON creation.location_id=gate.location_id "
                                 "WHERE creation.authority->>'job_id'=:job FOR UPDATE OF gate"
-                            ), {"job": str(job)},
+                            ),
+                            {"job": str(job)},
                         )
                     forward.set()
                     if locked_row == "budget":
                         assert await asyncio.to_thread(finished.wait, 3)
                     else:
-                        await asyncio.sleep(1.2 if locked_row == "inner-timeout" else 0.5)
+                        await asyncio.sleep(
+                            1.2 if locked_row == "inner-timeout" else 0.5
+                        )
                         assert not finished.is_set()
                     async with stack.world.maker() as observer:
-                        assert await observer.scalar(
-                            text("SELECT count(*) FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"),
-                            {"job": job},
-                        ) == 0
+                        assert (
+                            await observer.scalar(
+                                text(
+                                    "SELECT count(*) FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                                ),
+                                {"job": job},
+                            )
+                            == 0
+                        )
                 finally:
                     await transaction.rollback()
             if gate_id is not None:
                 async with stack.world.maker.begin() as owner:
                     await owner.execute(
-                        text("UPDATE public.storage_maintenance_gates SET state='active' WHERE location_id=:id"),
+                        text(
+                            "UPDATE public.storage_maintenance_gates SET state='active' WHERE location_id=:id"
+                        ),
                         {"id": gate_id},
                     )
                 gate_id = None
@@ -1288,7 +1406,8 @@ async def test_original_source_request_retries_admission_lock_contention(
                             "SELECT EXISTS(SELECT 1 FROM public.managed_original_creations creation "
                             "JOIN public.storage_operations permit ON permit.id=creation.operation_id "
                             "WHERE creation.authority->>'job_id'=:job AND creation.status='written')"
-                        ), {"job": str(job)},
+                        ),
+                        {"job": str(job)},
                     )
                 return
             facts = await _wait_job(stack, job)
@@ -1299,18 +1418,26 @@ async def test_original_source_request_retries_admission_lock_contention(
             assert original[0][1]["state"] in {"completed", "pending"}
             async with stack.world.maker() as observer:
                 receipts = (
-                    await observer.execute(
-                        text("SELECT state,result FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"),
-                        {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT state,result FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().all()
+                    .mappings()
+                    .all()
+                )
             assert len(receipts) == 1 and receipts[0]["state"] == "completed"
             assert receipts[0]["result"]["sha256"] == hashlib.sha256(data).hexdigest()
         finally:
             if gate_id is not None:
                 async with stack.world.maker.begin() as owner:
                     await owner.execute(
-                        text("UPDATE public.storage_maintenance_gates SET state='active' WHERE location_id=:id"),
+                        text(
+                            "UPDATE public.storage_maintenance_gates SET state='active' WHERE location_id=:id"
+                        ),
                         {"id": gate_id},
                     )
             forward.set()
@@ -1321,11 +1448,24 @@ async def test_original_source_request_retries_admission_lock_contention(
                 _stop_remove_container(short_source, stack.identity)
 
 
-@pytest.mark.parametrize("replacement", [False, True, "committed", "inflight", "cancelled", "connection-lost", "timeout-fenced"])
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        False,
+        True,
+        "committed",
+        "inflight",
+        "cancelled",
+        "connection-lost",
+        "timeout-fenced",
+    ],
+)
 async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
     test_engine, app_module, monkeypatch, importer_image, replacement
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("purple")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
@@ -1349,12 +1489,14 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                 if not forward.wait(20):
                     return
                 response = httpx.post(
-                    stack.verifier_origin + self.path, content=body,
+                    stack.verifier_origin + self.path,
+                    content=body,
                     headers={
                         "Authorization": self.headers["Authorization"],
                         "Content-Type": "application/json",
                     },
-                    timeout=10, trust_env=False,
+                    timeout=10,
+                    trust_env=False,
                 )
                 late.append((response.status_code, response.json()))
                 finished.set()
@@ -1384,57 +1526,86 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                 # A live current publication is not an orphan.
                 await asyncio.sleep(1.2)
                 async with stack.world.maker() as observer:
-                    assert await observer.scalar(
-                        text("SELECT status FROM public.managed_original_creations WHERE authority->>'job_id'=:job"),
-                        {"job": str(job)},
-                    ) == "written"
+                    assert (
+                        await observer.scalar(
+                            text(
+                                "SELECT status FROM public.managed_original_creations WHERE authority->>'job_id'=:job"
+                            ),
+                            {"job": str(job)},
+                        )
+                        == "written"
+                    )
             _docker("kill", "--signal", "KILL", worker)
             if replacement == "committed":
-                source_login = create_async_engine(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
+                source_login = create_async_engine(
+                    _required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL")
+                )
                 try:
                     original = captured[0]
                     nonce = str(uuid4())
                     admission = {**original, "admission_id": nonce}
                     async with source_login.begin() as client:
                         begun = await client.scalar(
-                            text("SELECT aap_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"),
+                            text(
+                                "SELECT yoao_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"
+                            ),
                             {"p": json.dumps(admission)},
                         )
                     assert begun["state"] == "started"
                     async with source_login.begin() as client:
                         replayed = await client.scalar(
-                            text("SELECT aap_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"),
+                            text(
+                                "SELECT yoao_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"
+                            ),
                             {"p": json.dumps(admission)},
                         )
                     assert replayed["state"] == "started"
                     async with source_login.begin() as client:
                         other = await client.scalar(
-                            text("SELECT aap_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"),
-                            {"p": json.dumps({**admission, "admission_id": str(uuid4())})},
+                            text(
+                                "SELECT yoao_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"
+                            ),
+                            {
+                                "p": json.dumps(
+                                    {**admission, "admission_id": str(uuid4())}
+                                )
+                            },
                         )
                     assert other["state"] == "pending"
                     async with source_login.begin() as client:
                         rejected = await client.scalar(
-                            text("SELECT aap_assets_v1.record_import_original_read(CAST(:p AS jsonb),NULL)"),
-                            {"p": json.dumps({**admission, "admission_id": str(uuid4())})},
+                            text(
+                                "SELECT yoao_assets_v1.record_import_original_read(CAST(:p AS jsonb),NULL)"
+                            ),
+                            {
+                                "p": json.dumps(
+                                    {**admission, "admission_id": str(uuid4())}
+                                )
+                            },
                         )
                     assert rejected["state"] == "fenced"
                     async with source_login.begin() as client:
                         drained = await client.scalar(
-                            text("SELECT aap_assets_v1.record_import_original_read(CAST(:p AS jsonb),NULL)"),
+                            text(
+                                "SELECT yoao_assets_v1.record_import_original_read(CAST(:p AS jsonb),NULL)"
+                            ),
                             {"p": json.dumps(admission)},
                         )
                     assert drained["state"] == "drained"
                     async with source_login.begin() as client:
                         settled = await client.scalar(
-                            text("SELECT aap_assets_v1.finish_import_original_verification(CAST(:p AS jsonb),NULL)"),
+                            text(
+                                "SELECT yoao_assets_v1.finish_import_original_verification(CAST(:p AS jsonb),NULL)"
+                            ),
                             {"p": json.dumps(original)},
                         )
                     assert settled["state"] == "failed"
                 finally:
                     await source_login.dispose()
             if replacement == "inflight":
-                source_login = create_async_engine(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
+                source_login = create_async_engine(
+                    _required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL")
+                )
                 original = captured[0]
                 admission = {**original, "admission_id": str(uuid4())}
                 try:
@@ -1442,7 +1613,9 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                         transaction = await first.begin()
                         try:
                             begun = await first.scalar(
-                                text("SELECT aap_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"),
+                                text(
+                                    "SELECT yoao_assets_v1.begin_import_original_verification(CAST(:p AS jsonb))"
+                                ),
                                 {"p": json.dumps(admission)},
                             )
                             assert begun["state"] == "started"
@@ -1450,7 +1623,9 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                             async def settle_inflight():
                                 async with source_login.begin() as second:
                                     return await second.scalar(
-                                        text("SELECT aap_assets_v1.record_import_original_read(CAST(:p AS jsonb),NULL)"),
+                                        text(
+                                            "SELECT yoao_assets_v1.record_import_original_read(CAST(:p AS jsonb),NULL)"
+                                        ),
                                         {"p": json.dumps(admission)},
                                     )
 
@@ -1464,7 +1639,9 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                                 await transaction.rollback()
                     async with source_login.begin() as client:
                         settled = await client.scalar(
-                            text("SELECT aap_assets_v1.finish_import_original_verification(CAST(:p AS jsonb),NULL)"),
+                            text(
+                                "SELECT yoao_assets_v1.finish_import_original_verification(CAST(:p AS jsonb),NULL)"
+                            ),
                             {"p": json.dumps(original)},
                         )
                     assert settled["state"] == "failed"
@@ -1472,17 +1649,28 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                     await source_login.dispose()
             if replacement in {"cancelled", "connection-lost", "timeout-fenced"}:
                 import asyncpg
-                from yoao_assets_source.import_verification_contract import ImportVerificationRequest
-                from yoao_assets_source_runtime.database import SourceDatabase, _init_connection
+                from yoao_assets_source.import_verification_contract import (
+                    ImportVerificationRequest,
+                )
+                from yoao_assets_source_runtime.database import (
+                    SourceDatabase,
+                    _init_connection,
+                )
                 from yoao_assets_source_runtime.runtime import SourceRuntime
 
-                role = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL")).set(drivername="postgresql")
+                role = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL")).set(
+                    drivername="postgresql"
+                )
                 pool = await asyncpg.create_pool(
-                    dsn=role.render_as_string(hide_password=False), min_size=1, max_size=2,
+                    dsn=role.render_as_string(hide_password=False),
+                    min_size=1,
+                    max_size=2,
                     init=_init_connection,
                 )
                 config = SimpleNamespace(
-                    import_verify_timeout_seconds=15, pool_timeout_seconds=2, max_response_bytes=16_777_216
+                    import_verify_timeout_seconds=15,
+                    pool_timeout_seconds=2,
+                    max_response_bytes=16_777_216,
                 )
                 native = SourceDatabase(pool, config)
                 committed = asyncio.Event()
@@ -1491,15 +1679,21 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                 cleanup_attempts = []
 
                 class LostAcknowledgement:
-                    async def import_verification(self, operation, request, result=None):
+                    async def import_verification(
+                        self, operation, request, result=None
+                    ):
                         if operation == "record" and replacement == "cancelled":
                             cleanup_started.set()
                             await cleanup_release.wait()
                         if operation == "record" and replacement == "connection-lost":
                             cleanup_attempts.append(operation)
                             if len(cleanup_attempts) == 1:
-                                raise asyncpg.ConnectionDoesNotExistError("temporary cleanup disconnect")
-                        response = await native.import_verification(operation, request, result)
+                                raise asyncpg.ConnectionDoesNotExistError(
+                                    "temporary cleanup disconnect"
+                                )
+                        response = await native.import_verification(
+                            operation, request, result
+                        )
                         if operation == "begin" and not committed.is_set():
                             assert response["state"] == "started"
                             committed.set()
@@ -1511,17 +1705,22 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                                         text(
                                             "UPDATE public.dataset_import_operations SET "
                                             "lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=:job"
-                                        ), {"job": job},
+                                        ),
+                                        {"job": job},
                                     )
                                 raise TimeoutError("lost admission acknowledgement")
-                            raise asyncpg.ConnectionDoesNotExistError("lost commit acknowledgement")
+                            raise asyncpg.ConnectionDoesNotExistError(
+                                "lost commit acknowledgement"
+                            )
                         return response
 
                 runtime = SourceRuntime(config, LostAcknowledgement(), None)
                 try:
-                    pending = asyncio.create_task(runtime.verify_import_original(
-                        ImportVerificationRequest.model_validate(captured[0])
-                    ))
+                    pending = asyncio.create_task(
+                        runtime.verify_import_original(
+                            ImportVerificationRequest.model_validate(captured[0])
+                        )
+                    )
                     if replacement == "cancelled":
                         async with asyncio.timeout(5):
                             await committed.wait()
@@ -1553,31 +1752,44 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                 if replacement is True:
                     # Claim and replace the publication before recovery can see
                     # the expired lease, using the real restricted owner API.
-                    await owner.execute(text("SET LOCAL ROLE asset_import_client"))
+                    await owner.execute(text("SET LOCAL ROLE yoao_asset_import_client"))
                     claimed = await owner.scalar(
-                        text("SELECT aap_assets_v1.claim_dataset_import(:token,30,:job)"),
+                        text(
+                            "SELECT yoao_assets_v1.claim_dataset_import(:token,30,:job)"
+                        ),
                         {"token": token, "job": job},
                     )
                     assert claimed["ok"] is True
                     entry = await owner.scalar(
-                        text("SELECT aap_assets_v1.next_dataset_import_entry(:job,:token,:publication)"),
+                        text(
+                            "SELECT yoao_assets_v1.next_dataset_import_entry(:job,:token,:publication)"
+                        ),
                         {"job": job, "token": token, "publication": publication},
                     )
-                    assert entry["ok"] is True and entry["data"]["publication_id"] == str(publication)
+                    assert entry["ok"] is True and entry["data"][
+                        "publication_id"
+                    ] == str(publication)
             async with asyncio.timeout(15):
                 while True:
                     async with stack.world.maker() as observer:
                         creation = (
-                            await observer.execute(
-                                text(
-                                    "SELECT id,status,object_key,version_id,operation_id FROM "
-                                    "public.managed_original_creations WHERE authority->>'job_id'=:job"
-                                ), {"job": str(job)},
+                            (
+                                await observer.execute(
+                                    text(
+                                        "SELECT id,status,object_key,version_id,operation_id FROM "
+                                        "public.managed_original_creations WHERE authority->>'job_id'=:job"
+                                    ),
+                                    {"job": str(job)},
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                         if creation["status"] == "failed":
                             assert not await observer.scalar(
-                                text("SELECT EXISTS(SELECT 1 FROM public.storage_operations WHERE id=:id)"),
+                                text(
+                                    "SELECT EXISTS(SELECT 1 FROM public.storage_operations WHERE id=:id)"
+                                ),
                                 {"id": creation["operation_id"]},
                             )
                             break
@@ -1587,38 +1799,77 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
             assert late == [(200, {"state": "fenced", "result": None})]
             async with stack.world.maker() as observer:
                 assert await observer.scalar(
-                    text("SELECT count(*) FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"),
+                    text(
+                        "SELECT count(*) FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                    ),
                     {"job": job},
-                ) == (1 if replacement in {"committed", "inflight", "cancelled", "connection-lost", "timeout-fenced"} else 0)
-                if replacement in {"committed", "inflight", "cancelled", "connection-lost", "timeout-fenced"}:
+                ) == (
+                    1
+                    if replacement
+                    in {
+                        "committed",
+                        "inflight",
+                        "cancelled",
+                        "connection-lost",
+                        "timeout-fenced",
+                    }
+                    else 0
+                )
+                if replacement in {
+                    "committed",
+                    "inflight",
+                    "cancelled",
+                    "connection-lost",
+                    "timeout-fenced",
+                }:
                     row = (
-                        await observer.execute(
-                            text(
-                                "SELECT state,read_operation_id FROM aap_assets_v1.import_original_verifications "
-                                "WHERE job_id=:job"
-                            ), {"job": job},
+                        (
+                            await observer.execute(
+                                text(
+                                    "SELECT state,read_operation_id FROM yoao_assets_v1.import_original_verifications "
+                                    "WHERE job_id=:job"
+                                ),
+                                {"job": job},
+                            )
                         )
-                    ).mappings().one()
-                    assert row["state"] == ("fenced" if replacement == "timeout-fenced" else "failed")
+                        .mappings()
+                        .one()
+                    )
+                    assert row["state"] == (
+                        "fenced" if replacement == "timeout-fenced" else "failed"
+                    )
                     assert not await observer.scalar(
-                        text("SELECT EXISTS(SELECT 1 FROM public.storage_operations WHERE id=:id)"),
+                        text(
+                            "SELECT EXISTS(SELECT 1 FROM public.storage_operations WHERE id=:id)"
+                        ),
                         {"id": row["read_operation_id"]},
                     )
                 if replacement is True:
                     current = (
-                        await observer.execute(
-                            text(
-                                "SELECT operation.stage,operation.lease_token,"
-                                "operation.lease_expires_at>clock_timestamp() AS live,entry.publication_id "
-                                "FROM public.dataset_import_operations operation "
-                                "JOIN public.dataset_import_entries entry ON entry.job_id=operation.job_id "
-                                "AND entry.entry_index=operation.cursor WHERE operation.job_id=:job"
-                            ), {"job": job},
+                        (
+                            await observer.execute(
+                                text(
+                                    "SELECT operation.stage,operation.lease_token,"
+                                    "operation.lease_expires_at>clock_timestamp() AS live,entry.publication_id "
+                                    "FROM public.dataset_import_operations operation "
+                                    "JOIN public.dataset_import_entries entry ON entry.job_id=operation.job_id "
+                                    "AND entry.entry_index=operation.cursor WHERE operation.job_id=:job"
+                                ),
+                                {"job": job},
+                            )
                         )
-                    ).mappings().one()
+                        .mappings()
+                        .one()
+                    )
                     assert current["stage"] == "importing" and current["live"]
-                    assert current["lease_token"] == token and current["publication_id"] == publication
-            get = {"Bucket": stack.storage.datasets_bucket, "Key": creation["object_key"]}
+                    assert (
+                        current["lease_token"] == token
+                        and current["publication_id"] == publication
+                    )
+            get = {
+                "Bucket": stack.storage.datasets_bucket,
+                "Key": creation["object_key"],
+            }
             if creation["version_id"] is not None:
                 get["VersionId"] = creation["version_id"]
             assert stack.storage.client.get_object(**get)["Body"].read() == data
@@ -1633,7 +1884,9 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
 async def test_stale_started_write_keeps_permits_until_source_records_drain(
     test_engine, app_module, monkeypatch, importer_image
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("orange")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
@@ -1647,27 +1900,37 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
             await wait_for_gate()
             async with stack.world.maker() as observer:
                 receipt = (
-                    await observer.execute(
-                        text(
-                            "SELECT lease_token,entry_index,item_id,creation_id,operation_id,"
-                            "read_operation_id,admission_id,state,mode FROM "
-                            "aap_assets_v1.import_original_verifications WHERE job_id=:job"
-                        ), {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT lease_token,entry_index,item_id,creation_id,operation_id,"
+                                "read_operation_id,admission_id,state,mode FROM "
+                                "yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
             assert receipt["state"] == "pending"
             foreign_admission = {
-                "job_id": str(job), "lease_token": str(receipt["lease_token"]),
-                "entry_index": receipt["entry_index"], "item_id": str(receipt["item_id"]),
-                "creation_id": str(receipt["creation_id"]), "operation_id": str(receipt["operation_id"]),
-                "mode": receipt["mode"], "admission_id": str(uuid4()),
+                "job_id": str(job),
+                "lease_token": str(receipt["lease_token"]),
+                "entry_index": receipt["entry_index"],
+                "item_id": str(receipt["item_id"]),
+                "creation_id": str(receipt["creation_id"]),
+                "operation_id": str(receipt["operation_id"]),
+                "mode": receipt["mode"],
+                "admission_id": str(uuid4()),
             }
             async with stack.world.maker.begin() as owner:
                 rejected = await owner.scalar(
                     text(
-                        "SELECT aap_assets_v1._acceptance_record_import_original_read("
+                        "SELECT yoao_assets_v1._acceptance_record_import_original_read("
                         "CAST(:request AS jsonb),NULL)"
-                    ), {"request": json.dumps(foreign_admission)},
+                    ),
+                    {"request": json.dumps(foreign_admission)},
                 )
             assert rejected["state"] == "fenced"
             _docker("kill", "--signal", "KILL", worker)
@@ -1676,7 +1939,8 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
                     text(
                         "UPDATE public.dataset_import_operations SET "
                         "lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=:job"
-                    ), {"job": job},
+                    ),
+                    {"job": job},
                 )
             # Exercise the Source recovery scan at this creation, rather than
             # spending the record call's finite SQL timeout sleeping.
@@ -1687,23 +1951,36 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
             async with stack.world.maker.begin() as owner:
                 recovered = await owner.scalar(
                     text(
-                        "SELECT aap_assets_v1.recover_import_original_verification("
+                        "SELECT yoao_assets_v1.recover_import_original_verification("
                         "CAST(:cursor AS jsonb))"
                     ),
                     {"cursor": json.dumps(cursor)},
                 )
-            assert recovered["cursor"] is None or recovered["cursor"]["creation_id"] != str(
-                receipt["creation_id"]
-            )
+            assert recovered["cursor"] is None or recovered["cursor"][
+                "creation_id"
+            ] != str(receipt["creation_id"])
             async with stack.world.maker() as observer:
-                assert await observer.scalar(
-                    text("SELECT status FROM public.managed_original_creations WHERE id=:id"),
-                    {"id": receipt["creation_id"]},
-                ) == "written"
-                assert await observer.scalar(
-                    text("SELECT count(*) FROM public.storage_operations WHERE id IN (:write_id,:read_id)"),
-                    {"write_id": receipt["operation_id"], "read_id": receipt["read_operation_id"]},
-                ) == 2
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT status FROM public.managed_original_creations WHERE id=:id"
+                        ),
+                        {"id": receipt["creation_id"]},
+                    )
+                    == "written"
+                )
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM public.storage_operations WHERE id IN (:write_id,:read_id)"
+                        ),
+                        {
+                            "write_id": receipt["operation_id"],
+                            "read_id": receipt["read_operation_id"],
+                        },
+                    )
+                    == 2
+                )
             # The gate must still hold the original Source record call, not a
             # request that already timed out and left ownership unsettled.
             async with asyncio.timeout(1):
@@ -1713,18 +1990,33 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
                 while True:
                     async with stack.world.maker() as observer:
                         state = await observer.scalar(
-                            text("SELECT state FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"),
+                            text(
+                                "SELECT state FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                            ),
                             {"job": job},
                         )
                         if state == "fenced":
-                            assert await observer.scalar(
-                                text("SELECT status FROM public.managed_original_creations WHERE id=:id"),
-                                {"id": receipt["creation_id"]},
-                            ) == "verified"
-                            assert await observer.scalar(
-                                text("SELECT count(*) FROM public.storage_operations WHERE id IN (:write_id,:read_id)"),
-                                {"write_id": receipt["operation_id"], "read_id": receipt["read_operation_id"]},
-                            ) == 0
+                            assert (
+                                await observer.scalar(
+                                    text(
+                                        "SELECT status FROM public.managed_original_creations WHERE id=:id"
+                                    ),
+                                    {"id": receipt["creation_id"]},
+                                )
+                                == "verified"
+                            )
+                            assert (
+                                await observer.scalar(
+                                    text(
+                                        "SELECT count(*) FROM public.storage_operations WHERE id IN (:write_id,:read_id)"
+                                    ),
+                                    {
+                                        "write_id": receipt["operation_id"],
+                                        "read_id": receipt["read_operation_id"],
+                                    },
+                                )
+                                == 0
+                            )
                             break
                     await asyncio.sleep(0.1)
             assert not (await _facts(stack)).items
@@ -1733,31 +2025,45 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
 async def test_source_recovers_drained_original_without_old_publication_authority(
     test_engine, app_module, monkeypatch, importer_image
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("cyan")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
-        async with _verification_finish_gate(stack, test_engine) as (release, wait_for_gate):
+        async with _verification_finish_gate(stack, test_engine) as (
+            release,
+            wait_for_gate,
+        ):
             job = await _accept(stack)
             worker = _start_importer(stack, "orphan-lease")
             await _wait_healthy(worker)
             await wait_for_gate()
             async with stack.world.maker() as observer:
                 before = (
-                    await observer.execute(
-                        text(
-                            "SELECT operation_id,read_operation_id,creation_id,evidence,state "
-                            "FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"
-                        ),
-                        {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT operation_id,read_operation_id,creation_id,evidence,state "
+                                "FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
             assert before["state"] == "drained"
-            assert before["evidence"]["result"]["sha256"] == hashlib.sha256(data).hexdigest()
+            assert (
+                before["evidence"]["result"]["sha256"]
+                == hashlib.sha256(data).hexdigest()
+            )
             async with test_engine.begin() as locker:
                 await locker.execute(
-                    text("SELECT id FROM public.datasets WHERE id=:id FOR NO KEY UPDATE"),
+                    text(
+                        "SELECT id FROM public.datasets WHERE id=:id FOR NO KEY UPDATE"
+                    ),
                     {"id": stack.world.dataset_id},
                 )
                 _docker("kill", "--signal", "KILL", worker)
@@ -1773,30 +2079,43 @@ async def test_source_recovers_drained_original_without_old_publication_authorit
                 while True:
                     async with stack.world.maker() as observer:
                         row = (
-                            await observer.execute(
-                                text(
-                                    "SELECT state,evidence,result FROM aap_assets_v1.import_original_verifications "
-                                    "WHERE job_id=:job"
-                                ),
-                                {"job": job},
+                            (
+                                await observer.execute(
+                                    text(
+                                        "SELECT state,evidence,result FROM yoao_assets_v1.import_original_verifications "
+                                        "WHERE job_id=:job"
+                                    ),
+                                    {"job": job},
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                         if row["state"] == "fenced":
                             assert row["result"] is None
                             assert row["evidence"] == before["evidence"]
                             creation = (
-                                await observer.execute(
-                                    text("SELECT status,object_key FROM public.managed_original_creations WHERE id=:id"),
-                                    {"id": before["creation_id"]},
+                                (
+                                    await observer.execute(
+                                        text(
+                                            "SELECT status,object_key FROM public.managed_original_creations WHERE id=:id"
+                                        ),
+                                        {"id": before["creation_id"]},
+                                    )
                                 )
-                            ).mappings().one()
+                                .mappings()
+                                .one()
+                            )
                             assert creation["status"] == "verified"
                             assert not await observer.scalar(
                                 text(
                                     "SELECT EXISTS (SELECT 1 FROM public.storage_operations "
                                     "WHERE id IN (:read_id,:write_id))"
                                 ),
-                                {"read_id": before["read_operation_id"], "write_id": before["operation_id"]},
+                                {
+                                    "read_id": before["read_operation_id"],
+                                    "write_id": before["operation_id"],
+                                },
                             )
                             break
                     await asyncio.sleep(0.1)
@@ -1819,27 +2138,44 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
     from yoao_assets_source_import.database import ImportDatabase
     from yoao_assets_source_import.storage import _object_identity_from_verified
 
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("green")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
         denied_source = None
-        restricted = create_async_engine(_required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"))
+        restricted = create_async_engine(
+            _required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL")
+        )
         try:
             old_origin = stack.verifier_origin
             if first_outcome == "failed":
                 denied_environment = stack.directory / "source-read-denied.env"
-                _write_environment(denied_environment, {
-                    **stack.source_values,
-                    "ASSETS_SOURCE_S3_ACCESS_KEY": _required_env("AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY"),
-                    "ASSETS_SOURCE_S3_SECRET_KEY": _required_env("AAP_MODULE_DATA_ASSET_IMPORT_S3_SECRET_KEY"),
-                })
+                _write_environment(
+                    denied_environment,
+                    {
+                        **stack.source_values,
+                        "ASSETS_SOURCE_S3_ACCESS_KEY": _required_env(
+                            "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY"
+                        ),
+                        "ASSETS_SOURCE_S3_SECRET_KEY": _required_env(
+                            "AAP_MODULE_DATA_ASSET_IMPORT_S3_SECRET_KEY"
+                        ),
+                    },
+                )
                 denied_source = await asyncio.to_thread(
-                    _start_source, stack.source_image, stack.identity, denied_environment, "-read-denied"
+                    _start_source,
+                    stack.source_image,
+                    stack.identity,
+                    denied_environment,
+                    "-read-denied",
                 )
                 await _wait_healthy(denied_source)
-                old_origin = _source_origin(denied_source, stack.source_image, stack.identity)
+                old_origin = _source_origin(
+                    denied_source, stack.source_image, stack.identity
+                )
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unavailable:
                 unavailable.bind(("0.0.0.0", 0))
                 values = {
@@ -1847,50 +2183,73 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                     "ASSETS_IMPORT_VERIFY_URL": f"http://host.docker.internal:{unavailable.getsockname()[1]}",
                 }
                 job = await _accept(stack)
-                worker = _start_importer(stack, f"two-reads-{first_outcome}", values=values)
+                worker = _start_importer(
+                    stack, f"two-reads-{first_outcome}", values=values
+                )
                 await _wait_healthy(worker)
                 async with asyncio.timeout(20):
                     while True:
                         async with stack.world.maker() as observer:
                             written = (
-                                await observer.execute(
-                                    text(
-                                        "SELECT creation.id AS creation_id,creation.operation_id,"
-                                        "operation.lease_token,entry.entry_index,entry.item_id,entry.publication_id,entry.file_path "
-                                        "FROM public.managed_original_creations creation "
-                                        "JOIN public.dataset_import_operations operation "
-                                        "ON creation.authority->>'job_id'=operation.job_id::text "
-                                        "JOIN public.dataset_import_entries entry "
-                                        "ON entry.job_id=operation.job_id AND entry.entry_index=operation.cursor "
-                                        "WHERE operation.job_id=:job AND creation.status='written'"
-                                    ),
-                                    {"job": job},
+                                (
+                                    await observer.execute(
+                                        text(
+                                            "SELECT creation.id AS creation_id,creation.operation_id,"
+                                            "operation.lease_token,entry.entry_index,entry.item_id,entry.publication_id,entry.file_path "
+                                            "FROM public.managed_original_creations creation "
+                                            "JOIN public.dataset_import_operations operation "
+                                            "ON creation.authority->>'job_id'=operation.job_id::text "
+                                            "JOIN public.dataset_import_entries entry "
+                                            "ON entry.job_id=operation.job_id AND entry.entry_index=operation.cursor "
+                                            "WHERE operation.job_id=:job AND creation.status='written'"
+                                        ),
+                                        {"job": job},
+                                    )
                                 )
-                            ).mappings().first()
+                                .mappings()
+                                .first()
+                            )
                         if written is not None:
                             break
                         await asyncio.sleep(0.05)
                 old_token = written["lease_token"]
                 new_token = uuid4()
                 old_request = {
-                    "job_id": str(job), "lease_token": str(old_token),
-                    "entry_index": written["entry_index"], "item_id": str(written["item_id"]),
+                    "job_id": str(job),
+                    "lease_token": str(old_token),
+                    "entry_index": written["entry_index"],
+                    "item_id": str(written["item_id"]),
                     "creation_id": str(written["creation_id"]),
-                    "operation_id": str(written["operation_id"]), "mode": "write",
+                    "operation_id": str(written["operation_id"]),
+                    "mode": "write",
                 }
                 new_request = {**old_request, "lease_token": str(new_token)}
                 async with _verification_finish_gate(
                     stack, test_engine, gated_lease=old_token
                 ) as (release_old, wait_old):
                     async with _verification_finish_gate(
-                        stack, test_engine, function="record_import_original_read", gated_lease=new_token
+                        stack,
+                        test_engine,
+                        function="record_import_original_read",
+                        gated_lease=new_token,
                     ) as (release_new, wait_new):
-                        async with httpx.AsyncClient(base_url=old_origin, timeout=60) as old_source, \
-                                httpx.AsyncClient(base_url=stack.verifier_origin, timeout=60) as new_source:
-                            old_read = asyncio.create_task(old_source.post(
-                                "/v1/import/verify", json=old_request,
-                                headers={"Authorization": f"Bearer {stack.verifier_token}"},
-                            ))
+                        async with (
+                            httpx.AsyncClient(
+                                base_url=old_origin, timeout=60
+                            ) as old_source,
+                            httpx.AsyncClient(
+                                base_url=stack.verifier_origin, timeout=60
+                            ) as new_source,
+                        ):
+                            old_read = asyncio.create_task(
+                                old_source.post(
+                                    "/v1/import/verify",
+                                    json=old_request,
+                                    headers={
+                                        "Authorization": f"Bearer {stack.verifier_token}"
+                                    },
+                                )
+                            )
                             await wait_old()
                             _docker("kill", "--signal", "KILL", worker)
                             async with stack.world.maker.begin() as owner:
@@ -1904,31 +2263,48 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                             async with restricted.begin() as client:
                                 claimed = await client.scalar(
                                     text(
-                                        "SELECT aap_assets_v1.claim_dataset_import(:token,30,:job)"
+                                        "SELECT yoao_assets_v1.claim_dataset_import(:token,30,:job)"
                                     ),
                                     {"token": new_token, "job": job},
                                 )
-                            assert claimed["ok"] is True and claimed["data"]["lease_token"] == str(new_token)
-                            new_read = asyncio.create_task(new_source.post(
-                                "/v1/import/verify", json=new_request,
-                                headers={"Authorization": f"Bearer {stack.verifier_token}"},
-                            ))
+                            assert claimed["ok"] is True and claimed["data"][
+                                "lease_token"
+                            ] == str(new_token)
+                            new_read = asyncio.create_task(
+                                new_source.post(
+                                    "/v1/import/verify",
+                                    json=new_request,
+                                    headers={
+                                        "Authorization": f"Bearer {stack.verifier_token}"
+                                    },
+                                )
+                            )
                             await wait_new()
                             await release_old()
                             old_response = await old_read
-                            assert old_response.status_code == 200 and old_response.json()["state"] == "fenced"
+                            assert (
+                                old_response.status_code == 200
+                                and old_response.json()["state"] == "fenced"
+                            )
                             async with stack.world.maker() as observer:
-                                assert await observer.scalar(
-                                    text("SELECT status FROM public.managed_original_creations WHERE id=:id"),
-                                    {"id": written["creation_id"]},
-                                ) == first_outcome
-                            source_login = create_async_engine(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
+                                assert (
+                                    await observer.scalar(
+                                        text(
+                                            "SELECT status FROM public.managed_original_creations WHERE id=:id"
+                                        ),
+                                        {"id": written["creation_id"]},
+                                    )
+                                    == first_outcome
+                                )
+                            source_login = create_async_engine(
+                                _required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL")
+                            )
                             try:
                                 forged = {**new_request, "operation_id": str(uuid4())}
                                 async with source_login.begin() as client:
                                     denied = await client.scalar(
                                         text(
-                                            "SELECT aap_assets_v1.finish_import_original_verification("
+                                            "SELECT yoao_assets_v1.finish_import_original_verification("
                                             "CAST(:command AS jsonb),NULL)"
                                         ),
                                         {"command": json.dumps(forged)},
@@ -1938,72 +2314,115 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                                 await source_login.dispose()
                             async with stack.world.maker() as observer:
                                 pending = (
-                                    await observer.execute(
-                                        text(
-                                            "SELECT state,read_operation_id FROM aap_assets_v1.import_original_verifications "
-                                            "WHERE job_id=:job AND lease_token=:token"
-                                        ),
-                                        {"job": job, "token": new_token},
+                                    (
+                                        await observer.execute(
+                                            text(
+                                                "SELECT state,read_operation_id FROM yoao_assets_v1.import_original_verifications "
+                                                "WHERE job_id=:job AND lease_token=:token"
+                                            ),
+                                            {"job": job, "token": new_token},
+                                        )
                                     )
-                                ).mappings().one()
+                                    .mappings()
+                                    .one()
+                                )
                                 assert pending["state"] == "pending"
                                 assert await observer.scalar(
-                                    text("SELECT EXISTS(SELECT 1 FROM public.storage_operations WHERE id=:id)"),
+                                    text(
+                                        "SELECT EXISTS(SELECT 1 FROM public.storage_operations WHERE id=:id)"
+                                    ),
                                     {"id": pending["read_operation_id"]},
                                 )
                             await release_new()
                             new_response = await new_read
                             assert new_response.status_code == 200
-                            expected_state = "completed" if first_outcome == "verified" else "fenced"
+                            expected_state = (
+                                "completed" if first_outcome == "verified" else "fenced"
+                            )
                             assert new_response.json()["state"] == expected_state
                 async with stack.world.maker() as observer:
                     receipts = (
-                        await observer.execute(
-                            text(
-                                "SELECT lease_token,creation_id,operation_id,read_operation_id,state,evidence "
-                                "FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"
-                            ),
-                            {"job": job},
+                        (
+                            await observer.execute(
+                                text(
+                                    "SELECT lease_token,creation_id,operation_id,read_operation_id,state,evidence "
+                                    "FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                                ),
+                                {"job": job},
+                            )
                         )
-                    ).mappings().all()
+                        .mappings()
+                        .all()
+                    )
                     assert len(receipts) == 2
-                    assert {row["creation_id"] for row in receipts} == {written["creation_id"]}
-                    assert {row["operation_id"] for row in receipts} == {written["operation_id"]}
+                    assert {row["creation_id"] for row in receipts} == {
+                        written["creation_id"]
+                    }
+                    assert {row["operation_id"] for row in receipts} == {
+                        written["operation_id"]
+                    }
                     by_lease = {row["lease_token"]: row for row in receipts}
                     assert by_lease[old_token]["state"] == "fenced"
                     assert by_lease[new_token]["state"] == expected_state
                     if first_outcome == "failed":
                         assert by_lease[old_token]["evidence"]["result"] is None
                     else:
-                        assert by_lease[old_token]["evidence"]["result"]["sha256"] == hashlib.sha256(data).hexdigest()
-                    assert by_lease[new_token]["evidence"]["result"]["sha256"] == hashlib.sha256(data).hexdigest()
-                    assert await observer.scalar(
-                        text("SELECT count(*) FROM public.storage_operations WHERE id=ANY(CAST(:ids AS uuid[]))"),
-                        {"ids": [
-                            written["operation_id"], by_lease[old_token]["read_operation_id"],
-                            by_lease[new_token]["read_operation_id"],
-                        ]},
-                    ) == 0
+                        assert (
+                            by_lease[old_token]["evidence"]["result"]["sha256"]
+                            == hashlib.sha256(data).hexdigest()
+                        )
+                    assert (
+                        by_lease[new_token]["evidence"]["result"]["sha256"]
+                        == hashlib.sha256(data).hexdigest()
+                    )
+                    assert (
+                        await observer.scalar(
+                            text(
+                                "SELECT count(*) FROM public.storage_operations WHERE id=ANY(CAST(:ids AS uuid[]))"
+                            ),
+                            {
+                                "ids": [
+                                    written["operation_id"],
+                                    by_lease[old_token]["read_operation_id"],
+                                    by_lease[new_token]["read_operation_id"],
+                                ]
+                            },
+                        )
+                        == 0
+                    )
                 result = by_lease[new_token]["evidence"]["result"]
                 completion = ImportEntryCompletion(
-                    status="copied", verification_operation_id=written["operation_id"],
-                    file_size=result["size_bytes"], content_hash=result["md5"],
-                    width=result["width"], height=result["height"],
+                    status="copied",
+                    verification_operation_id=written["operation_id"],
+                    file_size=result["size_bytes"],
+                    content_hash=result["md5"],
+                    width=result["width"],
+                    height=result["height"],
                 )
-                config = load_config({
-                    **stack.values,
-                    "ASSETS_IMPORT_DATABASE_URL": _required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"),
-                })
+                config = load_config(
+                    {
+                        **stack.values,
+                        "ASSETS_IMPORT_DATABASE_URL": _required_env(
+                            "AAP_MODULE_DATA_ASSET_IMPORT_URL"
+                        ),
+                    }
+                )
                 native = await ImportDatabase.connect(config)
                 try:
                     if first_outcome == "verified":
                         async with native.transaction() as client:
                             published = await client.complete_entry(
-                                job, new_token, written["entry_index"], written["publication_id"], completion
+                                job,
+                                new_token,
+                                written["entry_index"],
+                                written["publication_id"],
+                                completion,
                             )
                             assert published.added == 1
                             verified = ImportVerificationResult.model_validate(result)
-                            identity = _object_identity_from_verified(verified, byte_size=verified.size_bytes)
+                            identity = _object_identity_from_verified(
+                                verified, byte_size=verified.size_bytes
+                            )
                             await client.image_admission.admit_dataset_item(
                                 item_id=written["item_id"],
                                 operation_namespace=written["publication_id"],
@@ -2017,7 +2436,11 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                         with pytest.raises(ImportFailure) as failure:
                             async with native.transaction() as client:
                                 await client.complete_entry(
-                                    job, new_token, written["entry_index"], written["publication_id"], completion
+                                    job,
+                                    new_token,
+                                    written["entry_index"],
+                                    written["publication_id"],
+                                    completion,
                                 )
                 finally:
                     await native.close()
@@ -2026,7 +2449,9 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                     assert len(facts.items) == 1
                     async with stack.world.maker() as observer:
                         bound = await observer.scalar(
-                            text("SELECT media_object_identity FROM public.dataset_items WHERE id=:id"),
+                            text(
+                                "SELECT media_object_identity FROM public.dataset_items WHERE id=:id"
+                            ),
                             {"id": written["item_id"]},
                         )
                     assert bound == identity.model_dump(mode="json")
@@ -2043,17 +2468,24 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
 async def test_accepted_import_finishes_when_actor_changes_during_readback(
     test_engine, app_module, monkeypatch, importer_image, actor_change
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("cyan")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
         oversized = "/".join(("z" * 200, "z" * 200, "z" * 101 + ".png"))
         stack.storage.client.put_object(
-            Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/{oversized}", Body=data
+            Bucket=stack.source_bucket,
+            Key=f"{stack.prefix}/batch/{oversized}",
+            Body=data,
         )
         try:
-            async with _verification_finish_gate(stack, test_engine) as (release, wait_for_gate):
+            async with _verification_finish_gate(stack, test_engine) as (
+                release,
+                wait_for_gate,
+            ):
                 job = await _accept(stack)
                 worker = _start_importer(stack, f"actor-{actor_change}")
                 await _wait_healthy(worker)
@@ -2065,7 +2497,9 @@ async def test_accepted_import_finishes_when_actor_changes_during_readback(
                         ),
                         {
                             "active": actor_change != "deactivate",
-                            "role": "employee" if actor_change == "demote" else "super_admin",
+                            "role": "employee"
+                            if actor_change == "demote"
+                            else "super_admin",
                             "actor": stack.world.actor_id,
                         },
                     )
@@ -2074,13 +2508,19 @@ async def test_accepted_import_finishes_when_actor_changes_during_readback(
                 assert facts.file_count == facts.tasks == facts.total_tasks == 1
                 assert facts.jobs[0]["result"]["added"] == 1
                 assert facts.jobs[0]["result"]["error_count"] == 1
-                assert stack.storage.client.get_object(
-                    Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
-                )["Body"].read() == data
+                assert (
+                    stack.storage.client.get_object(
+                        Bucket=stack.storage.datasets_bucket,
+                        Key=facts.items[0]["file_path"],
+                    )["Body"].read()
+                    == data
+                )
         finally:
             async with stack.world.maker.begin() as owner:
                 await owner.execute(
-                    text("UPDATE public.users SET is_active=true,role='super_admin' WHERE id=:actor"),
+                    text(
+                        "UPDATE public.users SET is_active=true,role='super_admin' WHERE id=:actor"
+                    ),
                     {"actor": stack.world.actor_id},
                 )
 
@@ -2088,7 +2528,9 @@ async def test_accepted_import_finishes_when_actor_changes_during_readback(
 async def test_started_reuse_cannot_be_cancelled_while_reader_owns_permits(
     test_engine, app_module, monkeypatch, importer_image
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("blue")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
@@ -2101,70 +2543,116 @@ async def test_started_reuse_cannot_be_cancelled_while_reader_owns_permits(
             _docker("kill", "--signal", "KILL", worker)
             async with stack.world.maker() as observer:
                 first = (
-                    await observer.execute(
-                        text(
-                            "SELECT lease_token,entry_index,item_id,creation_id FROM "
-                            "aap_assets_v1.import_original_verifications WHERE job_id=:job AND state='completed'"
-                        ),
-                        {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT lease_token,entry_index,item_id,creation_id FROM "
+                                "yoao_assets_v1.import_original_verifications WHERE job_id=:job AND state='completed'"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().one()
-        restricted = create_async_engine(_required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"))
+                    .mappings()
+                    .one()
+                )
+        restricted = create_async_engine(
+            _required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL")
+        )
         try:
             scope = {
-                "job_id": str(job), "lease_token": str(first["lease_token"]),
-                "entry_index": first["entry_index"], "item_id": str(first["item_id"]),
-                "creation_id": str(first["creation_id"]), "reservation_id": str(uuid4()),
+                "job_id": str(job),
+                "lease_token": str(first["lease_token"]),
+                "entry_index": first["entry_index"],
+                "item_id": str(first["item_id"]),
+                "creation_id": str(first["creation_id"]),
+                "reservation_id": str(uuid4()),
             }
             async with restricted.begin() as client:
                 reserved = await client.scalar(
-                    text("SELECT aap_assets_v1.reserve_import_original_read(CAST(:p AS jsonb))"),
+                    text(
+                        "SELECT yoao_assets_v1.reserve_import_original_read(CAST(:p AS jsonb))"
+                    ),
                     {"p": json.dumps(scope)},
                 )
             assert reserved["ok"] is True
             command = {
-                **{key: value for key, value in scope.items() if key != "reservation_id"},
-                "operation_id": reserved["data"]["operation_id"], "mode": "read",
+                **{
+                    key: value
+                    for key, value in scope.items()
+                    if key != "reservation_id"
+                },
+                "operation_id": reserved["data"]["operation_id"],
+                "mode": "read",
             }
             async with _verification_finish_gate(
                 stack, test_engine, function="record_import_original_read"
             ) as (release, wait_for_gate):
-                async with httpx.AsyncClient(base_url=stack.verifier_origin, timeout=20) as source_api:
-                    source_read = asyncio.create_task(source_api.post(
-                        "/v1/import/verify", json=command,
-                        headers={"Authorization": f"Bearer {stack.verifier_token}"},
-                    ))
+                async with httpx.AsyncClient(
+                    base_url=stack.verifier_origin, timeout=20
+                ) as source_api:
+                    source_read = asyncio.create_task(
+                        source_api.post(
+                            "/v1/import/verify",
+                            json=command,
+                            headers={"Authorization": f"Bearer {stack.verifier_token}"},
+                        )
+                    )
                     await wait_for_gate()
                     async with restricted.begin() as client:
                         rejected = await client.scalar(
-                            text("SELECT aap_assets_v1.cancel_unstarted_import_original_read(CAST(:p AS jsonb))"),
+                            text(
+                                "SELECT yoao_assets_v1.cancel_unstarted_import_original_read(CAST(:p AS jsonb))"
+                            ),
                             {"p": json.dumps(command)},
                         )
                     assert rejected["state"] == "pending"
                     async with stack.world.maker() as observer:
                         pending = (
-                            await observer.execute(
-                                text(
-                                    "SELECT state,operation_id,read_operation_id FROM "
-                                    "aap_assets_v1.import_original_verifications "
-                                    "WHERE operation_id=CAST(:id AS uuid)"
-                                ),
-                                {"id": command["operation_id"]},
+                            (
+                                await observer.execute(
+                                    text(
+                                        "SELECT state,operation_id,read_operation_id FROM "
+                                        "yoao_assets_v1.import_original_verifications "
+                                        "WHERE operation_id=CAST(:id AS uuid)"
+                                    ),
+                                    {"id": command["operation_id"]},
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                         assert pending["state"] == "pending"
-                        assert await observer.scalar(
-                            text("SELECT count(*) FROM public.storage_operations WHERE id IN (:first,:second)"),
-                            {"first": pending["operation_id"], "second": pending["read_operation_id"]},
-                        ) == 2
+                        assert (
+                            await observer.scalar(
+                                text(
+                                    "SELECT count(*) FROM public.storage_operations WHERE id IN (:first,:second)"
+                                ),
+                                {
+                                    "first": pending["operation_id"],
+                                    "second": pending["read_operation_id"],
+                                },
+                            )
+                            == 2
+                        )
                     await release()
                     result = await source_read
-                    assert result.status_code == 200 and result.json()["state"] == "completed"
-                    assert result.json()["result"]["sha256"] == hashlib.sha256(data).hexdigest()
+                    assert (
+                        result.status_code == 200
+                        and result.json()["state"] == "completed"
+                    )
+                    assert (
+                        result.json()["result"]["sha256"]
+                        == hashlib.sha256(data).hexdigest()
+                    )
                     async with stack.world.maker() as observer:
                         assert not await observer.scalar(
-                            text("SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id IN (:first,:second))"),
-                            {"first": pending["operation_id"], "second": pending["read_operation_id"]},
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id IN (:first,:second))"
+                            ),
+                            {
+                                "first": pending["operation_id"],
+                                "second": pending["read_operation_id"],
+                            },
                         )
         finally:
             await restricted.dispose()
@@ -2173,60 +2661,91 @@ async def test_started_reuse_cannot_be_cancelled_while_reader_owns_permits(
 async def test_drained_read_survives_owner_lock_contention(
     test_engine, app_module, monkeypatch, importer_image
 ):
-    async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
         data = _picture("orange")
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
-        async with _verification_finish_gate(stack, test_engine) as (release, wait_for_gate):
+        async with _verification_finish_gate(stack, test_engine) as (
+            release,
+            wait_for_gate,
+        ):
             job = await _accept(stack)
             worker = _start_importer(stack, "verification-lock")
             await _wait_healthy(worker)
             await wait_for_gate()
             async with stack.world.maker() as observer:
                 receipt = (
-                    await observer.execute(
-                        text(
-                            "SELECT * FROM aap_assets_v1.import_original_verifications "
-                            "WHERE job_id=:job"
-                        ), {"job": job}
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT * FROM yoao_assets_v1.import_original_verifications "
+                                "WHERE job_id=:job"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
             assert receipt["state"] == "drained"
-            assert receipt["evidence"]["result"]["sha256"] == hashlib.sha256(data).hexdigest()
+            assert (
+                receipt["evidence"]["result"]["sha256"]
+                == hashlib.sha256(data).hexdigest()
+            )
             command = {
-                "job_id": str(job), "lease_token": str(receipt["lease_token"]),
-                "entry_index": receipt["entry_index"], "item_id": str(receipt["item_id"]),
+                "job_id": str(job),
+                "lease_token": str(receipt["lease_token"]),
+                "entry_index": receipt["entry_index"],
+                "item_id": str(receipt["item_id"]),
                 "creation_id": str(receipt["creation_id"]),
-                "operation_id": str(receipt["operation_id"]), "mode": receipt["mode"],
+                "operation_id": str(receipt["operation_id"]),
+                "mode": receipt["mode"],
             }
             async with test_engine.connect() as locker:
                 transaction = await locker.begin()
                 try:
                     await locker.execute(
-                        text("SELECT id FROM public.datasets WHERE id=:id FOR NO KEY UPDATE"),
+                        text(
+                            "SELECT id FROM public.datasets WHERE id=:id FOR NO KEY UPDATE"
+                        ),
                         {"id": stack.world.dataset_id},
                     )
                     await release()
-                    async with httpx.AsyncClient(base_url=stack.verifier_origin) as source_api:
+                    async with httpx.AsyncClient(
+                        base_url=stack.verifier_origin
+                    ) as source_api:
                         status = await source_api.post(
-                            "/v1/import/verify-status", json=command,
+                            "/v1/import/verify-status",
+                            json=command,
                             headers={"Authorization": f"Bearer {stack.verifier_token}"},
                         )
-                    assert status.status_code == 200 and status.json()["state"] == "pending"
+                    assert (
+                        status.status_code == 200
+                        and status.json()["state"] == "pending"
+                    )
                     async with stack.world.maker() as observer:
                         retained = (
-                            await observer.execute(
-                                text(
-                                    "SELECT state,evidence,read_operation_id FROM "
-                                    "aap_assets_v1.import_original_verifications WHERE job_id=:job"
-                                ), {"job": job}
+                            (
+                                await observer.execute(
+                                    text(
+                                        "SELECT state,evidence,read_operation_id FROM "
+                                        "yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                                    ),
+                                    {"job": job},
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                         assert retained["state"] == "drained"
                         assert retained["evidence"] == receipt["evidence"]
                         assert await observer.scalar(
-                            text("SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=:id)"),
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=:id)"
+                            ),
                             {"id": receipt["read_operation_id"]},
                         )
                 finally:
@@ -2235,15 +2754,23 @@ async def test_drained_read_survives_owner_lock_contention(
             assert len(facts.items) == 1
             async with stack.world.maker() as observer:
                 receipts = (
-                    await observer.execute(
-                        text("SELECT state,result,read_operation_id FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"),
-                        {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT state,result,read_operation_id FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().all()
+                    .mappings()
+                    .all()
+                )
                 assert len(receipts) == 1 and receipts[0]["state"] == "completed"
                 assert receipts[0]["result"] == receipt["evidence"]["result"]
                 assert not await observer.scalar(
-                    text("SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=:id)"),
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=:id)"
+                    ),
                     {"id": receipt["read_operation_id"]},
                 )
 
@@ -2274,77 +2801,114 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
             _docker("kill", "--signal", "KILL", worker)
             async with stack.world.maker() as observer:
                 receipt = (
-                    await observer.execute(
-                        text(
-                            "SELECT receipt.lease_token, receipt.creation_id, receipt.item_id, receipt.operation_id, "
-                            "receipt.entry_index, receipt.result, "
-                            "entry.publication_id FROM aap_assets_v1.import_original_verifications receipt "
-                            "JOIN public.dataset_import_entries entry ON entry.job_id=receipt.job_id "
-                            "AND entry.entry_index=receipt.entry_index "
-                            "WHERE receipt.job_id=:job AND receipt.state='completed'"
-                        ),
-                        {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT receipt.lease_token, receipt.creation_id, receipt.item_id, receipt.operation_id, "
+                                "receipt.entry_index, receipt.result, "
+                                "entry.publication_id FROM yoao_assets_v1.import_original_verifications receipt "
+                                "JOIN public.dataset_import_entries entry ON entry.job_id=receipt.job_id "
+                                "AND entry.entry_index=receipt.entry_index "
+                                "WHERE receipt.job_id=:job AND receipt.state='completed'"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
 
-        restricted = create_async_engine(_required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"))
+        restricted = create_async_engine(
+            _required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL")
+        )
         try:
             scope = {
-                "job_id": str(job), "lease_token": str(receipt["lease_token"]),
-                "entry_index": receipt["entry_index"], "item_id": str(receipt["item_id"]),
+                "job_id": str(job),
+                "lease_token": str(receipt["lease_token"]),
+                "entry_index": receipt["entry_index"],
+                "item_id": str(receipt["item_id"]),
                 "creation_id": str(receipt["creation_id"]),
                 "reservation_id": str(uuid4()),
             }
             async with restricted.begin() as client:
                 reservation = await client.scalar(
-                    text("SELECT aap_assets_v1.reserve_import_original_read(CAST(:scope AS jsonb))"),
+                    text(
+                        "SELECT yoao_assets_v1.reserve_import_original_read(CAST(:scope AS jsonb))"
+                    ),
                     {"scope": json.dumps(scope)},
                 )
             assert reservation["ok"] is True
             async with restricted.begin() as client:
                 replay = await client.scalar(
-                    text("SELECT aap_assets_v1.reserve_import_original_read(CAST(:scope AS jsonb))"),
+                    text(
+                        "SELECT yoao_assets_v1.reserve_import_original_read(CAST(:scope AS jsonb))"
+                    ),
                     {"scope": json.dumps(scope)},
                 )
             assert replay == reservation
             async with stack.world.maker() as observer:
-                assert await observer.scalar(
-                    text(
-                        "SELECT count(*) FROM aap_assets_v1.import_original_verifications "
-                        "WHERE job_id=:job AND reservation_id=CAST(:reservation AS uuid) AND state='reserved'"
-                    ),
-                    {"job": job, "reservation": scope["reservation_id"]},
-                ) == 1
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM yoao_assets_v1.import_original_verifications "
+                            "WHERE job_id=:job AND reservation_id=CAST(:reservation AS uuid) AND state='reserved'"
+                        ),
+                        {"job": job, "reservation": scope["reservation_id"]},
+                    )
+                    == 1
+                )
             operation_id = reservation["data"]["operation_id"]
-            request = {**{key: value for key, value in scope.items() if key != "reservation_id"},
-                       "operation_id": operation_id, "mode": "read"}
-            from yoao_assets_source.managed_original_contract import ManagedOriginalOperation
+            request = {
+                **{
+                    key: value
+                    for key, value in scope.items()
+                    if key != "reservation_id"
+                },
+                "operation_id": operation_id,
+                "mode": "read",
+            }
+            from yoao_assets_source.managed_original_contract import (
+                ManagedOriginalOperation,
+            )
             from yoao_assets_source_import.config import load_config
             from yoao_assets_source_import.database import ImportDatabase
             from yoao_assets_source_import.verification import ExpectedOriginal
-            from yoao_assets_source_import.workflow import ImportWorkflow, LeaseUnavailable
+            from yoao_assets_source_import.workflow import (
+                ImportWorkflow,
+                LeaseUnavailable,
+            )
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unavailable:
                 unavailable.bind(("127.0.0.1", 0))
-                config = load_config({
-                    **stack.values,
-                    "ASSETS_IMPORT_DATABASE_URL": _required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"),
-                    "ASSETS_IMPORT_VERIFY_URL": f"http://127.0.0.1:{unavailable.getsockname()[1]}",
-                    "ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS": "0.2",
-                })
+                config = load_config(
+                    {
+                        **stack.values,
+                        "ASSETS_IMPORT_DATABASE_URL": _required_env(
+                            "AAP_MODULE_DATA_ASSET_IMPORT_URL"
+                        ),
+                        "ASSETS_IMPORT_VERIFY_URL": f"http://127.0.0.1:{unavailable.getsockname()[1]}",
+                        "ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS": "0.2",
+                    }
+                )
                 database = await ImportDatabase.connect(config)
                 try:
                     entry = SimpleNamespace(
-                        job_id=job, lease_token=receipt["lease_token"], index=receipt["entry_index"],
+                        job_id=job,
+                        lease_token=receipt["lease_token"],
+                        index=receipt["entry_index"],
                         item_id=receipt["item_id"],
                     )
                     target = SimpleNamespace(creation_id=receipt["creation_id"])
-                    keeper = SimpleNamespace(check=lambda: None, _remaining_lease=lambda: 5)
+                    keeper = SimpleNamespace(
+                        check=lambda: None, _remaining_lease=lambda: 5
+                    )
                     with pytest.raises(LeaseUnavailable):
                         await ImportWorkflow(database, None, config)._verify_original(
                             entry,
                             target,
-                            ManagedOriginalOperation.model_validate(reservation["data"]),
+                            ManagedOriginalOperation.model_validate(
+                                reservation["data"]
+                            ),
                             keeper,
                             ExpectedOriginal(
                                 sha256=receipt["result"]["sha256"],
@@ -2357,18 +2921,23 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
                     await database.close()
             async with restricted.begin() as client:
                 cancelled = await client.scalar(
-                    text("SELECT aap_assets_v1.cancel_unstarted_import_original_read(CAST(:scope AS jsonb))"),
+                    text(
+                        "SELECT yoao_assets_v1.cancel_unstarted_import_original_read(CAST(:scope AS jsonb))"
+                    ),
                     {"scope": json.dumps(request)},
                 )
             assert cancelled["state"] == "cancelled"
             async with stack.world.maker() as observer:
                 assert not await observer.scalar(
-                    text("SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=CAST(:id AS uuid))"),
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=CAST(:id AS uuid))"
+                    ),
                     {"id": operation_id},
                 )
             async with httpx.AsyncClient(base_url=stack.verifier_origin) as source_api:
                 late = await source_api.post(
-                    "/v1/import/verify", json=request,
+                    "/v1/import/verify",
+                    json=request,
                     headers={"Authorization": f"Bearer {stack.verifier_token}"},
                 )
             assert late.status_code == 200 and late.json()["state"] == "fenced"
@@ -2376,10 +2945,11 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
             lost_scope = {**scope, "reservation_id": str(uuid4())}
             async with restricted.begin() as client:
                 await client.execute(
-                    text("SELECT aap_assets_v1.reserve_import_original_read(CAST(:scope AS jsonb))"),
+                    text(
+                        "SELECT yoao_assets_v1.reserve_import_original_read(CAST(:scope AS jsonb))"
+                    ),
                     {"scope": json.dumps(lost_scope)},
                 )
-
 
             replacement_token = uuid4()
             async with stack.world.maker.begin() as owner:
@@ -2394,45 +2964,65 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
                 while True:
                     async with stack.world.maker() as observer:
                         orphan = (
-                            await observer.execute(
-                                text(
-                                    "SELECT state,operation_id FROM aap_assets_v1.import_original_verifications "
-                                    "WHERE job_id=:job AND reservation_id=CAST(:reservation AS uuid)"
-                                ),
-                                {"job": job, "reservation": lost_scope["reservation_id"]},
+                            (
+                                await observer.execute(
+                                    text(
+                                        "SELECT state,operation_id FROM yoao_assets_v1.import_original_verifications "
+                                        "WHERE job_id=:job AND reservation_id=CAST(:reservation AS uuid)"
+                                    ),
+                                    {
+                                        "job": job,
+                                        "reservation": lost_scope["reservation_id"],
+                                    },
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                         if orphan["state"] == "cancelled":
                             assert not await observer.scalar(
-                                text("SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=:id)"),
+                                text(
+                                    "SELECT EXISTS (SELECT 1 FROM public.storage_operations WHERE id=:id)"
+                                ),
                                 {"id": orphan["operation_id"]},
                             )
                             break
                     await asyncio.sleep(0.1)
             result = receipt["result"]
             completion = {
-                "status": "copied", "file_size": result["size_bytes"],
+                "status": "copied",
+                "file_size": result["size_bytes"],
                 "verification_operation_id": str(receipt["operation_id"]),
-                "content_hash": result["md5"], "width": result["width"], "height": result["height"],
+                "content_hash": result["md5"],
+                "width": result["width"],
+                "height": result["height"],
             }
             async with restricted.begin() as client:
                 rejected = await client.scalar(
                     text(
-                        "SELECT aap_assets_v1.complete_dataset_import_entry("
+                        "SELECT yoao_assets_v1.complete_dataset_import_entry("
                         ":job, :token, :index, :publication, CAST(:completion AS jsonb))"
                     ),
                     {
-                        "job": job, "token": replacement_token, "index": receipt["entry_index"],
-                        "publication": receipt["publication_id"], "completion": json.dumps(completion),
+                        "job": job,
+                        "token": replacement_token,
+                        "index": receipt["entry_index"],
+                        "publication": receipt["publication_id"],
+                        "completion": json.dumps(completion),
                     },
                 )
-            assert rejected["ok"] is False and rejected["error"]["code"] == "operation_conflict"
+            assert (
+                rejected["ok"] is False
+                and rejected["error"]["code"] == "operation_conflict"
+            )
             facts = await _facts(stack)
             assert len(facts.items) == int(duplicate)
             async with stack.world.maker() as observer:
                 entry = (
                     await observer.execute(
-                        text("SELECT status FROM public.dataset_import_entries WHERE job_id=:job"),
+                        text(
+                            "SELECT status FROM public.dataset_import_entries WHERE job_id=:job"
+                        ),
                         {"job": job},
                     )
                 ).scalar_one()
@@ -2455,9 +3045,10 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
         job = await _accept(stack)
-        async with _publication_gate(
-            stack, test_engine, after_settlement=True
-        ) as (release, wait_for_gate):
+        async with _publication_gate(stack, test_engine, after_settlement=True) as (
+            release,
+            wait_for_gate,
+        ):
             worker = _start_importer(stack, "kill")
             await _wait_healthy(worker)
             old_paths = await _wait_copy(stack)
@@ -2468,14 +3059,18 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             assert before_rollback.file_count == 0 and not before_rollback.deliveries
             async with stack.world.maker() as observer:
                 receipt = (
-                    await observer.execute(
-                        text(
-                            "SELECT lease_token,creation_id,operation_id,item_id,entry_index,mode,state,result "
-                            "FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"
-                        ),
-                        {"job": job},
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT lease_token,creation_id,operation_id,item_id,entry_index,mode,state,result "
+                                "FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                            ),
+                            {"job": job},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
             assert receipt["mode"] == "write" and receipt["state"] == "completed"
             assert receipt["result"]["sha256"] == hashlib.sha256(data).hexdigest()
             assert receipt["result"]["size_bytes"] == len(data)
@@ -2508,14 +3103,18 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
         assert len(paths) == 2 and facts.items[0]["file_path"] not in old_paths
         async with stack.world.maker() as observer:
             receipts = (
-                await observer.execute(
-                    text(
-                        "SELECT lease_token,creation_id,state,result "
-                        "FROM aap_assets_v1.import_original_verifications WHERE job_id=:job"
-                    ),
-                    {"job": job},
+                (
+                    await observer.execute(
+                        text(
+                            "SELECT lease_token,creation_id,state,result "
+                            "FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                        ),
+                        {"job": job},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         assert len(receipts) == 2
         assert all(row["state"] == "completed" for row in receipts)
         assert len({row["lease_token"] for row in receipts}) == 2
@@ -2602,13 +3201,18 @@ async def test_import_storage_identities_cannot_delete_read_destination_or_write
         test_engine, app_module, monkeypatch, importer_image
     ) as stack:
         command = {
-            "job_id": str(uuid4()), "lease_token": str(uuid4()), "entry_index": 0,
-            "item_id": str(uuid4()), "creation_id": str(uuid4()),
-            "operation_id": str(uuid4()), "mode": "read",
+            "job_id": str(uuid4()),
+            "lease_token": str(uuid4()),
+            "entry_index": 0,
+            "item_id": str(uuid4()),
+            "creation_id": str(uuid4()),
+            "operation_id": str(uuid4()),
+            "mode": "read",
         }
         async with httpx.AsyncClient(base_url=stack.verifier_origin) as source_api:
             wrong_lane = await source_api.post(
-                "/v1/import/verify", json=command,
+                "/v1/import/verify",
+                json=command,
                 headers={"Authorization": f"Bearer {stack.source_gateway_token}"},
             )
             assert wrong_lane.status_code == 401
@@ -2625,33 +3229,36 @@ async def test_import_storage_identities_cannot_delete_read_destination_or_write
             )
             assert gateway.status_code == 401
             locator = await source_api.post(
-                "/v1/import/verify", json={**command, "bucket": "other"},
+                "/v1/import/verify",
+                json={**command, "bucket": "other"},
                 headers={"Authorization": f"Bearer {stack.verifier_token}"},
             )
             assert locator.status_code == 400
             timeout_override = await source_api.post(
-                "/v1/import/verify", json={**command, "timeout_seconds": 600},
+                "/v1/import/verify",
+                json={**command, "timeout_seconds": 600},
                 headers={"Authorization": f"Bearer {stack.verifier_token}"},
             )
             assert timeout_override.status_code == 400
             absent = await source_api.post(
-                "/v1/import/verify-status", json=command,
+                "/v1/import/verify-status",
+                json=command,
                 headers={"Authorization": f"Bearer {stack.verifier_token}"},
             )
             assert absent.status_code == 200 and absent.json()["state"] == "missing"
         for role_env, statements in (
             (
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL",
-                ("SELECT * FROM aap_assets_v1.import_original_verifications LIMIT 1",),
+                ("SELECT * FROM yoao_assets_v1.import_original_verifications LIMIT 1",),
             ),
             (
                 "AAP_MODULE_DATA_ASSET_IMPORT_URL",
                 (
-                    "SELECT * FROM aap_assets_v1.import_original_verifications LIMIT 1",
-                    "SELECT aap_assets_v1.record_import_original_read(CAST('{}' AS jsonb), NULL)",
-                    "SELECT aap_assets_v1.finish_import_original_verification(CAST('{}' AS jsonb), NULL)",
-                    "SELECT aap_assets_v1.recover_import_original_verification(NULL::jsonb)",
-                    "SELECT aap_assets_v1.record_operator_original_verified(NULL::uuid, CAST('{}' AS jsonb))",
+                    "SELECT * FROM yoao_assets_v1.import_original_verifications LIMIT 1",
+                    "SELECT yoao_assets_v1.record_import_original_read(CAST('{}' AS jsonb), NULL)",
+                    "SELECT yoao_assets_v1.finish_import_original_verification(CAST('{}' AS jsonb), NULL)",
+                    "SELECT yoao_assets_v1.recover_import_original_verification(NULL::jsonb)",
+                    "SELECT yoao_assets_v1.record_operator_original_verified(NULL::uuid, CAST('{}' AS jsonb))",
                 ),
             ),
         ):
@@ -2969,7 +3576,7 @@ async def test_importer_rejects_broad_relation_and_reverse_membership_credential
         await _assert_startup_rejected(unsafe)
         async with test_engine.begin() as owner:
             await owner.execute(
-                text("GRANT SELECT ON public.datasets TO asset_import_client")
+                text("GRANT SELECT ON public.datasets TO yoao_asset_import_client")
             )
         try:
             unsafe = _start_importer(stack, "relation-grant")
@@ -2977,18 +3584,22 @@ async def test_importer_rejects_broad_relation_and_reverse_membership_credential
         finally:
             async with test_engine.begin() as owner:
                 await owner.execute(
-                    text("REVOKE SELECT ON public.datasets FROM asset_import_client")
+                    text(
+                        "REVOKE SELECT ON public.datasets FROM yoao_asset_import_client"
+                    )
                 )
         member = f"import_member_{uuid4().hex[:12]}"
         async with test_engine.begin() as owner:
             await owner.execute(text(f"CREATE ROLE {member} NOLOGIN NOINHERIT"))
-            await owner.execute(text(f"GRANT asset_import_client TO {member}"))
+            await owner.execute(text(f"GRANT yoao_asset_import_client TO {member}"))
         try:
             unsafe = _start_importer(stack, "reverse-member")
             await _assert_startup_rejected(unsafe)
         finally:
             async with test_engine.begin() as owner:
-                await owner.execute(text(f"REVOKE asset_import_client FROM {member}"))
+                await owner.execute(
+                    text(f"REVOKE yoao_asset_import_client FROM {member}")
+                )
                 await owner.execute(text(f"DROP ROLE {member}"))
 
 
@@ -3050,7 +3661,9 @@ async def test_import_notification_reaches_channel_and_image_work_is_accepted(
             async with stack.world.maker() as db:
                 item = facts.items[0]
                 identity = await db.scalar(
-                    text("SELECT media_object_identity FROM public.dataset_items WHERE id=:id"),
+                    text(
+                        "SELECT media_object_identity FROM public.dataset_items WHERE id=:id"
+                    ),
                     {"id": item["id"]},
                 )
                 head = stack.storage.client.head_object(

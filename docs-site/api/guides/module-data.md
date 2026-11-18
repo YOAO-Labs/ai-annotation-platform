@@ -22,11 +22,11 @@ HTTP 数据集路由对 API key 按操作检查 `datasets:read` / `datasets:writ
 
 | 操作                                      | 输入                                         | 返回与约束                                             |
 | ----------------------------------------- | -------------------------------------------- | ------------------------------------------------------ |
-| `aap_workspace_v1.lock_project_reference` | project UUID                                 | 当前 UUID 或 null，持有引用锁；不判断当前用户权限      |
-| `aap_assets_v1.lock_dataset_reference`    | dataset UUID                                 | 当前 UUID 或 null，持有父行锁                          |
-| `aap_assets_v1.lock_current_association`  | dataset、project UUID                        | 当前关联 UUID 或 null，锁定父行、项目引用和关联        |
-| `aap_assets_v1.lock_append_sources`       | dataset UUID、item UUID 数组                 | 当前关联与素材的最小 JSON 快照，供 Labeling owner 使用 |
-| `aap_labeling_v1.append_dataset_items`    | dataset UUID、item UUID 数组、operation UUID | 创建尚不存在的 Task，同事务更新计数和保存冻结结果      |
+| `yoao_workspace_v1.lock_project_reference` | project UUID                                 | 当前 UUID 或 null，持有引用锁；不判断当前用户权限      |
+| `yoao_assets_v1.lock_dataset_reference`    | dataset UUID                                 | 当前 UUID 或 null，持有父行锁                          |
+| `yoao_assets_v1.lock_current_association`  | dataset、project UUID                        | 当前关联 UUID 或 null，锁定父行、项目引用和关联        |
+| `yoao_assets_v1.lock_append_sources`       | dataset UUID、item UUID 数组                 | 当前关联与素材的最小 JSON 快照，供 Labeling owner 使用 |
+| `yoao_labeling_v1.append_dataset_items`    | dataset UUID、item UUID 数组、operation UUID | 创建尚不存在的 Task，同事务更新计数和保存冻结结果      |
 
 专用追加调用角色只需最后一个操作的执行权限；模块函数 owner 通过必要的引用接口
 组合其实现。不得授予调用方其他模块的私有表读取权来代替合同。
@@ -39,7 +39,7 @@ ID 不改变规范请求。调用方在首次发送前生成 operation UUID，�
 
 ```sql
 BEGIN;
-SELECT aap_labeling_v1.append_dataset_items(
+SELECT yoao_labeling_v1.append_dataset_items(
     '11111111-1111-1111-1111-111111111111'::uuid,
     ARRAY['22222222-2222-2222-2222-222222222222'::uuid],
     '33333333-3333-3333-3333-333333333333'::uuid
@@ -82,7 +82,7 @@ COMMIT;
 ## 同事务的项目访问锁定事实
 
 跨 owner 写入可在自身的同一 PostgreSQL 连接与读写事务中，调用
-`aap_workspace_v1.project_access_step(actor_id, project_id, phase)`。它按固定 phase 返回
+`yoao_workspace_v1.project_access_step(actor_id, project_id, phase)`。它按固定 phase 返回
 账号、完整项目行或完整成员行事实；返回信封绑定协议、actor、project 与 phase。
 调用者在每一步后解码，再应用 Workspace 纯权限规则。它不返回授权布尔值，也不自行提交。
 
@@ -105,7 +105,7 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 [Workspace 运行指南](./workspace-runtime#排序项目集合锁与计数投影)及
 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
 
-生命周期与审核的增减使用三个独立的 `aap_labeling_v1` 函数：
+生命周期与审核的增减使用三个独立的 `yoao_labeling_v1` 函数：
 
 | 函数                                      | 返回                                                    |
 | ----------------------------------------- | ------------------------------------------------------- |
@@ -121,7 +121,7 @@ autoflush、缓存及 Task／Audit 的共同提交或回滚。函数不接收任
 
 ## actor 项目成员事实
 
-`aap_workspace_v1.actor_project_memberships(uuid)` 是 STABLE、STRICT 的只读关系，
+`yoao_workspace_v1.actor_project_memberships(uuid)` 是 STABLE、STRICT 的只读关系，
 返回项目 UUID 与原始职责文本；NULL 输入返回空集。既有未知角色也作为事实保留，
 当前账号、职责和 viewer 配对校验继续由调用方在同一条 SQL 中完成。它没有锁、
 日期解码或提交点。既有 `project_search_scope` 继续承载候选项目和元数据。
@@ -133,7 +133,7 @@ autoflush、缓存及 Task／Audit 的共同提交或回滚。函数不接收任
 
 ## 非锁定成员事实关系
 
-Workspace 拥有 `aap_workspace_v1.project_member_facts` 安全屏障视图，公开固定九列
+Workspace 拥有 `yoao_workspace_v1.project_member_facts` 安全屏障视图，公开固定九列
 成员事实；类型、列顺序及行键见 `aap-workspace-read-relations/v1`。它保留原生 UUID、
 文本、整数和带时区日期，不做 JSON 全行解码或成员资格判断。客户端只申请 SELECT，
 不获得视图写入或锁行权限；PUBLIC 无权限。
@@ -157,7 +157,7 @@ Labeling `project_catalog_counters`，计数所有权和原 43 列行布局保�
 
 ## 同事务的主后端绑定清理
 
-`aap_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的
+`yoao_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的
 项目主绑定，并按事务时间更新项目时间戳，返回影响行数。空 UUID 参数返回 SQLSTATE
 `22023`；没有匹配项返回0。它使用调用方的同一连接与事务，不自行授权、提交或回滚，
 不移除独立的项目服务池启用关系。
@@ -170,9 +170,9 @@ Labeling `project_catalog_counters`，计数所有权和原 43 列行布局保�
 
 ## 注册实例删除的跨域读取
 
-`aap_learning_v1.registry_evaluation_reference_exists(registry_id)` 检查是否存在引用该实例
+`yoao_learning_v1.registry_evaluation_reference_exists(registry_id)` 检查是否存在引用该实例
 部署的样本评估，不按评估或部署状态过滤。
-`aap_jobs_v1.count_running_registry_predictions(registry_id)` 返回 payload 精确指向该实例、
+`yoao_jobs_v1.count_running_registry_predictions(registry_id)` 返回 payload 精确指向该实例、
 kind 为 `batch_predict`、status 为 `running` 的作业数。两者分别返回布尔值和 bigint，
 空 UUID 参数返回 SQLSTATE `22023`。
 
@@ -184,7 +184,7 @@ kind 为 `batch_predict`、status 为 `running` 的作业数。两者分别返�
 
 ## Workspace 后端快照探测
 
-`aap_inference_v1.workspace_configuration_backend(registry_id)` 保留原读取时点，
+`yoao_inference_v1.workspace_configuration_backend(registry_id)` 保留原读取时点，
 只向 Workspace 返回 `{id, probe_subject}`；空 backend 仍为 null。Subject 使用数据库内
 私钥加密原后端快照，绑定数据库、registry 和仍在进行的原事务。Inference 的专用
 `backend_probe_policy()`／`open_backend_probe_subject(text,uuid)` 能力打开快照，
@@ -205,20 +205,20 @@ kind 为 `batch_predict`、status 为 `running` 的作业数。两者分别返�
 
 | 所有者    | 操作                                            | 输入与行为                                                                                       |
 | --------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Identity  | `aap_identity_v1.lock_active_actor`             | actor UUID；当前活跃身份事实，仅供 Workspace owner 组合                                          |
-| Workspace | `aap_workspace_v1.lock_project_manager`         | actor/project UUID；当前管理权和媒体/scene 事实，锁住身份与项目配置                              |
-| Assets    | `aap_assets_v1.associate_project`               | actor/dataset/project UUID；授权后创建或返回关联 UUID、现有标记、素材数和项目类型                |
-| Assets    | `aap_assets_v1.lock_task_creation_items`        | dataset UUID、可空 item UUID 数组；最小素材事实，仅供 Labeling owner 使用                        |
-| Jobs      | `aap_jobs_v1.create_task_creation_job`          | operation/actor/dataset/project/association UUID；创建版本化后台作业，job ID 等于 operation ID   |
-| Jobs      | `aap_jobs_v1.find_task_creation_job`            | actor/dataset/project/association UUID；查找同关联代次的活跃作业，用于重复派发恢复               |
-| Jobs      | `aap_jobs_v1.claim_task_creation_job`           | job UUID、非空 execution ID；领取 pending/running 作业，不复活终态                               |
-| Jobs      | `aap_jobs_v1.finish_task_creation_job`          | job/operation UUID；从 Labeling 公开摘要核实完成和计数后记终态                                   |
-| Jobs      | `aap_jobs_v1.fail_task_creation_job`            | job/operation UUID、稳定错误码；保留已提交计数和已有终态                                         |
-| Jobs      | `aap_jobs_v1.cancel_task_creation_job`          | 当前 actor UUID、job UUID；当前管理者显式停止后续块                                              |
-| Labeling  | `aap_labeling_v1.accept_dataset_task_creation`  | operation/actor/dataset/project/association/job UUID、mode、chunk size；当前授权并保存不可变许可 |
-| Labeling  | `aap_labeling_v1.prepare_dataset_task_creation` | operation UUID、可空点云 frame proposals；冻结待建来源和 total，不建 Task                        |
-| Labeling  | `aap_labeling_v1.read_dataset_task_creation`    | operation UUID；返回持久摘要和 next_chunk，不返回私有来源计划                                    |
-| Labeling  | `aap_labeling_v1.advance_dataset_task_creation` | operation UUID、chunk index；按持久游标原子建题，返回冻结块回执                                  |
+| Identity  | `yoao_identity_v1.lock_active_actor`             | actor UUID；当前活跃身份事实，仅供 Workspace owner 组合                                          |
+| Workspace | `yoao_workspace_v1.lock_project_manager`         | actor/project UUID；当前管理权和媒体/scene 事实，锁住身份与项目配置                              |
+| Assets    | `yoao_assets_v1.associate_project`               | actor/dataset/project UUID；授权后创建或返回关联 UUID、现有标记、素材数和项目类型                |
+| Assets    | `yoao_assets_v1.lock_task_creation_items`        | dataset UUID、可空 item UUID 数组；最小素材事实，仅供 Labeling owner 使用                        |
+| Jobs      | `yoao_jobs_v1.create_task_creation_job`          | operation/actor/dataset/project/association UUID；创建版本化后台作业，job ID 等于 operation ID   |
+| Jobs      | `yoao_jobs_v1.find_task_creation_job`            | actor/dataset/project/association UUID；查找同关联代次的活跃作业，用于重复派发恢复               |
+| Jobs      | `yoao_jobs_v1.claim_task_creation_job`           | job UUID、非空 execution ID；领取 pending/running 作业，不复活终态                               |
+| Jobs      | `yoao_jobs_v1.finish_task_creation_job`          | job/operation UUID；从 Labeling 公开摘要核实完成和计数后记终态                                   |
+| Jobs      | `yoao_jobs_v1.fail_task_creation_job`            | job/operation UUID、稳定错误码；保留已提交计数和已有终态                                         |
+| Jobs      | `yoao_jobs_v1.cancel_task_creation_job`          | 当前 actor UUID、job UUID；当前管理者显式停止后续块                                              |
+| Labeling  | `yoao_labeling_v1.accept_dataset_task_creation`  | operation/actor/dataset/project/association/job UUID、mode、chunk size；当前授权并保存不可变许可 |
+| Labeling  | `yoao_labeling_v1.prepare_dataset_task_creation` | operation UUID、可空点云 frame proposals；冻结待建来源和 total，不建 Task                        |
+| Labeling  | `yoao_labeling_v1.read_dataset_task_creation`    | operation UUID；返回持久摘要和 next_chunk，不返回私有来源计划                                    |
+| Labeling  | `yoao_labeling_v1.advance_dataset_task_creation` | operation UUID、chunk index；按持久游标原子建题，返回冻结块回执                                  |
 
 Jobs 的引用锁与进度操作只授予 Labeling owner，内部 helper 不授予调用角色。
 调用角色只有选定公开操作执行权，不能直接访问用户、项目、素材、Task、作业或计划表。
@@ -250,7 +250,7 @@ Celery 对连接、锁和序列化暂时失败持续重试，不将它们转为�
 ## 项目删除与跨 owner 强事务
 
 `DELETE /projects/{project_id}` 成功仍返回 HTTP 204。Workspace 的
-`aap_workspace_v1.delete_project(operation_id, actor_id, project_id, audit_context)`
+`yoao_workspace_v1.delete_project(operation_id, actor_id, project_id, audit_context)`
 是该命令的事务协调者：它在调用方同一 PostgreSQL 连接和外层事务中组合各 owner 的
 检查、清理、审计与回执，不在函数内部提交。Python 适配器只传 UUID 和 JSON，校验冻结
 响应并提交原请求事务；它不把 ORM 对象或 SQL Session 传给其他 owner。
@@ -323,8 +323,8 @@ Labeling 按原删除足迹锁批次、Task、Annotation，包含跨 Task 的 An
 `deleted_tasks`、`deleted_annotations`、`deleted_batches`、`deleted_batch_ids`、`soft`。
 可选的 UUID `Idempotency-Key` 请求头固定一次操作，成功响应回传同一值。自动重试或丢失响应后
 重试必须复用原 key；SDK 允许显式传入，Web 确认窗口在本次重试中保留它。
-Workspace 的 `aap_workspace_v1.preview_dataset_unlink(actor_id, dataset_id, project_id)`
-提供不删除业务数据、但会锁定当前权限的数量预览；`aap_workspace_v1.unlink_dataset(operation_id, actor_id,
+Workspace 的 `yoao_workspace_v1.preview_dataset_unlink(actor_id, dataset_id, project_id)`
+提供不删除业务数据、但会锁定当前权限的数量预览；`yoao_workspace_v1.unlink_dataset(operation_id, actor_id,
 dataset_id, project_id, cleanup_bucket, audit_context)` 是有写入效果的事务协调命令。
 调用方保留同一 PostgreSQL 连接和外层事务，预览与执行都复用 Labeling 的同一素材来源选择规则。
 
@@ -360,7 +360,7 @@ workflow LOGIN 不能领取或确认 outbox，也不能读取其私有表。
 对应不同 Dataset、Project、actor 或 bucket 时返回 `operation_conflict`，不能覆盖原回执。
 
 便携合同和 `DatasetUnlinkManager` 位于 Workspace 包；API 的兼容导入和原调用路径
-保持。`DatasetUnlinkPostgresData(connection)` 使用 `workspace_dataset_unlink_client`
+保持。`DatasetUnlinkPostgresData(connection)` 使用 `yoao_workspace_dataset_unlink_client`
 调用同一两项 Native 函数，只借用已开启事务，不自行提交、回滚或关闭连接。预览也会
 获取权限锁，因此不能使用 READ ONLY 事务。该账号没有私表／列、序列、DDL 或 TEMP
 权限；授权脚本为 `infra/docker/workspace-dataset-unlink-grants.sql`。
@@ -504,7 +504,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 ## 可信导入器数据集与素材登记
 
-0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 42 项、Catalog 的 29 项和连接器导入执行器的 18 项 LOGIN 能力分开；专用 `asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
+0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 42 项、Catalog 的 29 项和连接器导入执行器的 18 项 LOGIN 能力分开；专用 `yoao_asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
 
 | 原生能力                           | SQL 参数签名               | 用途                                                                |
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------- |
@@ -519,7 +519,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 本地导入器通过 `AssetsOperatorGateway` 将这些函数绑定到自己的 SQL Session；nuScenes 路径与既有 Labeling、Workspace 和空间写入共用外层事务，函数不自行提交。它们不是 Source HTTP 工作流，没有 `ASSETS_SOURCE_URL` 远程选择或错误回退。对象存储上传、nuScenes 文件写入及必要的既有对象覆盖不属于 SQL 事务，回滚保留原始字节。专用 operator LOGIN 不读业务表，也不继承其他角色。完整边界与部署顺序见仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)；SQL schema 在 `apps/api/alembic/sql/0218_assets_operator.schema.json`。
 
-图片导入的 `asset_operator_client` 另可执行 Identity 的 `read_first_seed_account()`，只返回现有账号的 ID 和邮箱，不筛选角色或启用状态；多个账号时不保证选择顺序。该能力不授予用户表或账号 profile 关系的读取权限，也不改变调用方事务。
+图片导入的 `yoao_asset_operator_client` 另可执行 Identity 的 `read_first_seed_account()`，只返回现有账号的 ID 和邮箱，不筛选角色或启用状态；多个账号时不保证选择顺序。该能力不授予用户表或账号 profile 关系的读取权限，也不改变调用方事务。
 
 首次运行图片或 nuScenes 导入前，管理员须在与目标存储配置一致的环境中，以数据库 owner 和对象存储管理员身份单独运行 `python -m scripts.prepare_original_catalog`。命令要求显式提供 `DATABASE_URL`、`MINIO_ENDPOINT`、`MINIO_USE_SSL`、`MINIO_DATASETS_BUCKET`、`MINIO_ACCESS_KEY` 和 `MINIO_SECRET_KEY`，并使用其余已配置的 bucket 设置；它核对目录绑定、准备准确的 datasets bucket 并启用版本化，配置漂移时拒绝修改目标。随后导入进程仅使用各自的受限连接与对象存储身份，不接收数据库 owner URL 或存储管理员密钥；缺少或失效的目标不会被导入器自动修复。
 
@@ -578,7 +578,7 @@ Scope 固定 Job、actor、project 和完整排队参数的 SHA-256；租约额�
 
 成员结算与 `progress_pct` 同事务更新。作业摘要的 `failed_prediction_ids` 最多保留前 100 项，并用 `failed_prediction_ids_truncated` 标记截断；`batch_result_scope` 指向完整成员账本。按作业重试从该账本分页读取所有失败 ID，保持既有完整重试行为。prepared 数据及读回元数据必须包含非空工具单位；原始数据不携带工具单位。输出模式只允许作为重试请求上下文中的有界字符串保留。
 
-专用 `preannotation_result_client` 没有私表、DDL、TEMP 或角色成员权限，只能调用十二项 Jobs 与五项 Labeling 能力，其中三项属于重试读取与派发。最终写入仍由 Labeling 调用方事务完成。该合同不迁移整个 Inference／Jobs 服务，失败项重试通过下述独立准入合同复用结果账本；部署和验收范围见 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
+专用 `yoao_preannotation_result_client` 没有私表、DDL、TEMP 或角色成员权限，只能调用十二项 Jobs 与五项 Labeling 能力，其中三项属于重试读取与派发。最终写入仍由 Labeling 调用方事务完成。该合同不迁移整个 Inference／Jobs 服务，失败项重试通过下述独立准入合同复用结果账本；部署和验收范围见 [ADR-0113](/dev/adr/0113-durable-preannotation-results)。
 
 ## 失败预测重试
 
@@ -601,7 +601,7 @@ Scope 固定 Job、actor、project 和完整排队参数的 SHA-256；租约额�
 
 ## 视频执行窗口账本
 
-`video_execution_client` 仅可调用 Jobs 的 `video_execution_step(text,text)` 与
+`yoao_video_execution_client` 仅可调用 Jobs 的 `video_execution_step(text,text)` 与
 `video_execution_checkpoint_step(text,text)`，没有私表、序列、DDL 或 TEMP 权限。
 core policy 仍列出自身函数，checkpoint policy 列出这组完整的两函数 LOGIN 配置；升级时
 须同步授权源与适配器。冻结描述位于 `0282_video_execution_checkpoints.schema.json`，
@@ -652,8 +652,8 @@ HTTP 请求上限 65 MiB，封存后的 staged JSON 上限 64 MiB；较大的内
 上限用于转义后的传输，不改变结果预算。
 成功回执同时记录 operation、job/run、请求摘要、结果状态和 staged 摘要。
 
-Labeling 登录角色只允许执行 `aap_labeling_v1.video_writer_step(text,text)`。
-内部 wrapper `aap_jobs_v1.video_writer_authority(text,jsonb)` 仅授权给 Labeling
+Labeling 登录角色只允许执行 `yoao_labeling_v1.video_writer_step(text,text)`。
+内部 wrapper `yoao_jobs_v1.video_writer_authority(text,jsonb)` 仅授权给 Labeling
 owner，并将操作限制为 inspect、read window、固定 guard 和固定 finish；视频
 LOGIN 没有 Jobs 或 Labeling 表权限，也没有任意 Jobs RPC。安装先应用当前迁移和
 `infra/docker/module-data-grants.sql`，再应用
@@ -686,13 +686,13 @@ Mask 独立验证、全量备份恢复、受限镜像与容量尚未资格验证
 
 ## 视频执行权的离线恢复
 
-`video_restore_operator_client` 只执行 Inference 的
-`aap_inference_routing_v1.video_restore_step(text,text)`，没有原表、DDL 或 TEMP 权限。
+`yoao_video_restore_operator_client` 只执行 Inference 的
+`yoao_inference_routing_v1.video_restore_step(text,text)`，没有原表、DDL 或 TEMP 权限。
 专用授权脚本为 `infra/docker/video-restore-grants.sql`。固定命令与结果分别使用
 `aap-video-restore/v1`、`aap-video-restore-data/v1`，冻结 schema 位于
 `0284_video_restore.schema.json`。该操作不属于普通 API 或 routing listener。
 
-Inference 以仅授予其 owner 的 `aap_jobs_v1.video_restore_authority(text,jsonb)`
+Inference 以仅授予其 owner 的 `yoao_jobs_v1.video_restore_authority(text,jsonb)`
 协调 Jobs 权威轮换与原路由命令重新包裹；operator 不获得 Jobs 表或内部函数权限。
 准备态关闭两类普通权威，事务屏障先排空旧 Native 写入；相关入口只接受
 READ COMMITTED。完成事务保存目标 realm 的不可变 scope 退休证明，并使旧执行证明失效，
@@ -706,7 +706,7 @@ READ COMMITTED。完成事务保存目标 realm 的不可变 scope 退休证明�
 
 ## Identity 已接受 key 的写入前围栏
 
-`aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])` 由 Identity 持有，返回
+`yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])` 由 Identity 持有，返回
 boolean。Learning owner 有固定执行权；过渡 API 连接沿用原运行授权清单，不新增 LOGIN。
 函数不向 AUTH、key-management 或建题客户端开放，也不返回 key/hash/private data。
 调用方保留账号／项目资格与事务，key SHARE 等待后再核对当前撤销、scope 和真实过期时间。
@@ -715,15 +715,15 @@ SQLSTATE 与失败事务状态不被吞掉。冻结描述为 `0285_identity_acce
 
 ## Audit 日聚合与 Jobs 通知范围事实
 
-Audit 发布 `aap-audit-daily-projection/v1`：`aap_audit_v1.audit_daily_facts`
+Audit 发布 `aap-audit-daily-projection/v1`：`yoao_audit_v1.audit_daily_facts`
 保留 `day`、`action`、`target_type`、`actor_role`、`status_family`、`event_count`
 六个原生字段。DATE 是日历日期，BIGINT 的 JSON 表达是无损十进制字符串。
-固定无参 `aap_audit_v1.refresh_audit_bi_mv()` 由 Audit owner 并发刷新原 MV；
+固定无参 `yoao_audit_v1.refresh_audit_bi_mv()` 由 Audit owner 并发刷新原 MV；
 调用方控制提交／回滚。owner 需要数据库 TEMP，读取和刷新客户端不需要该权限；
 普通读取账号不能读取私有 MV 或执行刷新。维护连接的进一步拆分仍按模块台账推进。
 
 Jobs 发布 `aap-jobs-notification-scope-facts/v1`：
-`aap_jobs_v1.notification_scope_facts` 只包含作业 UUID、开放 `kind` 和可空
+`yoao_jobs_v1.notification_scope_facts` 只包含作业 UUID、开放 `kind` 和可空
 `scope_project_id`，保留当前项目优先、历史保留项目回退的语义。
 通知消费者通过该关系读取事实，API 继续组合当前成员和导出权限；
 缺失或不允许的作业类型仍拒绝投递。批量读取保留 autoflush、no_autoflush
@@ -736,7 +736,7 @@ Jobs 发布 `aap-jobs-notification-scope-facts/v1`：
 ## Jobs 测试项目清理
 
 `aap-jobs-fixture-cleanup/v1` 提供固定的
-`aap_jobs_v1.delete_fixture_project_jobs(uuid[])`，返回原生非负 `bigint`。
+`yoao_jobs_v1.delete_fixture_project_jobs(uuid[])`，返回原生非负 `bigint`。
 只按当前 `project_id = ANY(project_ids)` 删除全部 kind／status 的作业；保留仅有
 `retained_project_id` 的历史及其他项目，空集合返回 0，重复 ID 不重复计数。
 SQL 和语言无关 schema 随 `apps/jobs` 分发。
@@ -758,7 +758,7 @@ invoker 权限拒绝。SELECT 及完整 Jobs 凭据退出仍按[模块台账](/d
 ## Jobs 筛选夹具初始化
 
 `aap-jobs-filter-fixtures/v1` 的固定
-`aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)` 接收 completed／failed 两条
+`yoao_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)` 接收 completed／failed 两条
 夹具作业 ID，返回原生 `bigint` 2。它只执行原筛选夹具的两组字段投影，保留开始／完成
 时间、失败行 result、其他字段及调用方事务；更新顺序、UPDATE OF 触发字段和默认
 更新时间与原 ORM 相同。调用方同步原缓存字段并让 updated_at 过期，原 invitation
@@ -773,8 +773,8 @@ flush、最后完整 flush、审计及提交顺序保持。
 
 `aap-jobs-action-idempotency/v1` 提供两项固定能力：
 
-- `aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)` 使用原 `aap:data-manager` 前缀及 `hashtextextended(...,0)`，取得等待型事务 advisory 锁，不触发 ORM autoflush。
-- `aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)` 按 kind、当前 project_id、user_id 和原 JSONB 文本键查找，返回固定十五列作业行，按 created_at／id 倒序并执行等待型 FOR UPDATE。没有 LIMIT；全部匹配行保持锁定，原标量调用方取第一条。
+- `yoao_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)` 使用原 `aap:data-manager` 前缀及 `hashtextextended(...,0)`，取得等待型事务 advisory 锁，不触发 ORM autoflush。
+- `yoao_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)` 按 kind、当前 project_id、user_id 和原 JSONB 文本键查找，返回固定十五列作业行，按 created_at／id 倒序并执行等待型 FOR UPDATE。没有 LIMIT；全部匹配行保持锁定，原标量调用方取第一条。
 
 旧 SQLAlchemy 空值判断、缓存 identity、查询 autoflush 和调用方提交／回滚保持；没有
 新增状态筛选或业务授权。原调用方继续规范化请求键、校验当前权限并比较请求摘要，
@@ -788,12 +788,12 @@ flush、最后完整 flush、审计及提交顺序保持。
 
 `aap-jobs-async-job-list-query/v1` 将现有 `GET /async-jobs` 的查询策略放入 Jobs owner，公开两个固定只读函数：
 
-- `aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)` 返回十五列原生作业行，按 `created_at DESC, id DESC` 排序。
-- `aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)` 返回 PostgreSQL `bigint` 总数；Node 默认以十进制字符串读取。
+- `yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)` 返回十五列原生作业行，按 `created_at DESC, id DESC` 排序。
+- `yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)` 返回 PostgreSQL `bigint` 总数；Node 默认以十进制字符串读取。
 
 参数依次为 actor UUID、平台角色快照、状态、开放 kind、可空项目 UUID、可空搜索模式，分页函数另接收 limit／offset。调用方先完成 Identity 认证与当前活动状态读取，再分别执行 page 和 total；两个语句保留各自快照，不合并查询或提交事务。成员资格在每条语句内通过 Identity 当前事实与 Workspace 能力验证，预查角色仍控制原有 super-admin／项目管理员分支。当前／保留项目范围、reviewer 导出权限、六项 JSONB 文本搜索、autoflush 与 ORM identity 行为保持。
 
-`jobs_list_query_client` 是仅持两项函数权限的独立 LOGIN，没有 Jobs 私表、内部 helper、Identity 表／函数、DDL、TEMP 或角色成员权限。普通 API 的其余 Jobs 操作仍需原有私表权限，本操作不提前撤销。迁移和普通 owner 授权后，使用 `infra/docker/jobs-list-query-grants.sql` 安装严格客户端权限；工作区与 LAN 的普通 API 授权也包含这两个公开函数。
+`yoao_jobs_list_query_client` 是仅持两项函数权限的独立 LOGIN，没有 Jobs 私表、内部 helper、Identity 表／函数、DDL、TEMP 或角色成员权限。普通 API 的其余 Jobs 操作仍需原有私表权限，本操作不提前撤销。迁移和普通 owner 授权后，使用 `infra/docker/jobs-list-query-grants.sql` 安装严格客户端权限；工作区与 LAN 的普通 API 授权也包含这两个公开函数。
 
 schema 与 SQL 随 `apps/jobs` 分发，独立 Node 消费者位于 `apps/jobs/conformance/node/`。实现、消费者及限定验收状态分别见[模块台账](/dev/concepts/module-deployment#jobs-list-query-owner)，这不代表完整 Jobs 已独立运行。
 

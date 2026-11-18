@@ -10,7 +10,7 @@ const input = JSON.parse(readFileSync(0, "utf8"));
 const client = new Client({ connectionString: input.database_url, connectionTimeoutMillis: 5000 });
 const tx = "SELECT pg_backend_pid() AS pid,txid_current()::text AS xid";
 const counters =
-  "SELECT completed_tasks,review_tasks FROM aap_labeling_v1.project_catalog_counters WHERE project_id=$1::uuid";
+  "SELECT completed_tasks,review_tasks FROM yoao_labeling_v1.project_catalog_counters WHERE project_id=$1::uuid";
 try {
   await client.connect();
   assert.equal(
@@ -26,7 +26,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_labeling_v1.decrement_project_review_count($1::uuid) AS count",
+        "SELECT yoao_labeling_v1.decrement_project_review_count($1::uuid) AS count",
         [input.project_id],
       )
     ).rows[0].count,
@@ -35,7 +35,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT aap_labeling_v1.decrement_project_completed_count($1::uuid) AS count",
+        "SELECT yoao_labeling_v1.decrement_project_completed_count($1::uuid) AS count",
         [input.project_id],
       )
     ).rows[0].count,
@@ -43,7 +43,7 @@ try {
   );
   assert.deepEqual(
     (
-      await client.query("SELECT * FROM aap_labeling_v1.record_project_review_approval($1::uuid)", [
+      await client.query("SELECT * FROM yoao_labeling_v1.record_project_review_approval($1::uuid)", [
         input.project_id,
       ])
     ).rows,
@@ -55,7 +55,7 @@ try {
   assert.equal(
     (
       await client.query(
-        "SELECT updated_at=now() AS changed FROM aap_workspace_v1.project_facts WHERE id=$1::uuid",
+        "SELECT updated_at=now() AS changed FROM yoao_workspace_v1.project_facts WHERE id=$1::uuid",
         [input.project_id],
       )
     ).rows[0].changed,

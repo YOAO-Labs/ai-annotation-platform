@@ -141,14 +141,14 @@ async def cleanup_owned(
     job_ids = {job.id for job in jobs}
     await db.execute(
         text(
-            "SELECT aap_labeling_v1.guard_fixture_presentation_failures("
+            "SELECT yoao_labeling_v1.guard_fixture_presentation_failures("
             "CAST(:run AS uuid), CAST(:project AS uuid), CAST(:failures AS uuid[]))"
         ),
         {"run": run_id, "project": project_id, "failures": sorted(failed_ids, key=str)},
     )
     job_count = await db.scalar(
         text(
-            "SELECT aap_jobs_v1.delete_fixture_presentation_jobs("
+            "SELECT yoao_jobs_v1.delete_fixture_presentation_jobs("
             "CAST(:run AS uuid), CAST(:project AS uuid), CAST(:jobs AS uuid[]))"
         ),
         {"run": run_id, "project": project_id, "jobs": sorted(job_ids, key=str)},

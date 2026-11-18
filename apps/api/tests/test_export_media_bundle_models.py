@@ -546,7 +546,7 @@ async def test_restore_maps_only_physical_bucket_and_identity_including_tombston
         "storage_identity": "f" * 64,
     }
     await _reject_update(owned_db, row, storage_ref=restored)
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await owned_db.execute(
         update(Bundle).where(Bundle.id == row.id).values(storage_ref=restored)
     )
@@ -557,4 +557,4 @@ async def test_restore_maps_only_physical_bucket_and_identity_including_tombston
         storage_ref={**restored, "endpoint_url": "http://another.test:9000"},
     )
     await _reject_update(owned_db, row, input_snapshot={"changed": True})
-    await owned_db.execute(text("SET LOCAL aap.restore_training_storage='off'"))
+    await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='off'"))

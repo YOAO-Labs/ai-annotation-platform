@@ -30,11 +30,11 @@ from yoao_workspace_contract.project_query_values import materialize_project_bas
 from app.db.models.project import Project
 
 _LOCK_PROJECT_ROW = text(
-    "SELECT aap_workspace_v1.lock_project_row("
+    "SELECT yoao_workspace_v1.lock_project_row("
     "CAST(:project_id AS uuid), CAST(:nowait AS boolean))"
 )
 _LOCK_PROJECT_REFERENCES_FOR_UPDATE = text(
-    "SELECT aap_workspace_v1.lock_project_references_for_update("
+    "SELECT yoao_workspace_v1.lock_project_references_for_update("
     "CAST(:project_ids AS uuid[]))"
 )
 
@@ -133,7 +133,7 @@ async def find_import_project(db: AsyncSession, display_id: str) -> uuid.UUID | 
     if db.autoflush:
         await db.flush()
     raw = await db.scalar(
-        text("SELECT aap_workspace_v1.read_import_project(CAST(:display_id AS text))"),
+        text("SELECT yoao_workspace_v1.read_import_project(CAST(:display_id AS text))"),
         {"display_id": display_id},
     )
     return decode_import_project_reference(raw, display_id=display_id)
@@ -145,7 +145,7 @@ async def read_import_project(db: AsyncSession, display_id: str) -> Project | No
     if project_id is None:
         return None
     row_json = await db.scalar(
-        text("SELECT aap_workspace_v1.read_project_row(CAST(:project_id AS uuid))"),
+        text("SELECT yoao_workspace_v1.read_project_row(CAST(:project_id AS uuid))"),
         {"project_id": project_id},
     )
     try:
@@ -181,7 +181,7 @@ async def create_import_project(
     await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.create_import_project("
+            "SELECT yoao_workspace_v1.create_import_project("
             "CAST(:project_id AS uuid), CAST(:display_id AS text), "
             "CAST(:name AS text), CAST(:owner_id AS uuid), "
             "CAST(:tool_bindings AS jsonb))"
@@ -218,7 +218,7 @@ async def set_point_cloud_quality_config(
     await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.write_point_cloud_quality_config("
+            "SELECT yoao_workspace_v1.write_point_cloud_quality_config("
             "CAST(:project_id AS uuid), CAST(:config AS jsonb))"
         ),
         {
@@ -247,7 +247,7 @@ async def create_point_cloud_seed_project(
     await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.create_point_cloud_seed_project("
+            "SELECT yoao_workspace_v1.create_point_cloud_seed_project("
             "CAST(:project_id AS uuid), CAST(:display_id AS text), "
             "CAST(:name AS text), CAST(:owner_id AS uuid), "
             "CAST(:tool_bindings AS jsonb))"
@@ -279,7 +279,7 @@ async def set_nuscenes_seed_defaults(
     await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.write_nuscenes_seed_defaults("
+            "SELECT yoao_workspace_v1.write_nuscenes_seed_defaults("
             "CAST(:project_id AS uuid), CAST(:name AS text), "
             "CAST(:tool_bindings AS jsonb))"
         ),

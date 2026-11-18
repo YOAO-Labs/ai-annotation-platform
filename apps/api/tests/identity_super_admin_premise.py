@@ -1,6 +1,6 @@
 """Premise control for the global "last unreserved super-admin" rules.
 
-``aap_identity_v1.super_admin_status`` counts every active, unreserved
+``yoao_identity_v1.super_admin_status`` counts every active, unreserved
 ``super_admin`` in ``public.users``; notifications for a self-deactivation
 request fan out to every active ``super_admin`` the same way.  Those rules are
 global by product definition, while the ordinary verifier profile runs the
@@ -73,7 +73,9 @@ async def restore_parked_super_admins(test_engine, parked) -> None:
         )
         restored = set(result.scalars())
         if restored != set(ids):
-            raise RuntimeError("identity super-admin premise did not restore parked rows")
+            raise RuntimeError(
+                "identity super-admin premise did not restore parked rows"
+            )
 
 
 async def park_foreign_super_admins_in_savepoint(

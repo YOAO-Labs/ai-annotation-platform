@@ -34,7 +34,10 @@ from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.task import Task
 from app.db.models.user import User
 from tests.factory import DEFAULT_PASSWORD, create_batch
-from tests.identity_module_assembly_helpers import IdentityModuleStack, create_retained_realm
+from tests.identity_module_assembly_helpers import (
+    IdentityModuleStack,
+    create_retained_realm,
+)
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
@@ -347,9 +350,9 @@ async def _run():
                     "pg_catalog.has_any_column_privilege(current_user,"
                     "'public.async_jobs','INSERT'), "
                     "pg_catalog.has_table_privilege(current_user,"
-                    "'aap_jobs_v1.async_job_creation','SELECT'), "
+                    "'yoao_jobs_v1.async_job_creation','SELECT'), "
                     "pg_catalog.has_table_privilege(current_user,"
-                    "'aap_jobs_v1.async_job_creation','INSERT')"
+                    "'yoao_jobs_v1.async_job_creation','INSERT')"
                 ))
             ).one()
             if tuple(privileges) != (False, False, True, True):
@@ -439,7 +442,7 @@ async def _run():
             try:
                 async with db.begin_nested():
                     await db.scalar(text(
-                        "SELECT aap_jobs_v1.create_filter_fixture_jobs("
+                        "SELECT yoao_jobs_v1.create_filter_fixture_jobs("
                         "CAST(:run AS uuid), CAST(:completed AS uuid), "
                         "CAST(:failed AS uuid), CAST(:first_project AS uuid), "
                         "CAST(:second_project AS uuid), CAST(:actor AS uuid), "
@@ -474,7 +477,7 @@ async def _run():
             try:
                 async with db.begin_nested():
                     await db.scalar(text(
-                        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+                        "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
                     ), {"ids": [row.project_id]})
             except Exception as error:
                 fixture_delete_sqlstate = _sqlstate(error)
@@ -483,21 +486,21 @@ async def _run():
             else:
                 raise RuntimeError("fixture_delete_allowed")
             pending_after_delete = await db.scalar(text(
-                "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
+                "SELECT count(*) FROM yoao_jobs_v1.async_job_creation "
                 "WHERE id=CAST(:id AS uuid)"
             ), {"id": created_id})
             if pending_after_delete != 1:
                 raise RuntimeError("fixture_delete_lost_pending")
             await db.rollback()
             rolled_back = await db.scalar(text(
-                "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
+                "SELECT count(*) FROM yoao_jobs_v1.async_job_creation "
                 "WHERE id=CAST(:id AS uuid)"
             ), {"id": created_id})
             if rolled_back != 0:
                 raise RuntimeError("creation_rollback")
             restored = (await db.execute(text(
                 "SELECT id,status,result,progress_pct "
-                "FROM aap_jobs_v1.read_job(CAST(:id AS uuid))"
+                "FROM yoao_jobs_v1.read_job(CAST(:id AS uuid))"
             ), {"id": job_id})).one()
             if tuple(restored) != (job_id, "completed", original_result, original_progress):
                 raise RuntimeError("fixture_delete_rollback")
@@ -770,22 +773,30 @@ async def _exercise_export_dispatch(
                         assert pending is not None and pending.celery_task_id is None
                         assert pending.status == "pending"
                         intent = (
-                            await db.execute(
-                                text(
-                                    "SELECT i.intent_id, i.execution_id, i.envelope, i.state, "
-                                    "a.state AS physical_state "
-                                    "FROM aap_jobs_v1.dispatch_intents AS i "
-                                    "JOIN aap_jobs_v1.dispatch_publication_attempts AS a "
-                                    "ON a.intent_id=i.intent_id AND a.generation=i.generation "
-                                    "WHERE i.job_id=:job AND i.purpose='execution'"
-                                ),
-                                {"job": pending.id},
+                            (
+                                await db.execute(
+                                    text(
+                                        "SELECT i.intent_id, i.execution_id, i.envelope, i.state, "
+                                        "a.state AS physical_state "
+                                        "FROM yoao_jobs_v1.dispatch_intents AS i "
+                                        "JOIN yoao_jobs_v1.dispatch_publication_attempts AS a "
+                                        "ON a.intent_id=i.intent_id AND a.generation=i.generation "
+                                        "WHERE i.job_id=:job AND i.purpose='execution'"
+                                    ),
+                                    {"job": pending.id},
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                         assert intent["state"] == "pending"
                         assert intent["physical_state"] == "not_sent"
-                        assert intent["envelope"]["execution_id"] == intent["execution_id"]
-                        assert intent["envelope"]["kwargs"]["async_job_id"] == str(pending.id)
+                        assert (
+                            intent["envelope"]["execution_id"] == intent["execution_id"]
+                        )
+                        assert intent["envelope"]["kwargs"]["async_job_id"] == str(
+                            pending.id
+                        )
                         outages.append(
                             {
                                 "route": label,
@@ -804,12 +815,12 @@ async def _exercise_export_dispatch(
                 await stack.start_service("jobs-queue")
                 relay_url = _owned_jobs_role_url(
                     "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL",
-                    "jobs_dispatch_relay_client",
+                    "yoao_jobs_dispatch_relay_client",
                     test_engine,
                 )
                 publication_url = _owned_jobs_role_url(
                     "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-                    "jobs_publication_client",
+                    "yoao_jobs_publication_client",
                     test_engine,
                 )
                 async with await JobsDispatchPostgres.connect(relay_url) as provider:
@@ -827,7 +838,7 @@ async def _exercise_export_dispatch(
                                 (
                                     await db.execute(
                                         text(
-                                            "SELECT i.job_id FROM aap_jobs_v1.dispatch_intents i "
+                                            "SELECT i.job_id FROM yoao_jobs_v1.dispatch_intents i "
                                             "JOIN public.async_jobs j ON j.id=i.job_id "
                                             "WHERE i.state IN ('pending','leased') "
                                             "AND j.status IN ('pending','running')"
@@ -835,14 +846,16 @@ async def _exercise_export_dispatch(
                                     )
                                 ).scalars()
                             )
-                        assert candidates <= expected_jobs, "relay scope contains foreign work"
+                        assert candidates <= expected_jobs, (
+                            "relay scope contains foreign work"
+                        )
                         await relay.run_once()
                         async with maker() as db:
                             submitted = set(
                                 (
                                     await db.execute(
                                         text(
-                                            "SELECT job_id FROM aap_jobs_v1.dispatch_intents "
+                                            "SELECT job_id FROM yoao_jobs_v1.dispatch_intents "
                                             "WHERE job_id=ANY(:jobs) AND state='submitted'"
                                         ),
                                         {"jobs": list(expected_jobs)},
@@ -853,18 +866,24 @@ async def _exercise_export_dispatch(
                             break
                         await asyncio.sleep(0.2)
                     else:
-                        raise AssertionError("Jobs relay did not recover all outage exports")
+                        raise AssertionError(
+                            "Jobs relay did not recover all outage exports"
+                        )
                 for item in outages:
                     async with maker() as db:
                         restored = (
-                            await db.execute(
-                                text(
-                                    "SELECT execution_id, envelope FROM aap_jobs_v1.dispatch_intents "
-                                    "WHERE intent_id=CAST(:intent AS uuid) AND state='submitted'"
-                                ),
-                                {"intent": item["intent_id"]},
+                            (
+                                await db.execute(
+                                    text(
+                                        "SELECT execution_id, envelope FROM yoao_jobs_v1.dispatch_intents "
+                                        "WHERE intent_id=CAST(:intent AS uuid) AND state='submitted'"
+                                    ),
+                                    {"intent": item["intent_id"]},
+                                )
                             )
-                        ).mappings().one()
+                            .mappings()
+                            .one()
+                        )
                     assert restored["execution_id"] == item["execution_id"]
                     assert restored["envelope"] == item["envelope"]
                     receipts.append(
@@ -1051,7 +1070,9 @@ async def _exercise_export_dispatch(
                     [{"job_id": job_id} for job_id in expected_jobs],
                 )
                 if not retired:
-                    raise RuntimeError("Export native execution or publication remains unsettled")
+                    raise RuntimeError(
+                        "Export native execution or publication remains unsettled"
+                    )
             except BaseException as exc:
                 cleanup_errors.append(exc)
         if retired and worker is not None:
@@ -1068,7 +1089,9 @@ async def _exercise_export_dispatch(
             realm.unsettled = False
             realm.worker = None
         if not retired:
-            message = "Export storage credentials retained: native retirement unconfirmed"
+            message = (
+                "Export storage credentials retained: native retirement unconfirmed"
+            )
             if primary is not None:
                 primary.add_note(message)
             elif not cleanup_errors:
@@ -1240,7 +1263,10 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
     @asynccontextmanager
     async def redis_users_with_stack_cleanup():
         async with _login_redis(retain=retain_realm) as (login_url, _login_owner):
-            async with _publisher_redis(retain=retain_realm) as (publisher_url, _publisher_owner):
+            async with _publisher_redis(retain=retain_realm) as (
+                publisher_url,
+                _publisher_owner,
+            ):
                 try:
                     yield login_url, publisher_url
                 finally:
@@ -1693,16 +1719,21 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                     json.dump(manifest, target, indent=2)
                 record_property("jobs_cold_retained_realm", str(path))
             except BaseException as diagnostic_error:
-                primary.add_note(f"Retained realm manifest failed: {diagnostic_error!r}")
+                primary.add_note(
+                    f"Retained realm manifest failed: {diagnostic_error!r}"
+                )
             if realm.guard_error is not None:
                 primary.add_note(f"Retention guard failed: {realm.guard_error!r}")
             if realm.worker is not None:
                 try:
                     record_property(
-                        "jobs_export_worker_diagnostics", realm.worker.capture_diagnostics()
+                        "jobs_export_worker_diagnostics",
+                        realm.worker.capture_diagnostics(),
                     )
                 except BaseException as diagnostic_error:
-                    primary.add_note(f"Export worker diagnostics failed: {diagnostic_error!r}")
+                    primary.add_note(
+                        f"Export worker diagnostics failed: {diagnostic_error!r}"
+                    )
         raise
     finally:
         if not retain_realm():

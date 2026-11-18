@@ -224,7 +224,7 @@ async def test_standalone_owned_project_select_preserves_autoflush(
 async def test_actor_membership_native_owner_and_grants_are_exact(test_engine):
     async with _consumer_world(test_engine) as (owner, _api, _world, _url):
         async with owner() as db:
-            signature = "aap_workspace_v1.actor_project_memberships(uuid)"
+            signature = "yoao_workspace_v1.actor_project_memberships(uuid)"
             row = (
                 await db.execute(
                     text(
@@ -238,7 +238,7 @@ async def test_actor_membership_native_owner_and_grants_are_exact(test_engine):
             for role, expected in (
                 ("identity_api_consumer", True),
                 ("legacy_runtime", True),
-                ("append_client", False),
+                ("yoao_append_client", False),
                 ("assets_code", False),
                 ("inference_code", False),
             ):

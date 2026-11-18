@@ -126,7 +126,7 @@ def notification_publish_database_url(dsn: str, reference_url: URL) -> URL:
         url.drivername not in {"postgresql", "postgresql+asyncpg"}
         or (url.host, url.port, url.database)
         != (reference_url.host, reference_url.port, reference_url.database)
-        or url.username != "notification_publish_client"
+        or url.username != "yoao_notification_publish_client"
         or not url.password
         or not url.database
         or not url.database.endswith("_test")
@@ -149,13 +149,13 @@ async def verify_notification_publish_database_role(
     )
     try:
         assert await connection.fetchval("SELECT session_user") == (
-            "notification_publish_client"
+            "yoao_notification_publish_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_notifications_v1",
+            schema="yoao_notifications_v1",
             functions=_NOTIFICATION_PUBLISH_FUNCTIONS,
-            role="notification_publish_client",
+            role="yoao_notification_publish_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError) as denied:
             await connection.fetch("SELECT * FROM public.notifications LIMIT 1")

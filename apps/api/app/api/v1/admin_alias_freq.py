@@ -55,7 +55,7 @@ async def get_alias_frequency(
     total_q = await db.execute(
         text(
             """
-            SELECT COUNT(*) FROM aap_labeling_v1.prediction_rows WHERE project_id = :pid
+            SELECT COUNT(*) FROM yoao_labeling_v1.prediction_rows WHERE project_id = :pid
             """
         ),
         {"pid": str(project_id)},
@@ -85,7 +85,7 @@ async def get_alias_frequency(
                   (elem->'value'->'labels'->>0),
                   (elem->'value'->>'class')
                 ) AS label
-              FROM aap_labeling_v1.prediction_rows p
+              FROM yoao_labeling_v1.prediction_rows p
               CROSS JOIN LATERAL jsonb_array_elements(
                 CASE WHEN jsonb_typeof(p.result) = 'array'
                      THEN p.result ELSE '[]'::jsonb END

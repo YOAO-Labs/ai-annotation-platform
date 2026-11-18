@@ -10,7 +10,7 @@ from app.db.models.async_job import AsyncJob
 
 
 _OUTCOMES_SQL = (
-    "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes("
+    "SELECT yoao_jobs_v1.set_filter_fixture_job_outcomes("
     "CAST(:p_completed_job_id AS pg_catalog.uuid), "
     "CAST(:p_failed_job_id AS pg_catalog.uuid))"
 )

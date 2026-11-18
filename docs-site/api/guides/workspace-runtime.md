@@ -66,7 +66,7 @@ Node conformance provider以标准PostgreSQL协议调用相同的两项函数，
 项目创建／更新及模板创建／更新／删除／复制已有封闭私有协议
 `aap-workspace-configuration/v1`，入口为
 `POST /v1/workspace/configuration/execute`。受限
-`workspace_configuration_client` 只有 `configuration_policy()` 和
+`yoao_workspace_configuration_client` 只有 `configuration_policy()` 和
 `configuration_step(jsonb,text,jsonb,text[],text[])` 两项能力。配置独立运行使用
 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`，复用 control token；本地 Compose
 文件为 `docker-compose.workspace-configuration.yml`，端口8174。
@@ -188,7 +188,7 @@ API 与数据库不在该容器预算内。完整模块当前状态见[模块台
 
 ## 同事务运维导入与质量配置
 
-`aap-workspace-project-maintenance/v1` 是固定 SQL 数据合同，复用 `aap_workspace_v1`，
+`aap-workspace-project-maintenance/v1` 是固定 SQL 数据合同，复用 `yoao_workspace_v1`，
 没有新 HTTP endpoint 或 runtime DSN selector：
 
 | 能力                                               | 返回值                                                |
@@ -214,7 +214,7 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 调用方同步 Project 的配置／updated_at，不追加 ORM 写入。评估和 Audit 与配置一起提交
 或回滚，错绑定回复不能确认整个工作流。能力不增加 CAS、授权检查、提交或回滚。
 
-预建的 `workspace_project_maintenance_client` 通过
+预建的 `yoao_workspace_project_maintenance_client` 通过
 `infra/docker/workspace-project-maintenance-grants.sql` 获取六项固定业务 owner 执行权，
 没有私表／列、序列、DDL 或 TEMP 权限；PostgreSQL/public invoker helpers 不属于这项
 业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
@@ -276,7 +276,7 @@ Project 投影接受名称、类型、owner、状态、AI 标志、工具绑定�
 
 ### 门控 E2E 夹具
 
-`aap_workspace_fixture_v1` 使用 `aap-workspace-e2e-fixtures/v1`，只用于既有测试
+`yoao_workspace_fixture_v1` 使用 `aap-workspace-e2e-fixtures/v1`，只用于既有测试
 夹具。数据库名必须以 `_test` 或 `_e2e` 结尾；HTTP 入口仍要求非 production 和
 `E2E_SEED_ENABLED=true`。普通 Workspace consumer 不获得这些能力。
 
@@ -309,11 +309,11 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 
 | 能力                                                           | 语义                                                                                 |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `aap_workspace_v1.create_scale_seed_project(uuid,text)`        | 插入固定类型的项目，保留 PostgreSQL 默认值，返回生成 UUID                            |
-| `aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)`    | 插入标注职责；冲突时不更新，返回 0 或 1                                              |
-| `aap_workspace_v1.guard_scale_seed_cleanup(text)`              | 捕获并锁定精确名称范围，先检查 Learning 保留及视频退役                               |
-| `aap_workspace_v1.delete_scale_seed_projects(text,uuid[])`     | 只删除捕获且仍匹配名称的项目；再次检查保留条件                                       |
-| `aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)` | 复用 Assets 的 Dataset／Scene／Item 锁及来源保留检查；任务清理后再检查 Labeling 引用 |
+| `yoao_workspace_v1.create_scale_seed_project(uuid,text)`        | 插入固定类型的项目，保留 PostgreSQL 默认值，返回生成 UUID                            |
+| `yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)`    | 插入标注职责；冲突时不更新，返回 0 或 1                                              |
+| `yoao_workspace_v1.guard_scale_seed_cleanup(text)`              | 捕获并锁定精确名称范围，先检查 Learning 保留及视频退役                               |
+| `yoao_workspace_v1.delete_scale_seed_projects(text,uuid[])`     | 只删除捕获且仍匹配名称的项目；再次检查保留条件                                       |
+| `yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)` | 复用 Assets 的 Dataset／Scene／Item 锁及来源保留检查；任务清理后再检查 Labeling 引用 |
 
 最后一项使用 `aap-workspace-scale-source-guard/v1`，校验 Dataset UUID 和调用阶段，
 不向客户端暴露私有锁 helper，不删除来源字节。清理先关闭指定运行的准入，并要求所有
@@ -330,7 +330,7 @@ engine 前拒绝。旧 `scale-seed` 名称不会由新运行的清理隐式删�
 ## 锁定权限与会话快照
 
 API 写入权限入口保留原元组接口，通过现有
-`aap_workspace_v1.project_access_step(uuid,uuid,text)` 获取 Project KEY SHARE 和
+`yoao_workspace_v1.project_access_step(uuid,uuid,text)` 获取 Project KEY SHARE 和
 成员 SHARE 快照。Identity 的完整账号 SHARE facts、NOWAIT 错误、manager 跳过成员
 及当前权限策略不变。它们属于调用方同一事务，不是可跨事务重放的授权 token。
 
@@ -401,12 +401,12 @@ READ ONLY、Node、异常回复回滚和实际后台 relay 已通过限定本地
 
 ## 排序项目集合锁与计数投影
 
-批次决策一次调用 `aap_workspace_v1.lock_project_references_for_update(uuid[])`，
+批次决策一次调用 `yoao_workspace_v1.lock_project_references_for_update(uuid[])`，
 返回按 UUID 排序的现存项目 ID 集，锁保留在调用方事务内。重复 ID 去重，缺失 ID
 不返回；NOWAIT 的 busy SQLSTATE 仍映射为 409 并回滚原事务。
 
 两处 Labeling 重算读取现有项目快照，在原 ORM flush 内调用
-`aap_labeling_v1.write_project_counter_projection(uuid,jsonb)`。补丁仅包含实际变化
+`yoao_labeling_v1.write_project_counter_projection(uuid,jsonb)`。补丁仅包含实际变化
 的四项任务计数、`batch_summary`，以及可选显式 `updated_at`；未提供时间戳时写
 事务时间。回复为目标 UUID，缺失为 null；适配器对缺失或畸形回复在 UoW 内抛错，
 保留原事务回滚。原无变化缓存、未 flush 的工作及外层提交顺序保持。
@@ -428,7 +428,7 @@ API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-cou
 预览和解绑使用 Workspace 包的 `DatasetUnlinkManager`，默认 API 通过原 SQLAlchemy
 Session 执行既有 Native 函数。独立调用方可用
 `DatasetUnlinkPostgresData(connection)` 借用已开启的 asyncpg 事务，账号为
-`workspace_dataset_unlink_client`。它仅有 `preview_dataset_unlink` 和 `unlink_dataset`
+`yoao_workspace_dataset_unlink_client`。它仅有 `preview_dataset_unlink` 和 `unlink_dataset`
 执行权，没有私表／列、序列、DDL 或 TEMP 权限；沿用现有最小权限验证器。
 
 绑定不打开、结束或重试事务。预览不删除业务数据，但会锁定当前权限；两项能力都
@@ -442,7 +442,7 @@ Session 执行既有 Native 函数。独立调用方可用
 
 ## 项目范围、看板与列表读取
 
-`aap_workspace_v1.actor_project_memberships(uuid)` 只返回 actor 的 `project_id` 与
+`yoao_workspace_v1.actor_project_memberships(uuid)` 只返回 actor 的 `project_id` 与
 `member_role` 原始事实，NULL actor 返回空集。它不读取日期，不授权或锁行；调用方
 仍与 Identity 资料关系联接，过滤活跃账号、已知平台／项目角色、viewer 配对和所需
 职责。原超级管理员全局范围及 manager owner 分支保持，角色不会互相代替。
@@ -459,7 +459,7 @@ Session 执行既有 Native 函数。独立调用方可用
 
 ## 非锁定成员集合与名册
 
-`aap_workspace_v1.project_member_facts` 由 Workspace 持有，以固定顺序公开成员的
+`yoao_workspace_v1.project_member_facts` 由 Workspace 持有，以固定顺序公开成员的
 九个原生列：`id/project_id/user_id/role/assigned_by/assigned_at/version/updated_at/weekly_target`。
 它不联接、过滤、排序或授权；未知职责与可空值保持原样。便携描述复用共享
 `ProjectMemberRow`，应用只增加此视图的 SELECT，PUBLIC 不获权限。
@@ -477,9 +477,9 @@ Session 执行既有 Native 函数。独立调用方可用
 
 ## 项目集合、投影与元数据
 
-`aap_workspace_v1.project_facts` 以原生 PostgreSQL 类型公开 Workspace 拥有的 38 个
+`yoao_workspace_v1.project_facts` 以原生 PostgreSQL 类型公开 Workspace 拥有的 38 个
 Project 字段。完整对象通过一次主键联接组合既有
-`aap_labeling_v1.project_catalog_counters` 的五项计数，保留原 43 列 ORM 映射。
+`yoao_labeling_v1.project_catalog_counters` 的五项计数，保留原 43 列 ORM 映射。
 计数列均有 NOT NULL 约束，因此既有关系中的默认值不改变受支持数据；JSONB 自身的
 null 与非对象值仍原样返回。合同复用 `PROJECT_ROW_COLUMNS`，不增加第二个 Project DTO。
 
@@ -508,7 +508,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 ## 项目删除的调用方事务
 
 项目删除使用已有 `aap-project-delete/v1` 和
-`aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)`，不提供独立提交的 HTTP 命令。
+`yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)`，不提供独立提交的 HTTP 命令。
 命令只有 `operation_id/actor_id/project_id/audit_context` 四字段；Audit context 为 null
 时绑定 SQL NULL。回复保留 schema、严格 ok、成功回执或稳定业务错误。API 的兼容导入
 仍可用，实际验证和 UUID 绑定由 Workspace 包持有。
@@ -516,7 +516,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 调用方须保持同一外层事务：API 先 flush 原 pending work，Native 执行当前权威、保留
 检查、各 owner 清理、Audit 和回执，原路由最后提交。连接式
 `ProjectDeletionPostgresData(connection)` 要求已开启的 asyncpg 事务，并在同一事务中
-检查 `workspace_project_deletion_client` 及唯一协调器权限；不会新建或结束事务。
+检查 `yoao_workspace_project_deletion_client` 及唯一协调器权限；不会新建或结束事务。
 提交失败必须由调用方处理，不把事务内回执当成已完成提交。
 
 公开删除仍要求当前项目管理权，成功为空体 204，后续删除不存在项目返回 404；没有新增

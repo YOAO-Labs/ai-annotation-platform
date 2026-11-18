@@ -75,7 +75,7 @@ def _sql_capture(db_session):
 
 def _assert_jobs_owner_read(statements: list[str]) -> None:
     normalized = [statement.lower() for statement in statements]
-    assert any("aap_jobs_v1.read_job(" in statement for statement in normalized)
+    assert any("yoao_jobs_v1.read_job(" in statement for statement in normalized)
     assert not any(
         re.search(r"\bfrom\s+(?:public\.)?async_jobs\b", statement)
         for statement in normalized

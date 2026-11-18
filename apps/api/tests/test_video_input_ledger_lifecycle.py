@@ -134,7 +134,7 @@ async def _evidence_call(db, operation, request):
     if operation == "attach_annotation_video_input_source":
         raw = await db.scalar(
             text(
-                "SELECT aap_labeling_v1.attach_annotation_video_input_source("
+                "SELECT yoao_labeling_v1.attach_annotation_video_input_source("
                 ":annotation,:actor,CAST(:evidence AS jsonb))"
             ),
             {
@@ -146,7 +146,7 @@ async def _evidence_call(db, operation, request):
     else:
         raw = await db.scalar(
             text(
-                "SELECT aap_labeling_v1.copy_annotation_video_input_sources(:source,:target)"
+                "SELECT yoao_labeling_v1.copy_annotation_video_input_sources(:source,:target)"
             ),
             {
                 "source": request.source_annotation_id,

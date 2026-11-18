@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
+from tests.frozen_namespaces import historical
 from yoao_assets_source.operator_contract import (
     OPERATOR_NATIVE_ARGUMENTS,
     OPERATOR_NATIVE_SIGNATURES,
@@ -33,30 +34,30 @@ from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _CREATE = text(
-    "SELECT aap_assets_v1.create_operator_image_dataset("
+    "SELECT yoao_assets_v1.create_operator_image_dataset("
     "CAST(:operation_id AS uuid), CAST(:created_by AS uuid), "
     "CAST(:name AS text), CAST(:description AS text))"
 )
 _ENSURE = text(
-    "SELECT aap_assets_v1.ensure_operator_nuscenes_dataset("
+    "SELECT yoao_assets_v1.ensure_operator_nuscenes_dataset("
     "CAST(:operation_id AS uuid), CAST(:owner_id AS uuid), CAST(:spec AS jsonb))"
 )
 _APPEND = text(
-    "SELECT aap_assets_v1.append_operator_items("
+    "SELECT yoao_assets_v1.append_operator_items("
     "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
     "CAST(:entries AS jsonb))"
 )
 _PATCH = text(
-    "SELECT aap_assets_v1.patch_operator_items("
+    "SELECT yoao_assets_v1.patch_operator_items("
     "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
     "CAST(:entries AS jsonb))"
 )
 _RECOUNT = text(
-    "SELECT aap_assets_v1.recount_operator_items("
+    "SELECT yoao_assets_v1.recount_operator_items("
     "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid))"
 )
 _READ = text(
-    "SELECT aap_assets_v1.read_operator_items("
+    "SELECT yoao_assets_v1.read_operator_items("
     "CAST(:dataset_id AS uuid), CAST(:after_item_id AS uuid), "
     "CAST(:page_size AS integer))"
 )
@@ -187,8 +188,12 @@ async def test_operator_schema_copies_and_native_signature_manifest_match():
         Path(__file__).parents[3]
         / "apps/assets-source/src/yoao_assets_source/operator_contract.schema.json"
     )
-    package_schema = json.loads(package_schema_path.read_text(encoding="utf-8"))
-    assert migration_schema == package_schema == operator_contract_document()
+    package_schema = historical(
+        json.loads(package_schema_path.read_text(encoding="utf-8"))
+    )
+    assert (
+        migration_schema == package_schema == historical(operator_contract_document())
+    )
     native = migration_schema["x-native"]
     assert set(native) == set(OPERATOR_NATIVE_SIGNATURES)
     assert {
@@ -946,7 +951,7 @@ async def test_operator_write_is_fenced_by_existing_source_delete_dataset_lock(
     try:
         assert (
             await deleting.scalar(
-                text("SELECT aap_assets_v1.lock_dataset_reference(:id)"),
+                text("SELECT yoao_assets_v1.lock_dataset_reference(:id)"),
                 {"id": dataset_id},
             )
             == dataset_id

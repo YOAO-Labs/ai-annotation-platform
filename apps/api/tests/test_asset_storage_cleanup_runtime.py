@@ -41,17 +41,17 @@ _BUCKET_OWNER_TAG = "aap-worktree-owner"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PENDING_QUERY = """
 SELECT operation_id, asset_id, bucket, prefix, created_at
-FROM aap_assets_v1.pending_storage_deletions_v2(
+FROM yoao_assets_v1.pending_storage_deletions_v2(
     :bucket, NULL::timestamptz, NULL::uuid, NULL::uuid, 100
 )
 """
 _ACK_QUERY = """
-SELECT aap_assets_v1.complete_storage_deletion(
+SELECT yoao_assets_v1.complete_storage_deletion(
     CAST(:operation_id AS uuid), CAST(:asset_id AS uuid)
 )
 """
 _UNLINK_QUERY = """
-SELECT aap_workspace_v1.unlink_dataset(
+SELECT yoao_workspace_v1.unlink_dataset(
     CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
     CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), :bucket,
     CAST(:audit_context AS jsonb)
@@ -89,7 +89,10 @@ def _docker(*arguments: str, timeout: int = 90) -> str:
             try:
                 inspected = subprocess.run(
                     ["docker", "inspect", arguments[1]],
-                    capture_output=True, text=True, timeout=15, check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=False,
                 )
                 evidence["inspect_returncode"] = inspected.returncode
                 evidence["inspect_stderr"] = inspected.stderr
@@ -103,8 +106,11 @@ def _docker(*arguments: str, timeout: int = 90) -> str:
         # Keep potentially sensitive argv/output in a mode-0600 evidence file,
         # never in the shared JUnit/console failure message.
         with tempfile.NamedTemporaryFile(
-            mode="w", prefix="assets-docker-failure-", suffix=".json",
-            dir=_required_env("TMPDIR"), delete=False,
+            mode="w",
+            prefix="assets-docker-failure-",
+            suffix=".json",
+            dir=_required_env("TMPDIR"),
+            delete=False,
         ) as diagnostic:
             json.dump(evidence, diagnostic, indent=2)
             path = diagnostic.name
@@ -374,46 +380,48 @@ async def _assert_denied(connection, statement: str, parameters: dict | None = N
 async def _assert_cleanup_login(test_engine, cleanup_engine, media_bucket: str):
     async with cleanup_engine.connect() as cleanup:
         assert (
-            await cleanup.scalar(text("SELECT current_user")) == "asset_cleanup_client"
+            await cleanup.scalar(text("SELECT current_user"))
+            == "yoao_asset_cleanup_client"
         )
         assert (
-            await cleanup.scalar(text("SELECT session_user")) == "asset_cleanup_client"
+            await cleanup.scalar(text("SELECT session_user"))
+            == "yoao_asset_cleanup_client"
         )
         assert await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', "
+                "'yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', "
                 "'EXECUTE')"
             )
         )
         assert await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')"
+                "'yoao_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')"
             )
         )
         assert await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')"
+                "'yoao_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')"
             )
         )
         assert await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')"
+                "'yoao_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')"
             )
         )
         assert not await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')"
+                "'yoao_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')"
             )
         )
         assert not await cleanup.scalar(
             text(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')"
+                "'yoao_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')"
             )
         )
         pending = (
@@ -598,7 +606,8 @@ async def _fail_container_readiness(container_id: str, observed: dict, reason: s
             if password:
                 diagnostic = diagnostic.replace(password, "<redacted>")
         if value and any(
-            marker in name for marker in ("TOKEN", "SECRET", "PASSWORD", "ACCESS_KEY", "URL")
+            marker in name
+            for marker in ("TOKEN", "SECRET", "PASSWORD", "ACCESS_KEY", "URL")
         ):
             diagnostic = diagnostic.replace(value, "<redacted>")
     with tempfile.NamedTemporaryFile(
@@ -620,14 +629,18 @@ async def _wait_healthy(container_id: str, timeout: float = 100) -> None:
         state = observed.get("State", {})
         if state.get("Running") is not True:
             await _fail_container_readiness(
-                container_id, observed, "standalone container exited before becoming ready"
+                container_id,
+                observed,
+                "standalone container exited before becoming ready",
             )
         health = state.get("Health", {}).get("Status")
         if health == "healthy":
             return
         if health == "unhealthy":
             await _fail_container_readiness(
-                container_id, observed, "standalone container failed its readiness check"
+                container_id,
+                observed,
+                "standalone container failed its readiness check",
             )
         await asyncio.sleep(0.2)
     await _fail_container_readiness(
@@ -655,10 +668,7 @@ def _stop_owned_container(container_id: str, identity: str) -> None:
         and stopped_labels.get(_CONTAINER_ID_LABEL) == identity
         and stopped.get("State", {}).get("Running") is False
         and not stopped.get("State", {}).get("OOMKilled")
-        and (
-            not was_running
-            or stopped.get("State", {}).get("ExitCode") in {0, 143}
-        )
+        and (not was_running or stopped.get("State", {}).get("ExitCode") in {0, 143})
     ):
         pytest.fail("owned acceptance container did not stop normally")
 
@@ -906,11 +916,11 @@ async def _call_native_item_delete(
     bucket,
 ) -> dict:
     async with append_engine.begin() as workflow:
-        if await workflow.scalar(text("SELECT current_user")) != "append_client":
+        if await workflow.scalar(text("SELECT current_user")) != "yoao_append_client":
             pytest.fail("native source deletion did not use the workflow LOGIN")
         result = await workflow.scalar(
             text(
-                "SELECT aap_assets_v1.delete_dataset_item("
+                "SELECT yoao_assets_v1.delete_dataset_item("
                 "CAST(:operation AS uuid), CAST(:actor AS uuid), "
                 "CAST(:dataset AS uuid), CAST(:item AS uuid), :bucket, NULL::jsonb)"
             ),
@@ -945,7 +955,7 @@ async def _call_native_dataset_unlink(
         }
     )
     async with append_engine.begin() as workflow:
-        if await workflow.scalar(text("SELECT current_user")) != "append_client":
+        if await workflow.scalar(text("SELECT current_user")) != "yoao_append_client":
             pytest.fail("native dataset unlink did not use the workflow LOGIN")
         result = await workflow.scalar(
             text(_UNLINK_QUERY),
@@ -1071,11 +1081,11 @@ async def _assert_native_unlink_state(test_engine, fixture: dict) -> None:
 
 async def _set_complete_permission(test_engine, *, enabled: bool) -> None:
     statement = (
-        "GRANT EXECUTE ON FUNCTION aap_assets_v1.complete_storage_deletion(uuid, uuid) "
-        "TO asset_cleanup_client"
+        "GRANT EXECUTE ON FUNCTION yoao_assets_v1.complete_storage_deletion(uuid, uuid) "
+        "TO yoao_asset_cleanup_client"
         if enabled
-        else "REVOKE EXECUTE ON FUNCTION aap_assets_v1.complete_storage_deletion(uuid, uuid) "
-        "FROM asset_cleanup_client"
+        else "REVOKE EXECUTE ON FUNCTION yoao_assets_v1.complete_storage_deletion(uuid, uuid) "
+        "FROM yoao_asset_cleanup_client"
     )
     async with test_engine.begin() as owner:
         await owner.exec_driver_sql(statement)
@@ -1236,7 +1246,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     target_url = test_engine.url
     if not (
         cleanup_url.drivername == "postgresql+asyncpg"
-        and cleanup_url.username == "asset_cleanup_client"
+        and cleanup_url.username == "yoao_asset_cleanup_client"
         and cleanup_url.host == "127.0.0.1"
         and cleanup_url.port == target_url.port
         and cleanup_url.database == target_url.database
@@ -1245,7 +1255,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         and cleanup_url.password
         and not cleanup_url.query
         and append_url.drivername == "postgresql+asyncpg"
-        and append_url.username == "append_client"
+        and append_url.username == "yoao_append_client"
         and append_url.host == "127.0.0.1"
         and append_url.port == target_url.port
         and append_url.database == target_url.database

@@ -29,10 +29,10 @@ pytestmark = [
 ]
 _SETUP = {"name": "lock test", "supported_prompts": ["bbox"]}
 
-_UPSERT_LOCK = "aap_inference_topology_v1.lock_member_upsert_rows("
-_REMOVE_LOCK = "aap_inference_topology_v1.remove_member("
-_DRIFT_LOCK = "aap_inference_topology_v1.lock_drift_acceptance_rows("
-_DELETE_LOCK = "aap_inference_topology_v1.delete_registry("
+_UPSERT_LOCK = "yoao_inference_topology_v1.lock_member_upsert_rows("
+_REMOVE_LOCK = "yoao_inference_topology_v1.remove_member("
+_DRIFT_LOCK = "yoao_inference_topology_v1.lock_drift_acceptance_rows("
+_DELETE_LOCK = "yoao_inference_topology_v1.delete_registry("
 
 
 class PoolGateSession(AsyncSession):
@@ -747,7 +747,7 @@ async def test_workspace_enablement_rejects_membership_changed_while_waiting(
             try:
                 await workspace.scalar(
                     text(
-                        "SELECT aap_inference_v1.enable_workspace_project_backend(:project, :registry)"
+                        "SELECT yoao_inference_v1.enable_workspace_project_backend(:project, :registry)"
                     ),
                     {"project": project_id, "registry": registry_id},
                 )
@@ -865,7 +865,7 @@ async def test_project_enablement_locks_project_before_pool(
         # The existing Workspace operation can take Pool while the writer waits on Project.
         reply = await workspace.scalar(
             text(
-                "SELECT aap_inference_v1.enable_workspace_project_backend(:project, :registry)"
+                "SELECT yoao_inference_v1.enable_workspace_project_backend(:project, :registry)"
             ),
             {"project": project_id, "registry": registry_id},
         )

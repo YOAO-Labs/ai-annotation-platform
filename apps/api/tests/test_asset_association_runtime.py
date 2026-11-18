@@ -229,7 +229,7 @@ async def test_association_container_preserves_policy_projection_and_switching(
     from app.deps import get_db
 
     catalog_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_CATALOG_URL"))
-    assert catalog_url.username == "asset_catalog_client"
+    assert catalog_url.username == "yoao_asset_catalog_client"
     assert catalog_url.database == test_engine.url.database
     _verify_postgres(catalog_url)
     resources = _verified_resource_manifest(test_engine, catalog_url)
@@ -453,7 +453,7 @@ async def test_association_read_keeps_one_snapshot_across_relink_and_revocation(
     from app.db.models.task import Task
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_CATALOG_URL"))
-    assert role_url.username == "asset_catalog_client"
+    assert role_url.username == "yoao_asset_catalog_client"
     _verify_postgres(role_url)
     _verified_resource_manifest(test_engine, role_url)
     seeded = await _seed(test_engine)
@@ -462,13 +462,13 @@ async def test_association_read_keeps_one_snapshot_across_relink_and_revocation(
     read_task = None
     wrapped = False
     lock_key = int(uuid4().hex[:15], 16)
-    function = "aap_labeling_v1.project_dataset_task_counts"
-    original = "aap_labeling_v1._association_snapshot_original_counts"
+    function = "yoao_labeling_v1.project_dataset_task_counts"
+    original = "yoao_labeling_v1._association_snapshot_original_counts"
     try:
         async with test_engine.begin() as owner:
             result_type = await owner.scalar(
                 text(
-                    "SELECT pg_get_function_result(to_regprocedure('aap_labeling_v1.project_dataset_task_counts(uuid)'))"
+                    "SELECT pg_get_function_result(to_regprocedure('yoao_labeling_v1.project_dataset_task_counts(uuid)'))"
                 )
             )
             assert result_type and result_type.startswith("TABLE(")
@@ -505,7 +505,7 @@ async def test_association_read_keeps_one_snapshot_across_relink_and_revocation(
                 async def fetch():
                     result = await reader.scalar(
                         text(
-                            "SELECT aap_assets_v1.list_project_datasets(CAST(:actor AS uuid),CAST(:project AS uuid))"
+                            "SELECT yoao_assets_v1.list_project_datasets(CAST(:actor AS uuid),CAST(:project AS uuid))"
                         ),
                         {"actor": actor, "project": project},
                     )
@@ -607,7 +607,7 @@ async def test_association_read_keeps_one_snapshot_across_relink_and_revocation(
                 }
                 refreshed = await reader.scalar(
                     text(
-                        "SELECT aap_assets_v1.list_project_datasets(CAST(:actor AS uuid),CAST(:project AS uuid))"
+                        "SELECT yoao_assets_v1.list_project_datasets(CAST(:actor AS uuid),CAST(:project AS uuid))"
                     ),
                     {"actor": seeded["actors"]["manager"], "project": project},
                 )

@@ -219,7 +219,7 @@ async def _produce(httpx_client, token, db, world, *, start=1, end=1):
 async def _classifier(db, job_id: uuid.UUID):
     return await db.scalar(
         text(
-            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
             "id,kind,payload,project_id,user_id) "
             "FROM public.async_jobs WHERE id=:id"
         ),
@@ -244,7 +244,7 @@ def _scope_ids(value) -> tuple[uuid.UUID, ...] | None:
 async def _birth_scope(db, *, project_id, actor_id, payload, job_id=None):
     value = await db.scalar(
         text(
-            "SELECT aap_assets_v1.cross_frame_born_dataset_scope("
+            "SELECT yoao_assets_v1.cross_frame_born_dataset_scope("
             ":job,:project,:actor,CAST(:payload AS jsonb))"
         ),
         {
@@ -261,7 +261,7 @@ async def _fence(db, job_id, project_id, actor_id, payload) -> bool:
     return bool(
         await db.scalar(
             text(
-                "SELECT aap_assets_v1.fence_cross_frame_job_dataset_scope("
+                "SELECT yoao_assets_v1.fence_cross_frame_job_dataset_scope("
                 ":job,:project,:actor,CAST(:payload AS jsonb))"
             ),
             {
@@ -836,7 +836,7 @@ async def test_family_scope_functions_stay_private(db_session):
     assets_owner = await db_session.scalar(
         text(
             "SELECT pg_catalog.pg_get_userbyid(proowner) FROM pg_catalog.pg_proc "
-            "WHERE oid='aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)'::regprocedure"
+            "WHERE oid='yoao_assets_v1.fixture_task_dataset_scope(uuid,jsonb)'::regprocedure"
         )
     )
     assert assets_owner
@@ -852,21 +852,21 @@ async def test_family_scope_functions_stay_private(db_session):
                 "p.proconfig "
                 "FROM pg_catalog.pg_proc AS p "
                 "JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace "
-                "WHERE n.nspname = 'aap_assets_v1' "
+                "WHERE n.nspname = 'yoao_assets_v1' "
                 "AND p.proname LIKE '%cross_frame%'"
             )
         )
     ).mappings()
     found = {row["signature"]: row for row in rows}
-    expected = {f"aap_assets_v1.{name}" for name in _FUNCTIONS}
+    expected = {f"yoao_assets_v1.{name}" for name in _FUNCTIONS}
     assert expected <= set(found)
     for signature in expected:
         row = found[signature]
         assert row["owner"] == assets_owner, signature
         if signature in {
-            "aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
-            "aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
-            "aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
+            "yoao_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
         }:
             assert row["prosecdef"] is True, signature
         assert row["public_execute"] is False, signature

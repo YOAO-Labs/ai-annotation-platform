@@ -25,12 +25,12 @@ try {
   await client.query("BEGIN READ ONLY");
   const before = (await client.query("SELECT pg_backend_pid() AS pid,txid_current()::text AS xid"))
     .rows[0];
-  const statement = "SELECT aap_workspace_v1.read_project_row($1::uuid) AS value";
+  const statement = "SELECT yoao_workspace_v1.read_project_row($1::uuid) AS value";
   const row = JSON.parse((await client.query(statement, [input.project_id])).rows[0].value);
   assert.equal(row.id, input.project_id);
   assert.equal(Object.keys(row).length, 44);
   assert.equal((await client.query(statement, [null])).rows[0].value, null);
-  await contender.query("SELECT aap_workspace_v1.lock_project_row($1::uuid,true)", [
+  await contender.query("SELECT yoao_workspace_v1.lock_project_row($1::uuid,true)", [
     input.project_id,
   ]);
   assert.deepEqual(

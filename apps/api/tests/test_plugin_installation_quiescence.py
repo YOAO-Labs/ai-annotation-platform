@@ -74,7 +74,7 @@ async def test_stop_refuses_unretired_tracker_even_after_logical_close(
     scope_id = route["scope_id"]
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes SET state='finished',closed=true "
+            "UPDATE yoao_inference_routing_v1.scopes SET state='finished',closed=true "
             "WHERE id=:scope"
         ),
         {"scope": scope_id},
@@ -88,20 +88,20 @@ async def test_stop_refuses_unretired_tracker_even_after_logical_close(
 
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes SET state='reconciled' "
+            "UPDATE yoao_inference_routing_v1.scopes SET state='reconciled' "
             "WHERE id=:scope"
         ),
         {"scope": scope_id},
     )
     await db_session.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.scope_retirements "
+            "INSERT INTO yoao_inference_routing_v1.scope_retirements "
             "(retirement_id,scope_id,registry_id,authority_epoch,backend_incarnation,"
             "challenge,fence_until,admission_expires_at,transport_identity_sha256,"
             "config_revision,realm,phase) "
             "SELECT :retirement,id,registry_id,authority_epoch,:incarnation,:digest,0,"
             "admission_expires_at,:digest,config_revision,realm,'completed' "
-            "FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+            "FROM yoao_inference_routing_v1.scopes WHERE id=:scope"
         ),
         {
             "retirement": uuid4(),
@@ -117,11 +117,15 @@ async def test_stop_refuses_unretired_tracker_even_after_logical_close(
 
     # Model a pre-migration disabled installation with no physical proof.
     await db_session.execute(
-        text("DELETE FROM aap_inference_routing_v1.scope_retirements WHERE scope_id=:scope"),
+        text(
+            "DELETE FROM yoao_inference_routing_v1.scope_retirements WHERE scope_id=:scope"
+        ),
         {"scope": scope_id},
     )
     await db_session.execute(
-        text("UPDATE aap_inference_routing_v1.scopes SET state='finished' WHERE id=:scope"),
+        text(
+            "UPDATE yoao_inference_routing_v1.scopes SET state='finished' WHERE id=:scope"
+        ),
         {"scope": scope_id},
     )
     rejected = await httpx_client.post(

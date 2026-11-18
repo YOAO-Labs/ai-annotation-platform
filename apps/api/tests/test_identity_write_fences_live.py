@@ -133,8 +133,8 @@ def _append_client_target(test_engine) -> tuple[str, str]:
     from tests.test_asset_storage_cleanup_runtime import _verify_postgres
     from tests.test_module_data_roles import _role_url
 
-    append_url = make_url(_role_url("AAP_MODULE_DATA_APPEND_URL", "append_client"))
-    assert append_url.username == "append_client"
+    append_url = make_url(_role_url("AAP_MODULE_DATA_APPEND_URL", "yoao_append_client"))
+    assert append_url.username == "yoao_append_client"
     assert append_url.host == "127.0.0.1"
     assert append_url.database == test_engine.url.database
     assert append_url.port == test_engine.url.port
@@ -383,7 +383,7 @@ async def test_account_lock_outputs_match_capture_and_execute_only_peer(
                 mode=mode,
                 nowait=True,
             )
-            assert peer["current_user"] == peer["session_user"] == "append_client"
+            assert peer["current_user"] == peer["session_user"] == "yoao_append_client"
             assert peer["database"] == database
             assert peer["raw_user_privileges"] is False
             assert peer["request"]["mode"] == mode

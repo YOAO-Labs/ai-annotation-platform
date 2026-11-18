@@ -23,7 +23,7 @@ class DatasetUnlinkData:
     ) -> object:
         return await self.db.scalar(
             text(
-                "SELECT aap_workspace_v1.preview_dataset_unlink(CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:project AS uuid))"
+                "SELECT yoao_workspace_v1.preview_dataset_unlink(CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:project AS uuid))"
             ),
             {
                 "actor": command.actor_id,
@@ -36,7 +36,7 @@ class DatasetUnlinkData:
         await self.db.flush()
         return await self.db.scalar(
             text(
-                "SELECT aap_workspace_v1.unlink_dataset(CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:project AS uuid), :bucket, CAST(:audit AS jsonb))"
+                "SELECT yoao_workspace_v1.unlink_dataset(CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:dataset AS uuid), CAST(:project AS uuid), :bucket, CAST(:audit AS jsonb))"
             ),
             {
                 "operation": command.operation_id,

@@ -81,7 +81,7 @@ async def test_directory_login_has_only_two_functions_and_no_data_access(test_en
             "SELECT id FROM public.projects LIMIT 1",
             "SELECT id FROM public.project_members LIMIT 1",
             "CREATE TEMP TABLE forbidden_directory_temp(id integer)",
-            "SELECT * FROM aap_identity_v1.workspace_directory_superadmins()",
+            "SELECT * FROM yoao_identity_v1.workspace_directory_superadmins()",
             "SELECT yoao_workspace_project_query_v1.project_query_policy()",
             "SELECT yoao_workspace_directory_query_v1._has_exact_keys('{}',ARRAY[]::text[])",
         ):

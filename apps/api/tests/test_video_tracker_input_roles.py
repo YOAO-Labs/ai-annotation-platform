@@ -35,8 +35,8 @@ async def test_tracker_clients_have_only_their_control_and_worker_operations(
             operation.namespace + "." + name + "(" + ",".join(operation.sql_types) + ")"
         )
         for role, expected in (
-            ("asset_media_control_client", operation.role == "control"),
-            ("asset_media_worker_client", operation.role == "worker"),
+            ("yoao_asset_media_control_client", operation.role == "control"),
+            ("yoao_asset_media_worker_client", operation.role == "worker"),
         ):
             assert await _function_allowed(db_session, role, signature) is expected, (
                 role,
@@ -45,13 +45,13 @@ async def test_tracker_clients_have_only_their_control_and_worker_operations(
 
     # Retention is an internal Labeling projection called by the Assets-owned
     # sweeper; media logins cannot call Labeling directly.
-    referenced = "aap_labeling_v1.video_tracker_input_referenced(uuid)"
+    referenced = "yoao_labeling_v1.video_tracker_input_referenced(uuid)"
     assert await _function_allowed(db_session, "assets_code", referenced)
     assert not await _function_allowed(
-        db_session, "asset_media_worker_client", referenced
+        db_session, "yoao_asset_media_worker_client", referenced
     )
     assert not await _function_allowed(
-        db_session, "asset_media_control_client", referenced
+        db_session, "yoao_asset_media_control_client", referenced
     )
 
 
@@ -77,7 +77,7 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
                 "SELECT pg_catalog.has_any_column_privilege("
                 ":role,:table,'SELECT,INSERT,UPDATE,REFERENCES')"
             ),
-            {"role": "asset_media_control_client", "table": "public." + table},
+            {"role": "yoao_asset_media_control_client", "table": "public." + table},
         ), table
     for table in (
         "asset_accepted_video_inputs",
@@ -95,7 +95,7 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
 
     for operation, definition in c.ASSETS_OPERATIONS.items():
         signature = (
-            "aap_assets_v1." + operation + "(" + ",".join(definition.sql_types) + ")"
+            "yoao_assets_v1." + operation + "(" + ",".join(definition.sql_types) + ")"
         )
         owner = await db_session.scalar(
             text(
@@ -109,7 +109,7 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
 
     for operation in c.LABELING_OPERATIONS:
         signature = (
-            "aap_labeling_v1."
+            "yoao_labeling_v1."
             + operation
             + "("
             + ",".join(c.LABELING_OPERATIONS[operation].sql_types)
@@ -129,7 +129,7 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
     # scope, an admission failure update, and owner-local retention lookup.
     for name, operation in c.LABELING_OPERATIONS.items():
         signature = (
-            "aap_labeling_v1." + name + "(" + ",".join(operation.sql_types) + ")"
+            "yoao_labeling_v1." + name + "(" + ",".join(operation.sql_types) + ")"
         )
         assert await _function_allowed(db_session, "assets_code", signature) is (
             name
@@ -202,7 +202,7 @@ async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_sessio
 async def test_collaboration_policy_is_a_workspace_owned_labeling_projection(
     db_session,
 ):
-    signature = "aap_workspace_v1.read_media_video_collaboration_policy(uuid)"
+    signature = "yoao_workspace_v1.read_media_video_collaboration_policy(uuid)"
     assert (
         await db_session.scalar(
             text(
@@ -216,8 +216,8 @@ async def test_collaboration_policy_is_a_workspace_owned_labeling_projection(
     for role, expected in (
         ("labeling_code", True),
         ("assets_code", False),
-        ("asset_media_control_client", False),
-        ("asset_media_worker_client", False),
+        ("yoao_asset_media_control_client", False),
+        ("yoao_asset_media_worker_client", False),
     ):
         assert await _function_allowed(db_session, role, signature) is expected
     assert not await db_session.scalar(

@@ -282,7 +282,7 @@ async def _installed_configuration_provider(
             "WORKSPACE_CONFIGURATION_DATABASE_URL_FILE",
             "configuration",
             configuration_dsn(test_engine),
-            "workspace_configuration_client",
+            "yoao_workspace_configuration_client",
         ),
         (
             "WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE",

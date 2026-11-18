@@ -114,7 +114,7 @@ async def _source_stack(test_engine, app_module, monkeypatch):
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
     assert (
-        role_url.username == "asset_source_client"
+        role_url.username == "yoao_asset_source_client"
         and role_url.database == test_engine.url.database
     )
     _verify_postgres(role_url)
@@ -317,7 +317,7 @@ async def _assert_source_authority_boundary(test_engine, world):
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_APPEND_URL"))
     assert (
-        role_url.username == "append_client"
+        role_url.username == "yoao_append_client"
         and role_url.host == "127.0.0.1"
         and role_url.port == test_engine.url.port
         and role_url.database == test_engine.url.database
@@ -355,7 +355,7 @@ async def _assert_source_authority_boundary(test_engine, world):
                 await observer.rollback()
             for statement in (
                 "SELECT id FROM public.datasets LIMIT 1",
-                "SELECT aap_assets_v1._dataset_ingest_publication_authority("
+                "SELECT yoao_assets_v1._dataset_ingest_publication_authority("
                 "NULL::uuid, NULL::uuid, NULL::jsonb, NULL::text)",
             ):
                 with pytest.raises(DBAPIError) as denied:
@@ -742,8 +742,8 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
         initialized = await _initialize(stack, world.dataset_id)
         item, operation = initialized["item_id"], uuid4()
         await _put(initialized["upload_url"], _picture())
-        function = "aap_assets_v1.complete_dataset_upload"
-        original = "aap_assets_v1._source_acceptance_original_complete"
+        function = "yoao_assets_v1.complete_dataset_upload"
+        original = "yoao_assets_v1._source_acceptance_original_complete"
         signature = "uuid,uuid,uuid,uuid,bigint,text,integer,integer"
         lock_key = int(uuid4().hex[:15], 16)
         gate = await test_engine.connect()
@@ -755,7 +755,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                     f"ALTER FUNCTION {function}({signature}) RENAME TO _source_acceptance_original_complete"
                 )
                 await owner.exec_driver_sql(
-                    f"REVOKE EXECUTE ON FUNCTION {original}({signature}) FROM asset_source_client"
+                    f"REVOKE EXECUTE ON FUNCTION {original}({signature}) FROM yoao_asset_source_client"
                 )
                 await owner.exec_driver_sql(
                     f"CREATE FUNCTION {function}(p_actor uuid,p_dataset uuid,p_item uuid,p_publication uuid,p_size bigint,p_hash text,p_width integer,p_height integer) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$ BEGIN PERFORM pg_advisory_xact_lock({lock_key}); RETURN {original}(p_actor,p_dataset,p_item,p_publication,p_size,p_hash,p_width,p_height); END $$"
@@ -767,7 +767,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                     f"ALTER FUNCTION {function}({signature}) OWNER TO assets_code"
                 )
                 await owner.exec_driver_sql(
-                    f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO asset_source_client"
+                    f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO yoao_asset_source_client"
                 )
             wrapped = True
             await gate.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock_key})
@@ -783,7 +783,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                 async with test_engine.connect() as observer:
                     waiting = await observer.scalar(
                         text(
-                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='asset_source_client' AND wait_event='advisory')"
+                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='yoao_asset_source_client' AND wait_event='advisory')"
                         )
                     )
                 if waiting:
@@ -812,7 +812,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                 async with test_engine.connect() as observer:
                     active = await observer.scalar(
                         text(
-                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='asset_source_client')"
+                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='yoao_asset_source_client')"
                         )
                     )
                 if not active:
@@ -897,5 +897,5 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                         f"ALTER FUNCTION {original}({signature}) RENAME TO complete_dataset_upload"
                     )
                     await owner.exec_driver_sql(
-                        f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO asset_source_client"
+                        f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO yoao_asset_source_client"
                     )

@@ -238,7 +238,7 @@ async def _configuration_image_container(test_engine, directory: Path, token: st
 
     dsn = configuration_dsn(test_engine)
     parsed = make_url(dsn)
-    assert parsed.username == "workspace_configuration_client"
+    assert parsed.username == "yoao_workspace_configuration_client"
     container_dsn = parsed.set(host="host.docker.internal").render_as_string(
         hide_password=False
     )

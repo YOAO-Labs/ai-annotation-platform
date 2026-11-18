@@ -77,7 +77,7 @@ def _offboarding_dsn(test_engine=None, database: str | None = None) -> str:
         pytest.skip("Identity offboarding client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_offboarding_client"
+    assert parsed.username == "yoao_identity_offboarding_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     if database is not None:
         parsed = parsed.set(database=database)
@@ -205,16 +205,18 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
     ):
         assert signature in compact_migration
     assert (
-        "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)" in role_grants
+        "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)" in role_grants
     )
-    assert "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)" in role_grants
-    assert "identity_offboarding_client" in role_grants
+    assert (
+        "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)" in role_grants
+    )
+    assert "yoao_identity_offboarding_client" in role_grants
     assert "identity_offboarding_operation_receipts" in module_grants
     assert 'GRANT SELECT ON public.projects TO :"identity_owner"' not in module_grants
     assert (
-        "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)" in lan_grants
+        "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)" in lan_grants
     )
-    assert '"OFFBOARDING": "identity_offboarding_client"' in verifier
+    assert '"OFFBOARDING": "yoao_identity_offboarding_client"' in verifier
     assert "raw preview version" in support
     assert "status = 'offline'" in artifact
     assert "retire_account_credentials(v_target_user_id)" in artifact
@@ -225,7 +227,7 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
         "INSERTINTOpublic.identity_offboarding_operation_receipts"
     )
     clear_binding = compact_artifact.index(
-        "PERFORMpg_catalog.set_config('aap.identity_offboarding_prepare','',true);"
+        "PERFORMpg_catalog.set_config('yoao.identity_offboarding_prepare','',true);"
     )
     assert receipt_insert < clear_binding
 

@@ -88,7 +88,7 @@ def test_0221_native_functions_are_granted_only_to_frozen_profiles():
         (ROOT / "infra/docker/module-data-grants.sql").read_text().replace(", ", ",")
     )
     expected = {
-        name: f"aap_assets_v1.{name}({arguments})"
+        name: f"yoao_assets_v1.{name}({arguments})"
         for name, (_role, arguments) in OPERATIONS.items()
     }
     for name in (
@@ -107,8 +107,8 @@ def test_0221_native_functions_are_granted_only_to_frozen_profiles():
     ):
         assert expected[name] in image
     assert expected["lock_accepted_image_input"] in modules
-    assert "aap_labeling_v1.attach_annotation_input_source(uuid,uuid,text)" in modules
-    assert "aap_labeling_v1.copy_annotation_input_sources(uuid,uuid)" in modules
+    assert "yoao_labeling_v1.attach_annotation_input_source(uuid,uuid,text)" in modules
+    assert "yoao_labeling_v1.copy_annotation_input_sources(uuid,uuid)" in modules
     assert 'ON public.annotation_input_sources TO :"workflow_role"' not in modules
     for name in ("claim_accepted_input_garbage", "complete_accepted_input_garbage"):
         assert expected[name] in modules

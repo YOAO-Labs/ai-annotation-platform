@@ -140,7 +140,7 @@ async def test_root_registration_refuses_changed_owner_and_cleanup_login(test_en
                 with pytest.raises(DBAPIError) as error:
                     await db.execute(
                         text(
-                            "SELECT aap_labeling_v1.register_tracker_running_mask_root(CAST(:payload AS jsonb))"
+                            "SELECT yoao_labeling_v1.register_tracker_running_mask_root(CAST(:payload AS jsonb))"
                         ),
                         {
                             "payload": json.dumps(

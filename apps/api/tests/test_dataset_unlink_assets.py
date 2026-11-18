@@ -19,16 +19,16 @@ from app.db.models.user import User
 pytestmark = pytest.mark.asyncio
 
 _ITEM_REFERENCES = text(
-    "SELECT item_id FROM aap_assets_v1.dataset_item_references(:dataset_id, :item_id)"
+    "SELECT item_id FROM yoao_assets_v1.dataset_item_references(:dataset_id, :item_id)"
 ).bindparams(
     bindparam("dataset_id", type_=PGUUID(as_uuid=True)),
     bindparam("item_id", type_=PGUUID(as_uuid=True)),
 )
 _SCENE_REFERENCES = text(
-    "SELECT scene_id FROM aap_assets_v1.dataset_scene_references(:dataset_id)"
+    "SELECT scene_id FROM yoao_assets_v1.dataset_scene_references(:dataset_id)"
 ).bindparams(bindparam("dataset_id", type_=PGUUID(as_uuid=True)))
 _REMOVE_ASSOCIATION = text(
-    "SELECT aap_assets_v1.remove_dataset_association("
+    "SELECT yoao_assets_v1.remove_dataset_association("
     ":dataset_id, :project_id, :association_id)"
 ).bindparams(
     bindparam("dataset_id", type_=PGUUID(as_uuid=True)),
@@ -36,7 +36,7 @@ _REMOVE_ASSOCIATION = text(
     bindparam("association_id", type_=PGUUID(as_uuid=True)),
 )
 _PREPARE_CLEANUP = text(
-    "SELECT aap_assets_v1.prepare_dataset_unlink_cleanup("
+    "SELECT yoao_assets_v1.prepare_dataset_unlink_cleanup("
     ":operation_id, :dataset_id, :project_id, :bucket)"
 ).bindparams(
     bindparam("operation_id", type_=PGUUID(as_uuid=True)),
@@ -44,13 +44,13 @@ _PREPARE_CLEANUP = text(
     bindparam("project_id", type_=PGUUID(as_uuid=True)),
 )
 _PENDING_DELETIONS = text(
-    "SELECT * FROM aap_assets_v1.pending_storage_deletions(:operation_id, :limit)"
+    "SELECT * FROM yoao_assets_v1.pending_storage_deletions(:operation_id, :limit)"
 ).bindparams(
     bindparam("operation_id", type_=PGUUID(as_uuid=True)),
     bindparam("limit"),
 )
 _COMPLETE_DELETION = text(
-    "SELECT aap_assets_v1.complete_storage_deletion(:operation_id, :asset_id)"
+    "SELECT yoao_assets_v1.complete_storage_deletion(:operation_id, :asset_id)"
 ).bindparams(
     bindparam("operation_id", type_=PGUUID(as_uuid=True)),
     bindparam("asset_id", type_=PGUUID(as_uuid=True)),

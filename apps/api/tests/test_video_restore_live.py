@@ -78,9 +78,9 @@ pytestmark = [
     ),
 ]
 
-_WRITER_ROLE = "labeling_video_writer_client"
-_VIDEO_EXECUTION_ROLE = "video_execution_client"
-_ROUTING_ROLE = "inference_routing_client"
+_WRITER_ROLE = "yoao_labeling_video_writer_client"
+_VIDEO_EXECUTION_ROLE = "yoao_video_execution_client"
+_ROUTING_ROLE = "yoao_inference_routing_client"
 
 
 class _RequestCounter:
@@ -190,7 +190,7 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
                         "SELECT run_id::text,plan_digest,"
                         "plan_document::text AS plan_document,"
                         "writer_terminal,writer_terminal_outcome,execution_retired "
-                        "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                        "FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -203,7 +203,7 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
                 await connection.execute(
                     text(
                         "SELECT run_id::text,worker_id::text,generation,state,realm,"
-                        "route_request_id::text FROM aap_jobs_v1.video_executions "
+                        "route_request_id::text FROM yoao_jobs_v1.video_executions "
                         "WHERE job_id=:job"
                     ),
                     {"job": job_id},
@@ -218,7 +218,7 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
                     text(
                         "SELECT window_ordinal,checkpoint_id,manifest_digest,"
                         "manifest::text AS manifest FROM "
-                        "aap_jobs_v1.video_execution_windows WHERE job_id=:job "
+                        "yoao_jobs_v1.video_execution_windows WHERE job_id=:job "
                         "ORDER BY window_ordinal"
                     ),
                     {"job": job_id},
@@ -232,7 +232,7 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
                 await connection.execute(
                     text(
                         "SELECT window_ordinal,part_index,part_digest,part_bytes "
-                        "FROM aap_jobs_v1.video_execution_window_parts "
+                        "FROM yoao_jobs_v1.video_execution_window_parts "
                         "WHERE job_id=:job "
                         "ORDER BY window_ordinal,part_index"
                     ),
@@ -249,9 +249,9 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
                         "SELECT request_id::text,scope_id::text,generation,"
                         "command_sha256,state,realm,public.pgp_sym_decrypt("
                         "command_ciphertext,pg_catalog.encode("
-                        "(SELECT secret FROM aap_jobs_v1.video_execution_authority "
+                        "(SELECT secret FROM yoao_jobs_v1.video_execution_authority "
                         "WHERE singleton),'hex')) AS command "
-                        "FROM aap_jobs_v1.video_execution_route_intents "
+                        "FROM yoao_jobs_v1.video_execution_route_intents "
                         "WHERE request_id=:request"
                     ),
                     {"request": request_id},
@@ -268,7 +268,7 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
             await connection.execute(
                 text(
                     "SELECT to_jsonb(receipt)::text FROM "
-                    "aap_inference_routing_v1.command_receipts AS receipt "
+                    "yoao_inference_routing_v1.command_receipts AS receipt "
                     "WHERE id=:request"
                 ),
                 {"request": request_id},
@@ -279,7 +279,7 @@ async def _native_snapshot(engine, job_id: uuid.UUID, request_id: uuid.UUID) -> 
                 await connection.execute(
                     text(
                         "SELECT id::text,registry_id::text,authority_epoch::text,"
-                        "realm,state,closed FROM aap_inference_routing_v1.scopes "
+                        "realm,state,closed FROM yoao_inference_routing_v1.scopes "
                         "WHERE id=:scope"
                     ),
                     {"scope": route_intent["scope_id"]},
@@ -533,7 +533,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         old_incarnation = str(backend_controller.backend_incarnation)
         source_routing_state = await owner.fetchrow(
             "SELECT authority_epoch::text,backend_incarnation::text "
-            "FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1",
+            "FROM yoao_inference_routing_v1.registry_state WHERE registry_id=$1",
             registry_id,
         )
         assert source_routing_state["authority_epoch"] == old_backend_epoch
@@ -612,7 +612,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             assert (
                 await connection.scalar(
                     text(
-                        "SELECT count(*) FROM aap_inference_routing_v1.scopes "
+                        "SELECT count(*) FROM yoao_inference_routing_v1.scopes "
                         "WHERE id=:id"
                     ),
                     {"id": post_backup_scope.id},
@@ -655,7 +655,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         try:
             policy = _json_value(
                 await barrier_connection.fetchval(
-                    "SELECT aap_jobs_v1.video_execution_step('policy','{}')"
+                    "SELECT yoao_jobs_v1.video_execution_step('policy','{}')"
                 )
             )
             assert policy["ready"] is False
@@ -723,7 +723,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             await connection.execute(
                 text(
                     "CREATE TRIGGER video_restore_test_fail_registry_update "
-                    "BEFORE UPDATE ON aap_inference_routing_v1.registry_state "
+                    "BEFORE UPDATE ON yoao_inference_routing_v1.registry_state "
                     "FOR EACH ROW EXECUTE FUNCTION "
                     "public.video_restore_test_fail_registry_update()"
                 )
@@ -760,7 +760,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             await connection.execute(
                 text(
                     "DROP TRIGGER video_restore_test_fail_registry_update "
-                    "ON aap_inference_routing_v1.registry_state"
+                    "ON yoao_inference_routing_v1.registry_state"
                 )
             )
             await connection.execute(
@@ -788,7 +788,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             assert (
                 await connection.scalar(
                     text(
-                        "SELECT aap_inference_routing_v1.video_execution_scope_retired("
+                        "SELECT yoao_inference_routing_v1.video_execution_scope_retired("
                         "CAST(:scope AS uuid))"
                     ),
                     {"scope": old_scope_id},
@@ -807,7 +807,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             assert (
                 await connection.scalar(
                     text(
-                        "SELECT aap_inference_routing_v1.video_execution_scope_retired("
+                        "SELECT yoao_inference_routing_v1.video_execution_scope_retired("
                         "CAST(:scope AS uuid))"
                     ),
                     {"scope": old_scope_id},
@@ -875,7 +875,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
                     await db.execute(
                         text(
                             "SELECT plan_document FROM "
-                            "aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                            "yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
                         ),
                         {"job": job.id},
                     )
@@ -934,7 +934,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
                         text(
                             "SELECT window_ordinal,manifest_digest,"
                             "manifest::text AS manifest "
-                            "FROM aap_jobs_v1.video_execution_windows WHERE job_id=:job "
+                            "FROM yoao_jobs_v1.video_execution_windows WHERE job_id=:job "
                             "ORDER BY window_ordinal"
                         ),
                         {"job": job.id},
@@ -948,7 +948,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
                     await connection.execute(
                         text(
                             "SELECT window_ordinal,part_index,part_digest,part_bytes "
-                            "FROM aap_jobs_v1.video_execution_window_parts "
+                            "FROM yoao_jobs_v1.video_execution_window_parts "
                             "WHERE job_id=:job "
                             "ORDER BY window_ordinal,part_index"
                         ),
@@ -962,7 +962,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
                 await connection.execute(
                     text(
                         "SELECT to_jsonb(receipt)::text FROM "
-                        "aap_labeling_v1.video_writer_receipts AS receipt "
+                        "yoao_labeling_v1.video_writer_receipts AS receipt "
                         "WHERE job_id=:job"
                     ),
                     {"job": job.id},

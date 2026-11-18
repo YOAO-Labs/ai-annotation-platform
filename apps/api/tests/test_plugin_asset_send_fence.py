@@ -169,12 +169,12 @@ server.serve_forever()
             json.dumps(health),
         )
         await owner.fetchval(
-            "SELECT aap_inference_topology_v1.set_plugin_asset_approval($1,0,$2::text)",
+            "SELECT yoao_inference_topology_v1.set_plugin_asset_approval($1,0,$2::text)",
             registry_id,
             json.dumps(decision),
         )
         await owner.execute(
-            "UPDATE aap_inference_routing_v1.registry_state SET continuity='ready', "
+            "UPDATE yoao_inference_routing_v1.registry_state SET continuity='ready', "
             "backend_incarnation=gen_random_uuid() WHERE registry_id=$1",
             registry_id,
         )
@@ -260,14 +260,14 @@ server.serve_forever()
             await asyncio.wait_for(entered.wait(), timeout=10)
             if wait_stage == "route":
                 prepared = await owner.fetchrow(
-                    "SELECT state, dispatch_state FROM aap_inference_routing_v1.attempts "
+                    "SELECT state, dispatch_state FROM yoao_inference_routing_v1.attempts "
                     "WHERE id=$1",
                     request_id,
                 )
                 assert tuple(prepared) == ("active", "prepared")
             revoked = {**decision, "expected_revision": 1, "approved": []}
             await owner.fetchval(
-                "SELECT aap_inference_topology_v1.set_plugin_asset_approval($1,1,$2::text)",
+                "SELECT yoao_inference_topology_v1.set_plugin_asset_approval($1,1,$2::text)",
                 registry_id,
                 json.dumps(revoked),
             )
@@ -279,7 +279,7 @@ server.serve_forever()
             assert not counter.exists()
             assert process.returncode is None
             row = await owner.fetchrow(
-                "SELECT state FROM aap_inference_routing_v1.attempts WHERE id=$1",
+                "SELECT state FROM yoao_inference_routing_v1.attempts WHERE id=$1",
                 request_id,
             )
             assert row is not None and row["state"] == "not_sent"

@@ -28,17 +28,17 @@ from yoao_workspace.config import secret_source
 from app.config import settings
 
 _ENDPOINT_CAPTURE = text(
-    "SELECT aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
+    "SELECT yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
     "CAST(:registry_id AS uuid),CAST(:request_id AS uuid),CAST(:purpose AS text),"
     "CAST(:binding_json AS text))"
 )
 _CAPTURE = text(
-    "SELECT aap_inference_health_observation_v1.capture_health_observation_subject("
+    "SELECT yoao_inference_health_observation_v1.capture_health_observation_subject("
     "CAST(:registry_id AS uuid),CAST(:request_id AS uuid),CAST(:backend_json AS text),"
     "CAST(:challenge AS text),CAST(:timeout AS double precision))"
 )
 _VERIFY = text(
-    "SELECT aap_inference_health_observation_v1.verify_health_observation("
+    "SELECT yoao_inference_health_observation_v1.verify_health_observation("
     "CAST(:subject AS text),CAST(:registry_id AS uuid),CAST(:request_id AS uuid),"
     "CAST(:evidence AS text))"
 )

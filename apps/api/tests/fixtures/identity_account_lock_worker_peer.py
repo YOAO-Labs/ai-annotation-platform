@@ -33,7 +33,7 @@ def main():
 
     def capture(_conn, _cursor, statement, *_args):
         for capability in ("read_actor_facts", "lock_accounts_share"):
-            if f"aap_identity_v1.{capability}(" in statement:
+            if f"yoao_identity_v1.{capability}(" in statement:
                 with trace.open("a", encoding="utf-8") as output:
                     output.write(json.dumps({"capability": capability}) + "\n")
 

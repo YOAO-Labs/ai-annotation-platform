@@ -57,7 +57,7 @@ class IdentityAccountCommandData:
             return _json_value(
                 await self.db.scalar(
                     text(
-                        f"SELECT aap_identity_accounts_v1.{function}(CAST(:command AS jsonb))"
+                        f"SELECT yoao_identity_accounts_v1.{function}(CAST(:command AS jsonb))"
                     ),
                     {
                         "command": json.dumps(
@@ -118,7 +118,7 @@ class IdentityPresenceCommandData:
             await self.db.flush()
             affected = await self.db.scalar(
                 text(
-                    "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline(:cutoff)"
+                    "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline(:cutoff)"
                 ),
                 {"cutoff": cutoff},
             )

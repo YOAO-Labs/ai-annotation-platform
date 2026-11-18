@@ -122,7 +122,9 @@ async def _assert_startup_rejected(container: str) -> None:
 
 
 @asynccontextmanager
-async def _lost_response_proxy(origin: str, *, after_physical_return: Path | None = None):
+async def _lost_response_proxy(
+    origin: str, *, after_physical_return: Path | None = None
+):
     """Drop a real response after a committed reply or an explicit physical-I/O gate."""
     address = httpx.URL(origin)
     handlers = set()
@@ -146,6 +148,7 @@ async def _lost_response_proxy(origin: str, *, after_physical_return: Path | Non
             if after_physical_return is None:
                 assert await asyncio.wait_for(upstream_reader.read(1), timeout=15)
             else:
+
                 async def wait_for_physical_return():
                     while not after_physical_return.exists():
                         await asyncio.sleep(0.01)
@@ -213,7 +216,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
     from app.services.storage import storage_service
 
     catalog_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_CATALOG_URL"))
-    assert catalog_url.username == "asset_catalog_client"
+    assert catalog_url.username == "yoao_asset_catalog_client"
     assert catalog_url.host == "127.0.0.1"
     assert catalog_url.database == test_engine.url.database
     _verify_postgres(catalog_url)
@@ -504,7 +507,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
 
             async with test_engine.begin() as owner:
                 await owner.execute(
-                    text("GRANT asset_catalog_client TO legacy_runtime")
+                    text("GRANT yoao_asset_catalog_client TO legacy_runtime")
                 )
             membership_granted = True
             values["ASSETS_CATALOG_DATABASE_URL"] = _container_database_url(catalog_url)
@@ -528,7 +531,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
         if membership_granted:
             async with test_engine.begin() as owner:
                 await owner.execute(
-                    text("REVOKE asset_catalog_client FROM legacy_runtime")
+                    text("REVOKE yoao_asset_catalog_client FROM legacy_runtime")
                 )
         if actor_id is not None:
             await _cleanup_rows(test_engine, actor_id)

@@ -41,8 +41,8 @@ pytestmark = [
 
 ROOT = Path(__file__).resolve().parents[3]
 PROBE = ROOT / "apps/api/tests/fixtures/media_seed_identity_probe.py"
-_READ_PROVISIONING = "aap_identity_v1.read_provisioning_account(text)"
-_CREATE_PERSONA = "aap_identity_v1.create_seed_persona_account(jsonb)"
+_READ_PROVISIONING = "yoao_identity_v1.read_provisioning_account(text)"
+_CREATE_PERSONA = "yoao_identity_v1.create_seed_persona_account(jsonb)"
 _IDENTITY_OPERATOR_FUNCTIONS = {
     *_IDENTITY_CONSUMER_FUNCTIONS,
     _READ_PROVISIONING,
@@ -145,13 +145,13 @@ async def _assert_media_identity_profile(test_engine) -> None:
                 )
                 == 0
             )
-            assert await _function_set(db, "legacy_runtime", "aap_identity_v1") == (
+            assert await _function_set(db, "legacy_runtime", "yoao_identity_v1") == (
                 _IDENTITY_OPERATOR_FUNCTIONS
             )
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_table_privilege(current_user, "
-                    "'aap_identity_v1.account_profiles', 'SELECT')"
+                    "'yoao_identity_v1.account_profiles', 'SELECT')"
                 )
             )
             assert not await db.scalar(
@@ -184,7 +184,7 @@ async def _assert_media_identity_profile(test_engine) -> None:
 
     async with test_engine.connect() as db:
         assert await _function_set(
-            db, "identity_api_consumer", "aap_identity_v1"
+            db, "identity_api_consumer", "yoao_identity_v1"
         ) == set(_IDENTITY_CONSUMER_FUNCTIONS)
         for signature in (_READ_PROVISIONING, _CREATE_PERSONA):
             assert not await db.scalar(

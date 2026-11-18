@@ -20,11 +20,11 @@ from app.db.models.project_member import ProjectMember
 from app.services.project_workspace import merge_project_snapshot
 
 _LOCK_PROJECT_MEMBER_REFERENCE = text(
-    "SELECT aap_workspace_v1.lock_project_member_reference("
+    "SELECT yoao_workspace_v1.lock_project_member_reference("
     "CAST(:project_id AS uuid), CAST(:user_id AS uuid), CAST(:nowait AS boolean))"
 )
 _PROJECT_MEMBER_ROWS = text(
-    "SELECT aap_workspace_v1.project_member_rows("
+    "SELECT yoao_workspace_v1.project_member_rows("
     "CAST(:project_id AS uuid), CAST(:user_ids AS uuid[]), "
     "CAST(:lock_members AS boolean))"
 )

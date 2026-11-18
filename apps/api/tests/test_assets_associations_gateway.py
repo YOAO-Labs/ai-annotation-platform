@@ -116,7 +116,7 @@ async def test_dataset_projects_local_call_uses_actor_and_parent_scope():
 
     assert result.dataset_id == dataset_id
     sql, params = db.execute.await_args.args
-    assert "aap_assets_v1.list_dataset_projects" in str(sql)
+    assert "yoao_assets_v1.list_dataset_projects" in str(sql)
     assert params == {"actor_id": actor_id, "dataset_id": dataset_id}
 
 
@@ -149,7 +149,7 @@ async def test_project_datasets_local_call_uses_current_actor_and_scope():
 
     assert result.datasets[0].linked_at == linked_at
     sql, params = db.execute.await_args.args
-    assert "aap_assets_v1.list_project_datasets" in str(sql)
+    assert "yoao_assets_v1.list_project_datasets" in str(sql)
     assert params == {"actor_id": actor_id, "project_id": project_id}
 
 

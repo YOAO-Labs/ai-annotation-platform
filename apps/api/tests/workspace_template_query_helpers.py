@@ -89,7 +89,9 @@ async def template_query_provider(dsn, token, *, configuration_dsn=None):
         }
         if configuration_dsn is not None:
             parsed_configuration = make_url(configuration_dsn)
-            assert parsed_configuration.username == "workspace_configuration_client"
+            assert (
+                parsed_configuration.username == "yoao_workspace_configuration_client"
+            )
             assert (
                 parsed_configuration.host,
                 parsed_configuration.port,

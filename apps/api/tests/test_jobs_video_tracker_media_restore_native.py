@@ -101,7 +101,7 @@ async def test_video_runtime_starts_against_identity_restore_clone(
                 VideoRestorePostgresProvider(
                     _clone_role_dsn(
                         "AAP_MODULE_DATA_VIDEO_RESTORE_URL",
-                        "video_restore_operator_client",
+                        "yoao_video_restore_operator_client",
                         database_name,
                     )
                 )

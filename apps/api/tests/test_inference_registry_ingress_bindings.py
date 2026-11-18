@@ -38,7 +38,7 @@ pytestmark = [
 async def _receipt_ids(owner):
     return set(
         await owner.fetchval(
-            "SELECT COALESCE(array_agg(request_id),ARRAY[]::uuid[]) FROM aap_inference_registry_ingress_v1.env_sync_receipts"
+            "SELECT COALESCE(array_agg(request_id),ARRAY[]::uuid[]) FROM yoao_inference_registry_ingress_v1.env_sync_receipts"
         )
     )
 
@@ -172,7 +172,7 @@ async def test_actual_process_lost_reply_recovers_receipt_without_second_command
                 )
                 assert (
                     await owner.fetchval(
-                        "SELECT count(*) FROM aap_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
+                        "SELECT count(*) FROM yoao_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
                         request_id,
                     )
                     == 1
@@ -218,7 +218,7 @@ async def test_actual_process_failed_batch_has_no_partial_rows_or_success_receip
             )
             assert (
                 await owner.fetchval(
-                    "SELECT count(*) FROM aap_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
+                    "SELECT count(*) FROM yoao_inference_registry_ingress_v1.env_sync_receipts WHERE request_id=$1",
                     request_id,
                 )
                 == 0

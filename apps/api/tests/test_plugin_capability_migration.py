@@ -312,7 +312,7 @@ async def test_terminal_drain_migration_refuses_unresolved_downgrade(db_session,
         migration.op = Operations(MigrationContext.configure(connection))
         connection.execute(
             text("""
-                INSERT INTO aap_inference_routing_v1.controls
+                INSERT INTO yoao_inference_routing_v1.controls
                     (id, registry_id, kind, phase, challenge, config_revision, realm)
                 VALUES (:control, :registry, 'unload', 'prepared', repeat('c', 64), 1, 'test')
             """),
@@ -320,7 +320,7 @@ async def test_terminal_drain_migration_refuses_unresolved_downgrade(db_session,
         )
         connection.execute(
             text("""
-                INSERT INTO aap_inference_routing_v1.control_attempts
+                INSERT INTO yoao_inference_routing_v1.control_attempts
                     (id, control_id, method, path, transport_identity_sha256, state)
                 VALUES (:attempt, :control, 'POST', '/lifecycle/terminal-drain',
                         repeat('a', 64), :state)
@@ -332,7 +332,7 @@ async def test_terminal_drain_migration_refuses_unresolved_downgrade(db_session,
                 migration.downgrade()
         connection.execute(
             text("""
-                UPDATE aap_inference_routing_v1.control_attempts
+                UPDATE yoao_inference_routing_v1.control_attempts
                 SET state='response', status_code=200 WHERE id=:attempt
             """),
             {"attempt": attempt_id},

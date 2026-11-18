@@ -55,7 +55,11 @@ class SqlAlchemyImageDatabase:
     """One published native call; composition can retain its outer transaction."""
 
     def __init__(
-        self, db: AsyncSession, *, commit: bool = True, source_connection_pinned: bool = False
+        self,
+        db: AsyncSession,
+        *,
+        commit: bool = True,
+        source_connection_pinned: bool = False,
     ):
         self.db = db
         self.commit = commit
@@ -84,26 +88,43 @@ class SqlAlchemyImageDatabase:
         try:
             await self.db.flush()
             scope = nullcontext()
-            if operation in {"begin_image_original_worker", "claim_image_media", "advance_image_backfill"} and self.commit and os.environ.get(
-                "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+            if (
+                operation
+                in {
+                    "begin_image_original_worker",
+                    "claim_image_media",
+                    "advance_image_backfill",
+                }
+                and self.commit
+                and os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE")
             ):
                 if not self.source_connection_pinned:
                     raise c.ImageFailure("storage_unavailable")
-                from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+                from yoao_assets_media_runtime.fixture_native_outputs import (
+                    claim_admission,
+                    scan_admission,
+                    source_admission,
+                )
 
                 connection = await self.db.connection()
                 raw_connection = await connection.get_raw_connection()
                 if operation == "begin_image_original_worker":
-                    scope = source_admission(raw_connection.driver_connection, "image", request)
+                    scope = source_admission(
+                        raw_connection.driver_connection, "image", request
+                    )
                 elif operation == "claim_image_media":
-                    scope = claim_admission(raw_connection.driver_connection, "image", request)
+                    scope = claim_admission(
+                        raw_connection.driver_connection, "image", request
+                    )
                 else:
-                    scope = scan_admission(raw_connection.driver_connection, "image", request)
+                    scope = scan_admission(
+                        raw_connection.driver_connection, "image", request
+                    )
             async with scope:
                 async with self.db.begin_nested():
                     raw = (
                         await self.db.execute(
-                            text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
+                            text(f"SELECT yoao_assets_v1.{operation}({placeholders})"),
                             parameters,
                         )
                     ).scalar_one()
@@ -144,9 +165,11 @@ class _IndependentImageDatabase:
         from app.db.base import async_session
 
         factory = self.session_factory or async_session
-        if operation in {"begin_image_original_worker", "claim_image_media", "advance_image_backfill"} and os.environ.get(
-            "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
-        ):
+        if operation in {
+            "begin_image_original_worker",
+            "claim_image_media",
+            "advance_image_backfill",
+        } and os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"):
             async with factory() as template:
                 if not isinstance(template.bind, AsyncEngine):
                     raise c.ImageFailure("storage_unavailable")
@@ -179,9 +202,7 @@ def _native_storage_client(prefix: str):
         value = getattr(settings, name.lower())
         if value:
             environment[name] = value
-    config = load_native_storage_config(
-        environment, f"{prefix}_URL", f"{prefix}_TOKEN"
-    )
+    config = load_native_storage_config(environment, f"{prefix}_URL", f"{prefix}_TOKEN")
     if config is None:
         return None
     return NativePyramidStorageClient(config.url, config.token)

@@ -79,11 +79,11 @@ def _native_psql(
     sql = """\
 BEGIN;
 SELECT current_user || '|' || session_user || '|' || current_database();
-SELECT pg_catalog.has_schema_privilege(session_user, 'aap_assets_v1', 'USAGE')::text
-    || '|' || pg_catalog.has_schema_privilege(session_user, 'aap_identity_v1', 'USAGE')::text
-    || '|' || pg_catalog.has_schema_privilege(session_user, 'aap_settings_v1', 'USAGE')::text
-    || '|' || pg_catalog.has_schema_privilege(session_user, 'aap_audit_v1', 'USAGE')::text
-    || '|' || pg_catalog.has_schema_privilege(session_user, 'aap_assets_v1', 'CREATE')::text
+SELECT pg_catalog.has_schema_privilege(session_user, 'yoao_assets_v1', 'USAGE')::text
+    || '|' || pg_catalog.has_schema_privilege(session_user, 'yoao_identity_v1', 'USAGE')::text
+    || '|' || pg_catalog.has_schema_privilege(session_user, 'yoao_settings_v1', 'USAGE')::text
+    || '|' || pg_catalog.has_schema_privilege(session_user, 'yoao_audit_v1', 'USAGE')::text
+    || '|' || pg_catalog.has_schema_privilege(session_user, 'yoao_assets_v1', 'CREATE')::text
     || '|' || (
         pg_catalog.has_table_privilege(session_user, 'public.storage_connections', 'SELECT')
         OR pg_catalog.has_table_privilege(session_user, 'public.storage_connections', 'INSERT')
@@ -135,48 +135,48 @@ SELECT COALESCE(
 )
 FROM pg_catalog.pg_proc AS proc
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=proc.pronamespace
-WHERE namespace.nspname='aap_assets_v1' AND proc.prokind='f'
+WHERE namespace.nspname='yoao_assets_v1' AND proc.prokind='f'
   AND pg_catalog.has_function_privilege(session_user, proc.oid, 'EXECUTE');
-SELECT aap_assets_v1.list_storage_connections(
+SELECT yoao_assets_v1.list_storage_connections(
     actor_id => :'actor_id'::uuid,
     after_created_at => NULL::timestamptz,
     after_id => NULL::uuid,
     page_size => 25
 );
-SELECT aap_assets_v1.read_storage_connection_policy(
+SELECT yoao_assets_v1.read_storage_connection_policy(
     actor_id => :'actor_id'::uuid,
     fallback_allowlist => '[]'::jsonb
 );
-SELECT aap_assets_v1.create_storage_connection(
+SELECT yoao_assets_v1.create_storage_connection(
     operation_id => :'create_operation_id'::uuid,
     actor_id => :'actor_id'::uuid,
     intent => '{"name":"psql native connection","kind":"s3","config":{"endpoint":"https://psql.example.test","bucket":"psql-fixture","use_ssl":true},"scope":"owner","secret_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'::jsonb,
     config => '{"endpoint":"https://psql.example.test","bucket":"psql-fixture","use_ssl":true}'::jsonb,
     secret_enc => 'cHNsLXNlYWxlZC1jaXBoZXJ0ZXh0',
-    policy_digest => aap_assets_v1.read_storage_connection_policy(
+    policy_digest => yoao_assets_v1.read_storage_connection_policy(
         actor_id => :'actor_id'::uuid,
         fallback_allowlist => '[]'::jsonb
     ) #>> '{data,policy_digest}',
     fallback_allowlist => '[]'::jsonb,
     audit_context => '{}'::jsonb
 );
-SELECT aap_assets_v1.read_storage_connection(
+SELECT yoao_assets_v1.read_storage_connection(
     actor_id => :'actor_id'::uuid,
     connection_id => :'create_operation_id'::uuid
 );
-SELECT aap_assets_v1.capture_storage_connection(
+SELECT yoao_assets_v1.capture_storage_connection(
     actor_id => :'actor_id'::uuid,
     connection_id => :'create_operation_id'::uuid,
     access => 'admin'
 );
 WITH captured AS (
-    SELECT aap_assets_v1.capture_storage_connection(
+    SELECT yoao_assets_v1.capture_storage_connection(
         actor_id => :'actor_id'::uuid,
         connection_id => :'create_operation_id'::uuid,
         access => 'admin'
     ) -> 'data' AS data
 )
-SELECT aap_assets_v1.update_storage_connection_authorized(
+SELECT yoao_assets_v1.update_storage_connection_authorized(
     operation_id => :'update_operation_id'::uuid,
     actor_id => :'actor_id'::uuid,
     connection_id => :'create_operation_id'::uuid,
@@ -195,18 +195,18 @@ SELECT aap_assets_v1.update_storage_connection_authorized(
 )
 FROM captured;
 WITH captured AS (
-    SELECT aap_assets_v1.capture_storage_connection(
+    SELECT yoao_assets_v1.capture_storage_connection(
         actor_id => :'actor_id'::uuid,
         connection_id => :'create_operation_id'::uuid,
         access => 'use'
     ) -> 'data' AS data
 ), policy AS (
-    SELECT aap_assets_v1.read_storage_connection_policy(
+    SELECT yoao_assets_v1.read_storage_connection_policy(
         actor_id => :'actor_id'::uuid,
         fallback_allowlist => '[]'::jsonb
     ) -> 'data' AS data
 )
-SELECT aap_assets_v1.record_storage_connection_test(
+SELECT yoao_assets_v1.record_storage_connection_test(
     operation_id => :'test_operation_id'::uuid,
     actor_id => :'actor_id'::uuid,
     connection_id => :'create_operation_id'::uuid,
@@ -217,14 +217,14 @@ SELECT aap_assets_v1.record_storage_connection_test(
     audit_context => '{}'::jsonb
 )
 FROM captured CROSS JOIN policy;
-SELECT aap_assets_v1.read_storage_connection_receipt(
+SELECT yoao_assets_v1.read_storage_connection_receipt(
     operation_id => :'test_operation_id'::uuid,
     actor_id => :'actor_id'::uuid,
     action => 'test',
     connection_id => :'create_operation_id'::uuid,
     intent => '{}'::jsonb
 );
-SELECT aap_assets_v1.delete_storage_connection(
+SELECT yoao_assets_v1.delete_storage_connection(
     operation_id => :'delete_operation_id'::uuid,
     actor_id => :'actor_id'::uuid,
     connection_id => :'create_operation_id'::uuid,
@@ -251,7 +251,7 @@ ROLLBACK;
         "-p",
         "5432",
         "-U",
-        "asset_source_client",
+        "yoao_asset_source_client",
         "-d",
         source_url.database,
         "-v",
@@ -310,7 +310,7 @@ async def test_restricted_source_psql_calls_frozen_connection_surface_and_rolls_
     except Exception:
         pytest.fail("the restricted Source connection URL is invalid", pytrace=False)
     if not (
-        source_url.username == "asset_source_client"
+        source_url.username == "yoao_asset_source_client"
         and source_url.password
         and source_url.host == "127.0.0.1"
         and source_url.port is not None
@@ -351,7 +351,8 @@ async def test_restricted_source_psql_calls_frozen_connection_surface_and_rolls_
         )
         assert len(lines) == 12
         assert (
-            lines[0] == f"asset_source_client|asset_source_client|{source_url.database}"
+            lines[0]
+            == f"yoao_asset_source_client|yoao_asset_source_client|{source_url.database}"
         )
         assert lines[1].split("|") == ["true"] + ["false"] * 9
 

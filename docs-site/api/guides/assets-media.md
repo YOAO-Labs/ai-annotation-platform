@@ -97,7 +97,7 @@ Accepted-input 垃圾回收还会查询 Jobs 当前 execution 的退役事实。
 | `POST /v1/input-manifests/prepare` | 范围、selection digest、ordinal、Task ID → 同一成员与原 Input 收据             |
 | `POST /v1/input-manifests/seal`    | 范围、selection digest → 完整 sealed header；未准备完返回 `manifest_not_ready` |
 
-捕获使用 workflow 专属的 `aap_assets_v1.capture_accepted_image_input_manifest`，与 Job 在原事务共同提交；控制 HTTP 不提供捕获操作。选择值固定 `batch_id`、`task_ids`、`predict_mode` 三个键，包括显式 null。显式 Task 最多 200 项，项目／批次全选无新增总量上限。Job ID 同时作为清单 ID，Job 和队列消息只保存清单身份、摘要与数量，不携带全量成员。
+捕获使用 workflow 专属的 `yoao_assets_v1.capture_accepted_image_input_manifest`，与 Job 在原事务共同提交；控制 HTTP 不提供捕获操作。选择值固定 `batch_id`、`task_ids`、`predict_mode` 三个键，包括显式 null。显式 Task 最多 200 项，项目／批次全选无新增总量上限。Job ID 同时作为清单 ID，Job 和队列消息只保存清单身份、摘要与数量，不携带全量成员。
 
 header 保留 `candidate_count`、`selected_count`、`prepared_count`；`ready_count`、`failed_count` 和 `sealed_digest` 在准备期间为 null，完整封存后才固定。成员有稳定 ordinal，保留原 Task 版本与来源、Assets 快照、可选 Input 和固定失败原因。封存后的结果及摘要保持历史含义，后来输入过期不改写原封存结果。
 

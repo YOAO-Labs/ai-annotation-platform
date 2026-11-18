@@ -82,7 +82,7 @@ async def _assert_clone_owner(engine, clone: str, ownership: str) -> None:
                 text(
                     "SELECT current_user, current_database(), "
                     "pg_catalog.has_schema_privilege(current_user, "
-                    "'aap_workspace_v1', 'CREATE')"
+                    "'yoao_workspace_v1', 'CREATE')"
                 )
             )
         ).one()
@@ -212,7 +212,7 @@ async def test_workspace_backend_binding_command_survives_owned_database_restore
         async with inference.transaction():
             assert (
                 await inference.fetchval(
-                    "SELECT aap_workspace_v1.clear_primary_backend_bindings($1::uuid)",
+                    "SELECT yoao_workspace_v1.clear_primary_backend_bindings($1::uuid)",
                     world["target_pool_id"],
                 )
                 == 2

@@ -17,7 +17,7 @@ class LabelingScaleSeedOperations:
     ) -> None:
         await self._db.execute(
             text(
-                "SELECT aap_labeling_v1.purge_scale_seed_labeling_rows("
+                "SELECT yoao_labeling_v1.purge_scale_seed_labeling_rows("
                 "CAST(:marker AS text),CAST(:project_ids AS uuid[]))"
             ),
             {"marker": marker, "project_ids": project_ids},
@@ -33,7 +33,7 @@ class LabelingScaleSeedOperations:
     ) -> int:
         return await self._db.scalar(
             text(
-                "SELECT aap_labeling_v1.create_scale_seed_batches("
+                "SELECT yoao_labeling_v1.create_scale_seed_batches("
                 "CAST(:marker AS text),CAST(:project_id AS uuid),"
                 "CAST(:dataset_id AS uuid),"
                 "CAST(:batch_count AS integer),CAST(:annotator_id AS uuid))"
@@ -52,7 +52,7 @@ class LabelingScaleSeedOperations:
     ) -> int:
         return await self._db.scalar(
             text(
-                "SELECT aap_labeling_v1.create_scale_seed_tasks("
+                "SELECT yoao_labeling_v1.create_scale_seed_tasks("
                 "CAST(:marker AS text),CAST(:project_id AS uuid),"
                 "CAST(:dataset_id AS uuid))"
             ),
@@ -68,7 +68,7 @@ class LabelingScaleSeedOperations:
     ) -> int:
         return await self._db.scalar(
             text(
-                "SELECT aap_labeling_v1.create_scale_seed_annotations("
+                "SELECT yoao_labeling_v1.create_scale_seed_annotations("
                 "CAST(:marker AS text),CAST(:project_id AS uuid),"
                 "CAST(:annotator_id AS uuid),"
                 "CAST(:annotation_count AS integer))"
@@ -84,7 +84,7 @@ class LabelingScaleSeedOperations:
     async def read_first_batch_id(self, project_id: uuid.UUID) -> uuid.UUID | None:
         return await self._db.scalar(
             text(
-                "SELECT id FROM aap_labeling_v1.batch_rows "
+                "SELECT id FROM yoao_labeling_v1.batch_rows "
                 "WHERE project_id=CAST(:project_id AS uuid) "
                 "ORDER BY display_id LIMIT 1"
             ),

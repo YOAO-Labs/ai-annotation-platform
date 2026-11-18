@@ -35,21 +35,21 @@ async def test_identity_account_login_has_only_three_functions_and_no_direct_acc
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
         )
         assert {row["signature"] for row in actual} == {
-            "aap_identity_accounts_v1.account_policy()",
-            "aap_identity_accounts_v1.prepare_account_command(jsonb)",
-            "aap_identity_accounts_v1.apply_account_command(jsonb)",
+            "yoao_identity_accounts_v1.account_policy()",
+            "yoao_identity_accounts_v1.prepare_account_command(jsonb)",
+            "yoao_identity_accounts_v1.apply_account_command(jsonb)",
         }
         assert not await connection.fetchval(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
-                  AND namespace.nspname <> 'aap_identity_accounts_v1'
+                WHERE (namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' OR namespace.nspname ~ '^yoao_[a-z0-9_]+_v1$')
+                  AND namespace.nspname <> 'yoao_identity_accounts_v1'
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
             """
@@ -91,7 +91,7 @@ async def test_identity_account_login_has_only_three_functions_and_no_direct_acc
 
         policy = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_accounts_v1.account_policy()"
+                "SELECT yoao_identity_accounts_v1.account_policy()"
             )
         )
         assert policy == {
@@ -100,7 +100,7 @@ async def test_identity_account_login_has_only_three_functions_and_no_direct_acc
         }
         invalid = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_accounts_v1.prepare_account_command('{}'::jsonb)"
+                "SELECT yoao_identity_accounts_v1.prepare_account_command('{}'::jsonb)"
             )
         )
         assert invalid["error"]["code"] == "invalid_request"
@@ -110,9 +110,9 @@ async def test_identity_account_login_has_only_three_functions_and_no_direct_acc
             "SELECT * FROM public.identity_account_presence LIMIT 1",
             "SELECT * FROM public.identity_account_operation_receipts LIMIT 1",
             "SELECT * FROM public.audit_logs LIMIT 1",
-            "SELECT aap_audit_v1.record_identity_account_event('update_name',NULL,'{}','{}')",
-            "SELECT aap_identity_accounts_v1._failure('invalid_request',NULL,NULL)",
-            "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline(NULL::timestamptz)",
+            "SELECT yoao_audit_v1.record_identity_account_event('update_name',NULL,'{}','{}')",
+            "SELECT yoao_identity_accounts_v1._failure('invalid_request',NULL,NULL)",
+            "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline(NULL::timestamptz)",
             "CREATE TEMP TABLE identity_account_forbidden(id integer)",
             "SET ROLE identity_code",
         ):
@@ -132,18 +132,18 @@ async def test_identity_presence_login_has_only_its_operator_function():
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
         )
         assert {row["signature"] for row in actual} == {
-            "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamp with time zone)"
+            "yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamp with time zone)"
         }
         assert await connection.fetchval(
             """
             SELECT pg_catalog.has_function_privilege(
                 current_user,
-                (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_identity_accounts_v1' AND function.proname='mark_inactive_accounts_offline'),
+                (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='yoao_identity_accounts_v1' AND function.proname='mark_inactive_accounts_offline'),
                 'EXECUTE'
             )
             """
@@ -169,7 +169,7 @@ async def test_identity_presence_login_has_only_its_operator_function():
             "SELECT has_database_privilege(current_user,current_database(),'CREATE,TEMP')"
         )
         for sql in (
-            "SELECT aap_identity_accounts_v1.account_policy()",
+            "SELECT yoao_identity_accounts_v1.account_policy()",
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.identity_account_presence LIMIT 1",
             "SELECT * FROM public.identity_account_operation_receipts LIMIT 1",
@@ -180,7 +180,7 @@ async def test_identity_presence_login_has_only_its_operator_function():
                 await connection.execute(sql)
         with pytest.raises(asyncpg.PostgresError) as invalid_cutoff:
             await connection.fetchval(
-                "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline(NULL::timestamptz)"
+                "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline(NULL::timestamptz)"
             )
         assert invalid_cutoff.value.sqlstate == "22023"
     finally:
@@ -192,30 +192,30 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
     connection = await asyncpg.connect(_dsn("AAP_MODULE_DATA_IDENTITY_ACCOUNTS_URL"))
     try:
         roles = [
-            "identity_account_client",
-            "identity_presence_client",
-            "identity_session_client",
-            "identity_auth_client",
+            "yoao_identity_account_client",
+            "yoao_identity_presence_client",
+            "yoao_identity_session_client",
+            "yoao_identity_auth_client",
             "yoao_identity_key_client",
         ]
         rows = await connection.fetch(
             """
             SELECT role.rolname,
-                   pg_catalog.has_schema_privilege(role.oid,'aap_audit_v1','USAGE')
+                   pg_catalog.has_schema_privilege(role.oid,'yoao_audit_v1','USAGE')
                        AS audit_schema,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_audit_v1' AND function.proname='record_identity_account_event'),
+                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='yoao_audit_v1' AND function.proname='record_identity_account_event'),
                        'EXECUTE'
                    ) AS audit_function,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_identity_accounts_v1' AND function.proname='account_policy'),
+                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='yoao_identity_accounts_v1' AND function.proname='account_policy'),
                        'EXECUTE'
                    ) AS account_function,
                    pg_catalog.has_function_privilege(
                        role.oid,
-                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_identity_accounts_v1' AND function.proname='mark_inactive_accounts_offline'),
+                       (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='yoao_identity_accounts_v1' AND function.proname='mark_inactive_accounts_offline'),
                        'EXECUTE'
                    ) AS presence_function,
                    pg_catalog.has_table_privilege(
@@ -242,12 +242,12 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
             assert not row["audit_function"]
             assert not row["audit_table"]
             assert not row["users_table"]
-        assert actual["identity_account_client"]["account_function"] is True
-        assert actual["identity_presence_client"]["account_function"] is False
-        assert actual["identity_presence_client"]["presence_function"] is True
+        assert actual["yoao_identity_account_client"]["account_function"] is True
+        assert actual["yoao_identity_presence_client"]["account_function"] is False
+        assert actual["yoao_identity_presence_client"]["presence_function"] is True
         for old_role in (
-            "identity_session_client",
-            "identity_auth_client",
+            "yoao_identity_session_client",
+            "yoao_identity_auth_client",
             "yoao_identity_key_client",
         ):
             assert not actual[old_role]["account_function"]
@@ -256,7 +256,7 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
             """
             SELECT pg_catalog.has_function_privilege(
                 'identity_code',
-                (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='aap_audit_v1' AND function.proname='record_identity_account_event'),
+                (SELECT function.oid FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='yoao_audit_v1' AND function.proname='record_identity_account_event'),
                 'EXECUTE'
             )
             """

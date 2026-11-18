@@ -42,7 +42,7 @@ async def _assert_contract_still_installed(connection):
     )
     assert await connection.scalar(
         text(
-            "SELECT to_regprocedure('aap_assets_v1.claim_dataset_import(uuid,integer,uuid)') IS NOT NULL"
+            "SELECT to_regprocedure('yoao_assets_v1.claim_dataset_import(uuid,integer,uuid)') IS NOT NULL"
         )
     )
 

@@ -54,10 +54,10 @@ pytestmark = [
 
 _BINDINGS = ("borrowed", "dedicated", "http")
 _FUNCTIONS = {
-    "aap_workspace_configuration_v1._class_rename_project_row(uuid,text)": "workspace_code",
-    "aap_workspace_configuration_v1._class_rename_member_rows(uuid,uuid)": "workspace_code",
-    "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])": "workspace_code",
-    "aap_labeling_v1.rename_project_annotation_class(uuid,text,text)": "labeling_code",
+    "yoao_workspace_configuration_v1._class_rename_project_row(uuid,text)": "workspace_code",
+    "yoao_workspace_configuration_v1._class_rename_member_rows(uuid,uuid)": "workspace_code",
+    "yoao_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])": "workspace_code",
+    "yoao_labeling_v1.rename_project_annotation_class(uuid,text,text)": "labeling_code",
 }
 _CONFIGURATION_CLIENT_FUNCTIONS = {
     ("configuration_policy", ""),
@@ -130,7 +130,7 @@ async def _class_rename_function_metadata(engine) -> dict[str, dict]:
                                   'workspace_code', function.oid, 'EXECUTE'
                               ) AS workspace_can_execute,
                               pg_catalog.has_function_privilege(
-                                  'workspace_configuration_client', function.oid,
+                                  'yoao_workspace_configuration_client', function.oid,
                                   'EXECUTE'
                               ) AS client_can_execute,
                               EXISTS (
@@ -166,24 +166,24 @@ async def _class_rename_function_metadata(engine) -> dict[str, dict]:
         assert access_facts[signature]["public_can_execute"] is False
     assert (
         access_facts[
-            "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])"
+            "yoao_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])"
         ]["client_can_execute"]
         is True
     )
     assert (
         access_facts[
-            "aap_workspace_configuration_v1._class_rename_project_row(uuid,text)"
+            "yoao_workspace_configuration_v1._class_rename_project_row(uuid,text)"
         ]["client_can_execute"]
         is False
     )
     assert (
         access_facts[
-            "aap_workspace_configuration_v1._class_rename_member_rows(uuid,uuid)"
+            "yoao_workspace_configuration_v1._class_rename_member_rows(uuid,uuid)"
         ]["client_can_execute"]
         is False
     )
     labeling = access_facts[
-        "aap_labeling_v1.rename_project_annotation_class(uuid,text,text)"
+        "yoao_labeling_v1.rename_project_annotation_class(uuid,text,text)"
     ]
     assert labeling["workspace_can_execute"] is True
     assert labeling["client_can_execute"] is False
@@ -194,20 +194,20 @@ async def _assert_configuration_client(dsn: str) -> None:
     connection = await asyncpg.connect(dsn)
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "workspace_configuration_client"
+            "yoao_workspace_configuration_client"
         )
         await verify_function_only_role(
             connection,
-            schema="aap_workspace_configuration_v1",
+            schema="yoao_workspace_configuration_v1",
             functions=_CONFIGURATION_CLIENT_FUNCTIONS,
         )
         for statement in (
             "SELECT id FROM public.users LIMIT 1",
             "SELECT id FROM public.projects LIMIT 1",
             "SELECT id FROM public.annotations LIMIT 1",
-            "SELECT aap_workspace_configuration_v1._class_rename_project_row(NULL::uuid, NULL)",
-            "SELECT aap_workspace_configuration_v1._class_rename_member_rows(NULL::uuid, NULL::uuid)",
-            "SELECT aap_labeling_v1.rename_project_annotation_class(NULL::uuid, NULL, NULL)",
+            "SELECT yoao_workspace_configuration_v1._class_rename_project_row(NULL::uuid, NULL)",
+            "SELECT yoao_workspace_configuration_v1._class_rename_member_rows(NULL::uuid, NULL::uuid)",
+            "SELECT yoao_labeling_v1.rename_project_annotation_class(NULL::uuid, NULL, NULL)",
             "CREATE TEMP TABLE forbidden_project_class_restore(id integer)",
             "SET ROLE workspace_code",
         ):

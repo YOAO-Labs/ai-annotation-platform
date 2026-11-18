@@ -167,7 +167,7 @@ def _sql_phase(statement: str) -> str:
     compact = " ".join(statement.casefold().split())
     if compact.startswith("update annotations set class_name"):
         return "annotation_class_rename"
-    if "aap_identity_v1." in compact:
+    if "yoao_identity_v1." in compact:
         return "identity_authority"
     if "project_members" in compact:
         return "membership_authority"

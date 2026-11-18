@@ -60,7 +60,7 @@ async def read_video_derivative_links(
         raw = (
             await db.execute(
                 text(
-                    "SELECT aap_assets_v1.read_video_derivative_links("
+                    "SELECT yoao_assets_v1.read_video_derivative_links("
                     "CAST(:item_ids AS uuid[]))"
                 ),
                 {"item_ids": batch},

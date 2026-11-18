@@ -201,7 +201,7 @@ async def _run(args: argparse.Namespace) -> int:
     connection = await asyncpg.connect(dsn, timeout=10, command_timeout=30)
     try:
         current_user = await connection.fetchval("SELECT current_user")
-        if current_user != "append_client":
+        if current_user != "yoao_append_client":
             raise PeerFailure("wrong_database_role")
         _emit({"type": "ready", "current_user": current_user})
 
@@ -215,7 +215,7 @@ async def _run(args: argparse.Namespace) -> int:
             try:
                 summary = _validate_summary(
                     await connection.fetchval(
-                        "SELECT aap_labeling_v1.read_dataset_task_creation($1::uuid)",
+                        "SELECT yoao_labeling_v1.read_dataset_task_creation($1::uuid)",
                         args.operation_id,
                     ),
                     args.operation_id,
@@ -242,7 +242,7 @@ async def _run(args: argparse.Namespace) -> int:
 
                 chunk = _validate_chunk(
                     await connection.fetchval(
-                        "SELECT aap_labeling_v1.advance_dataset_task_creation("
+                        "SELECT yoao_labeling_v1.advance_dataset_task_creation("
                         "$1::uuid, $2::integer)",
                         args.operation_id,
                         summary["next_chunk"],

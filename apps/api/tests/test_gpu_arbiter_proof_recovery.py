@@ -170,21 +170,21 @@ async def _open_gpu_authority_provider(
     role_url = _gpu_role_url(
         test_engine,
         "AAP_MODULE_DATA_INFERENCE_GPU_URL",
-        "inference_gpu_authority_client",
+        "yoao_inference_gpu_authority_client",
     )
     pool = await asyncpg.create_pool(dsn=role_url, min_size=1, max_size=4)
     provider = _GPUAuthoritySessionProvider(
         sessions,
-        GPUAuthorityPoolData(pool, expected_role="inference_gpu_authority_client"),
+        GPUAuthorityPoolData(pool, expected_role="yoao_inference_gpu_authority_client"),
         pool,
     )
     try:
         async with pool.acquire() as connection:
             assert await connection.fetchval("SELECT current_user") == (
-                "inference_gpu_authority_client"
+                "yoao_inference_gpu_authority_client"
             )
             assert await connection.fetchval("SELECT session_user") == (
-                "inference_gpu_authority_client"
+                "yoao_inference_gpu_authority_client"
             )
         async with provider.transaction():
             pass
@@ -223,7 +223,7 @@ async def gpu_collector_database(
                 "yoao_inference_gpu_collector_client"
             )
         application_role, collector_role = validate_gpu_collector_role_boundary(
-            "inference_gpu_authority_client",
+            "yoao_inference_gpu_authority_client",
             collector_role,
         )
         database = GPUCollectorDatabase(

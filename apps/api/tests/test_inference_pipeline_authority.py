@@ -145,7 +145,7 @@ async def _operation_receipt_count(maker, operation_id):
     async with maker() as db:
         return await db.scalar(
             text(
-                "SELECT count(*) FROM aap_inference_pipelines_v1.operation_receipts "
+                "SELECT count(*) FROM yoao_inference_pipelines_v1.operation_receipts "
                 "WHERE operation_id=:operation_id"
             ),
             {"operation_id": operation_id},

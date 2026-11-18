@@ -65,7 +65,9 @@ def remove(target, output, *, accounting=None, fixture=None):
         retirement, permit, versions = fixture
         with target.client(read_timeout=30, single_attempt=True, owned=True) as client:
             return outputs.media_cache_storage.retire_fixture_versions(
-                client, saved, versions,
+                client,
+                saved,
+                versions,
                 lambda identifier, state: retirement.physical_checkpoint(
                     uuid.UUID(identifier), permit, state
                 ),
@@ -177,7 +179,9 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 select(Output.id)
                 .where(
                     Output.state.in_(["ready", "retiring", "failed"]),
-                    func.aap_assets_v1.fixture_media_ordinary_gc("thumbnail", Output.id, 0),
+                    func.yoao_assets_v1.fixture_media_ordinary_gc(
+                        "thumbnail", Output.id, 0
+                    ),
                     Output.uncertain_write.is_(False),
                     ~exists().where(
                         StorageOperation.purpose

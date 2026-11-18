@@ -49,7 +49,7 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
     world = await _seed(owner)
     before = set(
         await owner.fetchval(
-            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     fixture = None
@@ -223,23 +223,23 @@ async def test_video_owned_route_remains_pinned_after_health_refresh(test_engine
         )
         assert settled.state == "committed" and settled.result.state == "response"
         assert await owner.fetchval(
-            "SELECT aap_jobs_v1._video_execution_scope_is_current($1,false)", scope_id
+            "SELECT yoao_jobs_v1._video_execution_scope_is_current($1,false)", scope_id
         )
     finally:
         try:
             after = set(
                 await owner.fetchval(
-                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
                 list(after - before),
             )
             await _cleanup(owner, world)
             if fixture and scope_id:
                 await owner.execute(
-                    "DELETE FROM aap_jobs_v1.video_execution_journals WHERE job_id=$1",
+                    "DELETE FROM yoao_jobs_v1.video_execution_journals WHERE job_id=$1",
                     fixture["job_id"],
                 )
                 await _cleanup_claimed_scope(test_engine, **fixture, scope_id=scope_id)

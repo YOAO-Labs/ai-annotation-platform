@@ -283,7 +283,7 @@ async def _load_workflow_metrics(
             """
             WITH interval_events AS MATERIALIZED (
                 SELECT id, actor_id, action, target_id, created_at, detail_json
-                FROM aap_audit_v1.audit_events
+                FROM yoao_audit_v1.audit_events
                 WHERE status_code = 200
                   AND detail_json @> CAST(:project_filter AS jsonb)
                   AND created_at >= :start_at AND created_at < :end_at
@@ -296,7 +296,7 @@ async def _load_workflow_metrics(
                 FROM interval_events
                 WHERE action = 'task.submit' AND target_id IS NOT NULL
             ), prior_submissions AS (
-                SELECT DISTINCT target_id FROM aap_audit_v1.audit_events
+                SELECT DISTINCT target_id FROM yoao_audit_v1.audit_events
                 WHERE status_code = 200 AND action = 'task.submit'
                   AND detail_json @> CAST(:project_filter AS jsonb)
                   AND created_at < :start_at
@@ -316,7 +316,7 @@ async def _load_workflow_metrics(
                 SELECT DISTINCT ON (s.target_id, r.round_id)
                        s.target_id, r.round_id, s.id,
                        s.detail_json -> 'contributor_ids' AS contributors
-                FROM aap_audit_v1.audit_events s JOIN decision_rounds r
+                FROM yoao_audit_v1.audit_events s JOIN decision_rounds r
                   ON s.target_id = r.target_id
                  AND s.detail_json ->> 'review_round_id' = r.round_id
                 WHERE :work_type = 'annotation'
@@ -494,8 +494,8 @@ async def _load_qualified_time(
                          AND te.collection_coverage = 'qualified'
                    )
                        AS qualified_count
-            FROM aap_labeling_v1.task_event_facts AS te
-            JOIN aap_labeling_v1.task_rows AS t ON t.id = te.task_id
+            FROM yoao_labeling_v1.task_event_facts AS te
+            JOIN yoao_labeling_v1.task_rows AS t ON t.id = te.task_id
             WHERE t.project_id = :project_id
               AND te.project_id = :project_id
               AND te.started_at < :end_at
@@ -517,8 +517,8 @@ async def _load_qualified_time(
                 SELECT te.user_id, te.kind,
                        GREATEST(te.started_at, :start_at) AS interval_start,
                        LEAST(te.ended_at, :end_at) AS interval_end
-                FROM aap_labeling_v1.task_event_facts AS te
-                JOIN aap_labeling_v1.task_rows AS t ON t.id = te.task_id
+                FROM yoao_labeling_v1.task_event_facts AS te
+                JOIN yoao_labeling_v1.task_rows AS t ON t.id = te.task_id
                 WHERE t.project_id = :project_id
                   AND te.project_id = :project_id
                   AND te.started_at < :end_at
@@ -747,7 +747,7 @@ async def _build_roster(
                 """
                 WITH activity AS (
                     SELECT actor_id, detail_json
-                    FROM aap_audit_v1.audit_events
+                    FROM yoao_audit_v1.audit_events
                     WHERE status_code = 200
                       AND action = ANY(:actions)
                       AND detail_json @> CAST(:project_filter AS jsonb)
@@ -761,7 +761,7 @@ async def _build_roster(
                          THEN a.detail_json -> 'contributor_ids' ELSE '[]'::jsonb END
                 ) c(user_id)
                 UNION
-                SELECT c.user_id FROM aap_labeling_v1.task_rows AS t
+                SELECT c.user_id FROM yoao_labeling_v1.task_rows AS t
                 CROSS JOIN LATERAL jsonb_array_elements_text(
                     CASE WHEN jsonb_typeof(t.first_review_contributor_ids) = 'array'
                          THEN t.first_review_contributor_ids ELSE '[]'::jsonb END
@@ -974,7 +974,7 @@ async def _load_first_review_metrics(
                        first_review_result = 'approved' AS passed,
                        CASE WHEN jsonb_typeof(first_review_contributor_ids) = 'array'
                             THEN first_review_contributor_ids ELSE '[]'::jsonb END AS contributors
-                FROM aap_labeling_v1.task_rows
+                FROM yoao_labeling_v1.task_rows
                 WHERE project_id = :project_id
                   AND first_reviewed_at >= :start_at AND first_reviewed_at < :end_at
             ), attributed AS (
@@ -992,8 +992,8 @@ async def _load_first_review_metrics(
                        SELECT 1 FROM jsonb_array_elements_text(contributors) c
                        WHERE c.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                    )), false) OR EXISTS (
-                       SELECT 1 FROM aap_audit_v1.audit_events a
-                       LEFT JOIN aap_labeling_v1.task_rows AS t
+                       SELECT 1 FROM yoao_audit_v1.audit_events a
+                       LEFT JOIN yoao_labeling_v1.task_rows AS t
                            ON t.project_id = :project_id
                            AND t.id::text = a.target_id
                        WHERE a.status_code = 200

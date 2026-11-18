@@ -18,29 +18,29 @@ from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _READ = text(
-    "SELECT aap_labeling_v1.read_image_task_source("
+    "SELECT yoao_labeling_v1.read_image_task_source("
     "CAST(:task_id AS uuid), CAST(:actor_id AS uuid), CAST(:lock_source AS boolean))"
 )
 _OBSERVE = text(
-    "SELECT aap_labeling_v1.observe_image_task_source("
+    "SELECT yoao_labeling_v1.observe_image_task_source("
     "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), "
     "CAST(:identity AS jsonb))"
 )
 _PUBLISH = text(
-    "SELECT aap_labeling_v1.publish_task_image_thumbnail("
+    "SELECT yoao_labeling_v1.publish_task_image_thumbnail("
     "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), "
     "CAST(:source_generation AS bigint), CAST(:key AS text), "
     "CAST(:blurhash AS text))"
 )
 _REFERENCES = text(
-    "SELECT aap_labeling_v1.image_thumbnail_references(CAST(:prefix AS text))"
+    "SELECT yoao_labeling_v1.image_thumbnail_references(CAST(:prefix AS text))"
 )
 _SCAN_TASKS = text(
-    "SELECT aap_labeling_v1.scan_image_task_sources(CAST(:selection AS jsonb), "
+    "SELECT yoao_labeling_v1.scan_image_task_sources(CAST(:selection AS jsonb), "
     "CAST(:after_id AS uuid), CAST(:page_size AS integer))"
 )
 _INVALIDATE_THUMBNAIL = text(
-    "SELECT aap_labeling_v1.invalidate_task_image_thumbnail("
+    "SELECT yoao_labeling_v1.invalidate_task_image_thumbnail("
     "CAST(:task_id AS uuid), CAST(:expected_snapshot AS text), CAST(:expected_key AS text))"
 )
 

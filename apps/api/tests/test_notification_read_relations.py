@@ -97,7 +97,7 @@ async def test_application_role_reads_notifications_only_through_fixed_functions
                         "pg_catalog.has_any_column_privilege(current_user, "
                         "'public.notifications', 'SELECT'), "
                         "pg_catalog.has_table_privilege(current_user, "
-                        "'aap_notifications_v1.notification_facts', 'SELECT'), "
+                        "'yoao_notifications_v1.notification_facts', 'SELECT'), "
                         "pg_catalog.has_table_privilege('notifications_code', "
                         "'public.notifications', 'SELECT'), "
                         "pg_catalog.pg_get_userbyid(relation.relowner), "
@@ -110,7 +110,7 @@ async def test_application_role_reads_notifications_only_through_fixed_functions
                         "FROM pg_catalog.pg_class AS relation "
                         ", pg_catalog.pg_roles AS role "
                         "WHERE relation.oid = "
-                        "'aap_notifications_v1.notification_facts'::pg_catalog.regclass "
+                        "'yoao_notifications_v1.notification_facts'::pg_catalog.regclass "
                         "AND role.rolname=current_user"
                     )
                 )
@@ -128,7 +128,7 @@ async def test_application_role_reads_notifications_only_through_fixed_functions
 
             for relation in (
                 "public.notifications",
-                "aap_notifications_v1.notification_facts",
+                "yoao_notifications_v1.notification_facts",
             ):
                 with pytest.raises(DBAPIError) as denied:
                     async with session.begin_nested():

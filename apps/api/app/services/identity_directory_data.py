@@ -40,7 +40,7 @@ class IdentityDirectoryCommandData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_directory_v1.execute_directory_command("
+                        "SELECT yoao_identity_directory_v1.execute_directory_command("
                         "CAST(:command AS jsonb))"
                     ),
                     {

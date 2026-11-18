@@ -263,7 +263,7 @@ class WorkspaceImportCli:
             auth = identity_auth_database_url
             if (
                 auth.get_backend_name() != "postgresql"
-                or auth.username != "identity_auth_client"
+                or auth.username != "yoao_identity_auth_client"
                 or not auth.password
                 or auth.query
                 or (auth.host, auth.port, auth.database)

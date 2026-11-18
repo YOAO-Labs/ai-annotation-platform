@@ -46,7 +46,7 @@ async def test_image_admission_shares_task_authority_and_serializes_work(test_en
             )
         )
     prepare = text(
-        "SELECT aap_assets_v1.prepare_image_media("
+        "SELECT yoao_assets_v1.prepare_image_media("
         "CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:task AS uuid), "
         "NULL::uuid, 'thumbnail', NULL::text, CAST(:policy AS jsonb), false)"
     )
@@ -62,7 +62,7 @@ async def test_image_admission_shares_task_authority_and_serializes_work(test_en
             assert accepted["ok"] is True
             rows = await reader.scalar(
                 text(
-                    "SELECT count(*) FROM aap_labeling_v1.lock_task_for_core_read("
+                    "SELECT count(*) FROM yoao_labeling_v1.lock_task_for_core_read("
                     ":task, 'share', true, NULL)"
                 ),
                 {"task": task_id},

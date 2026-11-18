@@ -79,14 +79,14 @@ async def test_current_domain_excludes_python_and_all_sql_consumers(
         await TaskLockService(db_session)._lock_task_scope(task.id, nowait=True)
 
     available = await db_session.scalar(
-        text("SELECT aap_labeling_v1.task_edit_lock_command(CAST(:request AS jsonb))"),
+        text("SELECT yoao_labeling_v1.task_edit_lock_command(CAST(:request AS jsonb))"),
         {"request": _task_lock_request(task.id)},
     )
     assert available["data"] == {"available": False}
 
     membership = await db_session.scalar(
         text(
-            "SELECT aap_labeling_v1.lock_membership_work("
+            "SELECT yoao_labeling_v1.lock_membership_work("
             ":project, :user, 'annotator', false)"
         ),
         {"project": project.id, "user": user.id},
@@ -96,7 +96,7 @@ async def test_current_domain_excludes_python_and_all_sql_consumers(
 
     offboarding = await db_session.scalar(
         text(
-            "SELECT aap_labeling_v1.lock_identity_offboarding_work("
+            "SELECT yoao_labeling_v1.lock_identity_offboarding_work("
             ":user, ARRAY[CAST(:project AS uuid)]::uuid[])"
         ),
         {"user": user.id, "project": project.id},
@@ -116,7 +116,7 @@ async def test_legacy_domain_fails_closed_instead_of_dual_locking(
         async with db_session.begin_nested():
             await db_session.scalar(
                 text(
-                    "SELECT aap_labeling_v1.task_edit_lock_command("
+                    "SELECT yoao_labeling_v1.task_edit_lock_command("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": _task_lock_request(task.id)},
@@ -130,7 +130,7 @@ async def test_legacy_domain_fails_closed_instead_of_dual_locking(
 
     membership = await db_session.scalar(
         text(
-            "SELECT aap_labeling_v1.lock_membership_work("
+            "SELECT yoao_labeling_v1.lock_membership_work("
             ":project, :user, 'annotator', false)"
         ),
         {"project": project.id, "user": user.id},
@@ -140,7 +140,7 @@ async def test_legacy_domain_fails_closed_instead_of_dual_locking(
 
     offboarding = await db_session.scalar(
         text(
-            "SELECT aap_labeling_v1.lock_identity_offboarding_work("
+            "SELECT yoao_labeling_v1.lock_identity_offboarding_work("
             ":user, ARRAY[CAST(:project AS uuid)]::uuid[])"
         ),
         {"user": user.id, "project": project.id},

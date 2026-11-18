@@ -66,7 +66,7 @@ class SqlAlchemyVideoInputDatabase:
             result = await _call_native(
                 self.db,
                 definition,
-                "aap_assets_v1." + operation,
+                "yoao_assets_v1." + operation,
                 request,
                 lambda raw: c.parse_native(operation, request, raw),
             )
@@ -285,7 +285,7 @@ async def lock_video_input_pin(db, *, task_id, project_id, evidence, actor_id):
         return await _call_native(
             db,
             e.ASSETS_PIN_OPERATION,
-            "aap_assets_v1._lock_accepted_video_input_pin",
+            "yoao_assets_v1._lock_accepted_video_input_pin",
             request,
             lambda raw: e.parse_assets_pin(request, raw),
         )
@@ -305,7 +305,7 @@ async def _call_labeling(db, operation, request):
         return await _call_native(
             db,
             definition,
-            "aap_labeling_v1." + operation,
+            "yoao_labeling_v1." + operation,
             request,
             lambda raw: e.parse_labeling_native(operation, request, raw),
         )

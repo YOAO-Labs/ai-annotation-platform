@@ -50,7 +50,9 @@ async def create_fixture_project(
     )
     await db.flush()
     raw = await db.scalar(
-        text("SELECT aap_workspace_fixture_v1.create_project(CAST(:project AS jsonb))"),
+        text(
+            "SELECT yoao_workspace_fixture_v1.create_project(CAST(:project AS jsonb))"
+        ),
         {"project": record.model_dump_json()},
     )
     project_id = decode_fixture_project_id(raw, record.id)
@@ -65,7 +67,7 @@ async def create_fixture_templates(db, records):
     await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_workspace_fixture_v1.create_templates(CAST(:templates AS jsonb))"
+            "SELECT yoao_workspace_fixture_v1.create_templates(CAST(:templates AS jsonb))"
         ),
         {
             "templates": json.dumps(
@@ -85,7 +87,7 @@ async def guard_fixture_project_cleanup(db, project_ids):
     try:
         raw = await db.scalar(
             text(
-                "SELECT aap_workspace_fixture_v1.guard_project_cleanup(CAST(:ids AS uuid[]))"
+                "SELECT yoao_workspace_fixture_v1.guard_project_cleanup(CAST(:ids AS uuid[]))"
             ),
             {"ids": project_ids},
         )

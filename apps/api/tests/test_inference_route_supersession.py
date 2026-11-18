@@ -87,7 +87,7 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
     world = await _seed(owner)
     receipts_before = set(
         await owner.fetchval(
-            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+            "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
         )
     )
     project_id = user_id = None
@@ -153,7 +153,7 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
         if case == "legacy_capability":
             # Rows created before the migration have no captured revision.
             await owner.execute(
-                "UPDATE aap_inference_routing_v1.scopes SET reservation_eligibility_revision=NULL,reservation_boot_id=NULL WHERE id=$1",
+                "UPDATE yoao_inference_routing_v1.scopes SET reservation_eligibility_revision=NULL,reservation_boot_id=NULL WHERE id=$1",
                 original.id,
             )
             legacy = await runtime.execute(
@@ -509,11 +509,11 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
         try:
             after = set(
                 await owner.fetchval(
-                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM yoao_inference_routing_v1.command_receipts"
                 )
             )
             await owner.execute(
-                "DELETE FROM aap_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
+                "DELETE FROM yoao_inference_routing_v1.command_receipts WHERE id=ANY($1::uuid[])",
                 list(after - receipts_before),
             )
             await _cleanup(owner, world)

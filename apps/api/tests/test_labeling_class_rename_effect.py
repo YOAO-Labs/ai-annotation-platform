@@ -27,9 +27,9 @@ pytestmark = [
     ),
 ]
 
-_RENAME_SIGNATURE = "aap_labeling_v1.rename_project_annotation_class(uuid,text,text)"
+_RENAME_SIGNATURE = "yoao_labeling_v1.rename_project_annotation_class(uuid,text,text)"
 _RENAME_SQL = text(
-    "SELECT aap_labeling_v1.rename_project_annotation_class("
+    "SELECT yoao_labeling_v1.rename_project_annotation_class("
     "CAST(:project_id AS uuid), CAST(:old_name AS text), CAST(:new_name AS text))"
 )
 _FIXED_TIME = datetime(2026, 1, 15, 12, tzinfo=timezone.utc)
@@ -122,7 +122,7 @@ async def _function_privileges(connection: AsyncConnection) -> dict:
                        'workspace_code', function.oid, 'EXECUTE'
                    ) AS workspace_execute,
                    pg_catalog.has_function_privilege(
-                       'workspace_configuration_client', function.oid, 'EXECUTE'
+                       'yoao_workspace_configuration_client', function.oid, 'EXECUTE'
                    ) AS configuration_client_execute,
                    pg_catalog.has_function_privilege(
                        'yoao_labeling_class_query_client', function.oid, 'EXECUTE'

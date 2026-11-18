@@ -81,7 +81,7 @@ async def test_fresh_celery_worker_uses_account_facts_and_current_actor_status(
         try:
             async with async_sessionmaker(runtime_engine)() as runtime_db:
                 profile = await runtime_db.scalar(
-                    text("SELECT aap_identity_v1.read_actor_context(:id, :role)"),
+                    text("SELECT yoao_identity_v1.read_actor_context(:id, :role)"),
                     {"id": actor_id, "role": "super_admin"},
                 )
                 if isinstance(profile, str):

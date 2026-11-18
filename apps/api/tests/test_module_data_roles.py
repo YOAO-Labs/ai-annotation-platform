@@ -63,14 +63,16 @@ def _engine(url: str) -> AsyncEngine:
 
 @pytest_asyncio.fixture
 async def append_engine() -> AsyncEngine:
-    engine = _engine(_role_url("AAP_MODULE_DATA_APPEND_URL", "append_client"))
+    engine = _engine(_role_url("AAP_MODULE_DATA_APPEND_URL", "yoao_append_client"))
     try:
         async with engine.connect() as connection:
             assert (
-                await connection.scalar(text("SELECT current_user")) == "append_client"
+                await connection.scalar(text("SELECT current_user"))
+                == "yoao_append_client"
             )
             assert (
-                await connection.scalar(text("SELECT session_user")) == "append_client"
+                await connection.scalar(text("SELECT session_user"))
+                == "yoao_append_client"
             )
         yield engine
     finally:
@@ -80,17 +82,17 @@ async def append_engine() -> AsyncEngine:
 @pytest_asyncio.fixture
 async def asset_cleanup_engine() -> AsyncEngine:
     engine = _engine(
-        _role_url("AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client")
+        _role_url("AAP_MODULE_DATA_ASSET_CLEANUP_URL", "yoao_asset_cleanup_client")
     )
     try:
         async with engine.connect() as connection:
             assert (
                 await connection.scalar(text("SELECT current_user"))
-                == "asset_cleanup_client"
+                == "yoao_asset_cleanup_client"
             )
             assert (
                 await connection.scalar(text("SELECT session_user"))
-                == "asset_cleanup_client"
+                == "yoao_asset_cleanup_client"
             )
         yield engine
     finally:
@@ -100,17 +102,19 @@ async def asset_cleanup_engine() -> AsyncEngine:
 @pytest_asyncio.fixture
 async def asset_image_worker_engine() -> AsyncEngine:
     engine = _engine(
-        _role_url("AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL", "asset_image_worker_client")
+        _role_url(
+            "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL", "yoao_asset_image_worker_client"
+        )
     )
     try:
         async with engine.connect() as connection:
             assert (
                 await connection.scalar(text("SELECT current_user"))
-                == "asset_image_worker_client"
+                == "yoao_asset_image_worker_client"
             )
             assert (
                 await connection.scalar(text("SELECT session_user"))
-                == "asset_image_worker_client"
+                == "yoao_asset_image_worker_client"
             )
         yield engine
     finally:
@@ -229,7 +233,7 @@ async def _append(
 ) -> dict:
     value = await connection.scalar(
         text(
-            "SELECT aap_labeling_v1.append_dataset_items("
+            "SELECT yoao_labeling_v1.append_dataset_items("
             "CAST(:dataset_id AS uuid), CAST(:item_ids AS uuid[]), "
             "CAST(:operation_id AS uuid))"
         ),
@@ -310,10 +314,10 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             )
         )
         for signature in (
-            "aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)",
-            "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
-            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
-            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "yoao_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)",
+            "yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.pending_storage_deletions(uuid,integer)",
+            "yoao_assets_v1.complete_storage_deletion(uuid,uuid)",
         ):
             assert await legacy.scalar(
                 text(
@@ -323,14 +327,14 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             ), signature
         assert (
             await legacy.scalar(
-                text("SELECT aap_workspace_v1.lock_project_reference(:id)"),
+                text("SELECT yoao_workspace_v1.lock_project_reference(:id)"),
                 {"id": uuid4()},
             )
             is None
         )
         assert (
             await legacy.scalar(
-                text("SELECT aap_assets_v1.lock_dataset_reference(:id)"),
+                text("SELECT yoao_assets_v1.lock_dataset_reference(:id)"),
                 {"id": uuid4()},
             )
             is None
@@ -392,33 +396,33 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             "diagnostics_code",
             "export_code",
             "audit_code",
-            "asset_cleanup_client",
+            "yoao_asset_cleanup_client",
         ):
             await _assert_permission_denied(connection, f"SET ROLE {role}")
 
         for signature in (
-            "aap_jobs_v1._task_creation_job_failure(text,text)",
-            "aap_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)",
-            "aap_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)",
-            "aap_assets_v1.lock_task_creation_items(uuid,uuid[])",
-            "aap_assets_v1.dataset_item_references(uuid,uuid)",
-            "aap_assets_v1.dataset_scene_references(uuid)",
-            "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
-            "aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
-            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
-            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
-            "aap_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)",
-            "aap_audit_v1.valid_request_context(jsonb)",
-            "aap_audit_v1.record_dataset_unlink(uuid,uuid,uuid,uuid,bigint,bigint,uuid[],jsonb)",
-            "aap_workspace_v1._dataset_unlink_failure(text,text)",
-            "aap_learning_v1.guard_dataset_item_deletion(uuid,uuid)",
-            "aap_learning_v1.guard_dataset_unlink(uuid,uuid)",
-            "aap_labeling_v1._dataset_unlink_task_snapshot(uuid,uuid)",
-            "aap_labeling_v1.dataset_task_references(uuid,uuid)",
-            "aap_labeling_v1.lock_dataset_unlink_scope(uuid,uuid)",
-            "aap_labeling_v1.guard_dataset_unlink(uuid,uuid)",
-            "aap_labeling_v1.preview_dataset_unlink(uuid,uuid)",
-            "aap_labeling_v1.delete_dataset_tasks(uuid,uuid)",
+            "yoao_jobs_v1._task_creation_job_failure(text,text)",
+            "yoao_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)",
+            "yoao_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)",
+            "yoao_assets_v1.lock_task_creation_items(uuid,uuid[])",
+            "yoao_assets_v1.dataset_item_references(uuid,uuid)",
+            "yoao_assets_v1.dataset_scene_references(uuid)",
+            "yoao_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
+            "yoao_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
+            "yoao_assets_v1.pending_storage_deletions(uuid,integer)",
+            "yoao_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "yoao_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)",
+            "yoao_audit_v1.valid_request_context(jsonb)",
+            "yoao_audit_v1.record_dataset_unlink(uuid,uuid,uuid,uuid,bigint,bigint,uuid[],jsonb)",
+            "yoao_workspace_v1._dataset_unlink_failure(text,text)",
+            "yoao_learning_v1.guard_dataset_item_deletion(uuid,uuid)",
+            "yoao_learning_v1.guard_dataset_unlink(uuid,uuid)",
+            "yoao_labeling_v1._dataset_unlink_task_snapshot(uuid,uuid)",
+            "yoao_labeling_v1.dataset_task_references(uuid,uuid)",
+            "yoao_labeling_v1.lock_dataset_unlink_scope(uuid,uuid)",
+            "yoao_labeling_v1.guard_dataset_unlink(uuid,uuid)",
+            "yoao_labeling_v1.preview_dataset_unlink(uuid,uuid)",
+            "yoao_labeling_v1.delete_dataset_tasks(uuid,uuid)",
         ):
             assert (
                 await connection.scalar(_FUNCTION_PRIVILEGE, {"signature": signature})
@@ -426,7 +430,7 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             ), signature
         await _assert_permission_denied(
             connection,
-            "SELECT aap_identity_v1.lock_active_actor(CAST(:id AS uuid))",
+            "SELECT yoao_identity_v1.lock_active_actor(CAST(:id AS uuid))",
             {"id": uuid4()},
         )
 
@@ -439,8 +443,8 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
             text("SELECT has_schema_privilege(current_user, 'public', 'CREATE')")
         )
         for signature in (
-            "aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)",
-            "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
+            "yoao_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)",
+            "yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
         ):
             assert await connection.scalar(
                 text(
@@ -460,22 +464,24 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
     operation_id, asset_id = uuid4(), uuid4()
     async with asset_cleanup_engine.connect() as cleanup:
         assert await cleanup.scalar(
-            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'USAGE')")
+            text("SELECT has_schema_privilege(current_user, 'yoao_assets_v1', 'USAGE')")
         )
         assert not await cleanup.scalar(
-            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')")
+            text(
+                "SELECT has_schema_privilege(current_user, 'yoao_assets_v1', 'CREATE')"
+            )
         )
         for schema in (
-            "aap_identity_v1",
-            "aap_workspace_v1",
-            "aap_labeling_v1",
-            "aap_jobs_v1",
-            "aap_learning_v1",
-            "aap_inference_v1",
+            "yoao_identity_v1",
+            "yoao_workspace_v1",
+            "yoao_labeling_v1",
+            "yoao_jobs_v1",
+            "yoao_learning_v1",
+            "yoao_inference_v1",
             "yoao_insights_v1",
             "yoao_diagnostics_v1",
-            "aap_export_v1",
-            "aap_audit_v1",
+            "yoao_export_v1",
+            "yoao_audit_v1",
         ):
             assert not await cleanup.scalar(
                 text("SELECT has_schema_privilege(current_user, :schema, 'USAGE')"),
@@ -483,17 +489,17 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             ), schema
 
         for signature in (
-            "aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
-            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
-            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_image_garbage(uuid,uuid)",
-            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
-            "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
-            "aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
-            "aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
-            "aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
+            "yoao_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.complete_image_garbage(uuid,uuid)",
+            "yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+            "yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+            "yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
+            "yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
+            "yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
         ):
             assert await cleanup.scalar(
                 text(
@@ -502,21 +508,21 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                 {"signature": signature},
             ), signature
         for signature in (
-            "aap_assets_v1.pending_storage_deletions(uuid,integer)",
-            "aap_assets_v1.lock_dataset_reference(uuid)",
-            "aap_assets_v1.lock_current_association(uuid,uuid)",
-            "aap_assets_v1.lock_append_sources(uuid,uuid[])",
-            "aap_assets_v1.lock_task_creation_items(uuid,uuid[])",
-            "aap_assets_v1.associate_project(uuid,uuid,uuid)",
-            "aap_assets_v1.dataset_item_references(uuid,uuid)",
-            "aap_assets_v1.dataset_scene_references(uuid)",
-            "aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
-            "aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
-            "aap_assets_v1.delete_project_owned_records(uuid)",
-            "aap_assets_v1.sweep_accepted_image_inputs(integer)",
-            "aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
-            "aap_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
-            "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.pending_storage_deletions(uuid,integer)",
+            "yoao_assets_v1.lock_dataset_reference(uuid)",
+            "yoao_assets_v1.lock_current_association(uuid,uuid)",
+            "yoao_assets_v1.lock_append_sources(uuid,uuid[])",
+            "yoao_assets_v1.lock_task_creation_items(uuid,uuid[])",
+            "yoao_assets_v1.associate_project(uuid,uuid,uuid)",
+            "yoao_assets_v1.dataset_item_references(uuid,uuid)",
+            "yoao_assets_v1.dataset_scene_references(uuid)",
+            "yoao_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)",
+            "yoao_assets_v1.remove_dataset_association(uuid,uuid,uuid)",
+            "yoao_assets_v1.delete_project_owned_records(uuid)",
+            "yoao_assets_v1.sweep_accepted_image_inputs(integer)",
+            "yoao_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
+            "yoao_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
+            "yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)",
         ):
             assert (
                 await cleanup.scalar(_FUNCTION_PRIVILEGE, {"signature": signature})
@@ -529,19 +535,19 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "SELECT count(*) FROM pg_catalog.pg_proc AS proc "
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid = proc.pronamespace "
-                    "WHERE ((namespace.nspname = 'aap_assets_v1' AND proc.oid NOT IN ("
-                    "'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure, "
-                    "'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure, "
-                    "'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure, "
-                    "'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure, "
-                    "'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::regprocedure, "
-                    "'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::regprocedure, "
-                    "'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::regprocedure)) "
-                    "OR (namespace.nspname <> 'aap_assets_v1' "
+                    "WHERE ((namespace.nspname = 'yoao_assets_v1' AND proc.oid NOT IN ("
+                    "'yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure, "
+                    "'yoao_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure, "
+                    "'yoao_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure, "
+                    "'yoao_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure, "
+                    "'yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure, "
+                    "'yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure, "
+                    "'yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure, "
+                    "'yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure, "
+                    "'yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::regprocedure, "
+                    "'yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::regprocedure, "
+                    "'yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::regprocedure)) "
+                    "OR (namespace.nspname <> 'yoao_assets_v1' "
                     "AND (left(namespace.nspname, 4) = 'aap_' "
                     "OR left(namespace.nspname, 5) = 'yoao_') "
                     "AND right(namespace.nspname, 3) = '_v1')) "
@@ -578,7 +584,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         assert (
             await cleanup.scalar(
                 text(
-                    "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions_v2("
+                    "SELECT count(*) FROM yoao_assets_v1.pending_storage_deletions_v2("
                     "'cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,1)"
                 ),
                 {"operation_id": operation_id},
@@ -588,7 +594,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         assert (
             await cleanup.scalar(
                 text(
-                    "SELECT aap_assets_v1.complete_storage_deletion("
+                    "SELECT yoao_assets_v1.complete_storage_deletion("
                     "CAST(:operation_id AS uuid), CAST(:asset_id AS uuid))"
                 ),
                 {"operation_id": operation_id, "asset_id": asset_id},
@@ -601,7 +607,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         )
         await _assert_permission_denied(
             cleanup,
-            "SELECT aap_assets_v1.prepare_dataset_unlink_cleanup("
+            "SELECT yoao_assets_v1.prepare_dataset_unlink_cleanup("
             "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
             "CAST(:project_id AS uuid), 'cache-bucket')",
             {
@@ -612,14 +618,14 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
         )
         await _assert_permission_denied(
             cleanup,
-            "SELECT aap_workspace_v1.preview_dataset_unlink("
+            "SELECT yoao_workspace_v1.preview_dataset_unlink("
             "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), "
             "CAST(:project_id AS uuid))",
             {"actor_id": uuid4(), "dataset_id": uuid4(), "project_id": uuid4()},
         )
         await _assert_permission_denied(
             cleanup,
-            "SELECT aap_workspace_v1.unlink_dataset("
+            "SELECT yoao_workspace_v1.unlink_dataset("
             "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
             "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
             "'cache-bucket', NULL::jsonb)",
@@ -634,12 +640,12 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
 
     async with append_engine.connect() as workflow:
         for signature in (
-            "aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
-            "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
-            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_image_garbage(uuid,uuid)",
-            "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+            "yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
+            "yoao_assets_v1.complete_storage_deletion(uuid,uuid)",
+            "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.complete_image_garbage(uuid,uuid)",
+            "yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
         ):
             assert not await workflow.scalar(
                 text(
@@ -649,11 +655,11 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             ), signature
         await _assert_permission_denied(
             workflow,
-            "SELECT * FROM aap_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,1)",
+            "SELECT * FROM yoao_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,1)",
         )
         await _assert_permission_denied(
             workflow,
-            "SELECT aap_assets_v1.complete_storage_deletion("
+            "SELECT yoao_assets_v1.complete_storage_deletion("
             "CAST(:operation_id AS uuid), CAST(:asset_id AS uuid))",
             {"operation_id": operation_id, "asset_id": asset_id},
         )
@@ -663,49 +669,51 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
     asset_image_worker_engine: AsyncEngine,
 ):
     expected = {
-        "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
-        "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
-        "aap_assets_v1.finish_image_original_worker(uuid,uuid)",
-        "aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
-        "aap_assets_v1.finish_accepted_image_original(uuid,uuid)",
-        "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
-        "aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
-        "aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
-        "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
-        "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
-        "aap_assets_v1.reconcile_image_media(jsonb,integer)",
-        "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
-        "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
-        "aap_assets_v1.submit_native_pyramid_member(uuid)",
-        "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
-        "aap_assets_v1.verify_native_pyramid_member(uuid)",
-        "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
-        "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
-        "aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
-        "aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
-        "aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
-        "aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
+        "yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+        "yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
+        "yoao_assets_v1.finish_image_original_worker(uuid,uuid)",
+        "yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
+        "yoao_assets_v1.finish_accepted_image_original(uuid,uuid)",
+        "yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+        "yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
+        "yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
+        "yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
+        "yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
+        "yoao_assets_v1.reconcile_image_media(jsonb,integer)",
+        "yoao_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
+        "yoao_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
+        "yoao_assets_v1.submit_native_pyramid_member(uuid)",
+        "yoao_assets_v1.write_native_pyramid_member(uuid,text,text)",
+        "yoao_assets_v1.verify_native_pyramid_member(uuid)",
+        "yoao_assets_v1.abandon_native_pyramid_member(uuid,text)",
+        "yoao_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
+        "yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
+        "yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
+        "yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
+        "yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
     }
     async with asset_image_worker_engine.connect() as worker:
         assert await worker.scalar(
-            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'USAGE')")
+            text("SELECT has_schema_privilege(current_user, 'yoao_assets_v1', 'USAGE')")
         )
         assert not await worker.scalar(
-            text("SELECT has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')")
+            text(
+                "SELECT has_schema_privilege(current_user, 'yoao_assets_v1', 'CREATE')"
+            )
         )
         for schema in (
-            "aap_identity_v1",
-            "aap_workspace_v1",
-            "aap_labeling_v1",
-            "aap_jobs_v1",
-            "aap_learning_v1",
-            "aap_inference_v1",
+            "yoao_identity_v1",
+            "yoao_workspace_v1",
+            "yoao_labeling_v1",
+            "yoao_jobs_v1",
+            "yoao_learning_v1",
+            "yoao_inference_v1",
             "yoao_insights_v1",
             "yoao_diagnostics_v1",
-            "aap_export_v1",
-            "aap_audit_v1",
-            "aap_settings_v1",
-            "aap_notifications_v1",
+            "yoao_export_v1",
+            "yoao_audit_v1",
+            "yoao_settings_v1",
+            "yoao_notifications_v1",
         ):
             assert not await worker.scalar(
                 text("SELECT has_schema_privilege(current_user, :schema, 'USAGE')"),
@@ -723,7 +731,7 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
                 "SELECT count(*) FROM pg_catalog.pg_proc AS proc "
                 "JOIN pg_catalog.pg_namespace AS namespace "
                 "ON namespace.oid = proc.pronamespace "
-                "WHERE namespace.nspname = 'aap_assets_v1' "
+                "WHERE namespace.nspname = 'yoao_assets_v1' "
                 "AND has_function_privilege(current_user, proc.oid, 'EXECUTE')"
             )
         ) == len(expected)
@@ -762,12 +770,12 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
     [
         (
             "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-            "asset_media_control_client",
+            "yoao_asset_media_control_client",
             "control",
         ),
         (
             "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL",
-            "asset_image_worker_client",
+            "yoao_asset_image_worker_client",
             "worker",
         ),
     ],
@@ -871,7 +879,7 @@ async def test_append_client_rollback_and_native_psql_share_caller_transaction(
 \\set ON_ERROR_STOP on
 BEGIN;
 SELECT current_user || '|' || session_user || '|' || current_database();
-SELECT aap_labeling_v1.append_dataset_items(
+SELECT yoao_labeling_v1.append_dataset_items(
     :'dataset_id'::uuid,
     ARRAY[:'item_id'::uuid],
     :'operation_id'::uuid
@@ -896,7 +904,7 @@ ROLLBACK;
                 "-p",
                 "5432",
                 "-U",
-                "append_client",
+                "yoao_append_client",
                 "-d",
                 database,
                 "-v",
@@ -918,7 +926,7 @@ ROLLBACK;
         )
         assert result.returncode == 0, "native psql append-client probe failed"
         lines = result.stdout.splitlines()
-        assert lines[0] == f"append_client|append_client|{database}"
+        assert lines[0] == f"yoao_append_client|yoao_append_client|{database}"
         native_receipt = json.loads(lines[1])
         assert native_receipt["created"] == 1
         assert native_receipt["operation_id"] == str(psql_operation)
@@ -946,7 +954,7 @@ async def test_append_function_ignores_caller_temporary_table_names(
             )
             if not can_create_temp:
                 pytest.skip(
-                    "append_client has no TEMP privilege; spoofing is unavailable"
+                    "yoao_append_client has no TEMP privilege; spoofing is unavailable"
                 )
             for statement in (
                 "CREATE TEMP TABLE projects (id uuid, total_tasks integer) ON COMMIT DROP",

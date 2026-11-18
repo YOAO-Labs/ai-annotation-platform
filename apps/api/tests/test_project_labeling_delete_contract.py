@@ -62,7 +62,7 @@ def _new_task(project_id: uuid.UUID, index: int) -> Task:
 async def _delete_owned_records(db: AsyncSession, project_id: uuid.UUID) -> dict:
     return (
         await db.execute(
-            text("SELECT aap_labeling_v1.delete_project_owned_records(:project_id)"),
+            text("SELECT yoao_labeling_v1.delete_project_owned_records(:project_id)"),
             {"project_id": project_id},
         )
     ).scalar_one()
@@ -211,7 +211,7 @@ async def test_project_labeling_delete_cleans_owned_children_and_uses_outer_tran
         (
             await db_session.execute(
                 text(
-                    "SELECT task_id FROM aap_labeling_v1.project_task_references(:project_id)"
+                    "SELECT task_id FROM yoao_labeling_v1.project_task_references(:project_id)"
                 ),
                 {"project_id": project.id},
             )
@@ -368,7 +368,7 @@ async def test_project_task_references_rejects_null_project_id(
         async with db_session.begin_nested():
             await db_session.execute(
                 text(
-                    "SELECT * FROM aap_labeling_v1.project_task_references(NULL::uuid)"
+                    "SELECT * FROM yoao_labeling_v1.project_task_references(NULL::uuid)"
                 )
             )
 

@@ -62,7 +62,7 @@ def project_facts():
         column("created_at", DateTime(timezone=True)),
         column("updated_at", DateTime(timezone=True)),
         column("guide_assets_revision", Integer),
-        schema="aap_workspace_v1",
+        schema="yoao_workspace_v1",
     ).alias("workspace_project_facts")
 
 
@@ -75,7 +75,7 @@ def project_counter_facts():
         column("review_tasks", Integer),
         column("in_progress_tasks", Integer),
         column("batch_summary", JSONB),
-        schema="aap_labeling_v1",
+        schema="yoao_labeling_v1",
     ).alias("labeling_project_counter_facts")
 
 
@@ -104,13 +104,13 @@ def project_member_facts():
         column("version", Integer),
         column("updated_at", DateTime(timezone=True)),
         column("weekly_target", Integer),
-        schema="aap_workspace_v1",
+        schema="yoao_workspace_v1",
     ).alias("workspace_project_member_facts")
 
 
 def actor_project_memberships(actor_id):
     return (
-        func.aap_workspace_v1.actor_project_memberships(actor_id)
+        func.yoao_workspace_v1.actor_project_memberships(actor_id)
         .table_valued(
             column("project_id", UUID(as_uuid=True)),
             column("member_role", Text),

@@ -67,8 +67,8 @@ async def _row(db, project_id):
             await db.execute(
                 text(
                     "SELECT counters.completed_tasks,counters.review_tasks,facts.updated_at "
-                    "FROM aap_labeling_v1.project_catalog_counters AS counters "
-                    "JOIN aap_workspace_v1.project_facts AS facts ON facts.id=counters.project_id "
+                    "FROM yoao_labeling_v1.project_catalog_counters AS counters "
+                    "JOIN yoao_workspace_v1.project_facts AS facts ON facts.id=counters.project_id "
                     "WHERE facts.id=:id"
                 ),
                 {"id": project_id},
@@ -119,7 +119,7 @@ async def test_native_counter_function_contract_and_exact_privileges(test_engine
                 for role, expected in (
                     ("identity_api_consumer", True),
                     ("legacy_runtime", True),
-                    ("append_client", False),
+                    ("yoao_append_client", False),
                     ("assets_code", False),
                     ("inference_code", False),
                     ("workspace_code", False),

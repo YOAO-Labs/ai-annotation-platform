@@ -19,11 +19,11 @@ from tests.sample_evaluation_fixtures import Objects, seed as seed_model
 pytestmark = pytest.mark.asyncio
 
 _GUARD_ITEM = text(
-    "SELECT aap_learning_v1.guard_dataset_item_deletion("
+    "SELECT yoao_learning_v1.guard_dataset_item_deletion("
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
 )
 _GUARD_UNLINK = text(
-    "SELECT aap_learning_v1.guard_dataset_unlink("
+    "SELECT yoao_learning_v1.guard_dataset_unlink("
     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
 )
 

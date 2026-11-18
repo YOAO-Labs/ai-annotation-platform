@@ -135,17 +135,17 @@ async def test_dispatch_recovery_without_private_jobs_select(
     role = "learning_jobs_dispatch_" + uuid.uuid4().hex
     await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
     await db_session.execute(
-        text(f'GRANT USAGE ON SCHEMA public, aap_jobs_v1 TO "{role}"')
+        text(f'GRANT USAGE ON SCHEMA public, yoao_jobs_v1 TO "{role}"')
     )
     await db_session.execute(
         text(f'GRANT SELECT, UPDATE ON public.active_learning_attempts TO "{role}"')
     )
     await db_session.execute(
         text(
-            f"GRANT EXECUTE ON FUNCTION aap_jobs_v1.read_job(uuid), "
-            f"aap_jobs_v1.read_job_execution_snapshot(uuid), "
-            f"aap_jobs_v1.read_job_progress(uuid), "
-            f'aap_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
+            f"GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), "
+            f"yoao_jobs_v1.read_job_execution_snapshot(uuid), "
+            f"yoao_jobs_v1.read_job_progress(uuid), "
+            f'yoao_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
         )
     )
     dispatched = []

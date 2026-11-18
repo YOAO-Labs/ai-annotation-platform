@@ -25,7 +25,7 @@ HTTP 元数据在响应生成后投递；broker 明确失败时同步回退，�
 这条旁路不提供可靠投递或去重保证；业务审计仍沿用各业务操作的原事务边界。
 
 `aap-audit-maintenance/v1` 的固定入口是
-`aap_audit_v1.maintenance_command(jsonb)`。请求包含 `schema`、`operation` 及该操作
+`yoao_audit_v1.maintenance_command(jsonb)`。请求包含 `schema`、`operation` 及该操作
 声明的字段，拒绝未知字段。成功回复为 `schema/ok/data`。
 
 | operation       | 作用                                                   |

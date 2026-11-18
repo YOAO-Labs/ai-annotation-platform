@@ -30,9 +30,9 @@ async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surfac
         "identity_revoked_jtis",
     } <= NATIVE_MANAGED_TABLES
     assert {
-        ("aap_jobs_v1", "video_restore_fence"),
+        ("yoao_jobs_v1", "video_restore_fence"),
         *(
-            ("aap_inference_routing_v1", name)
+            ("yoao_inference_routing_v1", name)
             for name in (
                 "video_restore_records",
                 "video_restore_contexts",
@@ -73,7 +73,7 @@ async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surfac
                 text(f"CREATE TABLE public.{control} (id integer PRIMARY KEY)")
             )
             await connection.execute(
-                text(f"CREATE TABLE aap_jobs_v1.{control} (id integer PRIMARY KEY)")
+                text(f"CREATE TABLE yoao_jobs_v1.{control} (id integer PRIMARY KEY)")
             )
             unguarded = await connection.run_sync(proposed_drops)
             assert NATIVE_MANAGED_RELATIONS <= unguarded
@@ -82,6 +82,6 @@ async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surfac
             )
             assert not NATIVE_MANAGED_RELATIONS & guarded
             assert ("public", control) in guarded
-            assert ("aap_jobs_v1", control) in guarded
+            assert ("yoao_jobs_v1", control) in guarded
         finally:
             await transaction.rollback()

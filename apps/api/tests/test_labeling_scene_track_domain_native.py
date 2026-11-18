@@ -42,7 +42,7 @@ async def test_reclassification_updates_camera_members_in_the_outer_transaction(
     dsn = _dsn(
         test_engine,
         "AAP_MODULE_DATA_LABELING_ANNOTATION_WRITE_URL",
-        "labeling_annotation_write_client",
+        "yoao_labeling_annotation_write_client",
     )
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_ids: list[uuid.UUID] = []
@@ -135,9 +135,9 @@ async def test_reclassification_updates_camera_members_in_the_outer_transaction(
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions=_FUNCTIONS,
-            role="labeling_annotation_write_client",
+            role="yoao_labeling_annotation_write_client",
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await connection.fetchval(
@@ -146,7 +146,7 @@ async def test_reclassification_updates_camera_members_in_the_outer_transaction(
 
         async def call(request_json: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.scene_track_domain_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.scene_track_domain_command($1::jsonb)",
                 request_json,
             )
 

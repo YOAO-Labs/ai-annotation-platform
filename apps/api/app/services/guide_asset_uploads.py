@@ -135,7 +135,7 @@ async def lock_projects(db, actor, ids, *, write_ids=(), wait=False):
                 else:
                     project = await db.scalar(
                         text(
-                            "SELECT aap_workspace_v1.lock_project_reference("
+                            "SELECT yoao_workspace_v1.lock_project_reference("
                             "CAST(:project_id AS uuid))"
                         ),
                         {"project_id": identifier},

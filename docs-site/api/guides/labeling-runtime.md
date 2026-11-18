@@ -70,8 +70,8 @@ Project Query 配置；部署时同步更新匹配的 Workspace／Labeling 工�
 
 任务编辑锁、送审／跳过／撤回／重开、审核认领／批准／驳回和贡献者证据使用两个封闭合同：
 `aap-labeling-task-locks/v1` 与 `aap-labeling-task-workflow/v1`。
-对应入口是 `aap_labeling_v1.task_edit_lock_command(jsonb)` 与
-`aap_labeling_v1.task_workflow_command(jsonb)`；请求／响应 schema 随 Labeling 包分发。
+对应入口是 `yoao_labeling_v1.task_edit_lock_command(jsonb)` 与
+`yoao_labeling_v1.task_workflow_command(jsonb)`；请求／响应 schema 随 Labeling 包分发。
 
 调用方继续核验当前 Workspace 权限，owner 核对当前账号、Task 的项目／批次、状态及
 审核轮次。编辑锁使用当前 `task-edit-lock:<task UUID>` advisory 域，保留续租／接管规则
@@ -97,7 +97,7 @@ ORM 缓存；owner 不提交／回滚，也不把未提交数据和锁转交给�
 内重新核验当前项目管理权，只创建 `uploading` Task 的固定列，返回是否成功。
 `publish_task_original(uuid,uuid,uuid,uuid,uuid,text)` 在 Assets 已封存独立原件后核对
 创建回执与捕获的 Task 上下文，按原状态 CAS 绑定 `original_id`；不匹配时不返回行。
-两项能力均位于 `aap_labeling_v1`，合同随 Labeling 工件的 `upload-tasks.schema.json`
+两项能力均位于 `yoao_labeling_v1`，合同随 Labeling 工件的 `upload-tasks.schema.json`
 分发。
 
 旧 `create_uploading_task(uuid,uuid,text,text,text)` 与
@@ -124,12 +124,12 @@ Task 上下文。当前合同快照随 Labeling 工件分发，旧控制函数�
 
 人工标注创建、字段更新、软删除及创建回执使用
 `aap-labeling-annotation-writes/v1`，由
-`aap_labeling_v1.annotation_write_command(jsonb)` 承接。
+`yoao_labeling_v1.annotation_write_command(jsonb)` 承接。
 关联的轨迹身份／存在区间、类名与相机成员版本使用
 `aap-labeling-scene-track-domain/v1` 和 `scene_track_domain_command(jsonb)`；
 任务标注数量、已标注标记及 pending／in_progress 翻转使用
 `aap-labeling-annotation-statistics/v1` 和 `annotation_statistics_command(jsonb)`。
-三个函数位于同一 `aap_labeling_v1` schema，请求与响应 schema 随包分发。
+三个函数位于同一 `yoao_labeling_v1` schema，请求与响应 schema 随包分发。
 
 Annotation 业务拒绝使用 PostgreSQL `P0001`，消息为
 `aap_annotation_write_error`，`DETAIL` 为含 `status_code` 与 `detail` 的 JSON；
@@ -152,7 +152,7 @@ Mask 修订触发器及快照函数保留原调用者权限和版本／快照规
 ## 批量编辑、视频框与批次控制 {#bulk-video-and-batch-control}
 
 批量标注使用 `aap-labeling-annotation-bulk/v1` 和
-`aap_labeling_v1.annotation_bulk_command(jsonb)`，保留完整轨迹改类检查、相机成员
+`yoao_labeling_v1.annotation_bulk_command(jsonb)`，保留完整轨迹改类检查、相机成员
 更新、属性来源及版本规则；项目配置复用 Workspace 的公开读取能力。
 
 视频框转换与组合使用 `aap-labeling-video-bbox-editing/v1` 和
@@ -244,7 +244,7 @@ bbox-only 结果不需要 Mask Content 凭据。
 
 数据边界由迁移、`infra/docker/module-data-grants.sql` 与
 `infra/docker/labeling-video-writer-grants.sql` 提供。受限
-`labeling_video_writer_client` LOGIN 只有一个 Labeling 函数的执行权；
+`yoao_labeling_video_writer_client` LOGIN 只有一个 Labeling 函数的执行权；
 Jobs 的固定内部 capability 只授予 Labeling owner，LOGIN 不获得 Jobs 表、
 Labeling 表或任意 Jobs RPC 权限。
 
@@ -303,14 +303,14 @@ Task UUID，未增加产品参数。场景读取使用 `scene_read_query`，严�
 ## 历史角色审计与手动验收
 
 `infra/docker/labeling-role-audit-grants.sql` 显式安装五项
-`aap_labeling_audit_v1` 固定只读投影，字段／可空语义见同目录的
+`yoao_labeling_audit_v1` 固定只读投影，字段／可空语义见同目录的
 `labeling-role-audit.schema.json`。审计账号不读 Task、Batch、Annotation 或 TaskLock
 私表，也不通过 `information_schema` 猜测被权限隐藏的准备列。安装器支持准备迁移前的
 历史库，不修改业务行或 Alembic revision；新增准备列后需显式重装，CLI 不自动迁移。
 审计仍使用同一 REPEATABLE READ READ ONLY 快照及最终回滚，NULL／未知值不补造为已知。
 
 `scripts/worktree_filtering.py` 在原 seed 提交之后，通过
-`aap_labeling_v1.prepare_filtering_rendering(jsonb)` 更新三条指定视频候选。
+`yoao_labeling_v1.prepare_filtering_rendering(jsonb)` 更新三条指定视频候选。
 其模型／项目／视频任务范围固定，只能在实际库名以 `_test`／`_e2e` 结尾时执行，
 保留原 confidence 和帧 0／0／10 的几何；自动化筛选 seed 仍只写原指标夹具。
 命令不代替外层提交，也不开放通用预测编辑。

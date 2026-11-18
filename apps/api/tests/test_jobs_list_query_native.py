@@ -235,8 +235,8 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
         )
         assert url.database.endswith("_test")
     assert consumer_url.username == "identity_api_consumer"
-    assert list_url.username == "jobs_list_query_client"
-    assert auth_url.username == "identity_auth_client"
+    assert list_url.username == "yoao_jobs_list_query_client"
+    assert auth_url.username == "yoao_identity_auth_client"
     engine = create_async_engine(
         consumer_url.set(drivername="postgresql+asyncpg"), hide_parameters=True
     )
@@ -310,11 +310,11 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
                 assert project_item["project_id"] == str(world["project_id"])
                 assert project_item["project_name"]
             assert (
-                sum("aap_jobs_v1.async_job_list_page(" in sql for sql in statements)
+                sum("yoao_jobs_v1.async_job_list_page(" in sql for sql in statements)
                 == 1
             )
             assert (
-                sum("aap_jobs_v1.async_job_list_total(" in sql for sql in statements)
+                sum("yoao_jobs_v1.async_job_list_total(" in sql for sql in statements)
                 == 1
             )
             environment = os.environ.copy()

@@ -602,7 +602,7 @@ async def require_unowned_legacy_original(db, key: str, bucket: str) -> None:
     identity = managed_storage_identity(endpoint, bucket)
     owned = await db.scalar(
         text(
-            "SELECT aap_assets_v1.is_fixture_original_source("
+            "SELECT yoao_assets_v1.is_fixture_original_source("
             "CAST(:key AS text), CAST(:identity AS text))"
         ),
         {"key": key, "identity": identity},

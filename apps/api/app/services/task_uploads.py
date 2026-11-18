@@ -144,7 +144,7 @@ async def initialize(db, actor, request, data, file_type):
     display_id = await next_display_id(db, "tasks")
     created = await db.scalar(
         text(
-            "SELECT aap_labeling_v1.create_uploading_task("
+            "SELECT yoao_labeling_v1.create_uploading_task("
             "CAST(:task_id AS uuid), CAST(:project_id AS uuid), "
             "CAST(:display_id AS text), CAST(:file_name AS text), "
             "CAST(:file_path AS text), CAST(:file_type AS text), "

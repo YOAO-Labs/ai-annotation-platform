@@ -145,14 +145,15 @@ async def _seed_scope_only_route(test_engine, world):
             )
             # Seed the pre-ledger shape using the existing owner fixture pattern.
             await owner.execute(
-                "UPDATE aap_inference_routing_v1.scopes SET owner=$1,"
+                "UPDATE yoao_inference_routing_v1.scopes SET owner=$1,"
                 "operation='tracker',project_id=$2 WHERE id=$3",
                 f"tracker:{world['job_id']}",
                 world["project_id"],
                 scope_id,
             )
             raw = await owner.fetchval(
-                "SELECT aap_inference_routing_v1._routing_scope_view($1,true)", scope_id
+                "SELECT yoao_inference_routing_v1._routing_scope_view($1,true)",
+                scope_id,
             )
             scope = RoutingScopeView.model_validate_json(raw)
     finally:
@@ -191,10 +192,10 @@ async def _retire_exact_scope(test_engine, scope):
                                 "SELECT retirement.retirement_id,retirement.phase,"
                                 "retirement.registry_id,retirement.authority_epoch,"
                                 "retirement.backend_incarnation,scope.state,scope.closed,"
-                                "aap_inference_routing_v1.video_execution_scope_retired(scope.id) "
+                                "yoao_inference_routing_v1.video_execution_scope_retired(scope.id) "
                                 "AS scope_retired "
-                                "FROM aap_inference_routing_v1.scope_retirements AS retirement "
-                                "JOIN aap_inference_routing_v1.scopes AS scope "
+                                "FROM yoao_inference_routing_v1.scope_retirements AS retirement "
+                                "JOIN yoao_inference_routing_v1.scopes AS scope "
                                 "ON scope.id=retirement.scope_id WHERE scope.id=:scope"
                             ),
                             {"scope": scope.id},
@@ -296,12 +297,12 @@ async def _wait_worker_failure(
 async def _assert_unbound_job_still_blocked(test_engine, world, input_id):
     async with test_engine.begin() as db:
         raw_guard = await db.scalar(
-            text("SELECT aap_labeling_v1.guard_project_video_deletion(:project)"),
+            text("SELECT yoao_labeling_v1.guard_project_video_deletion(:project)"),
             {"project": world["project_id"]},
         )
         guard = _json_value(raw_guard)
         raw_retention = await db.scalar(
-            text("SELECT aap_labeling_v1.video_tracker_input_referenced(:input)"),
+            text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:input)"),
             {"input": input_id},
         )
         retention = _json_value(raw_retention)
@@ -319,18 +320,20 @@ async def _assert_unbound_job_still_blocked(test_engine, world, input_id):
             .one_or_none()
         )
         execution_count = await db.scalar(
-            text("SELECT count(*) FROM aap_jobs_v1.video_executions WHERE job_id=:job"),
+            text(
+                "SELECT count(*) FROM yoao_jobs_v1.video_executions WHERE job_id=:job"
+            ),
             {"job": world["job_id"]},
         )
         journal_count = await db.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                "SELECT count(*) FROM yoao_jobs_v1.video_execution_journals WHERE job_id=:job"
             ),
             {"job": world["job_id"]},
         )
         clearance_count = await db.scalar(
             text(
-                "SELECT count(*) FROM aap_jobs_v1.video_deletion_clearances WHERE job_id=:job"
+                "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:job"
             ),
             {"job": world["job_id"]},
         )
@@ -489,7 +492,9 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
         }.items():
             monkeypatch.setattr(settings, name, value)
         bridge = await peer_stack.enter_async_context(_tracker_fixture_bridge())
-        async with _video_runtime(test_engine, tmp_path, tracker_bridge=bridge) as media:
+        async with _video_runtime(
+            test_engine, tmp_path, tracker_bridge=bridge
+        ) as media:
             owner_s3 = media.owner
             listener, backend_origin = bridge.reserve_listener()
             peer_stack.callback(listener.close)
@@ -649,7 +654,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
             async with test_engine.connect() as db:
                 scope_facts_raw = await db.scalar(
                     text(
-                        "SELECT aap_inference_routing_v1.video_execution_scope_facts(:scope)"
+                        "SELECT yoao_inference_routing_v1.video_execution_scope_facts(:scope)"
                     ),
                     {"scope": scope.id},
                 )
@@ -658,14 +663,14 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     (
                         await db.execute(
                             text(
-                                "SELECT (SELECT count(*) FROM aap_inference_routing_v1.attempts "
+                                "SELECT (SELECT count(*) FROM yoao_inference_routing_v1.attempts "
                                 "WHERE scope_id=:scope) AS attempt_count,"
-                                "(SELECT count(*) FROM aap_inference_routing_v1.video_execution_scope_permits "
+                                "(SELECT count(*) FROM yoao_inference_routing_v1.video_execution_scope_permits "
                                 "WHERE scope_id=:scope) AS permit_count,"
-                                "(SELECT phase FROM aap_inference_routing_v1.scope_retirements "
+                                "(SELECT phase FROM yoao_inference_routing_v1.scope_retirements "
                                 "WHERE scope_id=:scope) AS retirement_phase,"
                                 "admission_expires_at<=pg_catalog.clock_timestamp() AS no_live_admission "
-                                "FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+                                "FROM yoao_inference_routing_v1.scopes WHERE id=:scope"
                             ),
                             {"scope": scope.id},
                         )

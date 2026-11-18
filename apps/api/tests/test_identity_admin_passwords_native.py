@@ -64,7 +64,7 @@ def _admin_password_dsn() -> str:
         pytest.skip("Identity administrator-password client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_admin_password_client"
+    assert parsed.username == "yoao_identity_admin_password_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
@@ -217,8 +217,8 @@ def test_frozen_identity_admin_password_artifacts_and_scope_lock_order():
     assert "ON public.identity_admin_password_reset_receipts" in module_grants
     assert "admin_password_target_in_owned_project" in role_grants
     assert "record_identity_admin_password_reset" in role_grants
-    assert "identity_admin_password_client" in role_grants
-    assert "aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb)" in (
+    assert "yoao_identity_admin_password_client" in role_grants
+    assert "yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)" in (
         lan_grants
     )
 

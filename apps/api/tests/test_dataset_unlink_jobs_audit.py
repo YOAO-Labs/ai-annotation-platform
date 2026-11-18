@@ -16,16 +16,16 @@ from app.db.models.async_job import AsyncJob
 from tests.factory import create_project, create_user
 
 _CANCEL_DATASET_TASK_CREATION = text(
-    "SELECT aap_jobs_v1.cancel_dataset_task_creation("
+    "SELECT yoao_jobs_v1.cancel_dataset_task_creation("
     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:association_id AS uuid))"
 )
 _VALID_CONTEXT = text(
-    "SELECT aap_audit_v1.valid_request_context(CAST(:context AS jsonb))"
+    "SELECT yoao_audit_v1.valid_request_context(CAST(:context AS jsonb))"
 )
-_SQL_NULL_CONTEXT = text("SELECT aap_audit_v1.valid_request_context(NULL::jsonb)")
+_SQL_NULL_CONTEXT = text("SELECT yoao_audit_v1.valid_request_context(NULL::jsonb)")
 _RECORD_DATASET_UNLINK = text(
-    "SELECT aap_audit_v1.record_dataset_unlink("
+    "SELECT yoao_audit_v1.record_dataset_unlink("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid), "
     "CAST(:deleted_tasks AS bigint), CAST(:deleted_annotations AS bigint), "

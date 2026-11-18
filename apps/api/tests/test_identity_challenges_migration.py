@@ -180,10 +180,10 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine):
                 "audit_owner": "audit_code",
                 "settings_owner": "settings_code",
                 "notifications_owner": "notifications_code",
-                "workflow_role": "append_client",
-                "asset_cleanup_role": "asset_cleanup_client",
-                "mask_gc_role": "labeling_mask_gc_client",
-                "inference_registry_ingress_role": "inference_registry_ingress_client",
+                "workflow_role": "yoao_append_client",
+                "asset_cleanup_role": "yoao_asset_cleanup_client",
+                "mask_gc_role": "yoao_labeling_mask_gc_client",
+                "inference_registry_ingress_role": "yoao_inference_registry_ingress_client",
                 "inference_routing_role": routing_role,
             },
         )
@@ -197,9 +197,9 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine):
                 "identity_owner": "identity_code",
                 "audit_owner": "audit_code",
                 "settings_owner": "settings_code",
-                "identity_recovery_role": "identity_recovery_client",
-                "identity_mail_role": "identity_mail_client",
-                "identity_mail_settings_role": "identity_mail_settings_client",
+                "identity_recovery_role": "yoao_identity_recovery_client",
+                "identity_mail_role": "yoao_identity_mail_client",
+                "identity_mail_settings_role": "yoao_identity_mail_settings_client",
             },
         )
         expected_live_hash = hashlib.sha256(live_token.encode("utf-8")).hexdigest()

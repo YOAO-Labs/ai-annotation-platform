@@ -128,7 +128,7 @@ async def test_native_seed_insert_precedes_pending_unrelated_uow_flush(db_sessio
     native_index = next(
         index
         for index, statement in enumerate(statements)
-        if "aap_inference_topology_v1.create_seed_registry" in statement
+        if "yoao_inference_topology_v1.create_seed_registry" in statement
     )
     user_index = next(
         index
@@ -228,7 +228,7 @@ async def test_equal_seed_marker_does_not_call_native_tag(db_session):
         event.remove(connection, "before_cursor_execute", observe)
 
     assert not any(
-        "aap_inference_registry_ingress_v1.tag_seed_registry" in statement
+        "yoao_inference_registry_ingress_v1.tag_seed_registry" in statement
         for statement in statements
     )
     assert row.extra_params == {"seed": _MARKER}
@@ -256,7 +256,7 @@ async def test_registry_refresh_discards_a_staged_seed_marker(db_session):
         event.remove(connection, "before_cursor_execute", observe)
 
     assert not any(
-        "aap_inference_registry_ingress_v1.tag_seed_registry" in statement
+        "yoao_inference_registry_ingress_v1.tag_seed_registry" in statement
         for statement in statements
     )
     assert row.extra_params == {"seed": _MARKER}

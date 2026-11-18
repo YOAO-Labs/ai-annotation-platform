@@ -43,7 +43,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_spatial_quality_client"
+_ROLE = "yoao_labeling_spatial_quality_client"
 
 
 async def test_spatial_quality_owner_reads_and_writes_inside_one_uow(test_engine):
@@ -109,7 +109,7 @@ async def test_spatial_quality_owner_reads_and_writes_inside_one_uow(test_engine
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("spatial_quality_command", "jsonb")},
             role=_ROLE,
         )
@@ -121,7 +121,7 @@ async def test_spatial_quality_owner_reads_and_writes_inside_one_uow(test_engine
         async def call(action: str, **values: object) -> dict:
             request = spatial_quality_request(action, **values)
             payload = await connection.fetchval(
-                "SELECT aap_labeling_v1.spatial_quality_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.spatial_quality_command($1::jsonb)",
                 spatial_quality_request_json(request),
             )
             if isinstance(payload, (bytes, str)):
@@ -207,7 +207,7 @@ async def test_spatial_quality_owner_reads_and_writes_inside_one_uow(test_engine
         ):
             with pytest.raises(asyncpg.PostgresError) as invalid_request:
                 await connection.fetchval(
-                    "SELECT aap_labeling_v1.spatial_quality_command($1::jsonb)",
+                    "SELECT yoao_labeling_v1.spatial_quality_command($1::jsonb)",
                     json.dumps(malformed),
                 )
             assert invalid_request.value.sqlstate == "22023"
@@ -335,7 +335,7 @@ async def test_video_quality_owner_runs_and_issues_share_the_callers_uow(test_en
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("spatial_quality_command", "jsonb")},
             role=_ROLE,
         )
@@ -343,7 +343,7 @@ async def test_video_quality_owner_runs_and_issues_share_the_callers_uow(test_en
         async def call(action: str, **values: object) -> dict:
             request = spatial_quality_request(action, **values)
             payload = await connection.fetchval(
-                "SELECT aap_labeling_v1.spatial_quality_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.spatial_quality_command($1::jsonb)",
                 spatial_quality_request_json(request),
             )
             if isinstance(payload, (bytes, str)):

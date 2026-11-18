@@ -415,7 +415,7 @@ async def promotion_db(
             factory=factory,
             backend_ids=backend_ids,
             authority_data=GPUAuthorityPoolData(
-                pool, expected_role="inference_gpu_authority_client"
+                pool, expected_role="yoao_inference_gpu_authority_client"
             ),
             endpoint_source=_TestOwnedEndpointSource(factory),
             backend_transport=_TestBackendControlTransport(factory),

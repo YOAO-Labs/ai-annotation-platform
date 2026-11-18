@@ -142,7 +142,7 @@ async def seed(
             print(f"  a_batch_id   = {batch_id}")
             print(f"  annotator_id = {annotator_id}")
             print(
-                f"  EXPLAIN ANALYZE SELECT * FROM aap_labeling_v1.task_rows WHERE project_id='{project_id}' ORDER BY created_at, id LIMIT 100;"
+                f"  EXPLAIN ANALYZE SELECT * FROM yoao_labeling_v1.task_rows WHERE project_id='{project_id}' ORDER BY created_at, id LIMIT 100;"
             )
 
 

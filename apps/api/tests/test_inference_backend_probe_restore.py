@@ -47,14 +47,14 @@ async def _state(engine):
     try:
         key = await connection.fetchrow(
             "SELECT singleton, pg_catalog.encode(public.digest(secret,'sha256'),'hex') AS fingerprint "
-            "FROM aap_inference_backend_probe_v1.probe_secret"
+            "FROM yoao_inference_backend_probe_v1.probe_secret"
         )
         functions = await connection.fetch(
             "SELECT pg_catalog.pg_get_functiondef(p.oid) AS definition, "
             "pg_catalog.pg_get_userbyid(p.proowner) AS owner, p.proacl::text AS acl, p.proconfig AS settings "
             "FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace "
-            "WHERE n.nspname='aap_inference_backend_probe_v1' "
-            "OR (n.nspname='aap_inference_v1' AND p.proname='workspace_configuration_backend') "
+            "WHERE n.nspname='yoao_inference_backend_probe_v1' "
+            "OR (n.nspname='yoao_inference_v1' AND p.proname='workspace_configuration_backend') "
             "ORDER BY n.nspname,p.proname"
         )
         assert len(functions) == 3
@@ -62,7 +62,7 @@ async def _state(engine):
         acl = await connection.fetchrow(
             "SELECT pg_catalog.pg_get_userbyid(c.relowner) AS owner, "
             "COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))::text AS acl "
-            "FROM pg_catalog.pg_class AS c WHERE c.oid='aap_inference_backend_probe_v1.probe_secret'::regclass"
+            "FROM pg_catalog.pg_class AS c WHERE c.oid='yoao_inference_backend_probe_v1.probe_secret'::regclass"
         )
         rows = await connection.fetch(
             "SELECT id,name,url,auth_method,auth_token,extra_params::text AS extra_params "
@@ -121,7 +121,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
                 "expected_database": names[0],
                 "migration_role": "owner",
                 "inference_owner": "inference_code",
-                "inference_backend_probe_role": "inference_backend_probe_client",
+                "inference_backend_probe_role": "yoao_inference_backend_probe_client",
             },
         )
         acl = await _database_acl(source)
@@ -168,13 +168,13 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
             await _assert_copied_authority_quarantined(restored)
 
             assert await _state(restored) == before
-            probe = await _connect(restored, role="inference_backend_probe_client")
+            probe = await _connect(restored, role="yoao_inference_backend_probe_client")
             try:
                 # The key is preserved, but an active subject from the source database is rejected.
                 await _assert_invalid_subject(probe, old_subject, registry_id)
                 assert (
                     await probe.fetchval(
-                        "SELECT has_table_privilege(current_user,'aap_inference_backend_probe_v1.probe_secret','SELECT')"
+                        "SELECT has_table_privilege(current_user,'yoao_inference_backend_probe_v1.probe_secret','SELECT')"
                     )
                     is False
                 )

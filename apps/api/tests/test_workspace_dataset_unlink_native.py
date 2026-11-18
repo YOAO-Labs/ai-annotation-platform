@@ -57,7 +57,7 @@ pytestmark = [
 def _url(test_engine):
     _verify_postgres(test_engine.url)
     url = make_url(os.environ["AAP_MODULE_DATA_WORKSPACE_DATASET_UNLINK_URL"])
-    assert url.username == "workspace_dataset_unlink_client"
+    assert url.username == "yoao_workspace_dataset_unlink_client"
     assert (url.host, url.port, url.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -109,24 +109,24 @@ async def test_two_function_login_has_exact_contract_and_no_private_capabilities
     async with _world(test_engine) as (fixture, connection):
         assert (
             await connection.fetchval("SELECT current_user")
-            == "workspace_dataset_unlink_client"
+            == "yoao_workspace_dataset_unlink_client"
         )
         names = await connection.fetch(
             "SELECT n.nspname||'.'||p.proname AS name FROM pg_proc p "
-            "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname LIKE 'aap_%' "
+            "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (n.nspname LIKE 'aap_%' OR n.nspname LIKE 'yoao_%') "
             "AND has_function_privilege(current_user,p.oid,'EXECUTE') ORDER BY name"
         )
         assert [row["name"] for row in names] == [
-            "aap_workspace_v1.preview_dataset_unlink",
-            "aap_workspace_v1.unlink_dataset",
+            "yoao_workspace_v1.preview_dataset_unlink",
+            "yoao_workspace_v1.unlink_dataset",
         ]
         for sql in (
             "SELECT id FROM public.projects LIMIT 1",
             "SELECT id FROM public.datasets LIMIT 1",
             "SELECT operation_id FROM public.dataset_unlink_operations LIMIT 1",
             "UPDATE public.projects SET total_tasks=0 WHERE false",
-            "SELECT aap_workspace_v1.delete_project(NULL,NULL,NULL,NULL)",
-            "SELECT aap_labeling_v1.delete_dataset_tasks(NULL,NULL)",
+            "SELECT yoao_workspace_v1.delete_project(NULL,NULL,NULL,NULL)",
+            "SELECT yoao_labeling_v1.delete_dataset_tasks(NULL,NULL)",
             "CREATE TEMP TABLE unlink_denied(id integer)",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
@@ -370,10 +370,10 @@ async def test_restricted_unlink_audit_contention_rolls_back_then_recovers(test_
 async def test_extra_function_privilege_rejected_before_native_mutation(test_engine):
     async with _world(test_engine) as (fixture, connection):
         command = _command(fixture)
-        sql = " ON FUNCTION aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb) "
+        sql = " ON FUNCTION yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb) "
         async with test_engine.begin() as db:
             await db.execute(
-                text("GRANT EXECUTE" + sql + "TO workspace_dataset_unlink_client")
+                text("GRANT EXECUTE" + sql + "TO yoao_workspace_dataset_unlink_client")
             )
         try:
             with pytest.raises(FunctionRoleUnavailable):
@@ -383,7 +383,9 @@ async def test_extra_function_privilege_rejected_before_native_mutation(test_eng
             async with test_engine.begin() as db:
                 await db.execute(
                     text(
-                        "REVOKE EXECUTE" + sql + "FROM workspace_dataset_unlink_client"
+                        "REVOKE EXECUTE"
+                        + sql
+                        + "FROM yoao_workspace_dataset_unlink_client"
                     )
                 )
         async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
@@ -492,10 +494,14 @@ async def test_actual_http_preview_unlink_and_replay_without_private_project_acc
             assert replay.status_code == 200 and replay.json() == response.json()
         assert not [sql for sql in statements if _DIRECT_PROJECT_SQL.search(sql)]
         assert (
-            sum("aap_workspace_v1.preview_dataset_unlink(" in sql for sql in statements)
+            sum(
+                "yoao_workspace_v1.preview_dataset_unlink(" in sql for sql in statements
+            )
             == 1
         )
-        assert sum("aap_workspace_v1.unlink_dataset(" in sql for sql in statements) == 2
+        assert (
+            sum("yoao_workspace_v1.unlink_dataset(" in sql for sql in statements) == 2
+        )
     async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
         await _assert_unlinked_graph(db, fixture)
         assert (

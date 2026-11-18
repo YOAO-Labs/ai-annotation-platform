@@ -294,7 +294,7 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                     await asyncio.sleep(0.025)
             # Lease expiry is not evidence that either process's work ended.
             await native.execute(
-                "UPDATE aap_inference_routing_v1.scopes SET heartbeat_deadline="
+                "UPDATE yoao_inference_routing_v1.scopes SET heartbeat_deadline="
                 "pg_catalog.clock_timestamp()-interval '1 hour' WHERE id=$1",
                 old.id,
             )
@@ -341,7 +341,7 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                 progress = await retire()
             assert progress["result"]["phase"] == "draining"
             assert await native.fetchval(
-                "SELECT closed FROM aap_inference_routing_v1.scopes WHERE id=$1",
+                "SELECT closed FROM yoao_inference_routing_v1.scopes WHERE id=$1",
                 old.id,
             )
             # This valid bearer was minted before closure and never reached the peer.
@@ -370,18 +370,18 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
             assert (await retire())["result"] == completed["result"]
             assert (
                 await native.fetchval(
-                    "SELECT state FROM aap_inference_routing_v1.scopes WHERE id=$1",
+                    "SELECT state FROM yoao_inference_routing_v1.scopes WHERE id=$1",
                     old.id,
                 )
                 == "reconciled"
             )
             assert await native.fetchval(
                 "SELECT bool_and(state='reconciled') FROM "
-                "aap_inference_routing_v1.attempts WHERE scope_id=$1",
+                "yoao_inference_routing_v1.attempts WHERE scope_id=$1",
                 old.id,
             )
             other_row = await native.fetchrow(
-                "SELECT state,closed FROM aap_inference_routing_v1.scopes WHERE id=$1",
+                "SELECT state,closed FROM yoao_inference_routing_v1.scopes WHERE id=$1",
                 other.id,
             )
             assert tuple(other_row) == ("active", False)
@@ -392,7 +392,7 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
             assert set(observation["entered"]) == {"old", "other"}
             assert (
                 await native.fetchval(
-                    "SELECT authority_epoch FROM aap_inference_routing_v1.registry_state "
+                    "SELECT authority_epoch FROM yoao_inference_routing_v1.registry_state "
                     "WHERE registry_id=$1",
                     registry_id,
                 )
@@ -422,7 +422,7 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                     await routing_client.scope_retirement_status(retirement)
                 assert (
                     await native.fetchval(
-                        "SELECT count(*) FROM aap_inference_routing_v1.scope_retirements "
+                        "SELECT count(*) FROM yoao_inference_routing_v1.scope_retirements "
                         "WHERE registry_id=$1",
                         registry_id,
                     )
@@ -483,8 +483,8 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                 await cleanup(
                     "retirement rows",
                     native.execute(
-                        "DELETE FROM aap_inference_routing_v1.scope_retirements "
-                        "WHERE scope_id IN (SELECT id FROM aap_inference_routing_v1.scopes "
+                        "DELETE FROM yoao_inference_routing_v1.scope_retirements "
+                        "WHERE scope_id IN (SELECT id FROM yoao_inference_routing_v1.scopes "
                         "WHERE registry_id=$1)",
                         registry_id,
                     ),

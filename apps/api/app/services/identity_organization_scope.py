@@ -13,7 +13,7 @@ async def list_actor_organization_ids(db, actor_id: uuid.UUID) -> list[uuid.UUID
         await db.flush()
     raw = await db.scalar(
         text(
-            "SELECT aap_identity_v1.workspace_template_query_org_ids(CAST(:actor AS uuid))"
+            "SELECT yoao_identity_v1.workspace_template_query_org_ids(CAST(:actor AS uuid))"
         ),
         {"actor": actor_id},
     )

@@ -166,7 +166,7 @@ async def test_table_free_deactivation_api_and_two_celery_event_loops(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT has_table_privilege('identity_auth_client','public.users','SELECT')"
+                        "SELECT has_table_privilege('yoao_identity_auth_client','public.users','SELECT')"
                     )
                 )
                 is False

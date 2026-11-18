@@ -24,28 +24,28 @@ from tests.test_assets_catalog_native import _call, _seed_actor, _seed_dataset
 pytestmark = pytest.mark.asyncio
 
 _READ_LAYOUT = text(
-    "SELECT aap_assets_v1.read_spatial_layout("
+    "SELECT yoao_assets_v1.read_spatial_layout("
     "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), NULL, "
     "CAST(:after_item_id AS uuid), CAST(:page_size AS integer))"
 )
 _READ_ITEMS = text(
-    "SELECT aap_assets_v1.read_spatial_items("
+    "SELECT yoao_assets_v1.read_spatial_items("
     "CAST(:dataset_id AS uuid), NULL, CAST(:after_item_id AS uuid), "
     "CAST(:page_size AS integer))"
 )
 _READ_ITEMS_BATCH = text(
-    "SELECT aap_assets_v1.read_spatial_items("
+    "SELECT yoao_assets_v1.read_spatial_items("
     "NULL, CAST(:item_ids AS uuid[]), CAST(:after_item_id AS uuid), "
     "CAST(:page_size AS integer))"
 )
 _APPLY_LAYOUT = text(
-    "SELECT aap_assets_v1.apply_spatial_layout("
+    "SELECT yoao_assets_v1.apply_spatial_layout("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:mode AS text), "
     "CAST(:dry_run AS boolean), CAST(:plan AS jsonb), CAST(:snapshot AS jsonb))"
 )
 _READ_LAYOUT_RECEIPT = text(
-    "SELECT aap_assets_v1.read_spatial_layout_receipt("
+    "SELECT yoao_assets_v1.read_spatial_layout_receipt("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:mode AS text), CAST(:dry_run AS boolean))"
 )

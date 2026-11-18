@@ -35,7 +35,7 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_workspace_configuration_v1"
+_SCHEMA = "yoao_workspace_configuration_v1"
 _STEP_SIGNATURE = f"{_SCHEMA}.configuration_step(jsonb,text,jsonb,text[],text[])"
 _HELPERS = (
     f"{_SCHEMA}._class_rename_project_row(uuid,text)",

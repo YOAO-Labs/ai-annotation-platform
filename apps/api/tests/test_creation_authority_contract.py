@@ -18,17 +18,17 @@ from app.db.models.user import User
 
 pytestmark = pytest.mark.asyncio
 
-_LOCK_ACTOR = text("SELECT aap_identity_v1.lock_active_actor(:actor_id)").bindparams(
+_LOCK_ACTOR = text("SELECT yoao_identity_v1.lock_active_actor(:actor_id)").bindparams(
     bindparam("actor_id", type_=PGUUID(as_uuid=True))
 )
 _LOCK_MANAGER = text(
-    "SELECT aap_workspace_v1.lock_project_manager(:actor_id, :project_id)"
+    "SELECT yoao_workspace_v1.lock_project_manager(:actor_id, :project_id)"
 ).bindparams(
     bindparam("actor_id", type_=PGUUID(as_uuid=True)),
     bindparam("project_id", type_=PGUUID(as_uuid=True)),
 )
 _ASSOCIATE = text(
-    "SELECT aap_assets_v1.associate_project(:actor_id, :dataset_id, :project_id)"
+    "SELECT yoao_assets_v1.associate_project(:actor_id, :dataset_id, :project_id)"
 ).bindparams(
     bindparam("actor_id", type_=PGUUID(as_uuid=True)),
     bindparam("dataset_id", type_=PGUUID(as_uuid=True)),

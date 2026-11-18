@@ -39,7 +39,7 @@ async def annotation_prediction_command(
     async def execute(payload: str):
         return await db.scalar(
             text(
-                "SELECT aap_labeling_v1.annotation_prediction_command(CAST(:request AS jsonb))"
+                "SELECT yoao_labeling_v1.annotation_prediction_command(CAST(:request AS jsonb))"
             ),
             {"request": payload},
         )

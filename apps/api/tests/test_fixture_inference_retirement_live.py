@@ -103,7 +103,9 @@ class _PreservedSeedOwner(SeedOwner):
                 self._buffer = bytearray(rest)
                 result = json.loads(line)
                 if result.get("operation_id") != envelope["operation_id"]:
-                    raise RuntimeError("Fixture owner returned a different operation identity")
+                    raise RuntimeError(
+                        "Fixture owner returned a different operation identity"
+                    )
                 return result
             try:
                 chunk = os.read(fd, 65536)
@@ -128,11 +130,15 @@ class _PreservedSeedOwner(SeedOwner):
 async def test_shutdown_ack_reconnects_and_preserves_exact_owner_identity(test_engine):
     fixture_db = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
     assert (fixture_db.host, fixture_db.port, fixture_db.database) == (
-        test_engine.url.host, test_engine.url.port, test_engine.url.database,
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
     )
     record_dir = (
-        Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"]) / ".worktree"
-        / os.environ["AAP_WORKTREE_MODE"] / "fixture-authority"
+        Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
+        / ".worktree"
+        / os.environ["AAP_WORKTREE_MODE"]
+        / "fixture-authority"
     )
     first_suite, neighbor = uuid.uuid4(), uuid.uuid4()
     async with private_seed_owner() as first:
@@ -140,21 +146,32 @@ async def test_shutdown_ack_reconnects_and_preserves_exact_owner_identity(test_e
         await first.prepare_suite(neighbor, "owned")
         await OwnedSuite(first, first_suite).finish()
         shared_id = str(uuid.uuid4())
-        shared = await first._exchange({
-            "action": "execute", "operation_id": shared_id,
-            "payload": {"operation": "owner_shutdown", "suite_id": str(first_suite)},
-        })
+        shared = await first._exchange(
+            {
+                "action": "execute",
+                "operation_id": shared_id,
+                "payload": {
+                    "operation": "owner_shutdown",
+                    "suite_id": str(first_suite),
+                },
+            }
+        )
         assert json.loads(shared["body"])["state"] == "shared"
         async with private_seed_owner() as fresh:
             await fresh.acknowledge_operation(shared_id)
         assert await first.recover_operation(shared_id) == shared
-        seal = json.loads((await first._request({"operation": "owner_offline_seal"}))["body"])
+        seal = json.loads(
+            (await first._request({"operation": "owner_offline_seal"}))["body"]
+        )
         async with private_seed_owner() as sealed:
             status = await sealed._request({"operation": "owner_offline_status"})
             assert json.loads(status["body"])["phase"] == "sealed"
-            await sealed._request({
-                "operation": "owner_offline_resume", "seal_secret": seal["seal_secret"],
-            })
+            await sealed._request(
+                {
+                    "operation": "owner_offline_resume",
+                    "seal_secret": seal["seal_secret"],
+                }
+            )
             await OwnedSuite(sealed, neighbor).finish()
             assert await sealed.shutdown_authority(neighbor) == "stopped"
     assert not (record_dir / "owner.json").exists()
@@ -165,27 +182,44 @@ async def test_shutdown_ack_reconnects_and_preserves_exact_owner_identity(test_e
         await first.prepare_suite(final_suite, "owned")
         await OwnedSuite(first, final_suite).finish()
         operation_id = str(uuid.uuid4())
-        result = await first._exchange({
-            "action": "execute", "operation_id": operation_id,
-            "payload": {"operation": "owner_shutdown", "suite_id": str(final_suite)},
-        })
+        result = await first._exchange(
+            {
+                "action": "execute",
+                "operation_id": operation_id,
+                "payload": {
+                    "operation": "owner_shutdown",
+                    "suite_id": str(final_suite),
+                },
+            }
+        )
         assert json.loads(result["body"])["state"] == "stopped"
         # Attach before replacement, then prove that the final ACK cannot
         # finalize an altered record; restore the exact record before recovery.
         probe = await asyncio.create_subprocess_exec(
-            sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
-            cwd=ROOT / "apps/api", stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            sys.executable,
+            str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
+            cwd=ROOT / "apps/api",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         probe_id = str(uuid.uuid4())
-        probe.stdin.write((json.dumps({"action": "recover", "operation_id": probe_id}) + "\n").encode())
+        probe.stdin.write(
+            (
+                json.dumps({"action": "recover", "operation_id": probe_id}) + "\n"
+            ).encode()
+        )
         await probe.stdin.drain()
         assert json.loads(await probe.stdout.readline())["state"] == "unknown"
         path = record_dir / "owner.json"
         record = json.loads(path.read_text())
         try:
             atomic_json(path, {**record, "nonce": secrets.token_hex(32)})
-            probe.stdin.write((json.dumps({"action": "ack", "operation_id": operation_id}) + "\n").encode())
+            probe.stdin.write(
+                (
+                    json.dumps({"action": "ack", "operation_id": operation_id}) + "\n"
+                ).encode()
+            )
             await probe.stdin.drain()
             assert await probe.stdout.readline() == b""
             assert await probe.wait() != 0
@@ -229,16 +263,19 @@ async def _control(owner, run, fixture, action):
     return response.json()["requests"]
 
 
-
-
 async def _provider_handle(run):
     async def find():
         root = Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
         mode = os.environ["AAP_WORKTREE_MODE"]
-        record = json.loads((root / ".worktree" / mode / "fixture-authority" / "owner.json").read_text())
+        record = json.loads(
+            (root / ".worktree" / mode / "fixture-authority" / "owner.json").read_text()
+        )
         authority_pid = record["pid"]
         process_stat = Path(f"/proc/{authority_pid}/stat").read_text()
-        assert int(process_stat[process_stat.rfind(")") + 2 :].split()[19]) == record["start"]
+        assert (
+            int(process_stat[process_stat.rfind(")") + 2 :].split()[19])
+            == record["start"]
+        )
         child_file = Path(f"/proc/{authority_pid}/task/{authority_pid}/children")
         for child in child_file.read_text().split():
             try:
@@ -280,7 +317,7 @@ async def _snapshot(engine, registry_id, project_id):
                         "r.backend_incarnation,r.continuity,project.id AS project_id "
                         "FROM public.ml_backend_pool_members m "
                         "JOIN public.ml_backend_service_pools p ON p.id=m.pool_id "
-                        "JOIN aap_inference_routing_v1.registry_state r "
+                        "JOIN yoao_inference_routing_v1.registry_state r "
                         "ON r.registry_id=m.registry_id "
                         "JOIN public.projects project ON project.ml_backend_pool_id=p.id "
                         "WHERE m.registry_id=:registry AND project.id=:project"
@@ -327,10 +364,10 @@ async def _work(engine, job_id):
                         "i.input_id,i.status AS input_status,i.blob_version_id "
                         "FROM public.async_jobs j "
                         "JOIN public.batch_result_executions x ON x.job_id=j.id "
-                        "JOIN aap_inference_routing_v1.prediction_execution_scopes b "
+                        "JOIN yoao_inference_routing_v1.prediction_execution_scopes b "
                         "ON b.job_id=j.id "
-                        "JOIN aap_inference_routing_v1.scopes s ON s.id=b.scope_id "
-                        "JOIN aap_inference_routing_v1.attempts a ON a.scope_id=s.id "
+                        "JOIN yoao_inference_routing_v1.scopes s ON s.id=b.scope_id "
+                        "JOIN yoao_inference_routing_v1.attempts a ON a.scope_id=s.id "
                         "JOIN public.asset_accepted_image_inputs i ON i.job_id=j.id "
                         "WHERE j.id=:job ORDER BY a.created_at DESC LIMIT 1"
                     ),
@@ -398,12 +435,12 @@ def _worker_environment(test_engine, media, execution_url, execution_token, brok
     )
     result = _guard_role_url(
         "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
-        "preannotation_result_client",
+        "yoao_preannotation_result_client",
         test_engine,
     )
     publication = _guard_role_url(
         "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-        "jobs_publication_client",
+        "yoao_jobs_publication_client",
         test_engine,
     )
     # app.config normally reads the checkout's absolute .env. Override its
@@ -518,12 +555,12 @@ async def _start_execution_owner(tmp_path):
 async def _start_media_runtime(test_engine, tmp_path):
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         test_engine,
     )
     worker_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL",
-        "asset_image_worker_client",
+        "yoao_asset_image_worker_client",
         test_engine,
     )
     resources = _verified_resource_manifest(test_engine, control_url)
@@ -560,12 +597,12 @@ async def _start_media_runtime(test_engine, tmp_path):
     )
     await _assert_sql_role_is_narrow(
         control_url.render_as_string(hide_password=False),
-        "asset_media_control_client",
+        "yoao_asset_media_control_client",
         "public.dataset_items",
     )
     await _assert_sql_role_is_narrow(
         worker_url.render_as_string(hide_password=False),
-        "asset_image_worker_client",
+        "yoao_asset_image_worker_client",
         "public.asset_image_jobs",
     )
     token = secrets.token_urlsafe(32)
@@ -688,7 +725,7 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
     )
     publication = _guard_role_url(
         "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-        "jobs_publication_client",
+        "yoao_jobs_publication_client",
         test_engine,
     )
     # The in-process product API reads these settings per request; the
@@ -698,21 +735,24 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
     )
     monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
     for name, role in (
-        ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"),
+        ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "yoao_inference_routing_client"),
         (
             "AAP_MODULE_DATA_INFERENCE_ENDPOINT_EXECUTION_URL",
-            "inference_endpoint_execution_client",
+            "yoao_inference_endpoint_execution_client",
         ),
-        ("AAP_MODULE_DATA_INFERENCE_GPU_URL", "inference_gpu_authority_client"),
+        ("AAP_MODULE_DATA_INFERENCE_GPU_URL", "yoao_inference_gpu_authority_client"),
         (
             "AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL",
-            "inference_gpu_health_endpoint_client",
+            "yoao_inference_gpu_health_endpoint_client",
         ),
         (
             "AAP_MODULE_DATA_INFERENCE_GPU_CONTROL_ENDPOINT_URL",
-            "inference_gpu_control_endpoint_client",
+            "yoao_inference_gpu_control_endpoint_client",
         ),
-        ("AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL", "inference_health_data_client"),
+        (
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL",
+            "yoao_inference_health_data_client",
+        ),
     ):
         _guard_role_url(name, role, test_engine)
     from app.workers.celery_app import celery_app
@@ -866,23 +906,39 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                 bufsize=0,
             )
             try:
-                lost.stdin.write((json.dumps({
-                    "action": "execute", "operation_id": lost_id, "payload": lost_payload,
-                }) + "\n").encode())
+                lost.stdin.write(
+                    (
+                        json.dumps(
+                            {
+                                "action": "execute",
+                                "operation_id": lost_id,
+                                "payload": lost_payload,
+                            }
+                        )
+                        + "\n"
+                    ).encode()
+                )
                 lost.stdin.flush()
                 lost.stdout.close()
                 await asyncio.to_thread(lost.wait, timeout=120)
                 recovered = await owner.recover_operation(lost_id)
-                assert recovered["operation_id"] == lost_id and recovered["status"] == 200
-                refused = await owner._exchange({
-                    "action": "execute",
-                    "operation_id": str(uuid.uuid4()),
-                    "payload": lost_payload,
-                })
+                assert (
+                    recovered["operation_id"] == lost_id and recovered["status"] == 200
+                )
+                refused = await owner._exchange(
+                    {
+                        "action": "execute",
+                        "operation_id": str(uuid.uuid4()),
+                        "payload": lost_payload,
+                    }
+                )
                 assert refused["owner_error"] == "OperationOutcomeUnresolved"
                 ack_log = tempfile.TemporaryFile()
                 lost_ack = subprocess.Popen(
-                    [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
+                    [
+                        sys.executable,
+                        str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
+                    ],
                     cwd=ROOT / "apps/api",
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
@@ -891,17 +947,35 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                     bufsize=0,
                 )
                 try:
-                    lost_ack.stdin.write((json.dumps({
-                        "action": "recover", "operation_id": lost_id,
-                    }) + "\n").encode())
+                    lost_ack.stdin.write(
+                        (
+                            json.dumps(
+                                {
+                                    "action": "recover",
+                                    "operation_id": lost_id,
+                                }
+                            )
+                            + "\n"
+                        ).encode()
+                    )
                     lost_ack.stdin.flush()
-                    recovered_again = json.loads(await asyncio.wait_for(
-                        asyncio.to_thread(lost_ack.stdout.readline), 120
-                    ))
+                    recovered_again = json.loads(
+                        await asyncio.wait_for(
+                            asyncio.to_thread(lost_ack.stdout.readline), 120
+                        )
+                    )
                     assert recovered_again == recovered
-                    lost_ack.stdin.write((json.dumps({
-                        "action": "ack", "operation_id": lost_id,
-                    }) + "\n").encode())
+                    lost_ack.stdin.write(
+                        (
+                            json.dumps(
+                                {
+                                    "action": "ack",
+                                    "operation_id": lost_id,
+                                }
+                            )
+                            + "\n"
+                        ).encode()
+                    )
                     lost_ack.stdin.flush()
                     lost_ack.stdout.close()
                     await asyncio.to_thread(lost_ack.wait, timeout=120)
@@ -918,8 +992,10 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                 assert not _exited(handle_a)
                 still_held = await _control(owner, run_a, fixture_a, "requests")
                 original_request = next(
-                    r for r in still_held
-                    if r["receivedAt"] == entered["receivedAt"] and r["tasks"] == entered["tasks"]
+                    r
+                    for r in still_held
+                    if r["receivedAt"] == entered["receivedAt"]
+                    and r["tasks"] == entered["tasks"]
                 )
                 assert "responseStatus" not in original_request
                 cleaned_c = await _cleanup_owned(owner, run_c)
@@ -934,25 +1010,45 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
             # the earlier provider's real acknowledgement must remain visible.
             with pytest.raises(RuntimeError, match="Fixture operation failed"):
                 await owner._request({"operation": "owner_offline_seal"})
-            partial = json.loads((await owner._request({
-                "operation": "owner_offline_status",
-            }))["body"])
+            partial = json.loads(
+                (
+                    await owner._request(
+                        {
+                            "operation": "owner_offline_status",
+                        }
+                    )
+                )["body"]
+            )
             assert partial["phase"] == "incomplete" and not partial["sealed"]
             assert not partial["engine_disposed"]
             by_run = {item["run_id"]: item for item in partial["providers"]}
             assert by_run[str(run_b.run_id)]["sealed"]
             assert by_run[str(run_a.run_id)]["attempted"]
             assert not by_run[str(run_a.run_id)]["sealed"]
-            record = json.loads((
-                Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"]) / ".worktree"
-                / os.environ["AAP_WORKTREE_MODE"] / "fixture-authority" / "owner.json"
-            ).read_text())
-            await owner._request({
-                "operation": "owner_offline_resume", "seal_secret": record["seal_secret"],
-            })
-            reopened = json.loads((await owner._request({
-                "operation": "owner_offline_status",
-            }))["body"])
+            record = json.loads(
+                (
+                    Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
+                    / ".worktree"
+                    / os.environ["AAP_WORKTREE_MODE"]
+                    / "fixture-authority"
+                    / "owner.json"
+                ).read_text()
+            )
+            await owner._request(
+                {
+                    "operation": "owner_offline_resume",
+                    "seal_secret": record["seal_secret"],
+                }
+            )
+            reopened = json.loads(
+                (
+                    await owner._request(
+                        {
+                            "operation": "owner_offline_status",
+                        }
+                    )
+                )["body"]
+            )
             assert reopened["phase"] == "open" and not reopened["sealed"]
             held = await _work(test_engine, job_a)
             assert held is not None

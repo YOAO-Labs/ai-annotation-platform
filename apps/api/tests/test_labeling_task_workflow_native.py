@@ -42,17 +42,17 @@ async def test_contributor_write_uses_the_callers_commit_and_rollback(test_engin
         dsn = _dsn(
             test_engine,
             "AAP_MODULE_DATA_LABELING_TASK_CONTROL_URL",
-            "labeling_task_control_client",
+            "yoao_labeling_task_control_client",
         )
         connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert (
             await connection.fetchval("SELECT current_user")
-            == "labeling_task_control_client"
+            == "yoao_labeling_task_control_client"
         )
 
         async def call(request_json):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.task_workflow_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.task_workflow_command($1::jsonb)",
                 request_json,
             )
 
@@ -138,13 +138,13 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
         dsn = _dsn(
             test_engine,
             "AAP_MODULE_DATA_LABELING_TASK_CONTROL_URL",
-            "labeling_task_control_client",
+            "yoao_labeling_task_control_client",
         )
         client = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         peer = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
         assert (
             await client.fetchval("SELECT current_user")
-            == "labeling_task_control_client"
+            == "yoao_labeling_task_control_client"
         )
         assert not await client.fetchval(
             "SELECT has_table_privilege(current_user, 'public.task_batches', 'SELECT')"
@@ -152,7 +152,7 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
 
         async def call(request_json):
             return await client.fetchval(
-                "SELECT aap_labeling_v1.task_workflow_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.task_workflow_command($1::jsonb)",
                 request_json,
             )
 
@@ -160,7 +160,7 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
 
         async def peer_call(request_json):
             return await peer.fetchval(
-                "SELECT aap_labeling_v1.task_workflow_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.task_workflow_command($1::jsonb)",
                 request_json,
             )
 

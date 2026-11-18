@@ -67,7 +67,7 @@ async def test_import_lookup_preserves_autoflush_and_returns_only_the_project_id
 
     assert db.flush.await_count == int(autoflush)
     query, params = db.scalar.await_args.args
-    assert "aap_workspace_v1.read_import_project(" in str(query)
+    assert "yoao_workspace_v1.read_import_project(" in str(query)
     assert params == {"display_id": display_id}
     _assert_caller_owns_transaction(db)
 
@@ -94,7 +94,7 @@ async def test_import_creator_flushes_and_binds_exact_project_identity(monkeypat
 
     async def scalar(query, params):
         calls.append("write")
-        assert "aap_workspace_v1.create_import_project(" in str(query)
+        assert "yoao_workspace_v1.create_import_project(" in str(query)
         assert params["project_id"] == project_id
         assert params["display_id"] == display_id
         assert params["name"] == "nuScenes sample"
@@ -168,7 +168,7 @@ async def test_quality_writer_updates_identity_map_and_keeps_caller_transaction(
 
     async def scalar(query, params):
         calls.append("write")
-        assert "aap_workspace_v1.write_point_cloud_quality_config(" in str(query)
+        assert "yoao_workspace_v1.write_point_cloud_quality_config(" in str(query)
         assert params["project_id"] == project_id
         assert json.loads(params["config"]) == config
         return _quality_write_reply(project_id, updated_at)

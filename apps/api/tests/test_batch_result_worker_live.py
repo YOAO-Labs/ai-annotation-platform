@@ -190,7 +190,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
     result_url = make_url(_required_env("AAP_MODULE_DATA_PREANNOTATION_RESULT_URL"))
     for role_url, expected_user in (
         (legacy_url, "legacy_runtime"),
-        (result_url, "preannotation_result_client"),
+        (result_url, "yoao_preannotation_result_client"),
     ):
         assert role_url.username == expected_user
         assert _same_database_target(role_url, owner_url), (

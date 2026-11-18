@@ -95,7 +95,7 @@ def _jobs_lifecycle_url(test_engine):
         test_engine.url.database,
     )
     assert url.database and url.database.endswith("_test")
-    assert url.username == "jobs_lifecycle_client"
+    assert url.username == "yoao_jobs_lifecycle_client"
     return url.set(drivername="postgresql+asyncpg")
 
 
@@ -138,7 +138,7 @@ async def test_strict_login_creates_scoped_job_and_rejects_private_legacy_writes
                     )
                 )
             ).one()
-            assert identity[0] == identity[1] == "jobs_lifecycle_client"
+            assert identity[0] == identity[1] == "yoao_jobs_lifecycle_client"
             assert identity[2:] == (False, False)
 
             created = await async_job_svc.create_job(
@@ -243,9 +243,7 @@ async def test_terminal_replay_preserves_persisted_outcome_in_caller_uow(
     job = await async_job_svc.create_job(db_session, kind="audit_archive")
     await async_job_svc.mark_running(db_session, job.id)
     if outcome == "completed":
-        await async_job_svc.mark_complete(
-            db_session, job.id, result={"original": True}
-        )
+        await async_job_svc.mark_complete(db_session, job.id, result={"original": True})
     else:
         await async_job_svc.mark_failed(
             db_session, job.id, error="original failure", result={"original": True}
@@ -296,7 +294,7 @@ async def test_lifecycle_batches_commands_per_row_and_keeps_partial_flush_order(
     calls = []
 
     def capture(_connection, _cursor, statement, parameters, _context, _many):
-        if "aap_jobs_v1.apply_lifecycle(" not in statement.lower():
+        if "yoao_jobs_v1.apply_lifecycle(" not in statement.lower():
             return
         if isinstance(parameters, Mapping):
             job_id, request = parameters["job_id"], parameters["request"]
@@ -586,7 +584,7 @@ async def test_expired_refresh_keeps_concurrent_timestamp_and_partial_dirty_cach
             assert job in reader and sa_inspect(job).expired
             assert await async_job_svc.get_job(reader, job_id) is None
             assert job not in reader
-        assert any("aap_jobs_v1.read_job(" in item for item in statements)
+        assert any("yoao_jobs_v1.read_job(" in item for item in statements)
         assert not any(
             "from async_jobs" in item or "from public.async_jobs" in item
             for item in statements

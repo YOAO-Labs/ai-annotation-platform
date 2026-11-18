@@ -406,8 +406,8 @@ async def test_scan_remote_pages_only_the_legacy_prefix_without_scene_inference(
 
 @asynccontextmanager
 async def _finish_gate(test_engine):
-    function = "aap_assets_v1.finish_dataset_ingest"
-    original = "aap_assets_v1._ingest_acceptance_original_finish"
+    function = "yoao_assets_v1.finish_dataset_ingest"
+    original = "yoao_assets_v1._ingest_acceptance_original_finish"
     signature = "uuid,uuid,uuid,jsonb"
     lock_key = int(uuid4().hex[:15], 16)
     gate = await test_engine.connect()
@@ -418,7 +418,7 @@ async def _finish_gate(test_engine):
                 f"ALTER FUNCTION {function}({signature}) RENAME TO _ingest_acceptance_original_finish"
             )
             await db.exec_driver_sql(
-                f"REVOKE EXECUTE ON FUNCTION {original}({signature}) FROM asset_source_client"
+                f"REVOKE EXECUTE ON FUNCTION {original}({signature}) FROM yoao_asset_source_client"
             )
             await db.exec_driver_sql(
                 f"CREATE FUNCTION {function}(p_operation uuid,p_actor uuid,p_dataset uuid,p_finish jsonb) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$ BEGIN PERFORM pg_advisory_xact_lock({lock_key}); RETURN {original}(p_operation,p_actor,p_dataset,p_finish); END $$"
@@ -430,7 +430,7 @@ async def _finish_gate(test_engine):
                 f"ALTER FUNCTION {function}({signature}) OWNER TO assets_code"
             )
             await db.exec_driver_sql(
-                f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO asset_source_client"
+                f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO yoao_asset_source_client"
             )
         installed = True
         await gate.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock_key})
@@ -445,7 +445,7 @@ async def _finish_gate(test_engine):
                     f"ALTER FUNCTION {original}({signature}) RENAME TO finish_dataset_ingest"
                 )
                 await db.exec_driver_sql(
-                    f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO asset_source_client"
+                    f"GRANT EXECUTE ON FUNCTION {function}({signature}) TO yoao_asset_source_client"
                 )
 
 
@@ -469,7 +469,7 @@ async def test_zip_process_loss_rolls_back_the_entire_ingest_and_keeps_orphan_by
                         async with test_engine.connect() as observer:
                             if await observer.scalar(
                                 text(
-                                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='asset_source_client' AND wait_event='advisory')"
+                                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='yoao_asset_source_client' AND wait_event='advisory')"
                                 )
                             ):
                                 break

@@ -41,13 +41,13 @@ pytestmark = [
 ROOT = Path(__file__).resolve().parents[3]
 PROBE = ROOT / "apps/api/tests/fixtures/media_seed_workspace_probe.py"
 _MEDIA_SEED_FUNCTIONS = (
-    "aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)",
-    "aap_workspace_v1.write_seed_project_projection(uuid,jsonb)",
-    "aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)",
+    "yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)",
+    "yoao_workspace_v1.write_seed_project_projection(uuid,jsonb)",
+    "yoao_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)",
 )
 _IDENTITY_OPERATOR_FUNCTIONS = (
-    "aap_identity_v1.read_provisioning_account(text)",
-    "aap_identity_v1.create_seed_persona_account(jsonb)",
+    "yoao_identity_v1.read_provisioning_account(text)",
+    "yoao_identity_v1.create_seed_persona_account(jsonb)",
 )
 _RESULT_PREFIX = "AAP_MEDIA_SEED_WORKSPACE_RESULT="
 
@@ -203,8 +203,8 @@ async def _assert_seed_profile(test_engine) -> None:
                     {"relation": relation},
                 ), relation
             for relation in (
-                "aap_workspace_v1.project_facts",
-                "aap_workspace_v1.project_member_facts",
+                "yoao_workspace_v1.project_facts",
+                "yoao_workspace_v1.project_member_facts",
             ):
                 assert await db.scalar(
                     text(

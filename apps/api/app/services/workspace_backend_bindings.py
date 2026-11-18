@@ -10,7 +10,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _CLEAR_PRIMARY_BINDINGS = text(
-    "SELECT aap_workspace_v1.clear_primary_backend_bindings(CAST(:pool_id AS uuid))"
+    "SELECT yoao_workspace_v1.clear_primary_backend_bindings(CAST(:pool_id AS uuid))"
 )
 
 
@@ -19,7 +19,7 @@ async def lock_backend_project_reference(db: AsyncSession, project_id: UUID) -> 
         await db.flush()
     reference = await db.scalar(
         text(
-            "SELECT aap_workspace_v1.lock_project_reference(CAST(:project_id AS uuid))"
+            "SELECT yoao_workspace_v1.lock_project_reference(CAST(:project_id AS uuid))"
         ),
         {"project_id": project_id},
     )

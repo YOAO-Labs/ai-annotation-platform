@@ -42,9 +42,9 @@ pytestmark = [
 
 _LOCKS_PATH = Path(__file__).parent / "fixtures/named_pipeline_legacy/locks.json"
 _LOCKS_SHA256 = "4317025325d702dfa56bc0c1b07e359da325fc5f3844b71f82aab7d8cea0e511"
-_PIPELINE_FUNCTION = "aap_inference_pipelines_v1.pipeline_step"
+_PIPELINE_FUNCTION = "yoao_inference_pipelines_v1.pipeline_step"
 _PIPELINE_SIGNATURE = (
-    "aap_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])"
+    "yoao_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])"
 )
 _FENCE_PROBE_PREFIX = "_pipeline_step_fence_probe_"
 
@@ -202,7 +202,7 @@ async def _function_metadata(connection, function_name):
                    FROM pg_catalog.pg_proc AS function
                    JOIN pg_catalog.pg_namespace AS namespace
                      ON namespace.oid=function.pronamespace
-                   WHERE namespace.nspname='aap_inference_pipelines_v1'
+                   WHERE namespace.nspname='yoao_inference_pipelines_v1'
                      AND function.proname=:function_name
                      AND pg_catalog.oidvectortypes(function.proargtypes) =
                          'jsonb, text, jsonb, text[], text[]'"""
@@ -230,7 +230,7 @@ async def _function_metadata(connection, function_name):
                    )) AS acl
                    LEFT JOIN pg_catalog.pg_roles AS role ON role.oid=acl.grantee
                    LEFT JOIN pg_catalog.pg_roles AS grantor ON grantor.oid=acl.grantor
-                   WHERE namespace.nspname='aap_inference_pipelines_v1'
+                   WHERE namespace.nspname='yoao_inference_pipelines_v1'
                      AND function.proname=:function_name
                      AND pg_catalog.oidvectortypes(function.proargtypes) =
                          'jsonb, text, jsonb, text[], text[]'
@@ -270,7 +270,7 @@ async def _replace_execute_acl(connection, function_name, desired_acl, owner):
                 continue
             rendered = "PUBLIC" if grantee == "PUBLIC" else _quote_identifier(grantee)
             await connection.exec_driver_sql(
-                f"REVOKE ALL ON FUNCTION aap_inference_pipelines_v1.{function_name}"
+                f"REVOKE ALL ON FUNCTION yoao_inference_pipelines_v1.{function_name}"
                 "(jsonb,text,jsonb,text[],text[]) FROM "
                 f"{rendered}"
             )
@@ -282,7 +282,7 @@ async def _replace_execute_acl(connection, function_name, desired_acl, owner):
             await connection.exec_driver_sql("RESET ROLE")
             await connection.exec_driver_sql(f"SET ROLE {_quote_identifier(grantor)}")
             await connection.exec_driver_sql(
-                f"GRANT {privilege} ON FUNCTION aap_inference_pipelines_v1.{function_name}"
+                f"GRANT {privilege} ON FUNCTION yoao_inference_pipelines_v1.{function_name}"
                 "(jsonb,text,jsonb,text[],text[]) TO "
                 f"{rendered}{grant_option}"
             )
@@ -295,7 +295,7 @@ async def _replace_execute_acl(connection, function_name, desired_acl, owner):
 async def _gated_pipeline_step(test_engine, *, project_id, lock_key):
     probe_name = f"{_FENCE_PROBE_PREFIX}{uuid.uuid4().hex}"
     probe_signature = (
-        f"aap_inference_pipelines_v1.{probe_name}(jsonb,text,jsonb,text[],text[])"
+        f"yoao_inference_pipelines_v1.{probe_name}(jsonb,text,jsonb,text[],text[])"
     )
     wrapper_signature = _PIPELINE_SIGNATURE
     async with test_engine.connect() as reader:
@@ -330,7 +330,7 @@ async def _gated_pipeline_step(test_engine, *, project_id, lock_key):
                        AND p_request->>'target_id' = '{project_id}' THEN
                         PERFORM pg_catalog.pg_advisory_xact_lock({lock_key}::bigint);
                     END IF;
-                    RETURN aap_inference_pipelines_v1.{probe_name}(
+                    RETURN yoao_inference_pipelines_v1.{probe_name}(
                         p_request, p_action, p_parameters,
                         p_column_names, p_column_values
                     );
@@ -425,7 +425,7 @@ async def _wait_for_advisory_waiter(test_engine, lock_key, timeout_seconds=20):
                              AND pglock.objsubid=1
                              AND pglock.granted IS FALSE
                              AND activity.wait_event_type='Lock'
-                             AND activity.query ILIKE '%aap_inference_pipelines_v1.pipeline_step%'
+                             AND activity.query ILIKE '%yoao_inference_pipelines_v1.pipeline_step%'
                            ORDER BY pglock.waitstart DESC NULLS LAST
                            LIMIT 1"""
                         ),

@@ -16,13 +16,13 @@ from yoao_assets_source.import_delivery_contract import (
 from yoao_assets_source.ingest_contract import IngestDeliveryLease
 
 _CLAIM = text(
-    "SELECT aap_assets_v1.claim_dataset_import_delivery(:lease_token, :lease_seconds)"
+    "SELECT yoao_assets_v1.claim_dataset_import_delivery(:lease_token, :lease_seconds)"
 )
 _TARGET_IS_CURRENT = text(
-    "SELECT aap_assets_v1.dataset_import_delivery_target_is_current(:kind, :target_id)"
+    "SELECT yoao_assets_v1.dataset_import_delivery_target_is_current(:kind, :target_id)"
 )
 _COMPLETE = text(
-    "SELECT aap_assets_v1.complete_dataset_import_delivery(:delivery_id, :lease_token)"
+    "SELECT yoao_assets_v1.complete_dataset_import_delivery(:delivery_id, :lease_token)"
 )
 
 

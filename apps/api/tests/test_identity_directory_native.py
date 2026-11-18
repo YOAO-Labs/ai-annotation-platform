@@ -179,7 +179,7 @@ def test_frozen_identity_directory_native_artifacts():
         module_grants.split()
     )
     assert "identity_directory_project_refs(uuid[])" in role_grants
-    assert "aap_identity_directory_v1.execute_directory_command(jsonb)" in lan_grants
+    assert "yoao_identity_directory_v1.execute_directory_command(jsonb)" in lan_grants
     assert "password_hash" not in artifact
     assert "preferences" not in support
 
@@ -251,7 +251,7 @@ async def test_directory_reads_validate_filters_and_projection(test_engine):
             for operation, payload in commands:
                 raw = await session.scalar(
                     text(
-                        "SELECT aap_identity_directory_v1.execute_directory_command("
+                        "SELECT yoao_identity_directory_v1.execute_directory_command("
                         "CAST(:request AS jsonb))"
                     ),
                     {"request": json.dumps(command(operation, payload))},
@@ -290,7 +290,7 @@ async def test_directory_reads_validate_filters_and_projection(test_engine):
             )
             rejected = await session.scalar(
                 text(
-                    "SELECT aap_identity_directory_v1.execute_directory_command("
+                    "SELECT yoao_identity_directory_v1.execute_directory_command("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": json.dumps(invalid_role)},

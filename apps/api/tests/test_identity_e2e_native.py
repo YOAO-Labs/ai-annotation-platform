@@ -157,7 +157,7 @@ async def test_owned_cleanup_preserves_external_actor_reference_until_removed(
         await db.execute(
             text(
                 "GRANT EXECUTE ON FUNCTION "
-                "aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb) "
+                "yoao_assets_v1.create_catalog_dataset(uuid,uuid,jsonb) "
                 f'TO "{role}"'
             )
         )
@@ -501,7 +501,7 @@ async def test_node_fixture_contract_and_borrowed_rollback(
             assert (
                 await db.scalar(
                     text(
-                        "SELECT aap_identity_fixture_v1.mark_manual_inactive(:id,:at,:by)"
+                        "SELECT yoao_identity_fixture_v1.mark_manual_inactive(:id,:at,:by)"
                     ),
                     {"id": IDS["target"], "at": STAMP, "by": IDS["neighbor"]},
                 )
@@ -511,14 +511,14 @@ async def test_node_fixture_contract_and_borrowed_rollback(
         assert await snapshot(test_engine) == before
         async with test_engine.connect() as db:
             signatures = (
-                "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
-                "aap_identity_v1.read_actor_facts(uuid)",
-                "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
-                "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
-                "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
-                "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
-                "aap_identity_v1.is_jti_revoked(uuid)",
-                "aap_identity_v1.get_credential_generation(uuid)",
+                "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+                "yoao_identity_v1.read_actor_facts(uuid)",
+                "yoao_identity_v1.lock_accounts_share(uuid[],boolean)",
+                "yoao_identity_v1.lock_accounts_update(uuid[],boolean)",
+                "yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+                "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+                "yoao_identity_v1.is_jti_revoked(uuid)",
+                "yoao_identity_v1.get_credential_generation(uuid)",
             )
             expected = {
                 await db.scalar(
@@ -568,8 +568,8 @@ async def test_node_fixture_contract_and_borrowed_rollback(
                 ).all()
             )
             assert views == {
-                "aap_identity_v1.account_profiles",
-                "aap_identity_v1.invitation_audit_targets",
+                "yoao_identity_v1.account_profiles",
+                "yoao_identity_v1.invitation_audit_targets",
             }
         record_property("identity_e2e_node", output)
 

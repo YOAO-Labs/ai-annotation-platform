@@ -91,7 +91,7 @@ async def _cancel_requested(db, run: PointCloudQualityRun) -> bool:
         await db.execute(
             select(AsyncJob.status, AsyncJob.payload).from_statement(
                 text(
-                    "SELECT status, payload FROM aap_jobs_v1.read_job("
+                    "SELECT status, payload FROM yoao_jobs_v1.read_job("
                     "CAST(:job_id AS pg_catalog.uuid))"
                 )
             ),

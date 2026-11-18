@@ -113,12 +113,12 @@ def test_column_refresh_uses_read_job_without_changing_projection(only_load_prop
 
     assert rewritten_projection == original_projection
     assert "FROM async_jobs" not in rewritten_sql
-    assert "FROM aap_jobs_v1.read_job(%(pk_1)s::UUID) AS job" in rewritten_sql
+    assert "FROM yoao_jobs_v1.read_job(%(pk_1)s::UUID) AS job" in rewritten_sql
     assert (
-        "aap_jobs_v1.read_job_execution_snapshot(%(pk_1)s::UUID) "
+        "yoao_jobs_v1.read_job_execution_snapshot(%(pk_1)s::UUID) "
         "AS execution_snapshot_id" in rewritten_sql
     )
-    assert "aap_jobs_v1.read_job_progress(%(pk_1)s::UUID) AS progress" in rewritten_sql
+    assert "yoao_jobs_v1.read_job_progress(%(pk_1)s::UUID) AS progress" in rewritten_sql
     assert ") AS async_jobs" in rewritten_sql
     assert "WHERE async_jobs.id = %(pk_1)s::UUID" in rewritten_sql
     assert set(rewritten.compile(dialect=postgresql.dialect()).params) == set(

@@ -71,7 +71,7 @@ ASYNC_JOB_TERMINAL_STATUSES = frozenset(
     {AsyncJobStatus.COMPLETED, AsyncJobStatus.FAILED, AsyncJobStatus.CANCELLED}
 )
 
-# The frozen ``aap_jobs_v1.async_job_creation`` view projects neither the
+# The frozen ``yoao_jobs_v1.async_job_creation`` view projects neither the
 # owner-bound ``execution_snapshot_id`` nor the storage progress facts added by
 # a later revision. Evaluating ``None`` for these types keeps an unassigned
 # value out of the ORM INSERT instead of rendering an explicit NULL that the

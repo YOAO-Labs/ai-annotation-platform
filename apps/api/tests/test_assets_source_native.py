@@ -16,11 +16,11 @@ from tests.test_dataset_upload_native import _cleanup_world, _seed_world
 pytestmark = pytest.mark.asyncio
 
 _LOCK = text(
-    "SELECT aap_assets_v1.lock_legacy_dataset_upload("
+    "SELECT yoao_assets_v1.lock_legacy_dataset_upload("
     "CAST(:operation AS uuid),CAST(:actor AS uuid),CAST(:dataset AS uuid),CAST(:item AS uuid))"
 )
 _COMPLETE = text(
-    "SELECT aap_assets_v1.complete_legacy_dataset_upload("
+    "SELECT yoao_assets_v1.complete_legacy_dataset_upload("
     "CAST(:operation AS uuid),CAST(:actor AS uuid),CAST(:dataset AS uuid),CAST(:item AS uuid),"
     ":path,CAST(:size AS bigint),CAST(:hash AS text),CAST(:width AS integer),CAST(:height AS integer))"
 )
@@ -249,8 +249,8 @@ async def test_legacy_invalid_labeling_receipt_rolls_back_metadata(
     legacy_world, test_engine
 ):
     world, item = legacy_world
-    function = "aap_labeling_v1.append_dataset_items"
-    original = "aap_labeling_v1._legacy_original_append"
+    function = "yoao_labeling_v1.append_dataset_items"
+    original = "yoao_labeling_v1._legacy_original_append"
     async with test_engine.begin() as owner:
         await owner.exec_driver_sql(
             f"ALTER FUNCTION {function}(uuid,uuid[],uuid) RENAME TO _legacy_original_append"
@@ -384,7 +384,7 @@ async def test_source_login_can_complete_without_private_relations(
 ):
     world, item = legacy_world
     url = make_url(os.environ["AAP_MODULE_DATA_ASSET_SOURCE_URL"])
-    assert url.username == "asset_source_client" and url.database.endswith("_test")
+    assert url.username == "yoao_asset_source_client" and url.database.endswith("_test")
     engine = create_async_engine(url, hide_parameters=True)
     try:
         async with engine.begin() as source:
@@ -392,18 +392,18 @@ async def test_source_login_can_complete_without_private_relations(
                 (
                     await source.execute(
                         text(
-                            "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname LIKE 'aap_%_v1' AND has_function_privilege(current_user,p.oid,'EXECUTE')"
+                            "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (n.nspname LIKE 'aap_%_v1' OR n.nspname LIKE 'yoao_%_v1') AND has_function_privilege(current_user,p.oid,'EXECUTE')"
                         )
                     )
                 )
                 .scalars()
                 .all()
             )
-            assert all(name.startswith("aap_assets_v1.") for name in functions)
+            assert all(name.startswith("yoao_assets_v1.") for name in functions)
             assert {name.split("(", 1)[0] for name in functions} >= {
-                "aap_assets_v1.resolve_internal_image_source",
-                "aap_assets_v1.schedule_image_media",
-                "aap_assets_v1.read_legacy_dataset_upload",
+                "yoao_assets_v1.resolve_internal_image_source",
+                "yoao_assets_v1.schedule_image_media",
+                "yoao_assets_v1.read_legacy_dataset_upload",
             }
             assert not await source.scalar(
                 text(

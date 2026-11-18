@@ -42,7 +42,7 @@ class IdentityGroupCommandData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_groups_v1.execute_group_command("
+                        "SELECT yoao_identity_groups_v1.execute_group_command("
                         "CAST(:command AS jsonb))"
                     ),
                     {

@@ -40,7 +40,7 @@ class IdentityDeletionCommandData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_deletions_v1."
+                        "SELECT yoao_identity_deletions_v1."
                         "execute_deletion_command(CAST(:command AS jsonb))"
                     ),
                     {

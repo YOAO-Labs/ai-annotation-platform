@@ -171,7 +171,7 @@ class AssetsCatalogGateway:
         reply, _ = await self._call(
             "list",
             """
-            SELECT aap_assets_v1.list_catalog_datasets(
+            SELECT yoao_assets_v1.list_catalog_datasets(
                 CAST(:actor_id AS uuid), CAST(:search AS text),
                 CAST(:data_type AS text), CAST(:has_scenes AS boolean),
                 CAST(:limit AS integer), CAST(:offset AS bigint)
@@ -197,7 +197,7 @@ class AssetsCatalogGateway:
         reply, _ = await self._call(
             "get",
             """
-            SELECT aap_assets_v1.get_catalog_dataset(
+            SELECT yoao_assets_v1.get_catalog_dataset(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid)
             )
             """,
@@ -214,7 +214,7 @@ class AssetsCatalogGateway:
         reply, remote = await self._call(
             "items",
             """
-            SELECT aap_assets_v1.list_catalog_items(
+            SELECT yoao_assets_v1.list_catalog_items(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid),
                 CAST(:limit AS integer), CAST(:offset AS bigint)
             )
@@ -336,7 +336,7 @@ class AssetsCatalogGateway:
         reply, remote = await self._call(
             "create",
             """
-            SELECT aap_assets_v1.create_catalog_dataset(
+            SELECT yoao_assets_v1.create_catalog_dataset(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:payload AS jsonb)
             )
@@ -364,7 +364,7 @@ class AssetsCatalogGateway:
         reply, remote = await self._call(
             "update",
             """
-            SELECT aap_assets_v1.update_catalog_dataset(
+            SELECT yoao_assets_v1.update_catalog_dataset(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:payload AS jsonb)
             )
@@ -395,7 +395,7 @@ class AssetsCatalogGateway:
         reply, _ = await self._call(
             "dataset-projects",
             """
-            SELECT aap_assets_v1.list_dataset_projects(
+            SELECT yoao_assets_v1.list_dataset_projects(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid)
             )
             """,
@@ -416,7 +416,7 @@ class AssetsCatalogGateway:
         reply, _ = await self._call(
             "project-datasets",
             """
-            SELECT aap_assets_v1.list_project_datasets(
+            SELECT yoao_assets_v1.list_project_datasets(
                 CAST(:actor_id AS uuid), CAST(:project_id AS uuid)
             )
             """,

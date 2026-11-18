@@ -24,18 +24,18 @@ from app.db.models.user import User
 pytestmark = pytest.mark.asyncio
 
 _DELETE_DATASET = text(
-    "SELECT aap_assets_v1.delete_dataset("
+    "SELECT yoao_assets_v1.delete_dataset("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), :bucket, CAST(:audit_context AS jsonb))"
 )
 _DELETE_ITEM = text(
-    "SELECT aap_assets_v1.delete_dataset_item("
+    "SELECT yoao_assets_v1.delete_dataset_item("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid), "
     ":bucket, CAST(:audit_context AS jsonb))"
 )
 _LOCK_SCENE_SOURCES = text(
-    "SELECT aap_assets_v1.lock_scene_source_references(:scene_ids)"
+    "SELECT yoao_assets_v1.lock_scene_source_references(:scene_ids)"
 ).bindparams(bindparam("scene_ids", type_=ARRAY(PGUUID(as_uuid=True))))
 _SCENE_FOR_UPDATE = text(
     "SELECT id FROM public.scenes WHERE id=CAST(:scene_id AS uuid) FOR UPDATE NOWAIT"

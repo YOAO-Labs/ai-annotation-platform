@@ -18,7 +18,7 @@ try {
   const write = async (id, prefs) =>
     (
       await client.query(
-        "SELECT aap_identity_v1.replace_fixture_preferences($1::uuid,$2::jsonb) AS updated",
+        "SELECT yoao_identity_v1.replace_fixture_preferences($1::uuid,$2::jsonb) AS updated",
         [id, JSON.stringify(prefs)],
       )
     ).rows[0].updated;

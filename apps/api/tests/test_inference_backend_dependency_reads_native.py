@@ -28,8 +28,8 @@ pytestmark = [
     ),
 ]
 
-_EVALUATION_FUNCTION = "aap_learning_v1.registry_evaluation_reference_exists(uuid)"
-_JOBS_FUNCTION = "aap_jobs_v1.count_running_registry_predictions(uuid)"
+_EVALUATION_FUNCTION = "yoao_learning_v1.registry_evaluation_reference_exists(uuid)"
+_JOBS_FUNCTION = "yoao_jobs_v1.count_running_registry_predictions(uuid)"
 _SCHEMA_PATH = (
     Path(__file__).resolve().parents[1]
     / "alembic"
@@ -85,7 +85,7 @@ def _job(*, actor, world, registry_id: uuid.UUID, kind: str, status: str, suffix
 async def _evaluation_reference(db, registry_id: uuid.UUID) -> bool:
     value = await db.scalar(
         text(
-            "SELECT aap_learning_v1.registry_evaluation_reference_exists("
+            "SELECT yoao_learning_v1.registry_evaluation_reference_exists("
             "CAST(:registry_id AS uuid))"
         ),
         {"registry_id": registry_id},
@@ -98,7 +98,7 @@ async def _running_prediction_count(db, registry_id: uuid.UUID) -> int:
     return int(
         await db.scalar(
             text(
-                "SELECT aap_jobs_v1.count_running_registry_predictions("
+                "SELECT yoao_jobs_v1.count_running_registry_predictions("
                 "CAST(:registry_id AS uuid))"
             ),
             {"registry_id": registry_id},
@@ -230,7 +230,9 @@ async def test_backend_dependency_reads_match_old_queries_and_rollback_with_call
         assert await _running_prediction_count(observer, other_registry_id) == 0
 
 
-async def test_inference_role_gets_owner_reads_without_learning_table_access(test_engine):
+async def test_inference_role_gets_owner_reads_without_learning_table_access(
+    test_engine,
+):
     await assert_owned_test_database(test_engine)
     connection = await asyncpg.connect(_owner_dsn(test_engine), timeout=5)
     try:
@@ -316,7 +318,7 @@ async def test_inference_role_gets_owner_reads_without_learning_table_access(tes
 
                 assert (
                     await inference.fetchval(
-                        "SELECT aap_learning_v1.registry_evaluation_reference_exists("
+                        "SELECT yoao_learning_v1.registry_evaluation_reference_exists("
                         "$1::uuid)",
                         uuid.uuid4(),
                     )
@@ -324,7 +326,7 @@ async def test_inference_role_gets_owner_reads_without_learning_table_access(tes
                 )
                 assert (
                     await inference.fetchval(
-                        "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                        "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
                         uuid.uuid4(),
                     )
                     == 0

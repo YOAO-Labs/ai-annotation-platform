@@ -297,7 +297,7 @@ async def test_dataset_unlink_uses_primary_sources_and_recounts_owned_projection
         (
             await db_session.execute(
                 text(
-                    "SELECT task_id FROM aap_labeling_v1.dataset_task_references("
+                    "SELECT task_id FROM yoao_labeling_v1.dataset_task_references("
                     "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
                 ),
                 params,
@@ -309,7 +309,7 @@ async def test_dataset_unlink_uses_primary_sources_and_recounts_owned_projection
     assert task_ids == {direct_primary.id, legacy_primary.id}
 
     preview = await _scalar_json(
-        db_session, "aap_labeling_v1.preview_dataset_unlink", params
+        db_session, "yoao_labeling_v1.preview_dataset_unlink", params
     )
     assert preview == {
         "schema": "aap-dataset-unlink-preview/v1",
@@ -322,7 +322,7 @@ async def test_dataset_unlink_uses_primary_sources_and_recounts_owned_projection
     }
 
     deleted = await _scalar_json(
-        db_session, "aap_labeling_v1.delete_dataset_tasks", params
+        db_session, "yoao_labeling_v1.delete_dataset_tasks", params
     )
     assert deleted["schema"] == "aap-dataset-task-unlink/v1"
     assert deleted["ok"] is True
@@ -456,7 +456,7 @@ async def test_unlink_guard_retains_authored_task_feedback(
 
     result = await _scalar_json(
         db_session,
-        "aap_labeling_v1.guard_dataset_unlink",
+        "yoao_labeling_v1.guard_dataset_unlink",
         {"dataset_id": dataset.id, "project_id": project.id},
     )
     assert result == {
@@ -506,7 +506,7 @@ async def test_unlink_guard_retains_outside_task_annotation_lineage(
 
     result = await _scalar_json(
         db_session,
-        "aap_labeling_v1.guard_dataset_unlink",
+        "yoao_labeling_v1.guard_dataset_unlink",
         {"dataset_id": dataset.id, "project_id": project.id},
     )
     assert result == {
@@ -576,7 +576,7 @@ async def test_unlink_scope_fails_fast_when_batch_or_target_task_is_locked(
             await asyncio.wait_for(
                 waiter.execute(
                     text(
-                        "SELECT aap_labeling_v1.lock_dataset_unlink_scope("
+                        "SELECT yoao_labeling_v1.lock_dataset_unlink_scope("
                         "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
                     ),
                     {"dataset_id": dataset.id, "project_id": project.id},

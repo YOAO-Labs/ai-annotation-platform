@@ -79,7 +79,7 @@ async def test_each_new_family_reference_blocks_destructive_downgrade(
         await savepoint.rollback()
     await db.refresh(row)
     assert row.storage_ref == ref
-    await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     changed = {**ref, "bucket": "retargeted", "storage_identity": "f" * 64}
     with pytest.raises(IntegrityError, match="immutable"):
         async with db.begin_nested():

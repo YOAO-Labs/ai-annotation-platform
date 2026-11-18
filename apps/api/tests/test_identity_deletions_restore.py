@@ -52,7 +52,7 @@ def _deletion_dsn(test_engine, database: str | None = None) -> str:
     else:
         value = value.set(database=database)
     assert value.database and value.database.endswith(("_test", "_e2e"))
-    assert value.username == "identity_deletion_client"
+    assert value.username == "yoao_identity_deletion_client"
     return value.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
@@ -206,8 +206,8 @@ async def test_restored_deletion_receipt_replays_and_populated_downgrade_refuses
         await _assert_exact_identity_functions(
             restored_identity_dsn,
             {
-                "aap_identity_deletions_v1.deletion_policy()",
-                "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
+                "yoao_identity_deletions_v1.deletion_policy()",
+                "yoao_identity_deletions_v1.execute_deletion_command(jsonb)",
             },
         )
         restored_manager = manager(restored_identity_dsn, auth_dsn(clone), secret)

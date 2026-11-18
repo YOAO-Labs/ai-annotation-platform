@@ -23,7 +23,7 @@ _comment_facts = table(
     column("anchor", JSONB),
     column("created_at", DateTime(timezone=True)),
     column("updated_at", DateTime(timezone=True)),
-    schema="aap_labeling_v1",
+    schema="yoao_labeling_v1",
 )
 
 _feedback_facts = table(
@@ -49,7 +49,7 @@ _feedback_facts = table(
     column("resolved_by_id", UUID(as_uuid=True)),
     column("created_at", DateTime(timezone=True)),
     column("updated_at", DateTime(timezone=True)),
-    schema="aap_labeling_v1",
+    schema="yoao_labeling_v1",
 )
 
 annotation_comment_facts = aliased(
@@ -85,6 +85,6 @@ task_event_facts = table(
     column("collection_coverage", String),
     column("created_at", DateTime(timezone=True)),
     column("reject_reason_type", String),
-    schema="aap_labeling_v1",
+    schema="yoao_labeling_v1",
 )
 task_event_row = aliased(TaskEvent, task_event_facts, adapt_on_names=True)

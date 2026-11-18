@@ -50,7 +50,7 @@ async def test_cancel_probe_uses_narrow_jobs_owner_projection(
 
     statement, parameters = db.execute.await_args.args
     assert " ".join(str(statement).lower().split()) == (
-        "select status, payload from aap_jobs_v1.read_job("
+        "select status, payload from yoao_jobs_v1.read_job("
         "cast(:job_id as pg_catalog.uuid))"
     )
     assert parameters == {"job_id": job_id}
@@ -194,7 +194,7 @@ async def test_quality_reads_keep_jobs_owner_and_session_behavior(
         assert any(
             re.search(
                 r"\bselect\s+status\s*,\s*payload\s+from\s+"
-                r"aap_jobs_v1\.read_job\(",
+                r"yoao_jobs_v1\.read_job\(",
                 statement,
             )
             for statement in normalized

@@ -22,9 +22,9 @@ from app.services import async_job as jobs
 
 ROOT = Path(__file__).resolve().parents[3]
 _ROLE = "identity_api_consumer"
-_FUNCTION = "aap_jobs_v1.set_filter_fixture_job_outcomes"
+_FUNCTION = "yoao_jobs_v1.set_filter_fixture_job_outcomes"
 _CALL = (
-    "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes("
+    "SELECT yoao_jobs_v1.set_filter_fixture_job_outcomes("
     "CAST(:completed AS pg_catalog.uuid), CAST(:failed AS pg_catalog.uuid))"
 )
 _SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_filter.schema.json"
@@ -152,7 +152,7 @@ async def _assert_contract(test_engine, runtime) -> None:
                     "pg_catalog.acldefault('f',p.proowner))) acl "
                     "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') "
                     "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n "
-                    "ON n.oid=p.pronamespace WHERE n.nspname='aap_jobs_v1' "
+                    "ON n.oid=p.pronamespace WHERE n.nspname='yoao_jobs_v1' "
                     "AND p.proname='set_filter_fixture_job_outcomes'"
                 ),
                 {"role": _ROLE},
@@ -182,8 +182,8 @@ async def _assert_contract(test_engine, runtime) -> None:
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE'), "
                     "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','UPDATE'), "
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE'), "
-                    "pg_catalog.has_table_privilege(current_user,'aap_jobs_v1.async_job_creation','SELECT'), "
-                    "pg_catalog.has_table_privilege(current_user,'aap_jobs_v1.async_job_creation','INSERT'), "
+                    "pg_catalog.has_table_privilege(current_user,'yoao_jobs_v1.async_job_creation','SELECT'), "
+                    "pg_catalog.has_table_privilege(current_user,'yoao_jobs_v1.async_job_creation','INSERT'), "
                     "pg_catalog.has_function_privilege(current_user,:function,'EXECUTE')"
                 ),
                 {"function": f"{_FUNCTION}(uuid,uuid)"},

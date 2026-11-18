@@ -115,7 +115,7 @@ def test_empty_downgrade_drops_trigger_and_restores_liveness(monkeypatch):
     )
     assert statements[-2:] == [
         "DROP FUNCTION IF EXISTS "
-        "aap_labeling_v1.register_tracker_running_mask_root(jsonb) RESTRICT",
+        "yoao_labeling_v1.register_tracker_running_mask_root(jsonb) RESTRICT",
         "DROP FUNCTION IF EXISTS "
-        "aap_labeling_v1._mask_gc_release_tracker_running_outputs() RESTRICT",
+        "yoao_labeling_v1._mask_gc_release_tracker_running_outputs() RESTRICT",
     ]

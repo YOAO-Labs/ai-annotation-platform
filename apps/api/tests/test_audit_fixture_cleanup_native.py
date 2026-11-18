@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
 from app.db.models.fixture_run import FixtureRun
@@ -61,7 +61,7 @@ async def _visible(db, event_id):
         (
             await db.execute(
                 text(
-                    "SELECT id,created_at FROM aap_audit_v1.audit_events WHERE id=:id"
+                    "SELECT id,created_at FROM yoao_audit_v1.audit_events WHERE id=:id"
                 ),
                 {"id": event_id},
             )
@@ -161,18 +161,18 @@ async def test_fixture_cleanup_requires_authenticated_owner_not_definer(test_eng
                 )
             )
             await db.execute(
-                text(f'GRANT USAGE ON SCHEMA aap_audit_v1,yoao_fixture_v1 TO "{role}"')
+                text(f'GRANT USAGE ON SCHEMA yoao_audit_v1,yoao_fixture_v1 TO "{role}"')
             )
             await db.execute(
                 text(
-                    f'GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb) TO "{role}"'
+                    f'GRANT EXECUTE ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) TO "{role}"'
                 )
             )
             await db.execute(
                 text(f"""
                 CREATE FUNCTION yoao_fixture_v1.{proxy}(run_id uuid) RETURNS jsonb
                 LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,pg_temp
-                AS $function$ SELECT aap_audit_v1.maintenance_command(jsonb_build_object(
+                AS $function$ SELECT yoao_audit_v1.maintenance_command(jsonb_build_object(
                     'schema','aap-audit-maintenance/v1',
                     'operation','cleanup_fixture_events','run_id',run_id)) $function$
             """)
@@ -196,7 +196,7 @@ async def test_fixture_cleanup_requires_authenticated_owner_not_definer(test_eng
             await db.execute(text("SET LOCAL app.allow_audit_update=true"))
             for statement, params in (
                 (
-                    "SELECT aap_audit_v1.maintenance_command(CAST(:request AS jsonb))",
+                    "SELECT yoao_audit_v1.maintenance_command(CAST(:request AS jsonb))",
                     {
                         "request": json.dumps(
                             {
@@ -224,12 +224,12 @@ async def test_fixture_cleanup_requires_authenticated_owner_not_definer(test_eng
                 await db.execute(text(f"DROP FUNCTION yoao_fixture_v1.{proxy}(uuid)"))
                 await db.execute(
                     text(
-                        f'REVOKE ALL ON FUNCTION aap_audit_v1.maintenance_command(jsonb) FROM "{role}"'
+                        f'REVOKE ALL ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) FROM "{role}"'
                     )
                 )
                 await db.execute(
                     text(
-                        f'REVOKE ALL ON SCHEMA aap_audit_v1,yoao_fixture_v1 FROM "{role}"'
+                        f'REVOKE ALL ON SCHEMA yoao_audit_v1,yoao_fixture_v1 FROM "{role}"'
                     )
                 )
                 await db.execute(
@@ -284,13 +284,23 @@ async def test_fixture_cleanup_refuses_a_non_test_database(test_engine):
                 )
             )
             await db.execute(text("SET LOCAL app.allow_audit_update=true"))
-            async with AsyncSession(bind=db) as session:
-                with pytest.raises(DBAPIError) as denied:
-                    async with session.begin_nested():
-                        await AuditMaintenancePostgresData(
-                            session
-                        ).cleanup_fixture_events(uuid4())
-                assert denied.value.orig.sqlstate == "42501"
+            request = json.dumps(
+                {
+                    "schema": MAINTENANCE_PROTOCOL,
+                    "operation": "cleanup_fixture_events",
+                    "run_id": str(uuid4()),
+                }
+            )
+            with pytest.raises(DBAPIError) as denied:
+                async with db.begin_nested():
+                    await db.scalar(
+                        text(
+                            "SELECT aap_audit_v1.maintenance_command("
+                            "CAST(:request AS jsonb))"
+                        ),
+                        {"request": request},
+                    )
+            assert denied.value.orig.sqlstate == "42501"
     finally:
         if clone is not None:
             await clone.dispose()

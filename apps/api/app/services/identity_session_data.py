@@ -49,7 +49,7 @@ class IdentitySessionData:
             raise IdentityGatewayUnavailable() from None
         value = await self._scalar(
             text(
-                "SELECT aap_identity_v1.read_actor_context(:actor_id, :admitted_role)"
+                "SELECT yoao_identity_v1.read_actor_context(:actor_id, :admitted_role)"
             ),
             {"actor_id": actor_id, "admitted_role": admitted_role},
         )
@@ -70,7 +70,7 @@ class IdentitySessionData:
         await self.db.flush()
         value = await self._scalar(
             text(
-                "SELECT aap_identity_v1.read_jwt_principal("
+                "SELECT yoao_identity_v1.read_jwt_principal("
                 ":actor_id, :jti, :generation, :expires_at, :for_refresh)"
             ),
             {
@@ -91,7 +91,7 @@ class IdentitySessionData:
     ) -> dict:
         value = await self._scalar(
             text(
-                "SELECT aap_identity_v1.read_api_key_candidates("
+                "SELECT yoao_identity_v1.read_api_key_candidates("
                 ":prefix, :after_id, :limit)"
             ),
             {"prefix": prefix, "after_id": after_id, "limit": limit},
@@ -107,7 +107,7 @@ class IdentitySessionData:
         await self.db.flush()
         value = await self._scalar(
             text(
-                "SELECT aap_identity_v1.confirm_api_key_principal("
+                "SELECT yoao_identity_v1.confirm_api_key_principal("
                 ":key_id, :expected_hash)"
             ),
             {"key_id": key_id, "expected_hash": expected_hash},
@@ -119,7 +119,7 @@ class IdentitySessionData:
 
     async def get_credential_generation(self, actor_id: uuid.UUID) -> int:
         value = await self._scalar(
-            text("SELECT aap_identity_v1.get_credential_generation(:actor_id)"),
+            text("SELECT yoao_identity_v1.get_credential_generation(:actor_id)"),
             {"actor_id": actor_id},
         )
         if type(value) is not int or value < 0:
@@ -129,7 +129,7 @@ class IdentitySessionData:
     async def advance_credential_generation(self, actor_id: uuid.UUID) -> int:
         await self.db.flush()
         value = await self._scalar(
-            text("SELECT aap_identity_v1.advance_credential_generation(:actor_id)"),
+            text("SELECT yoao_identity_v1.advance_credential_generation(:actor_id)"),
             {"actor_id": actor_id},
         )
         if type(value) is not int or value < 0:
@@ -143,7 +143,7 @@ class IdentitySessionData:
     async def revoke_jti(self, jti: uuid.UUID, retain_until: datetime) -> bool:
         await self.db.flush()
         value = await self._scalar(
-            text("SELECT aap_identity_v1.revoke_jti(:jti, :retain_until)"),
+            text("SELECT yoao_identity_v1.revoke_jti(:jti, :retain_until)"),
             {"jti": jti, "retain_until": retain_until},
         )
         if type(value) is not bool:
@@ -152,7 +152,7 @@ class IdentitySessionData:
 
     async def is_jti_revoked(self, jti: uuid.UUID) -> bool:
         value = await self._scalar(
-            text("SELECT aap_identity_v1.is_jti_revoked(:jti)"), {"jti": jti}
+            text("SELECT yoao_identity_v1.is_jti_revoked(:jti)"), {"jti": jti}
         )
         if type(value) is not bool:
             raise IdentityGatewayUnavailable()
@@ -203,18 +203,18 @@ class IdentitySessionCommandData:
             raise IdentityGatewayUnavailable() from None
 
     async def session_policy(self) -> dict:
-        return await self._call("SELECT aap_identity_sessions_v1.session_policy()", {})
+        return await self._call("SELECT yoao_identity_sessions_v1.session_policy()", {})
 
     async def read_login_candidate(self, email: str) -> dict:
         await self.db.flush()
         return await self._call(
-            "SELECT aap_identity_sessions_v1.read_login_candidate(:email)",
+            "SELECT yoao_identity_sessions_v1.read_login_candidate(:email)",
             {"email": email},
         )
 
     async def execute_session_command(self, request: dict) -> dict:
         await self.db.flush()
         return await self._call(
-            "SELECT aap_identity_sessions_v1.execute_session_command(CAST(:request AS jsonb))",
+            "SELECT yoao_identity_sessions_v1.execute_session_command(CAST(:request AS jsonb))",
             {"request": json.dumps(request)},
         )

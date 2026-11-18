@@ -40,14 +40,14 @@ def _annotation_write_dsn(test_engine):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_LABELING_ANNOTATION_WRITE_URL",
-        "labeling_annotation_write_client",
+        "yoao_labeling_annotation_write_client",
     )
 
 
 def _data(connection):
     async def execute(request_json):
         return await connection.fetchval(
-            "SELECT aap_labeling_v1.annotation_statistics_command($1::jsonb)",
+            "SELECT yoao_labeling_v1.annotation_statistics_command($1::jsonb)",
             request_json,
         )
 
@@ -104,9 +104,9 @@ async def test_function_only_statistics_recompute_preserves_caller_transaction(
         try:
             await verify_function_only_role(
                 connection,
-                schema="aap_labeling_v1",
+                schema="yoao_labeling_v1",
                 functions=_ANNOTATION_WRITE_FUNCTIONS,
-                role="labeling_annotation_write_client",
+                role="yoao_labeling_annotation_write_client",
             )
             for statement in (
                 "SELECT id FROM public.annotations LIMIT 1",

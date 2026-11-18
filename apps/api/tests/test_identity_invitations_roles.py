@@ -44,7 +44,7 @@ async def _assert_role(
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
               AND function.prokind IN ('f','p')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
@@ -54,7 +54,7 @@ async def _assert_role(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE left(namespace.nspname,4)='aap_'
+                WHERE (left(namespace.nspname,4)='aap_' OR left(namespace.nspname,5)='yoao_')
                   AND namespace.nspname <> $1
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
@@ -87,7 +87,7 @@ async def _assert_role(
                 WHERE namespace.nspname NOT IN ('pg_catalog','information_schema')
                   AND namespace.nspname NOT LIKE 'pg_toast%'
                   AND namespace.nspname NOT LIKE 'pg_temp_%'
-                  AND left(namespace.nspname,4)<>'aap_'
+                  AND (left(namespace.nspname,4)<>'aap_' AND left(namespace.nspname,5)<>'yoao_')
                   AND function.prokind IN ('f','p') AND function.prosecdef
                   AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             )
@@ -113,20 +113,20 @@ async def _assert_role(
 async def test_identity_invitation_login_has_only_three_functions_and_no_table_access():
     await _assert_role(
         environment_key="AAP_MODULE_DATA_IDENTITY_INVITATION_URL",
-        role_name="identity_invitation_client",
-        allowed_schema="aap_identity_invitations_v1",
+        role_name="yoao_identity_invitation_client",
+        allowed_schema="yoao_identity_invitations_v1",
         allowed_functions={
-            "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
-            "aap_identity_invitations_v1.invitation_policy()",
-            "aap_identity_invitations_v1.prepare_invitation_command(jsonb)",
+            "yoao_identity_invitations_v1.apply_invitation_command(jsonb)",
+            "yoao_identity_invitations_v1.invitation_policy()",
+            "yoao_identity_invitations_v1.prepare_invitation_command(jsonb)",
         },
-        policy_sql="SELECT aap_identity_invitations_v1.invitation_policy()",
+        policy_sql="SELECT yoao_identity_invitations_v1.invitation_policy()",
         policy_value={
             "schema": "aap-identity-invitations-policy/v1",
             "policy": "aap-identity-invitations/v1",
         },
         command_sql=(
-            "SELECT aap_identity_invitations_v1.prepare_invitation_command('{}'::jsonb)"
+            "SELECT yoao_identity_invitations_v1.prepare_invitation_command('{}'::jsonb)"
         ),
         forbidden_sql=(
             "SELECT * FROM public.users LIMIT 1",
@@ -136,11 +136,11 @@ async def test_identity_invitation_login_has_only_three_functions_and_no_table_a
             "SELECT * FROM public.projects LIMIT 1",
             "SELECT * FROM public.project_members LIMIT 1",
             "SELECT * FROM public.task_batches LIMIT 1",
-            "SELECT aap_identity_invitations_v1.lock_invitation_mail_scope(gen_random_uuid(),'"
+            "SELECT yoao_identity_invitations_v1.lock_invitation_mail_scope(gen_random_uuid(),'"
             + "0" * 64
             + "')",
-            "SELECT aap_workspace_v1.invitation_projects(ARRAY[]::uuid[])",
-            "SELECT aap_identity_mail_v2.mail_policy()",
+            "SELECT yoao_workspace_v1.invitation_projects(ARRAY[]::uuid[])",
+            "SELECT yoao_identity_mail_v2.mail_policy()",
             "CREATE TEMP TABLE identity_invitation_forbidden(id integer)",
             "SET ROLE identity_code",
         ),
@@ -151,28 +151,28 @@ async def test_identity_invitation_login_has_only_three_functions_and_no_table_a
 async def test_mail_v2_login_has_only_four_functions_and_no_table_access():
     await _assert_role(
         environment_key="AAP_MODULE_DATA_IDENTITY_MAIL_V2_URL",
-        role_name="identity_mail_v2_client",
-        allowed_schema="aap_identity_mail_v2",
+        role_name="yoao_identity_mail_v2_client",
+        allowed_schema="yoao_identity_mail_v2",
         allowed_functions={
-            "aap_identity_mail_v2.claim_mail(jsonb)",
-            "aap_identity_mail_v2.finish_mail(jsonb)",
-            "aap_identity_mail_v2.mail_policy()",
-            "aap_identity_mail_v2.renew_mail(jsonb)",
+            "yoao_identity_mail_v2.claim_mail(jsonb)",
+            "yoao_identity_mail_v2.finish_mail(jsonb)",
+            "yoao_identity_mail_v2.mail_policy()",
+            "yoao_identity_mail_v2.renew_mail(jsonb)",
         },
-        policy_sql="SELECT aap_identity_mail_v2.mail_policy()",
+        policy_sql="SELECT yoao_identity_mail_v2.mail_policy()",
         policy_value={
             "schema": "aap-identity-mail-policy/v2",
             "policy": "aap-identity-mail/v2",
         },
-        command_sql="SELECT aap_identity_mail_v2.claim_mail('{}'::jsonb)",
+        command_sql="SELECT yoao_identity_mail_v2.claim_mail('{}'::jsonb)",
         forbidden_sql=(
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.user_invitations LIMIT 1",
             "SELECT * FROM public.identity_credential_mail_outbox LIMIT 1",
             "SELECT * FROM public.identity_invitation_operation_receipts LIMIT 1",
-            "SELECT aap_identity_invitations_v1._failure('invalid_request')",
-            "SELECT aap_identity_invitations_v1.invitation_policy()",
-            "SELECT aap_identity_invitations_v1.lock_invitation_mail_scope(gen_random_uuid(),'"
+            "SELECT yoao_identity_invitations_v1._failure('invalid_request')",
+            "SELECT yoao_identity_invitations_v1.invitation_policy()",
+            "SELECT yoao_identity_invitations_v1.lock_invitation_mail_scope(gen_random_uuid(),'"
             + "0" * 64
             + "')",
             "CREATE TEMP TABLE identity_mail_v2_forbidden(id integer)",

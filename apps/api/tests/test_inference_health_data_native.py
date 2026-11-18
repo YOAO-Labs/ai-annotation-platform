@@ -19,8 +19,8 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_health_data_v1"
-_ROLE = "inference_health_data_client"
+_SCHEMA = "yoao_inference_health_data_v1"
+_ROLE = "yoao_inference_health_data_client"
 _POLICY = f"{_SCHEMA}.health_data_policy()"
 _BACKEND_ROW = f"{_SCHEMA}.backend_row"
 _MEMBERSHIP_ROW = f"{_SCHEMA}.membership_row"

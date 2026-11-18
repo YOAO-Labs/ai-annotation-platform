@@ -44,7 +44,9 @@ async def gpu_authority_data() -> AsyncIterator[GPUAuthorityPoolData]:
     )
     pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=4)
     try:
-        yield GPUAuthorityPoolData(pool, expected_role="inference_gpu_authority_client")
+        yield GPUAuthorityPoolData(
+            pool, expected_role="yoao_inference_gpu_authority_client"
+        )
     finally:
         await pool.close()
 

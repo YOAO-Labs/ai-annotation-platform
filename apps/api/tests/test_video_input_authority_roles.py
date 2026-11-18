@@ -37,7 +37,7 @@ async def test_assets_owner_calls_scoped_video_source_without_labeling_or_jobs_s
                 await db_session.execute(text("SELECT id FROM public.tasks LIMIT 1"))
         read = c.ReadVideoTaskRequest(task_id=task, actor_id=actor)
         raw = await db_session.scalar(
-            text("SELECT aap_labeling_v1.read_video_input_task_source(:task,:actor)"),
+            text("SELECT yoao_labeling_v1.read_video_input_task_source(:task,:actor)"),
             {"task": task, "actor": actor},
         )
         source = c.parse_native("read_video_input_task_source", read, raw)
@@ -49,7 +49,7 @@ async def test_assets_owner_calls_scoped_video_source_without_labeling_or_jobs_s
         )
         raw = await db_session.scalar(
             text(
-                "SELECT aap_labeling_v1.lock_video_input_task_source(:task,:actor,CAST(:binding AS jsonb))"
+                "SELECT yoao_labeling_v1.lock_video_input_task_source(:task,:actor,CAST(:binding AS jsonb))"
             ),
             {"task": task, "actor": actor, "binding": source.binding.model_dump_json()},
         )
@@ -65,9 +65,9 @@ async def test_only_assets_owner_receives_video_authority_execute_grants(db_sess
         )
         for role, allowed in [
             ("assets_code", True),
-            ("append_client", False),
-            ("asset_media_control_client", False),
-            ("asset_image_worker_client", False),
+            ("yoao_append_client", False),
+            ("yoao_asset_media_control_client", False),
+            ("yoao_asset_image_worker_client", False),
         ]:
             observed = await db_session.scalar(
                 text(

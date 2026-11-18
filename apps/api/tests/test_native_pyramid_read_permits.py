@@ -26,7 +26,7 @@ async def _complete(session, operation_id, token):
     return _reply(
         await session.scalar(
             text(
-                "SELECT aap_assets_v1.complete_native_pyramid_read("
+                "SELECT yoao_assets_v1.complete_native_pyramid_read("
                 "CAST(:operation_id AS uuid), CAST(:token AS uuid))"
             ),
             {"operation_id": operation_id, "token": token},
@@ -38,7 +38,7 @@ async def _begin(session, operation_id, token):
     return _reply(
         await session.scalar(
             text(
-                "SELECT aap_assets_v1.begin_native_pyramid_read("
+                "SELECT yoao_assets_v1.begin_native_pyramid_read("
                 "CAST(:actor_id AS uuid), CAST(:task_id AS uuid), NULL, 1, "
                 "'pyramid-v1', CAST(:operation_id AS uuid), CAST(:token AS uuid))"
             ),
@@ -71,13 +71,16 @@ async def test_close_before_admission_never_reopens_the_permit(test_engine):
             late = await _begin(session, operation_id, token)
             assert late["ok"] is False
             assert late["error"]["code"] == "operation_conflict"
-            assert await session.scalar(
-                text(
-                    "SELECT state FROM aap_assets_v1.native_pyramid_read_permits "
-                    "WHERE operation_id = CAST(:operation_id AS uuid)"
-                ),
-                {"operation_id": operation_id},
-            ) == "closed"
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT state FROM yoao_assets_v1.native_pyramid_read_permits "
+                        "WHERE operation_id = CAST(:operation_id AS uuid)"
+                    ),
+                    {"operation_id": operation_id},
+                )
+                == "closed"
+            )
 
             # Replayed physical closure is idempotent.
             replay = await _complete(session, operation_id, token)
@@ -101,12 +104,15 @@ async def test_permit_token_is_exact_and_cannot_be_shared(test_engine):
             other_operation = await _complete(session, uuid.uuid4(), token)
             assert other_operation["ok"] is False
             assert other_operation["error"]["code"] == "invalid_request"
-            assert await session.scalar(
-                text(
-                    "SELECT state FROM aap_assets_v1.native_pyramid_read_permits "
-                    "WHERE operation_id = CAST(:operation_id AS uuid)"
-                ),
-                {"operation_id": operation_id},
-            ) == "closed"
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT state FROM yoao_assets_v1.native_pyramid_read_permits "
+                        "WHERE operation_id = CAST(:operation_id AS uuid)"
+                    ),
+                    {"operation_id": operation_id},
+                )
+                == "closed"
+            )
         finally:
             await session.rollback()

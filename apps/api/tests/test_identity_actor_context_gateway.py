@@ -134,7 +134,7 @@ async def test_embedded_actor_fence_matches_actual_legacy_http(db_session, expec
             "www_authenticate": response.headers.get("www-authenticate"),
             "state": states[0],
         } == expected
-        assert sum("aap_identity_v1.read_actor_context(" in sql for sql in calls) == 1
+        assert sum("yoao_identity_v1.read_actor_context(" in sql for sql in calls) == 1
         assert not any("SELECT users." in sql for sql in calls)
     finally:
         event.remove(db_session.bind.sync_engine, "before_cursor_execute", statement)

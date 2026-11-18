@@ -33,7 +33,7 @@ async def _call(db, operation, request):
         if kind == "jsonb" and params[name] is not None:
             params[name] = json.dumps(params[name], ensure_ascii=False)
     raw = await db.scalar(
-        text(f"SELECT aap_assets_v1.{operation}({arguments})"), params
+        text(f"SELECT yoao_assets_v1.{operation}({arguments})"), params
     )
     return c.parse_native(operation, request, raw)
 

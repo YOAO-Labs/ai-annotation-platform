@@ -25,7 +25,11 @@ class SqlAlchemyMediaDatabase:
     """An explicit same-connection binding; the caller may retain its transaction."""
 
     def __init__(
-        self, db: AsyncSession, *, commit: bool = True, source_connection_pinned: bool = False
+        self,
+        db: AsyncSession,
+        *,
+        commit: bool = True,
+        source_connection_pinned: bool = False,
     ):
         self.db = db
         self.commit = commit
@@ -51,26 +55,43 @@ class SqlAlchemyMediaDatabase:
         try:
             await self.db.flush()
             scope = nullcontext()
-            if operation in {"begin_media_original_worker", "claim_video_media", "advance_video_backfill"} and self.commit and os.environ.get(
-                "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+            if (
+                operation
+                in {
+                    "begin_media_original_worker",
+                    "claim_video_media",
+                    "advance_video_backfill",
+                }
+                and self.commit
+                and os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE")
             ):
                 if not self.source_connection_pinned:
                     raise c.MediaFailure("storage_unavailable")
-                from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+                from yoao_assets_media_runtime.fixture_native_outputs import (
+                    claim_admission,
+                    scan_admission,
+                    source_admission,
+                )
 
                 connection = await self.db.connection()
                 raw_connection = await connection.get_raw_connection()
                 if operation == "begin_media_original_worker":
-                    scope = source_admission(raw_connection.driver_connection, "media", request)
+                    scope = source_admission(
+                        raw_connection.driver_connection, "media", request
+                    )
                 elif operation == "claim_video_media":
-                    scope = claim_admission(raw_connection.driver_connection, "media", request)
+                    scope = claim_admission(
+                        raw_connection.driver_connection, "media", request
+                    )
                 else:
-                    scope = scan_admission(raw_connection.driver_connection, "media", request)
+                    scope = scan_admission(
+                        raw_connection.driver_connection, "media", request
+                    )
             async with scope:
                 async with self.db.begin_nested():
                     raw = (
                         await self.db.execute(
-                            text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
+                            text(f"SELECT yoao_assets_v1.{operation}({placeholders})"),
                             parameters,
                         )
                     ).scalar_one()
@@ -104,9 +125,11 @@ class _IndependentMediaDatabase:
         from app.db.base import async_session
 
         factory = self.session_factory or async_session
-        if operation in {"begin_media_original_worker", "claim_video_media", "advance_video_backfill"} and os.environ.get(
-            "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
-        ):
+        if operation in {
+            "begin_media_original_worker",
+            "claim_video_media",
+            "advance_video_backfill",
+        } and os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"):
             async with factory() as template:
                 if not isinstance(template.bind, AsyncEngine):
                     raise c.MediaFailure("storage_unavailable")

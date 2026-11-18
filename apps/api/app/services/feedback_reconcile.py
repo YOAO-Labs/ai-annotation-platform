@@ -109,7 +109,7 @@ async def _missing_ids(db: AsyncSession, source: str) -> list[str]:
             )
             SELECT o.id FROM old_ranked o
             WHERE o.rn > (
-                SELECT COUNT(*) FROM aap_labeling_v1.annotation_feedback_facts af
+                SELECT COUNT(*) FROM yoao_labeling_v1.annotation_feedback_facts af
                 WHERE af.kind = 'bug'
                   AND af.project_id = o.project_id
                   AND af.title IS NOT DISTINCT FROM o.title
@@ -131,7 +131,7 @@ async def _missing_ids(db: AsyncSession, source: str) -> list[str]:
             )
             SELECT o.id FROM old_ranked o
             WHERE o.rn > (
-                SELECT COUNT(*) FROM aap_labeling_v1.annotation_feedback_facts af
+                SELECT COUNT(*) FROM yoao_labeling_v1.annotation_feedback_facts af
                 WHERE af.kind = 'comment'
                   AND af.annotation_id IS NOT DISTINCT FROM o.annotation_id
                   AND af.body IS NOT DISTINCT FROM o.body
@@ -148,7 +148,7 @@ async def _missing_ids(db: AsyncSession, source: str) -> list[str]:
             )
             SELECT o.id FROM old_ranked o
             WHERE o.rn > (
-                SELECT COUNT(*) FROM aap_labeling_v1.annotation_feedback_facts af
+                SELECT COUNT(*) FROM yoao_labeling_v1.annotation_feedback_facts af
                 WHERE af.kind = 'reject'
                   AND af.task_id = o.task_id
                   AND af.body IS NOT DISTINCT FROM o.body

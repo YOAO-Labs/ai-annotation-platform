@@ -46,7 +46,7 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_pipelines_v1"
+_SCHEMA = "yoao_inference_pipelines_v1"
 _CLIENT_FUNCTIONS = {
     ("pipeline_policy", ""),
     ("pipeline_step", "jsonb, text, jsonb, text[], text[]"),
@@ -107,7 +107,7 @@ async def _function_metadata(engine) -> dict[str, dict]:
                 "pg_catalog.pg_get_function_result(function.oid) AS result, "
                 "pg_catalog.pg_get_functiondef(function.oid) AS definition, "
                 "pg_catalog.has_function_privilege("
-                "'inference_pipelines_client', function.oid, 'EXECUTE'"
+                "'yoao_inference_pipelines_client', function.oid, 'EXECUTE'"
                 ") AS client_can_execute, "
                 "EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE("
                 "function.proacl, pg_catalog.acldefault('f', function.proowner)"
@@ -166,7 +166,7 @@ async def _pipeline_policy(test_engine, database: str | None = None) -> dict:
     )
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "inference_pipelines_client"
+            "yoao_inference_pipelines_client"
         )
         await verify_function_only_role(
             connection,
@@ -188,13 +188,13 @@ async def _assert_function_only_client(
     )
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "inference_pipelines_client"
+            "yoao_inference_pipelines_client"
         )
         for statement in (
             "SELECT id FROM public.project_pipelines LIMIT 1",
             f"SELECT * FROM {_SCHEMA}.operation_receipts LIMIT 1",
             f"SELECT {_SCHEMA}._pipeline_row_value(NULL::public.project_pipelines)",
-            "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid,NULL::uuid)",
+            "SELECT yoao_workspace_v1.lock_project_manager(NULL::uuid,NULL::uuid)",
             "SET ROLE inference_code",
             "CREATE TEMP TABLE forbidden_pipeline_restore(id integer)",
         ):

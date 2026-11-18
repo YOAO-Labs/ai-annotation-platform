@@ -53,7 +53,7 @@ pytestmark = [
 
 def _phase(statement):
     s = " ".join(statement.lower().split())
-    if "aap_inference_health_data_v1." in s:
+    if "yoao_inference_health_data_v1." in s:
         for function, phase in (
             ("observation_clock()", "clock"),
             ("lock_resource(", "resource_lock"),

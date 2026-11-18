@@ -30,7 +30,7 @@ try {
     const rows = JSON.parse(
       (
         await client.query(
-          "SELECT aap_workspace_v1.project_member_rows($1::uuid,$2::uuid[],$3::boolean) AS value",
+          "SELECT yoao_workspace_v1.project_member_rows($1::uuid,$2::uuid[],$3::boolean) AS value",
           [input.project_id, input.users, locked],
         )
       ).rows[0].value,
@@ -63,7 +63,7 @@ try {
     assert.equal(
       (
         await client.query(
-          "SELECT aap_workspace_v1.lock_project_member_reference($1::uuid,$2::uuid,$3::boolean) AS value",
+          "SELECT yoao_workspace_v1.lock_project_member_reference($1::uuid,$2::uuid,$3::boolean) AS value",
           [input.project_id, input.users[0], nowait],
         )
       ).rows[0].value,
@@ -83,7 +83,7 @@ try {
     JSON.parse(
       (
         await client.query(
-          "SELECT aap_workspace_v1.project_member_rows($1::uuid,$2::uuid[],true) AS value",
+          "SELECT yoao_workspace_v1.project_member_rows($1::uuid,$2::uuid[],true) AS value",
           [input.project_id, []],
         )
       ).rows[0].value,

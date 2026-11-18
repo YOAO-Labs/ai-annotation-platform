@@ -126,7 +126,7 @@ async def test_identity_key_login_has_only_two_functions_and_no_private_or_ddl_a
             "SELECT * FROM public.identity_key_operation_receipts LIMIT 1",
             "CREATE TEMP TABLE identity_key_forbidden(id integer)",
             "SET ROLE identity_code",
-            "SELECT aap_identity_v1.authentication_policy()",
+            "SELECT yoao_identity_v1.authentication_policy()",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(sql)

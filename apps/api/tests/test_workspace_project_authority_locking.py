@@ -36,7 +36,7 @@ pytestmark = [
 ]
 _ROLE = "identity_api_consumer"
 _PRIVATE = ("projects", "project_members")
-_FUNCTION = "aap_workspace_v1.project_access_step(uuid,uuid,text)"
+_FUNCTION = "yoao_workspace_v1.project_access_step(uuid,uuid,text)"
 
 
 def _api_url(test_engine):
@@ -73,7 +73,7 @@ async def _world(test_engine, *, retain_audited=False):
             for role, expected in (
                 (_ROLE, True),
                 ("legacy_runtime", True),
-                ("append_client", False),
+                ("yoao_append_client", False),
             ):
                 assert (
                     await db.scalar(
@@ -127,9 +127,9 @@ def _capture_steps(engine):
     steps = []
 
     def capture(_connection, _cursor, statement, parameters, _context, _many):
-        if "aap_identity_v1.lock_accounts_share" in statement:
+        if "yoao_identity_v1.lock_accounts_share" in statement:
             steps.append("actor")
-        elif "aap_workspace_v1.project_access_step" in statement:
+        elif "yoao_workspace_v1.project_access_step" in statement:
             steps.extend(
                 value
                 for value in parameters
@@ -356,14 +356,14 @@ async def test_bad_native_scope_aborts_the_callers_prior_write(test_engine):
 
             async def scalar(self, statement, *args, **kwargs):
                 result = await self.db.scalar(statement, *args, **kwargs)
-                if "aap_workspace_v1.project_access_step" in str(statement):
+                if "yoao_workspace_v1.project_access_step" in str(statement):
                     result = json.loads(result) if isinstance(result, str) else result
                     return {**result, "project_id": str(uuid.uuid4())}
                 return result
 
             async def execute(self, statement, *args, **kwargs):
                 result = await self.db.execute(statement, *args, **kwargs)
-                if "aap_workspace_v1.project_access_step" not in str(statement):
+                if "yoao_workspace_v1.project_access_step" not in str(statement):
                     return result
 
                 class WrongScopeResult:

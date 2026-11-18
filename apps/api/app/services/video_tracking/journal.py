@@ -41,7 +41,7 @@ from .execution import (
     execution_proof,
 )
 
-_STEP = text("SELECT aap_jobs_v1.video_execution_checkpoint_step(:action,:arguments)")
+_STEP = text("SELECT yoao_jobs_v1.video_execution_checkpoint_step(:action,:arguments)")
 
 
 def _translate(exc):

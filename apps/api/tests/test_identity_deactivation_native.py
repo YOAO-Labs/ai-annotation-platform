@@ -129,7 +129,7 @@ def test_frozen_native_deactivation_artifacts_and_lock_contract():
     assert "record_identity_deactivation_event" in module_grants
     assert "lock_super_admin_invariant" in legacy_grants
     assert "process_due_deactivations" in legacy_grants
-    assert "notification_publish_client" in role_grants
+    assert "yoao_notification_publish_client" in role_grants
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_self_request_cancel_and_replay_are_frozen_and_atomic(test_engine)
         async with maker.begin() as session:
             return await session.scalar(
                 text(
-                    "SELECT aap_identity_deactivation_v1.execute_deactivation_command("
+                    "SELECT yoao_identity_deactivation_v1.execute_deactivation_command("
                     "CAST(:command AS jsonb))"
                 ),
                 {"command": json.dumps(command)},
@@ -287,7 +287,7 @@ async def test_due_page_completes_legacy_request_redacts_audit_and_replays(test_
         async with maker.begin() as session:
             result = await session.scalar(
                 text(
-                    "SELECT aap_identity_deactivation_v1.process_due_deactivations("
+                    "SELECT yoao_identity_deactivation_v1.process_due_deactivations("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": json.dumps(request)},
@@ -357,7 +357,7 @@ async def test_due_page_completes_legacy_request_redacts_audit_and_replays(test_
         async with maker.begin() as session:
             replay = await session.scalar(
                 text(
-                    "SELECT aap_identity_deactivation_v1.process_due_deactivations("
+                    "SELECT yoao_identity_deactivation_v1.process_due_deactivations("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": json.dumps(request)},

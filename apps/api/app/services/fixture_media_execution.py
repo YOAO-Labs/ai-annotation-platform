@@ -94,7 +94,7 @@ async def is_fixture(kind, identifier):
     try:
         async with engine.connect() as connection:
             result = await connection.scalar(
-                text("SELECT aap_jobs_v1.fixture_media_work_exists(:kind,:id)"),
+                text("SELECT yoao_jobs_v1.fixture_media_work_exists(:kind,:id)"),
                 {"kind": kind, "id": str(identifier)},
             )
             if type(result) is not bool:
@@ -109,7 +109,7 @@ async def is_fixture_owner(kind, identifier):
     try:
         async with engine.connect() as connection:
             result = await connection.scalar(
-                text("SELECT aap_assets_v1.fixture_media_owner_exists(:kind,:id)"),
+                text("SELECT yoao_assets_v1.fixture_media_owner_exists(:kind,:id)"),
                 {"kind": kind, "id": identifier},
             )
             if type(result) is not bool:
@@ -129,7 +129,7 @@ class Execution:
     async def target(self):
         result = await self.connection.scalar(
             text(
-                "SELECT aap_assets_v1.fixture_legacy_execution_target(:kind,:id,:token)"
+                "SELECT yoao_assets_v1.fixture_legacy_execution_target(:kind,:id,:token)"
             ),
             {"kind": self.kind, "id": self.identifier, "token": self.token},
         )
@@ -174,7 +174,7 @@ class Execution:
                 )
                 accepted = await self.connection.scalar(
                     text(
-                        "SELECT aap_assets_v1.begin_fixture_legacy_birth_admission("
+                        "SELECT yoao_assets_v1.begin_fixture_legacy_birth_admission("
                         ":kind,:execution,:token,:dataset,:item,:task,:delivery,:pid,:admission)"
                     ),
                     {
@@ -196,7 +196,7 @@ class Execution:
                 yield
                 finished = await self.connection.scalar(
                     text(
-                        "SELECT aap_assets_v1.finish_fixture_legacy_birth_admission(:admission)"
+                        "SELECT yoao_assets_v1.finish_fixture_legacy_birth_admission(:admission)"
                     ),
                     {"admission": admission},
                 )
@@ -236,7 +236,7 @@ class Execution:
         try:
             result = await self.connection.scalar(
                 text(
-                    "SELECT aap_assets_v1.bind_fixture_independent_child(:parent,:token,:child)"
+                    "SELECT yoao_assets_v1.bind_fixture_independent_child(:parent,:token,:child)"
                 ),
                 {"parent": self.identifier, "token": self.token, "child": child},
             )
@@ -249,7 +249,7 @@ class Execution:
     async def prepare_pyramid(self, item_id, delegation):
         child = await self.connection.scalar(
             text(
-                "SELECT aap_jobs_v1.prepare_fixture_media_child("
+                "SELECT yoao_jobs_v1.prepare_fixture_media_child("
                 ":job,:token,:child,:item,CAST(:delegation AS jsonb))"
             ),
             {
@@ -277,9 +277,9 @@ class Execution:
     async def bind_generation(self, asset_id, generation):
         try:
             name = (
-                "aap_assets_v1.bind_fixture_independent_pyramid"
+                "yoao_assets_v1.bind_fixture_independent_pyramid"
                 if self.kind == "independent"
-                else "aap_jobs_v1.bind_fixture_media_child_generation"
+                else "yoao_jobs_v1.bind_fixture_media_child_generation"
             )
             result = await self.connection.scalar(
                 text(f"SELECT {name}(:child,:token,:asset,:generation)"),
@@ -301,9 +301,9 @@ class Execution:
     async def record_pyramid_attempt(self, asset_id, generation, lease, output):
         try:
             name = (
-                "aap_assets_v1.record_fixture_independent_pyramid_attempt"
+                "yoao_assets_v1.record_fixture_independent_pyramid_attempt"
                 if self.kind == "independent"
-                else "aap_jobs_v1.record_fixture_pyramid_attempt"
+                else "yoao_jobs_v1.record_fixture_pyramid_attempt"
             )
             result = await self.connection.scalar(
                 text(f"SELECT {name}(:child,:token,:asset,:generation,:lease,:output)"),
@@ -325,9 +325,9 @@ class Execution:
     async def record_video_attempt(self, output, lease):
         try:
             name = (
-                "aap_assets_v1.record_fixture_independent_video_attempt"
+                "yoao_assets_v1.record_fixture_independent_video_attempt"
                 if self.kind == "independent"
-                else "aap_jobs_v1.record_fixture_video_attempt"
+                else "yoao_jobs_v1.record_fixture_video_attempt"
             )
             result = await self.connection.scalar(
                 text(f"SELECT {name}(:job,:token,:output,:lease)"),
@@ -347,7 +347,7 @@ class Execution:
     async def begin_version(self, owner_kind, owner_id, endpoint, bucket, key, receipt):
         identifier = await self.connection.scalar(
             text(
-                "SELECT aap_assets_v1.begin_fixture_media_version("
+                "SELECT yoao_assets_v1.begin_fixture_media_version("
                 ":kind,:execution,:token,:owner_kind,:owner_id,:endpoint,:bucket,"
                 ":key,:sha,:size,:id)"
             ),
@@ -373,7 +373,7 @@ class Execution:
     async def record_version(self, identifier, etag, version):
         result = await self.connection.scalar(
             text(
-                "SELECT aap_assets_v1.record_fixture_media_version("
+                "SELECT yoao_assets_v1.record_fixture_media_version("
                 ":kind,:execution,:token,:id,:etag,:version)"
             ),
             {
@@ -392,7 +392,7 @@ class Execution:
     async def verify_version(self, identifier, version):
         result = await self.connection.scalar(
             text(
-                "SELECT aap_assets_v1.verify_fixture_media_version("
+                "SELECT yoao_assets_v1.verify_fixture_media_version("
                 ":kind,:execution,:token,:id,:version)"
             ),
             {
@@ -458,7 +458,9 @@ class ScreenshotProducer:
 
     async def target(self):
         result = await self.connection.scalar(
-            text("SELECT aap_assets_v1.fixture_screenshot_producer_target(:admission)"),
+            text(
+                "SELECT yoao_assets_v1.fixture_screenshot_producer_target(:admission)"
+            ),
             {"admission": self.admission},
         )
         if not isinstance(result, dict) or set(result) != {
@@ -480,7 +482,7 @@ class ScreenshotProducer:
         try:
             result = await self.connection.scalar(
                 text(
-                    "SELECT aap_assets_v1.finish_fixture_screenshot_producer(:admission,:delivery,:output)"
+                    "SELECT yoao_assets_v1.finish_fixture_screenshot_producer(:admission,:delivery,:output)"
                 ),
                 {
                     "admission": self.admission,
@@ -501,7 +503,7 @@ class ScreenshotProducer:
         try:
             result = await self.connection.scalar(
                 text(
-                    "SELECT aap_assets_v1.reuse_fixture_screenshot_producer(:admission,:output)"
+                    "SELECT yoao_assets_v1.reuse_fixture_screenshot_producer(:admission,:output)"
                 ),
                 {"admission": self.admission, "output": output_id},
             )
@@ -547,7 +549,7 @@ async def screenshot_producer_scope(
                 admitted = True
                 accepted = await control.scalar(
                     text(
-                        "SELECT aap_assets_v1.begin_fixture_screenshot_producer("
+                        "SELECT yoao_assets_v1.begin_fixture_screenshot_producer("
                         ":run,:root_admission,:dataset,:item,:delivery,:pid,:admission)"
                     ),
                     {
@@ -639,7 +641,9 @@ async def admitted_independent(
     try:
         async with engine.connect() as connection:
             saved = await connection.scalar(
-                text("SELECT aap_assets_v1.fixture_independent_delivery_envelope(:id)"),
+                text(
+                    "SELECT yoao_assets_v1.fixture_independent_delivery_envelope(:id)"
+                ),
                 {"id": identifier},
             )
             if saved is None:
@@ -665,7 +669,7 @@ async def admitted_independent(
             try:
                 result = await connection.scalar(
                     text(
-                        "SELECT aap_assets_v1.begin_fixture_independent_execution(:id,:token,CAST(:envelope AS jsonb))"
+                        "SELECT yoao_assets_v1.begin_fixture_independent_execution(:id,:token,CAST(:envelope AS jsonb))"
                     ),
                     {
                         "id": identifier,
@@ -703,7 +707,7 @@ async def admitted_independent(
                     try:
                         completed = await connection.scalar(
                             text(
-                                "SELECT aap_assets_v1.finish_fixture_independent_execution(:id,:token)"
+                                "SELECT yoao_assets_v1.finish_fixture_independent_execution(:id,:token)"
                             ),
                             {"id": identifier, "token": token},
                         )
@@ -763,7 +767,7 @@ async def admitted(
             token = uuid.uuid4()
             if kind == "backfill":
                 statement = text(
-                    "SELECT aap_jobs_v1.begin_fixture_media_backfill("
+                    "SELECT yoao_jobs_v1.begin_fixture_media_backfill("
                     ":id,:task,:queue,:token)"
                 )
                 parameters = {
@@ -774,7 +778,7 @@ async def admitted(
                 }
             elif kind == "pyramid":
                 statement = text(
-                    "SELECT aap_jobs_v1.begin_fixture_media_child("
+                    "SELECT yoao_jobs_v1.begin_fixture_media_child("
                     ":id,:queue,:item,CAST(:delegation AS jsonb),:token)"
                 )
                 parameters = {
@@ -810,7 +814,7 @@ async def admitted(
                             else "finish_fixture_media_child"
                         )
                         completed = await connection.scalar(
-                            text(f"SELECT aap_jobs_v1.{name}(:id,:token)"),
+                            text(f"SELECT yoao_jobs_v1.{name}(:id,:token)"),
                             {"id": identifier, "token": token},
                         )
                         if completed is not True:

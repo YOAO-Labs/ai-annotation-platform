@@ -41,7 +41,7 @@ class IdentityDeactivationCommandData:
         raw = _json_value(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_deactivation_v1.execute_deactivation_command("
+                    "SELECT yoao_identity_deactivation_v1.execute_deactivation_command("
                     "CAST(:command AS jsonb))"
                 ),
                 {"command": command.model_dump_json(by_alias=True)},
@@ -67,7 +67,7 @@ class IdentityDeactivationDueData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_deactivation_v1.process_due_deactivations("
+                        "SELECT yoao_identity_deactivation_v1.process_due_deactivations("
                         "CAST(:command AS jsonb))"
                     ),
                     {"command": command.model_dump_json(by_alias=True)},

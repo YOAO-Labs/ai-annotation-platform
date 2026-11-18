@@ -34,11 +34,12 @@ from app.services.point_cloud_quality.config import (
     point_cloud_quality_config_digest,
 )
 from tests.factory import create_project, create_user
+from tests.frozen_namespaces import historical
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
 ROOT = Path(__file__).resolve().parents[3]
-_CREATE = "SELECT aap_workspace_v1.create_import_project($1,$2,$3,$4,$5::jsonb)"
-_WRITE = "SELECT aap_workspace_v1.write_point_cloud_quality_config($1,$2::jsonb)"
+_CREATE = "SELECT yoao_workspace_v1.create_import_project($1,$2,$3,$4,$5::jsonb)"
+_WRITE = "SELECT yoao_workspace_v1.write_point_cloud_quality_config($1,$2::jsonb)"
 _FIXED_TIME = datetime(2000, 1, 1, tzinfo=UTC)
 
 pytestmark = [
@@ -56,7 +57,7 @@ def _dsn(test_engine, *, owner=False):
         url = test_engine.url
     else:
         url = make_url(os.environ["AAP_MODULE_DATA_WORKSPACE_PROJECT_MAINTENANCE_URL"])
-        assert url.username == "workspace_project_maintenance_client"
+        assert url.username == "yoao_workspace_project_maintenance_client"
         assert (url.host, url.port, url.database) == (
             test_engine.url.host,
             test_engine.url.port,
@@ -104,38 +105,46 @@ async def _world(test_engine):
 async def test_descriptor_and_function_only_login_match_exact_capabilities(test_engine):
     expected = project_maintenance_schema()
     assert expected["$id"] == PROTOCOL
-    for path in (
-        ROOT
-        / "apps/workspace/src/yoao_workspace/project_maintenance_protocol.schema.json",
-        ROOT / "apps/api/alembic/sql/0288_workspace_project_maintenance.schema.json",
-    ):
-        assert json.loads(path.read_text()) == expected
+    assert (
+        json.loads(
+            (
+                ROOT
+                / "apps/workspace/src/yoao_workspace/project_maintenance_protocol.schema.json"
+            ).read_text()
+        )
+        == expected
+    )
+    assert json.loads(
+        (
+            ROOT / "apps/api/alembic/sql/0288_workspace_project_maintenance.schema.json"
+        ).read_text()
+    ) == historical(expected)
     async with _world(test_engine) as (_, owner, client, _, _, _):
         assert (
             await client.fetchval("SELECT current_user")
-            == "workspace_project_maintenance_client"
+            == "yoao_workspace_project_maintenance_client"
         )
         actual = await client.fetch(
             "SELECT n.nspname||'.'||p.proname AS name, p.prosecdef, r.rolname AS owner "
             "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-            "JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname LIKE 'aap_%' "
+            "JOIN pg_roles r ON r.oid=p.proowner WHERE (n.nspname LIKE 'aap_%' OR n.nspname LIKE 'yoao_%') "
             "AND has_function_privilege(current_user,p.oid,'EXECUTE') ORDER BY name"
         )
         assert [(r["name"], r["prosecdef"], r["owner"]) for r in actual] == [
-            ("aap_workspace_v1.create_import_project", True, "workspace_code"),
+            ("yoao_workspace_v1.create_import_project", True, "workspace_code"),
             (
-                "aap_workspace_v1.create_point_cloud_seed_project",
+                "yoao_workspace_v1.create_point_cloud_seed_project",
                 True,
                 "workspace_code",
             ),
-            ("aap_workspace_v1.read_import_project", True, "workspace_code"),
-            ("aap_workspace_v1.write_nuscenes_seed_defaults", True, "workspace_code"),
+            ("yoao_workspace_v1.read_import_project", True, "workspace_code"),
+            ("yoao_workspace_v1.write_nuscenes_seed_defaults", True, "workspace_code"),
             (
-                "aap_workspace_v1.write_point_cloud_quality_config",
+                "yoao_workspace_v1.write_point_cloud_quality_config",
                 True,
                 "workspace_code",
             ),
-            ("aap_workspace_v1.write_seed_members", True, "workspace_code"),
+            ("yoao_workspace_v1.write_seed_members", True, "workspace_code"),
         ]
         for query in (
             "SELECT id FROM public.projects",
@@ -143,14 +152,18 @@ async def test_descriptor_and_function_only_login_match_exact_capabilities(test_
             "INSERT INTO public.projects(id) VALUES(gen_random_uuid())",
             "SELECT id FROM public.users",
             "CREATE TEMP TABLE maintenance_denied(id integer)",
-            "SELECT aap_workspace_configuration_v1.configuration_policy()",
+            "SELECT yoao_workspace_configuration_v1.configuration_policy()",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await client.execute(query)
-        for role in ("append_client", "asset_operator_client", "labeling_code"):
+        for role in (
+            "yoao_append_client",
+            "yoao_asset_operator_client",
+            "labeling_code",
+        ):
             assert not await owner.fetchval(
                 "SELECT has_function_privilege($1,"
-                "'aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)','EXECUTE')",
+                "'yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)','EXECUTE')",
                 role,
             )
 
@@ -167,7 +180,7 @@ async def test_import_defaults_match_legacy_orm_and_rollback_retains_reference(
         assert (
             decode_import_project_reference(
                 await client.fetchval(
-                    "SELECT aap_workspace_v1.read_import_project($1)", display_id
+                    "SELECT yoao_workspace_v1.read_import_project($1)", display_id
                 ),
                 display_id=display_id,
             )
@@ -196,7 +209,7 @@ async def test_import_defaults_match_legacy_orm_and_rollback_retains_reference(
         assert (
             decode_import_project_reference(
                 await client.fetchval(
-                    "SELECT aap_workspace_v1.read_import_project($1)", display_id
+                    "SELECT yoao_workspace_v1.read_import_project($1)", display_id
                 ),
                 display_id=display_id,
             )
@@ -248,7 +261,7 @@ async def test_import_defaults_match_legacy_orm_and_rollback_retains_reference(
         assert (
             decode_import_project_reference(
                 await client.fetchval(
-                    "SELECT aap_workspace_v1.read_import_project($1)", display_id
+                    "SELECT yoao_workspace_v1.read_import_project($1)", display_id
                 ),
                 display_id=display_id,
             )
@@ -447,7 +460,7 @@ async def test_evaluation_and_project_config_share_caller_rollback(
 
                     async def mismatched_reply(statement, *args, **kwargs):
                         result = await scalar(statement, *args, **kwargs)
-                        if "aap_workspace_v1.write_point_cloud_quality_config" in str(
+                        if "yoao_workspace_v1.write_point_cloud_quality_config" in str(
                             statement
                         ):
                             return {**result, "project_id": str(uuid.uuid4())}

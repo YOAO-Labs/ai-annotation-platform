@@ -37,7 +37,7 @@ pytestmark = [
 ]
 
 _READ_CALIBRATIONS = text(
-    "SELECT aap_assets_v1.read_spatial_calibrations("
+    "SELECT yoao_assets_v1.read_spatial_calibrations("
     "CAST(:dataset_item_ids AS uuid[]), CAST(:include_history AS boolean), "
     "CAST(:after_item_id AS uuid), CAST(:after_revision AS integer), "
     "CAST(:page_size AS integer))"
@@ -45,7 +45,7 @@ _READ_CALIBRATIONS = text(
 # Keep the frozen argument order explicit: new canonical document, then the
 # current document captured with the row snapshot.
 _UPDATE_CALIBRATION = text(
-    "SELECT aap_assets_v1.update_spatial_calibration("
+    "SELECT yoao_assets_v1.update_spatial_calibration("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
     "CAST(:task_id AS uuid), CAST(:camera_role AS text), "
     "CAST(:expected_revision AS integer), CAST(:expected_digest AS text), "
@@ -138,7 +138,7 @@ async def test_calibration_concurrent_writers_observe_busy_then_revision_conflic
         pytest.fail("the restricted Catalog connection URL is invalid", pytrace=False)
     if not (
         catalog_url.get_backend_name() == "postgresql"
-        and catalog_url.username == "asset_catalog_client"
+        and catalog_url.username == "yoao_asset_catalog_client"
         and catalog_url.password
         and catalog_url.host == "127.0.0.1"
         and catalog_url.port is not None
@@ -195,8 +195,8 @@ async def test_calibration_concurrent_writers_observe_busy_then_revision_conflic
                     )
                 ).one()
                 assert identity_a[:3] == (
-                    "asset_catalog_client",
-                    "asset_catalog_client",
+                    "yoao_asset_catalog_client",
+                    "yoao_asset_catalog_client",
                     catalog_url.database,
                 )
                 assert identity_b[:3] == identity_a[:3]

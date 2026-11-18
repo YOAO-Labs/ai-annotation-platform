@@ -42,7 +42,7 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "labeling_annotation_transfer_client"
+_ROLE = "yoao_labeling_annotation_transfer_client"
 
 
 async def test_import_owner_preserves_scope_partial_writes_and_rollback(test_engine):
@@ -79,14 +79,14 @@ async def test_import_owner_preserves_scope_partial_writes_and_rollback(test_eng
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("annotation_transfer_command", "jsonb")},
             role=_ROLE,
         )
 
         async def execute(payload: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_transfer_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_transfer_command($1::jsonb)",
                 payload,
             )
 
@@ -222,7 +222,7 @@ async def test_mask_staging_reference_is_preserved_in_owner_transaction(test_eng
 
         async def execute(payload: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_transfer_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_transfer_command($1::jsonb)",
                 payload,
             )
 
@@ -414,14 +414,14 @@ async def test_conversion_owner_inserts_lineage_after_operation_with_native_id(
         assert await connection.fetchval("SELECT current_user") == _ROLE
         await verify_function_only_role(
             connection,
-            schema="aap_labeling_v1",
+            schema="yoao_labeling_v1",
             functions={("annotation_transfer_command", "jsonb")},
             role=_ROLE,
         )
 
         async def execute(payload: str):
             return await connection.fetchval(
-                "SELECT aap_labeling_v1.annotation_transfer_command($1::jsonb)",
+                "SELECT yoao_labeling_v1.annotation_transfer_command($1::jsonb)",
                 payload,
             )
 

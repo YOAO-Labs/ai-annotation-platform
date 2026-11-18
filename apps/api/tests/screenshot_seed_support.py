@@ -72,7 +72,9 @@ class ScreenshotSeed:
 
         origin, token = self.media_bindings[run_id]
         return MediaGateway(
-            MediaClient(origin, token, timeout_seconds=settings.assets_media_timeout_seconds),
+            MediaClient(
+                origin, token, timeout_seconds=settings.assets_media_timeout_seconds
+            ),
             local_execution=False,
         )
 
@@ -295,7 +297,7 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
         publication_url = (
             _guard_role_url(
                 "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
-                "jobs_publication_client",
+                "yoao_jobs_publication_client",
                 test_engine,
             )
             .set(drivername="postgresql")

@@ -63,7 +63,7 @@ class DatasetImportCapabilities:
     ) -> ImportContext:
         return await self._call(
             """
-            SELECT aap_assets_v1.prepare_dataset_import(
+            SELECT yoao_assets_v1.prepare_dataset_import(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid),
                 CAST(:connection_id AS uuid)
             )
@@ -90,7 +90,7 @@ class DatasetImportCapabilities:
     ) -> ImportAcceptance:
         return await self._call(
             """
-            SELECT aap_assets_v1.accept_dataset_import(
+            SELECT yoao_assets_v1.accept_dataset_import(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
                 CAST(:dataset_id AS uuid), CAST(:connection_id AS uuid),
                 CAST(:request AS jsonb), CAST(:limits AS jsonb),
@@ -115,7 +115,7 @@ class DatasetImportCapabilities:
     async def cancel(self, *, actor_id: UUID, job_id: UUID) -> ImportState:
         state = await self._call(
             """
-            SELECT aap_assets_v1.cancel_dataset_import(
+            SELECT yoao_assets_v1.cancel_dataset_import(
                 CAST(:actor_id AS uuid), CAST(:job_id AS uuid)
             )
             """,

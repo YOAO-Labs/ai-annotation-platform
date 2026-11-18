@@ -193,7 +193,7 @@ async def test_identity_briefs_login_has_only_two_functions_and_no_raw_access():
         forbidden = (
             "SELECT * FROM public.users LIMIT 1",
             "SELECT * FROM public.project_members LIMIT 1",
-            "SELECT aap_workspace_v1.identity_brief_project_roles(NULL::uuid,'{}'::uuid[])",
+            "SELECT yoao_workspace_v1.identity_brief_project_roles(NULL::uuid,'{}'::uuid[])",
             "SELECT yoao_identity_briefs_v1._failure()",
             "CREATE TEMP TABLE identity_briefs_forbidden(id integer)",
             "SET ROLE identity_code",

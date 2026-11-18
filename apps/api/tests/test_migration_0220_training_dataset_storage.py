@@ -204,7 +204,7 @@ async def test_owner_restore_can_only_map_bucket_and_identity(owned_db):
             original["endpoint_url"], "training-restored"
         ),
     }
-    await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await db.execute(
         update(Version).where(Version.id == row.id).values(storage_ref=mapped)
     )
@@ -222,7 +222,7 @@ async def test_owner_restore_can_only_map_bucket_and_identity(owned_db):
                     .where(Version.id == row.id)
                     .values(storage_ref=changed)
                 )
-    await db.execute(text("SET LOCAL aap.restore_training_storage='off'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage='off'"))
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with db.begin_nested():
             await db.execute(
@@ -261,7 +261,7 @@ async def test_runtime_role_cannot_forge_restore_marker(owned_db):
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with db.begin_nested():
             await db.execute(text(f"SET LOCAL ROLE {quoted}"))
-            await db.execute(text("SET LOCAL aap.restore_training_storage='on'"))
+            await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
             await db.execute(
                 update(Version)
                 .where(Version.id == identifier)

@@ -137,7 +137,7 @@ async def _prepare_tracker_route(db, registry_id):
     }
     result = await db.scalar(
         text(
-            "SELECT aap_inference_routing_v1.video_execution_scope_step('prepare',:args)"
+            "SELECT yoao_inference_routing_v1.video_execution_scope_step('prepare',:args)"
         ),
         {"args": json.dumps(arguments, separators=(",", ":"))},
     )
@@ -180,7 +180,7 @@ async def _reserve_tracker_route(db, route):
         return snapshot
     result = await db.scalar(
         text(
-            "SELECT aap_inference_routing_v1.video_execution_scope_step('reserve',:args)"
+            "SELECT yoao_inference_routing_v1.video_execution_scope_step('reserve',:args)"
         ),
         {
             "args": json.dumps(
@@ -445,7 +445,7 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
     scope_id = route["scope_id"]
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes SET state=:state,closed=:closed "
+            "UPDATE yoao_inference_routing_v1.scopes SET state=:state,closed=:closed "
             "WHERE id=:scope"
         ),
         {"scope": scope_id, "state": scope_state, "closed": scope_state != "active"},
@@ -461,20 +461,20 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
     # disabling and subsequently authorizes the stop check.
     await db_session.execute(
         text(
-            "UPDATE aap_inference_routing_v1.scopes SET state='reconciled',closed=true "
+            "UPDATE yoao_inference_routing_v1.scopes SET state='reconciled',closed=true "
             "WHERE id=:scope"
         ),
         {"scope": scope_id},
     )
     await db_session.execute(
         text(
-            "INSERT INTO aap_inference_routing_v1.scope_retirements "
+            "INSERT INTO yoao_inference_routing_v1.scope_retirements "
             "(retirement_id,scope_id,registry_id,authority_epoch,backend_incarnation,"
             "challenge,fence_until,admission_expires_at,transport_identity_sha256,"
             "config_revision,realm,phase) "
             "SELECT :retirement,id,registry_id,authority_epoch,:incarnation,:digest,0,"
             "admission_expires_at,:digest,config_revision,realm,'completed' "
-            "FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+            "FROM yoao_inference_routing_v1.scopes WHERE id=:scope"
         ),
         {
             "retirement": uuid4(),
@@ -494,7 +494,7 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
     assert (
         await db_session.scalar(
             text(
-                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+                "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE id=:scope"
             ),
             {"scope": later["scope_id"]},
         )
@@ -714,7 +714,7 @@ async def test_plugin_disable_and_tracker_scope_insertion_serialize(test_engine,
                 assert (
                     await contender.scalar(
                         text(
-                            "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+                            "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE id=:scope"
                         ),
                         {"scope": route["scope_id"]},
                     )
@@ -852,7 +852,7 @@ async def test_plugin_registry_fence_allows_routing_but_blocks_disable(test_engi
             )
 
         identity_hash = await _identity_hash(owner, registry_id)
-        client = await _connect(test_engine, role="inference_routing_client")
+        client = await _connect(test_engine, role="yoao_inference_routing_client")
         async with maker() as holder, maker() as writer:
             facts = await InferenceTopologyData(holder).lock_plugin_registry(
                 registry_id

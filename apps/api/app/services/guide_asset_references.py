@@ -3,7 +3,7 @@
 Read helpers stay local for authenticated byte reads and durable cleanup. Every
 publication write of ``projects.guide_assets``, its revision and
 ``project_guide_assets`` travels through
-``aap_workspace_configuration_v1.guide_assets_step`` in the caller's
+``yoao_workspace_configuration_v1.guide_assets_step`` in the caller's
 transaction. Project deletion is the separate Workspace retirement path that
 removes a project's references and retires its last-reference uploads.
 """

@@ -69,7 +69,8 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
     try:
         assert await connection.fetchval("SELECT current_user = session_user") is True
         assert (
-            await connection.fetchval("SELECT current_user") == "video_execution_client"
+            await connection.fetchval("SELECT current_user")
+            == "yoao_video_execution_client"
         )
         async with connection.transaction():
             data = await VideoExecutionPostgresData.bind(connection)
@@ -82,9 +83,9 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
             guard = GuardRequest(**claim.proof().model_dump(), purpose="start")
             assert await data.step("guard", guard) == {"guarded": True}
             for statement in (
-                "SELECT * FROM aap_jobs_v1.video_executions",
-                "SELECT * FROM aap_jobs_v1.video_execution_journals",
-                "SELECT aap_jobs_v1._video_execution_secret()",
+                "SELECT * FROM yoao_jobs_v1.video_executions",
+                "SELECT * FROM yoao_jobs_v1.video_execution_journals",
+                "SELECT yoao_jobs_v1._video_execution_secret()",
                 "CREATE TEMP TABLE forbidden_video_owner(value integer)",
             ):
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
@@ -97,7 +98,7 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
         async with sessions() as owner:
             await owner.execute(
                 text(
-                    "GRANT EXECUTE ON FUNCTION aap_jobs_v1._video_execution_secret() TO video_execution_client"
+                    "GRANT EXECUTE ON FUNCTION yoao_jobs_v1._video_execution_secret() TO yoao_video_execution_client"
                 )
             )
             await owner.commit()
@@ -111,7 +112,7 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
             async with sessions() as owner:
                 await owner.execute(
                     text(
-                        "REVOKE ALL ON FUNCTION aap_jobs_v1._video_execution_secret() FROM video_execution_client"
+                        "REVOKE ALL ON FUNCTION yoao_jobs_v1._video_execution_secret() FROM yoao_video_execution_client"
                     )
                 )
                 await owner.commit()
@@ -119,7 +120,7 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
         await connection.close()
         async with sessions() as owner:
             for statement in (
-                "DELETE FROM aap_jobs_v1.video_executions WHERE job_id=:id",
+                "DELETE FROM yoao_jobs_v1.video_executions WHERE job_id=:id",
                 "DELETE FROM public.video_tracker_input_scopes WHERE tracker_job_id=:id",
                 "DELETE FROM public.video_tracker_jobs WHERE id=:id",
             ):
@@ -153,18 +154,18 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
     from yoao_labeling.video_control_contract import StartWorkerJob
 
     functions = (
-        "aap_jobs_v1.video_execution_step(text,text)",
-        "aap_jobs_v1.video_execution_checkpoint_step(text,text)",
-        "aap_labeling_v1.capture_video_tracker_input(uuid,uuid,integer)",
-        "aap_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text)",
-        "aap_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text)",
-        "aap_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb)",
-        "aap_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid)",
-        "aap_inference_routing_v1.routing_policy()",
-        "aap_inference_routing_v1.routing_step(text,text)",
-        "aap_inference_routing_v1.scope_retirement_step(text,text)",
-        "aap_inference_routing_v1.video_execution_scope_step(text,text)",
-        "aap_labeling_v1.video_control_command(jsonb)",
+        "yoao_jobs_v1.video_execution_step(text,text)",
+        "yoao_jobs_v1.video_execution_checkpoint_step(text,text)",
+        "yoao_labeling_v1.capture_video_tracker_input(uuid,uuid,integer)",
+        "yoao_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text)",
+        "yoao_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text)",
+        "yoao_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb)",
+        "yoao_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid)",
+        "yoao_inference_routing_v1.routing_policy()",
+        "yoao_inference_routing_v1.routing_step(text,text)",
+        "yoao_inference_routing_v1.scope_retirement_step(text,text)",
+        "yoao_inference_routing_v1.video_execution_scope_step(text,text)",
+        "yoao_labeling_v1.video_control_command(jsonb)",
     )
     owners = async_sessionmaker(test_engine, expire_on_commit=False)
     if grant_profile == "lan":
@@ -199,7 +200,7 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
             assert not await db.scalar(
                 text(
                     "SELECT has_table_privilege(current_user,"
-                    "'aap_jobs_v1.video_executions','SELECT,INSERT,UPDATE,DELETE')"
+                    "'yoao_jobs_v1.video_executions','SELECT,INSERT,UPDATE,DELETE')"
                 )
             )
             async with tracker_execution(db, job_id, session_factory=sessions):

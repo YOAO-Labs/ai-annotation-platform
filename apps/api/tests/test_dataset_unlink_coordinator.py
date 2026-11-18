@@ -30,7 +30,7 @@ from tests.test_dataset_unlink_assets import _seed as _seed_base
 pytestmark = pytest.mark.asyncio
 
 _UNLINK = text(
-    "SELECT aap_workspace_v1.unlink_dataset("
+    "SELECT yoao_workspace_v1.unlink_dataset("
     ":operation_id, :actor_id, :dataset_id, :project_id, :bucket, "
     "CAST(:audit_context AS jsonb))"
 ).bindparams(
@@ -40,7 +40,7 @@ _UNLINK = text(
     bindparam("project_id", type_=PGUUID(as_uuid=True)),
 )
 _ASSOCIATE = text(
-    "SELECT aap_assets_v1.associate_project("
+    "SELECT yoao_assets_v1.associate_project("
     "CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))"
 )
 _RECEIPT_COUNT = text(
@@ -627,7 +627,7 @@ def _native_psql_replay(
 \\set ON_ERROR_STOP on
 SELECT current_user || '|' || session_user || '|' || current_database();
 BEGIN;
-SELECT aap_workspace_v1.unlink_dataset(
+SELECT yoao_workspace_v1.unlink_dataset(
     :'operation_id'::uuid,
     :'actor_id'::uuid,
     :'dataset_id'::uuid,
@@ -657,7 +657,7 @@ COMMIT;
             "-p",
             "5432",
             "-U",
-            "append_client",
+            "yoao_append_client",
             "-d",
             database,
             "-v",
@@ -686,7 +686,7 @@ COMMIT;
         pytest.fail("native psql dataset unlink replay failed")
     lines = result.stdout.splitlines()
     assert len(lines) == 2
-    assert lines[0] == f"append_client|append_client|{database}"
+    assert lines[0] == f"yoao_append_client|yoao_append_client|{database}"
     return _json(lines[1])
 
 
@@ -1276,9 +1276,11 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
     fixture = await _seed_complete_case(test_engine)
     operation_id = uuid.uuid4()
     fixture["operation_ids"].append(operation_id)
-    append_url = _role_url(test_engine, "AAP_MODULE_DATA_APPEND_URL", "append_client")
+    append_url = _role_url(
+        test_engine, "AAP_MODULE_DATA_APPEND_URL", "yoao_append_client"
+    )
     cleanup_url = _role_url(
-        test_engine, "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client"
+        test_engine, "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "yoao_asset_cleanup_client"
     )
     workflow = create_async_engine(
         append_url,
@@ -1292,8 +1294,12 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
     )
     try:
         async with workflow.begin() as caller:
-            assert await caller.scalar(text("SELECT current_user")) == "append_client"
-            assert await caller.scalar(text("SELECT session_user")) == "append_client"
+            assert (
+                await caller.scalar(text("SELECT current_user")) == "yoao_append_client"
+            )
+            assert (
+                await caller.scalar(text("SELECT session_user")) == "yoao_append_client"
+            )
             reply = await _unlink(caller, fixture, operation_id)
             assert reply["ok"] is True
 
@@ -1310,7 +1316,7 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
             )
             await _assert_permission_denied(
                 caller,
-                "SELECT aap_assets_v1.prepare_dataset_unlink_cleanup("
+                "SELECT yoao_assets_v1.prepare_dataset_unlink_cleanup("
                 "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
                 "CAST(:project_id AS uuid), CAST(:bucket AS text))",
                 {
@@ -1322,7 +1328,7 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
             )
             await _assert_permission_denied(
                 caller,
-                "SELECT aap_labeling_v1.delete_dataset_tasks("
+                "SELECT yoao_labeling_v1.delete_dataset_tasks("
                 "CAST(:dataset_id AS uuid), CAST(:project_id AS uuid))",
                 {
                     "dataset_id": fixture["dataset_id"],
@@ -1336,17 +1342,17 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
         async with cleanup.connect() as worker:
             assert (
                 await worker.scalar(text("SELECT current_user"))
-                == "asset_cleanup_client"
+                == "yoao_asset_cleanup_client"
             )
             assert (
                 await worker.scalar(text("SELECT session_user"))
-                == "asset_cleanup_client"
+                == "yoao_asset_cleanup_client"
             )
             pending = (
                 (
                     await worker.execute(
                         text(
-                            "SELECT * FROM aap_assets_v1.pending_storage_deletions_v2("
+                            "SELECT * FROM yoao_assets_v1.pending_storage_deletions_v2("
                             "'media-cache-test',NULL::timestamptz,NULL::uuid,NULL::uuid,20)"
                         ),
                     )
@@ -1369,7 +1375,7 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
             assert (
                 await worker.scalar(
                     text(
-                        "SELECT aap_assets_v1.complete_storage_deletion("
+                        "SELECT yoao_assets_v1.complete_storage_deletion("
                         "CAST(:operation_id AS uuid), CAST(:asset_id AS uuid))"
                     ),
                     {
@@ -1382,7 +1388,7 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
             assert (
                 await worker.execute(
                     text(
-                        "SELECT * FROM aap_assets_v1.pending_storage_deletions_v2("
+                        "SELECT * FROM yoao_assets_v1.pending_storage_deletions_v2("
                         "'media-cache-test',NULL::timestamptz,NULL::uuid,NULL::uuid,20)"
                     ),
                 )
@@ -1394,7 +1400,7 @@ async def test_workflow_and_cleanup_logins_use_only_their_unlink_capabilities(
             )
             await _assert_permission_denied(
                 worker,
-                "SELECT aap_assets_v1.prepare_dataset_unlink_cleanup("
+                "SELECT yoao_assets_v1.prepare_dataset_unlink_cleanup("
                 "CAST(:operation_id AS uuid), CAST(:dataset_id AS uuid), "
                 "CAST(:project_id AS uuid), CAST(:bucket AS text))",
                 {

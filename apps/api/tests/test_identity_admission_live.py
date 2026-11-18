@@ -709,7 +709,7 @@ async def test_installed_identity_and_node_observe_current_state_after_restart(
             ] == "token_expired"
             async with maker.begin() as db:
                 await db.execute(
-                    text("SELECT aap_identity_v1.revoke_jti(:jti,:expiry)"),
+                    text("SELECT yoao_identity_v1.revoke_jti(:jti,:expiry)"),
                     {"jti": jti, "expiry": datetime.now(UTC) + timedelta(days=8)},
                 )
             assert (await _verdict(client, identity, control, value))["error"][
@@ -759,14 +759,14 @@ async def test_installed_identity_and_node_observe_current_state_after_restart(
             async with maker.begin() as db:
                 await db.execute(
                     text(
-                        "REVOKE EXECUTE ON FUNCTION aap_identity_v1.confirm_api_key_principal(uuid,text) FROM identity_auth_client"
+                        "REVOKE EXECUTE ON FUNCTION yoao_identity_v1.confirm_api_key_principal(uuid,text) FROM yoao_identity_auth_client"
                     )
                 )
             assert (await client.get(identity.origin + "/ready")).status_code == 503
             async with maker.begin() as db:
                 await db.execute(
                     text(
-                        "GRANT EXECUTE ON FUNCTION aap_identity_v1.confirm_api_key_principal(uuid,text) TO identity_auth_client"
+                        "GRANT EXECUTE ON FUNCTION yoao_identity_v1.confirm_api_key_principal(uuid,text) TO yoao_identity_auth_client"
                     )
                 )
             assert (await client.get(identity.origin + "/ready")).status_code == 200
@@ -777,7 +777,7 @@ async def test_installed_identity_and_node_observe_current_state_after_restart(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "GRANT EXECUTE ON FUNCTION aap_identity_v1.confirm_api_key_principal(uuid,text) TO identity_auth_client"
+                    "GRANT EXECUTE ON FUNCTION yoao_identity_v1.confirm_api_key_principal(uuid,text) TO yoao_identity_auth_client"
                 )
             )
         await _cleanup(maker, actor, jtis)

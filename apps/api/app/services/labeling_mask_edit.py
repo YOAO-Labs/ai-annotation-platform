@@ -85,7 +85,7 @@ async def _command(db: AsyncSession, sql: str, client_type, request, unavailable
 async def mask_edit_command(db: AsyncSession, request: MaskEditCommand):
     return await _command(
         db,
-        "SELECT aap_labeling_v1.mask_edit_command(CAST(:request AS jsonb))",
+        "SELECT yoao_labeling_v1.mask_edit_command(CAST(:request AS jsonb))",
         MaskEditDataClient,
         request,
         MaskEditUnavailable,
@@ -95,7 +95,7 @@ async def mask_edit_command(db: AsyncSession, request: MaskEditCommand):
 async def mask_revision_command(db: AsyncSession, request: MaskRevisionCommand):
     return await _command(
         db,
-        "SELECT aap_labeling_v1.mask_revision_command(CAST(:request AS jsonb))",
+        "SELECT yoao_labeling_v1.mask_revision_command(CAST(:request AS jsonb))",
         MaskRevisionDataClient,
         request,
         MaskRevisionUnavailable,
@@ -105,7 +105,7 @@ async def mask_revision_command(db: AsyncSession, request: MaskRevisionCommand):
 async def ai_mask_accept_command(db: AsyncSession, request: AiMaskAcceptCommand):
     return await _command(
         db,
-        "SELECT aap_labeling_v1.ai_mask_accept_command(CAST(:request AS jsonb))",
+        "SELECT yoao_labeling_v1.ai_mask_accept_command(CAST(:request AS jsonb))",
         AiMaskAcceptDataClient,
         request,
         AiMaskAcceptUnavailable,

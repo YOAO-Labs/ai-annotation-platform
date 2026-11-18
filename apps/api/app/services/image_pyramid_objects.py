@@ -518,7 +518,7 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
                 output.id,
                 authority=authority,
                 gate_revision=revision,
-                )
+            )
             await session.commit()
             yield output
             await check(
@@ -529,7 +529,7 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
                 output.id,
                 authority=authority,
                 gate_revision=revision,
-                )
+            )
             await session.commit()
 
 
@@ -608,7 +608,9 @@ async def retire_fixture(db, control, identifier):
     from app.services.fixture_media_retirement import _retire_output
 
     def retire(target, output, fixture):
-        with physical.open_storage(target=target, single_attempt=True, owned=True) as storage:
+        with physical.open_storage(
+            target=target, single_attempt=True, owned=True
+        ) as storage:
             return physical.delete(storage, output, fixture=fixture)
 
     await _retire_output(db, control, "pyramid_output", identifier, Output, retire)
@@ -619,7 +621,7 @@ async def _legacy_gc_eligible(db, kind, owner_id, generation):
     return bool(
         await db.scalar(
             select(
-                func.aap_assets_v1.legacy_pyramid_gc_eligible(
+                func.yoao_assets_v1.legacy_pyramid_gc_eligible(
                     kind, owner_id, generation
                 )
             )
@@ -638,7 +640,7 @@ async def reconcile(db, storage):
                 select(Generation.asset_id, Generation.generation)
                 .where(
                     Generation.status == "building",
-                    func.aap_assets_v1.legacy_pyramid_gc_eligible(
+                    func.yoao_assets_v1.legacy_pyramid_gc_eligible(
                         "pyramid_generation", Generation.asset_id, Generation.generation
                     ),
                     Generation.lease_expires_at <= utcnow(),
@@ -665,9 +667,7 @@ async def reconcile(db, storage):
             and generation.status == "building"
             and generation.lease_expires_at is not None
             and generation.lease_expires_at <= utcnow()
-            and await _legacy_gc_eligible(
-                db, "pyramid_generation", asset_id, number
-            )
+            and await _legacy_gc_eligible(db, "pyramid_generation", asset_id, number)
         ):
             await fail_generation(
                 db,
@@ -685,7 +685,7 @@ async def reconcile(db, storage):
                 .where(
                     Generation.output_id.is_not(None),
                     Generation.updated_at < cutoff,
-                    func.aap_assets_v1.legacy_pyramid_gc_eligible(
+                    func.yoao_assets_v1.legacy_pyramid_gc_eligible(
                         "pyramid_generation", Generation.asset_id, Generation.generation
                     ),
                     Generation.status.in_(("ready", "failed")),
@@ -715,9 +715,7 @@ async def reconcile(db, storage):
             and number not in {asset.active_generation, asset.building_generation}
             and generation.status in {"ready", "failed"}
             and generation.updated_at < cutoff
-            and await _legacy_gc_eligible(
-                db, "pyramid_generation", asset_id, number
-            )
+            and await _legacy_gc_eligible(db, "pyramid_generation", asset_id, number)
         ):
             await db.delete(generation)
         await db.commit()
@@ -726,7 +724,7 @@ async def reconcile(db, storage):
             select(Output.id)
             .where(
                 Output.state != "deleted",
-                func.aap_assets_v1.legacy_pyramid_gc_eligible(
+                func.yoao_assets_v1.legacy_pyramid_gc_eligible(
                     "pyramid_output", Output.id, 0
                 ),
                 Output.updated_at < cutoff,

@@ -191,7 +191,7 @@ async def test_invalid_native_apply_reply_rolls_back_before_acknowledging_comman
 
     def reply(statement, parameters):
         native = json.loads(parameters["command"])
-        assert statement.startswith("SELECT aap_identity_recovery_v1.")
+        assert statement.startswith("SELECT yoao_identity_recovery_v1.")
         if "prepare_recovery_command" in statement:
             return {
                 "schema": "aap-identity-recovery-native/v1",

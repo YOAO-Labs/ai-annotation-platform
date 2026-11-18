@@ -20,8 +20,8 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA = "aap_inference_registry_ingress_v1"
-_ROLE = "inference_registry_ingress_client"
+_SCHEMA = "yoao_inference_registry_ingress_v1"
+_ROLE = "yoao_inference_registry_ingress_client"
 _POLICY = f"{_SCHEMA}.registry_ingress_policy()"
 _REGISTRY_BY_URL = f"{_SCHEMA}.registry_by_url"
 _REGISTRY_CANDIDATES = f"{_SCHEMA}.registry_candidates"
@@ -561,7 +561,7 @@ async def test_seed_marker_retains_gpu_membership_mutation_and_managed_fence(
                 "UPDATE gpu_backend_fences SET runtime_epoch_high_water=1 WHERE backend_registry_id=$1",
                 registry_id,
             )
-            await owner.execute("SET LOCAL ROLE inference_registry_ingress_client")
+            await owner.execute("SET LOCAL ROLE yoao_inference_registry_ingress_client")
             await owner.fetchrow(
                 f"SELECT * FROM {_TAG_SEED}($1,$2)", registry_id, json.dumps(_MARKER)
             )

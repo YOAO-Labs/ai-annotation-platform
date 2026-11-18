@@ -264,7 +264,7 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
         }
         state = await session.scalar(
             text(
-                "SELECT aap_jobs_v1.begin_dispatch_publication("
+                "SELECT yoao_jobs_v1.begin_dispatch_publication("
                 ":intent,:job,:execution,:generation,:token)"
             ),
             args,
@@ -276,7 +276,7 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
     async def settle_borrowed_publication(_connection, args):
         settled = await session.scalar(
             text(
-                "SELECT aap_jobs_v1.finish_dispatch_publication("
+                "SELECT yoao_jobs_v1.finish_dispatch_publication("
                 ":intent,:job,:execution,:generation,:token)"
             ),
             args,
@@ -287,7 +287,7 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
     async def refuse_borrowed_publication(_connection, args):
         recorded = await session.scalar(
             text(
-                "SELECT aap_jobs_v1.refuse_dispatch_publication("
+                "SELECT yoao_jobs_v1.refuse_dispatch_publication("
                 ":intent,:job,:execution,:generation,:token)"
             ),
             args,
@@ -296,9 +296,15 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
             raise RuntimeError("test publication refusal was not acknowledged")
 
     monkeypatch.setattr(publication_postgres, "publication_database_url", lambda *_: "")
-    monkeypatch.setattr(publication_postgres, "publication_session", borrowed_publication)
-    monkeypatch.setattr(publication_postgres, "settle_publication", settle_borrowed_publication)
-    monkeypatch.setattr(publication_postgres, "refuse_publication", refuse_borrowed_publication)
+    monkeypatch.setattr(
+        publication_postgres, "publication_session", borrowed_publication
+    )
+    monkeypatch.setattr(
+        publication_postgres, "settle_publication", settle_borrowed_publication
+    )
+    monkeypatch.setattr(
+        publication_postgres, "refuse_publication", refuse_borrowed_publication
+    )
 
     await conn.begin_nested()
     try:

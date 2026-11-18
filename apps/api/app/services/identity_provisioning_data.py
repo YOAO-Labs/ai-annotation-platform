@@ -39,7 +39,7 @@ class IdentityProvisioningData:
             await self.db.flush()
         row = (
             await self.db.execute(
-                text("SELECT id, email FROM aap_identity_v1.read_first_seed_account()")
+                text("SELECT id, email FROM yoao_identity_v1.read_first_seed_account()")
             )
         ).one_or_none()
         return (row.id, row.email) if row is not None else None
@@ -47,7 +47,7 @@ class IdentityProvisioningData:
     async def read_scale_seed_super_admin(self):
         return _payload(
             await self.db.scalar(
-                text("SELECT aap_identity_v1.read_scale_seed_super_admin()")
+                text("SELECT yoao_identity_v1.read_scale_seed_super_admin()")
             )
         )
 
@@ -57,8 +57,8 @@ class IdentityProvisioningData:
         return _payload(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_v1.read_scale_seed_annotator(ARRAY("
-                    "SELECT user_id FROM aap_workspace_v1.project_member_facts "
+                    "SELECT yoao_identity_v1.read_scale_seed_annotator(ARRAY("
+                    "SELECT user_id FROM yoao_workspace_v1.project_member_facts "
                     "WHERE role='annotator'))"
                 )
             )
@@ -108,7 +108,7 @@ class IdentityProvisioningData:
         return _payload(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_v1.read_provisioning_account("
+                    "SELECT yoao_identity_v1.read_provisioning_account("
                     "CAST(:email AS text))"
                 ),
                 {"email": request.email},
@@ -122,7 +122,7 @@ class IdentityProvisioningData:
         return _payload(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_v1.create_provisioning_account("
+                    "SELECT yoao_identity_v1.create_provisioning_account("
                     "CAST(:request AS jsonb))"
                 ),
                 {"request": request.model_dump_json(by_alias=True)},
@@ -136,7 +136,7 @@ class IdentityProvisioningData:
         return _payload(
             await self.db.scalar(
                 text(
-                    "SELECT aap_identity_v1.create_seed_persona_account(CAST(:request AS jsonb))"
+                    "SELECT yoao_identity_v1.create_seed_persona_account(CAST(:request AS jsonb))"
                 ),
                 {"request": request.model_dump_json(by_alias=True)},
             )

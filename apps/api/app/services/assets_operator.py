@@ -236,7 +236,7 @@ class AssetsOperatorGateway:
             # text-only native call, which does not trigger ORM autoflush.
             await self.db.flush()
             result = await self.db.execute(
-                text(f"SELECT aap_assets_v1.{name}({placeholders})"), parameters
+                text(f"SELECT yoao_assets_v1.{name}({placeholders})"), parameters
             )
             raw = result.scalar_one()
         except SQLAlchemyError as exc:
@@ -530,7 +530,7 @@ class AssetsOperatorGateway:
         scene_id: UUID | None = None,
     ) -> UUID | None:
         data = await self._managed_original_data(
-            "aap_assets_v1.operator_auxiliary_pointer",
+            "yoao_assets_v1.operator_auxiliary_pointer",
             {
                 "dataset_id": dataset_id,
                 "item_id": item_id,
@@ -548,7 +548,7 @@ class AssetsOperatorGateway:
         from types import SimpleNamespace
 
         data = await self._managed_original_data(
-            "aap_assets_v1.operator_item_original_material",
+            "yoao_assets_v1.operator_item_original_material",
             {"dataset_id": dataset_id, "item_id": item_id},
             {"dataset_id": "uuid", "item_id": "uuid"},
         )
@@ -656,7 +656,7 @@ class AssetsOperatorGateway:
                 max_bytes=len(data),
             )
             await self._native_call(
-                "aap_assets_v1.record_operator_original_prepared",
+                "yoao_assets_v1.record_operator_original_prepared",
                 {
                     "creation_id": creation_id,
                     "prepared": {
@@ -673,7 +673,7 @@ class AssetsOperatorGateway:
                 {"creation_id": "uuid", "prepared": "jsonb"},
             )
             await self._native_call(
-                "aap_assets_v1.mark_operator_original_writing",
+                "yoao_assets_v1.mark_operator_original_writing",
                 {"creation_id": creation_id},
                 {"creation_id": "uuid"},
             )
@@ -682,7 +682,7 @@ class AssetsOperatorGateway:
                 client, bucket, key, prepared, content_type=content_type
             )
             await self._native_call(
-                "aap_assets_v1.record_operator_original_written",
+                "yoao_assets_v1.record_operator_original_written",
                 {
                     "creation_id": creation_id,
                     "receipt": {
@@ -746,7 +746,7 @@ class AssetsOperatorGateway:
                 verification["current_head_matches"] = head_matches
             try:
                 await self._native_call(
-                    "aap_assets_v1.record_operator_original_verified",
+                    "yoao_assets_v1.record_operator_original_verified",
                     {
                         "creation_id": creation_id,
                         "verification": verification,
@@ -813,7 +813,7 @@ class AssetsOperatorGateway:
             code = code[:80]
             try:
                 await self._native_call(
-                    "aap_assets_v1.fail_operator_original",
+                    "yoao_assets_v1.fail_operator_original",
                     {
                         "creation_id": creation_id,
                         "outcome": outcome,
@@ -839,7 +839,7 @@ class AssetsOperatorGateway:
 
     async def _open_operation(self, creation_id):
         data = await self._native_data(
-            "aap_assets_v1.open_operator_storage_operation",
+            "yoao_assets_v1.open_operator_storage_operation",
             {"creation_id": creation_id},
             {"creation_id": "uuid"},
         )
@@ -877,7 +877,7 @@ class AssetsOperatorGateway:
             await self._abandon_read_operation(creation_id, operation)
             raise ValueError("existing scene source drift for canonical media")
         await self._native_call(
-            "aap_assets_v1.close_operator_storage_operation",
+            "yoao_assets_v1.close_operator_storage_operation",
             {
                 "creation_id": creation_id,
                 "operation_id": operation.operation_id,
@@ -894,7 +894,7 @@ class AssetsOperatorGateway:
         """Keep the read permit when closure cannot be proven."""
         try:
             await self._native_call(
-                "aap_assets_v1.close_operator_storage_operation",
+                "yoao_assets_v1.close_operator_storage_operation",
                 {
                     "creation_id": creation_id,
                     "operation_id": operation.operation_id,
@@ -911,7 +911,7 @@ class AssetsOperatorGateway:
 
     async def dataset_state(self, dataset_id: UUID) -> dict:
         data = await self._managed_original_data(
-            "aap_assets_v1.operator_dataset_state",
+            "yoao_assets_v1.operator_dataset_state",
             {"dataset_id": dataset_id},
             {"dataset_id": "uuid"},
         )
@@ -921,7 +921,7 @@ class AssetsOperatorGateway:
 
     async def scene_state(self, dataset_id: UUID, scene_id: UUID) -> dict:
         data = await self._managed_original_data(
-            "aap_assets_v1.operator_scene_state",
+            "yoao_assets_v1.operator_scene_state",
             {"dataset_id": dataset_id, "scene_id": scene_id},
             {"dataset_id": "uuid", "scene_id": "uuid"},
         )
@@ -946,7 +946,7 @@ class AssetsOperatorGateway:
         from types import SimpleNamespace
 
         material = await self._native_data(
-            "aap_assets_v1.begin_operator_auxiliary",
+            "yoao_assets_v1.begin_operator_auxiliary",
             {
                 "request": {
                     "dataset_id": str(dataset_id),
@@ -1073,7 +1073,7 @@ class AssetsOperatorGateway:
     ) -> None:
         """CAS-replace an existing item locator only with verified exact content."""
         await self._managed_original(
-            "aap_assets_v1.publish_operator_item_original",
+            "yoao_assets_v1.publish_operator_item_original",
             {
                 "request": _json(
                     {
@@ -1111,7 +1111,7 @@ class AssetsOperatorGateway:
         sha256 = hashlib.sha256(data).hexdigest()
         size = len(data)
         requested = await self._managed_original_data(
-            "aap_assets_v1.operator_auxiliary_owner",
+            "yoao_assets_v1.operator_auxiliary_owner",
             {
                 "dataset_id": dataset_id,
                 "kind": kind,
@@ -1152,7 +1152,7 @@ class AssetsOperatorGateway:
             ):
                 raise ValueError("existing scene source drift for auxiliary original")
             material = await self._managed_original_data(
-                "aap_assets_v1.operator_auxiliary_material",
+                "yoao_assets_v1.operator_auxiliary_material",
                 {"dataset_id": dataset_id, "owner_id": UUID(requested["id"])},
                 {"dataset_id": "uuid", "owner_id": "uuid"},
             )
@@ -1184,7 +1184,7 @@ class AssetsOperatorGateway:
         }
         if fixture_scope is None:
             material = await self._native_data(
-                "aap_assets_v1.begin_operator_auxiliary",
+                "yoao_assets_v1.begin_operator_auxiliary",
                 {"request": request},
                 {"request": "jsonb"},
             )
@@ -1248,7 +1248,7 @@ class AssetsOperatorGateway:
         # Business publication belongs to the caller's own transaction so its
         # dataset scope and the caller's bindings commit or roll back together.
         owner = await self._managed_original_data(
-            "aap_assets_v1.publish_operator_auxiliary",
+            "yoao_assets_v1.publish_operator_auxiliary",
             {"creation_id": creation_id},
             {"creation_id": "uuid"},
         )
@@ -1261,7 +1261,7 @@ class AssetsOperatorGateway:
         )
         owner_id = owner["id"] if isinstance(owner, dict) else owner.id
         await self._managed_original_data(
-            "aap_assets_v1.bind_operator_auxiliary_item",
+            "yoao_assets_v1.bind_operator_auxiliary_item",
             {"dataset_id": dataset_id, "item_id": item_id, "owner_id": owner_id},
             {"dataset_id": "uuid", "item_id": "uuid", "owner_id": "uuid"},
         )
@@ -1272,7 +1272,7 @@ class AssetsOperatorGateway:
         )
         owner_id = owner["id"] if isinstance(owner, dict) else owner.id
         await self._managed_original_data(
-            "aap_assets_v1.bind_operator_auxiliary_scene",
+            "yoao_assets_v1.bind_operator_auxiliary_scene",
             {"dataset_id": dataset_id, "scene_id": scene_id, "owner_id": owner_id},
             {"dataset_id": "uuid", "scene_id": "uuid", "owner_id": "uuid"},
         )

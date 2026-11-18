@@ -149,14 +149,14 @@ def _apply_job_update(mapper, connection, target):
         state.info.pop(_TRACE, None)
         raise ValueError(
             "execution_snapshot_id is owned by "
-            "aap_jobs_v1.bind_prediction_execution_snapshot"
+            "yoao_jobs_v1.bind_prediction_execution_snapshot"
         )
     if not changes:
         state.info.pop(_TRACE, None)
         return
     result = connection.execute(
         text(
-            "SELECT applied, updated_at FROM aap_jobs_v1.apply_lifecycle("
+            "SELECT applied, updated_at FROM yoao_jobs_v1.apply_lifecycle("
             "CAST(:job_id AS pg_catalog.uuid), CAST(:request AS pg_catalog.jsonb))"
         ),
         {
@@ -232,14 +232,14 @@ def _retarget_job_column_load(execute_state):
         if column_.key not in _READ_JOB_OMITTED_COLUMNS
     ]
     read_job = (
-        func.aap_jobs_v1.read_job(primary_key_bind)
+        func.yoao_jobs_v1.read_job(primary_key_bind)
         .table_valued(
             *(column(column_.name, type_=column_.type) for column_ in read_columns)
         )
         .alias("job")
     )
     progress = (
-        func.aap_jobs_v1.read_job_progress(primary_key_bind)
+        func.yoao_jobs_v1.read_job_progress(primary_key_bind)
         .table_valued(
             column(
                 _PROGRESS_TIMESTAMP_COLUMN,
@@ -259,7 +259,7 @@ def _retarget_job_column_load(execute_state):
     source = (
         select(
             *(read_job.c[column_.name] for column_ in read_columns),
-            func.aap_jobs_v1.read_job_execution_snapshot(primary_key_bind).label(
+            func.yoao_jobs_v1.read_job_execution_snapshot(primary_key_bind).label(
                 _SNAPSHOT_COLUMN
             ),
             progress.c[_PROGRESS_TIMESTAMP_COLUMN],
@@ -301,7 +301,7 @@ def _retarget_job_insert(connection, cursor, statement, parameters, context, man
             raise RuntimeError("unexpected compiled Jobs INSERT target")
         statement = statement.replace(
             prefix,
-            "INSERT INTO aap_jobs_v1.async_job_creation AS async_jobs ",
+            "INSERT INTO yoao_jobs_v1.async_job_creation AS async_jobs ",
             1,
         )
     return statement, parameters
@@ -315,12 +315,12 @@ def _reject_snapshot_insert(mapper, connection, target):
     """Keep the owner-bound snapshot out of every generic ORM INSERT.
 
     The closed creation view has no such column, and the only permitted writer
-    is ``aap_jobs_v1.bind_prediction_execution_snapshot`` after creation.
+    is ``yoao_jobs_v1.bind_prediction_execution_snapshot`` after creation.
     """
     if _SNAPSHOT_COLUMN in inspect(target).dict:
         raise ValueError(
             "execution_snapshot_id must be bound after creation through "
-            "aap_jobs_v1.bind_prediction_execution_snapshot"
+            "yoao_jobs_v1.bind_prediction_execution_snapshot"
         )
 
 

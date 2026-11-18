@@ -58,7 +58,7 @@ async def _grants(test_engine, filename, role, **overrides):
         "consumer_role": role,
         "workspace_owner": "workspace_code",
         "identity_owner": "identity_code",
-        "asset_cleanup_role": "asset_cleanup_client",
+        "asset_cleanup_role": "yoao_asset_cleanup_client",
         **overrides,
     }
     command = [
@@ -131,15 +131,17 @@ async def _world(test_engine, *, apply=True):
             )
             await db.execute(
                 text(
-                    f"GRANT SELECT ON aap_workspace_v1.project_catalog_configs TO {role}"
+                    f"GRANT SELECT ON yoao_workspace_v1.project_catalog_configs TO {role}"
                 )
             )
             await db.execute(
                 text(
-                    f"GRANT EXECUTE ON FUNCTION aap_workspace_v1._project_delete_failure(text) TO {role}"
+                    f"GRANT EXECUTE ON FUNCTION yoao_workspace_v1._project_delete_failure(text) TO {role}"
                 )
             )
-            await db.execute(text(f"GRANT CREATE ON SCHEMA aap_workspace_v1 TO {role}"))
+            await db.execute(
+                text(f"GRANT CREATE ON SCHEMA yoao_workspace_v1 TO {role}")
+            )
         if apply:
             result = await _grants(test_engine, _PROFILE, role)
             assert result.returncode == 0, result.stderr
@@ -193,11 +195,11 @@ async def _assert_closed(db):
         ), table
     assert not await db.scalar(
         text(
-            "SELECT has_function_privilege(current_user,'aap_workspace_v1._project_delete_failure(text)','EXECUTE')"
+            "SELECT has_function_privilege(current_user,'yoao_workspace_v1._project_delete_failure(text)','EXECUTE')"
         )
     )
     assert not await db.scalar(
-        text("SELECT has_schema_privilege(current_user,'aap_workspace_v1','CREATE')")
+        text("SELECT has_schema_privilege(current_user,'yoao_workspace_v1','CREATE')")
     )
     assert not await db.scalar(
         text(
@@ -221,7 +223,7 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
             assert await db.scalar(
                 text(
                     "SELECT has_table_privilege(current_user,"
-                    "'aap_labeling_v1.task_event_facts','SELECT')"
+                    "'yoao_labeling_v1.task_event_facts','SELECT')"
                 )
             )
             mv_source = await db.scalar(
@@ -230,7 +232,7 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                     "'public.mv_user_perf_daily'::regclass,true))"
                 )
             )
-            assert "aap_labeling_v1.task_event_facts" in mv_source
+            assert "yoao_labeling_v1.task_event_facts" in mv_source
             assert "public.task_events" not in mv_source
             assert not await db.scalar(
                 text(
@@ -251,7 +253,7 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                     text(
                         "SELECT p.oid::regprocedure::text, pg_get_userbyid(p.proowner),p.prosecdef "
                         "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                        "WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' "
+                        "WHERE (n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' OR n.nspname ~ '^yoao_workspace(_[a-z0-9]+)*_v[0-9]+$') "
                         "AND has_function_privilege(current_user,p.oid,'EXECUTE') ORDER BY 1"
                     )
                 )
@@ -264,7 +266,7 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                         text(
                             "SELECT n.nspname||'.'||c.relname FROM pg_class c "
                             "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                            "WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' "
+                            "WHERE (n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' OR n.nspname ~ '^yoao_workspace(_[a-z0-9]+)*_v[0-9]+$') "
                             "AND c.relkind IN ('r','p','v','m','f') "
                             "AND has_any_column_privilege(current_user,c.oid,'SELECT') ORDER BY 1"
                         )
@@ -274,8 +276,8 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                 .all()
             )
             assert relations == [
-                "aap_workspace_v1.project_facts",
-                "aap_workspace_v1.project_member_facts",
+                "yoao_workspace_v1.project_facts",
+                "yoao_workspace_v1.project_member_facts",
             ]
             # Keep Labeling's private write boundary and public counters intact.
             assert not await db.scalar(
@@ -283,12 +285,12 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
             )
             assert await db.scalar(
                 text(
-                    "SELECT has_table_privilege(current_user,'aap_labeling_v1.project_catalog_counters','SELECT')"
+                    "SELECT has_table_privilege(current_user,'yoao_labeling_v1.project_catalog_counters','SELECT')"
                 )
             )
             assert await db.scalar(
                 text(
-                    "SELECT has_function_privilege(current_user,'aap_identity_v1.read_actor_facts(uuid)','EXECUTE')"
+                    "SELECT has_function_privilege(current_user,'yoao_identity_v1.read_actor_facts(uuid)','EXECUTE')"
                 )
             )
         # Reapplying the deployment profile keeps the same closed surface.
@@ -300,9 +302,9 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
 
 async def test_lan_profile_revokes_public_mask_execution_and_keeps_runtime(test_engine):
     signatures = (
-        "aap_labeling_v1.mask_edit_command(jsonb)",
-        "aap_labeling_v1.mask_revision_command(jsonb)",
-        "aap_labeling_v1.ai_mask_accept_command(jsonb)",
+        "yoao_labeling_v1.mask_edit_command(jsonb)",
+        "yoao_labeling_v1.mask_revision_command(jsonb)",
+        "yoao_labeling_v1.ai_mask_accept_command(jsonb)",
     )
     async with _world(test_engine, apply=False) as (_owner, api, role, _url):
         cleanup = role + "_gc"
@@ -326,25 +328,25 @@ async def test_lan_profile_revokes_public_mask_execution_and_keeps_runtime(test_
                             text(
                                 "SELECT p.oid::regprocedure::text FROM pg_proc p "
                                 "JOIN pg_namespace n ON n.oid=p.pronamespace "
-                                "WHERE left(n.nspname,4)='aap_' AND right(n.nspname,3)='_v1' "
+                                "WHERE (left(n.nspname,4)='aap_' OR left(n.nspname,5)='yoao_') AND right(n.nspname,3)='_v1' "
                                 "AND has_function_privilege(:role,p.oid,'EXECUTE')"
                             ),
                             {"role": cleanup},
                         )
                     ).all()
                     assert set(functions) == {
-                        "aap_assets_v1.pending_storage_deletions_v2(text,timestamp with time zone,uuid,uuid,integer)",
-                        "aap_assets_v1.complete_storage_deletion(uuid,uuid)",
-                        "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
-                        "aap_assets_v1.complete_image_garbage(uuid,uuid)",
-                        "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
-                        "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
-                        "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
-                        "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+                        "yoao_assets_v1.pending_storage_deletions_v2(text,timestamp with time zone,uuid,uuid,integer)",
+                        "yoao_assets_v1.complete_storage_deletion(uuid,uuid)",
+                        "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
+                        "yoao_assets_v1.complete_image_garbage(uuid,uuid)",
+                        "yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)",
+                        "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
+                        "yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
+                        "yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
                     }
                     assert not await db.scalar(
                         text(
-                            "SELECT has_schema_privilege(:role,'aap_labeling_v1','USAGE')"
+                            "SELECT has_schema_privilege(:role,'yoao_labeling_v1','USAGE')"
                         ),
                         {"role": cleanup},
                     )
@@ -387,7 +389,7 @@ async def test_profile_rejects_unsafe_identity_before_acl_changes(test_engine, i
             )
             assert await db.scalar(
                 text(
-                    "SELECT has_schema_privilege(current_user,'aap_workspace_v1','CREATE')"
+                    "SELECT has_schema_privilege(current_user,'yoao_workspace_v1','CREATE')"
                 )
             )
 
@@ -408,7 +410,7 @@ async def test_public_column_grant_causes_atomic_profile_rejection(test_engine):
                 )
                 assert await db.scalar(
                     text(
-                        "SELECT has_schema_privilege(current_user,'aap_workspace_v1','CREATE')"
+                        "SELECT has_schema_privilege(current_user,'yoao_workspace_v1','CREATE')"
                     )
                 )
         finally:
@@ -442,7 +444,7 @@ async def test_borrowed_workspace_reads_and_locks_keep_outer_rollback(test_engin
             ).one() == before
             await db.execute(
                 text(
-                    "SELECT aap_workspace_v1.write_point_cloud_quality_config(:id,CAST(:config AS jsonb))"
+                    "SELECT yoao_workspace_v1.write_point_cloud_quality_config(:id,CAST(:config AS jsonb))"
                 ),
                 {"id": project_id, "config": json.dumps({"profile": True})},
             )
@@ -556,14 +558,14 @@ async def test_actual_http_workspace_lifecycle_uses_closed_borrowed_profile(
                 )
                 assert deleted_project.status_code == 204, deleted_project.text
             assert any(
-                "aap_workspace_configuration_v1.configuration_step" in s
+                "yoao_workspace_configuration_v1.configuration_step" in s
                 for s in statements
             )
             assert any(
                 "yoao_workspace_membership_v1.apply_membership_command" in s
                 for s in statements
             )
-            assert any("aap_workspace_v1.delete_project" in s for s in statements)
+            assert any("yoao_workspace_v1.delete_project" in s for s in statements)
         finally:
             event.remove(engine.sync_engine, "before_cursor_execute", record)
 
@@ -711,8 +713,8 @@ async def test_legacy_grants_keep_embedded_workspace_capabilities_available(
     async with _world(test_engine, apply=False) as (_owner, api, _role, _url):
         async with api() as db:
             for function in (
-                "aap_workspace_configuration_v1.configuration_policy()",
-                "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])",
+                "yoao_workspace_configuration_v1.configuration_policy()",
+                "yoao_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])",
                 "yoao_workspace_template_query_v1.template_query_policy()",
                 "yoao_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text)",
                 "yoao_workspace_directory_query_v1.directory_query_policy()",
@@ -726,7 +728,7 @@ async def test_legacy_grants_keep_embedded_workspace_capabilities_available(
                     {"function": function},
                 ), function
             for schema in (
-                "aap_workspace_configuration_v1",
+                "yoao_workspace_configuration_v1",
                 "yoao_workspace_template_query_v1",
                 "yoao_workspace_directory_query_v1",
             ):
@@ -735,7 +737,7 @@ async def test_legacy_grants_keep_embedded_workspace_capabilities_available(
                     {"schema": schema},
                 )
             await db.execute(
-                text("SELECT aap_workspace_configuration_v1.configuration_policy()")
+                text("SELECT yoao_workspace_configuration_v1.configuration_policy()")
             )
             await db.execute(
                 text("SELECT yoao_workspace_template_query_v1.template_query_policy()")

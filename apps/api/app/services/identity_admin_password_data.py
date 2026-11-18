@@ -40,7 +40,7 @@ class IdentityAdminPasswordCommandData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_admin_passwords_v1."
+                        "SELECT yoao_identity_admin_passwords_v1."
                         "execute_admin_password_command(CAST(:command AS jsonb))"
                     ),
                     {

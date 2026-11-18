@@ -564,7 +564,7 @@ async def test_batch_prediction_times_match_original_query_for_empty_and_duplica
     )
 
     empty_function = text(
-        "SELECT * FROM aap_jobs_v1.latest_batch_prediction_times(:project_ids)"
+        "SELECT * FROM yoao_jobs_v1.latest_batch_prediction_times(:project_ids)"
     ).bindparams(bindparam("project_ids", type_=ARRAY(PG_UUID(as_uuid=True))))
     assert (await db_session.execute(empty_function, {"project_ids": []})).all() == []
 
@@ -592,7 +592,7 @@ async def test_domain_query_session_flush_cache_and_caller_rollback(db_session):
     await adapter.lock_cross_frame_singleflight(actor.id, singleflight_key)
     assert lock_pending in db_session.new
     assert not any(
-        "INSERT INTO aap_jobs_v1.async_job_creation" in sql for sql in statements
+        "INSERT INTO yoao_jobs_v1.async_job_creation" in sql for sql in statements
     )
     active_after_lock = await adapter.active_cross_frame_job(actor.id, singleflight_key)
     assert active_after_lock is lock_pending
@@ -605,7 +605,7 @@ async def test_domain_query_session_flush_cache_and_caller_rollback(db_session):
     insert_index = next(
         index
         for index, sql in enumerate(statements)
-        if "INSERT INTO aap_jobs_v1.async_job_creation" in sql
+        if "INSERT INTO yoao_jobs_v1.async_job_creation" in sql
     )
     active_index = next(
         index for index, sql in enumerate(statements) if "active_cross_frame_job" in sql
@@ -711,7 +711,7 @@ async def test_domain_query_session_flush_cache_and_caller_rollback(db_session):
 @pytest.mark.asyncio
 async def test_native_cross_frame_page_rejects_limits_outside_one_to_fifty(db_session):
     invalid_page = text(
-        "SELECT * FROM aap_jobs_v1.cross_frame_job_page(:actor_id, :scene_id, :limit)"
+        "SELECT * FROM yoao_jobs_v1.cross_frame_job_page(:actor_id, :scene_id, :limit)"
     ).bindparams(
         bindparam("actor_id", type_=PG_UUID(as_uuid=True)),
         bindparam("scene_id", type_=Text()),
@@ -789,12 +789,12 @@ async def test_domain_query_abi_and_ordinary_api_login_are_read_only(
                                'identity_api_consumer', p.oid, 'EXECUTE'
                            ) AS api_execute,
                            pg_catalog.has_function_privilege(
-                               'jobs_lifecycle_client', p.oid, 'EXECUTE'
+                               'yoao_jobs_lifecycle_client', p.oid, 'EXECUTE'
                            ) AS lifecycle_execute
                     FROM pg_catalog.pg_proc AS p
                     JOIN pg_catalog.pg_namespace AS namespace
                       ON namespace.oid = p.pronamespace
-                    WHERE namespace.nspname = 'aap_jobs_v1'
+                    WHERE namespace.nspname = 'yoao_jobs_v1'
                       AND p.proname::text = ANY(:names)
                     ORDER BY p.proname
                     """

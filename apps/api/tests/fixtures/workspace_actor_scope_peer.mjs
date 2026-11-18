@@ -28,8 +28,8 @@ try {
   const rows = await client.query(
     `
     SELECT scope.project_id::text AS id
-    FROM aap_workspace_v1.actor_project_memberships($1::uuid) scope
-    JOIN aap_identity_v1.account_profiles profile ON profile.id=$1::uuid
+    FROM yoao_workspace_v1.actor_project_memberships($1::uuid) scope
+    JOIN yoao_identity_v1.account_profiles profile ON profile.id=$1::uuid
     WHERE profile.is_active IS TRUE
       AND profile.role IN ('super_admin','project_admin','employee','viewer')
       AND scope.member_role IN ('annotator','reviewer','viewer')
@@ -47,7 +47,7 @@ try {
     [input.actor_id],
   );
   assert.ok(projects.rows.some((row) => row.id === input.project_id));
-  await contender.query("SELECT aap_workspace_v1.lock_project_references_for_update($1::uuid[])", [
+  await contender.query("SELECT yoao_workspace_v1.lock_project_references_for_update($1::uuid[])", [
     [input.project_id],
   ]);
   assert.deepEqual((await client.query(transaction)).rows[0], before);

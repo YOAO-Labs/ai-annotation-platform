@@ -105,13 +105,13 @@ async def test_relation_enumeration_is_limited_to_required_owner_columns(
         "audit_code",
         "settings_code",
         "notifications_code",
-        "identity_auth_client",
+        "yoao_identity_auth_client",
         "yoao_identity_key_client",
-        "append_client",
+        "yoao_append_client",
     )
     async with test_engine.connect() as db:
         for relation in _RELATIONS:
-            name = f"aap_identity_v1.{relation}"
+            name = f"yoao_identity_v1.{relation}"
             for role in roles:
                 table, column, readable_columns = (
                     await db.execute(
@@ -252,7 +252,7 @@ async def restricted_identity_consumer(test_engine):
             test_engine,
             "lan-production-grants.sql",
             application_role="legacy_runtime",
-            asset_cleanup_role="asset_cleanup_client",
+            asset_cleanup_role="yoao_asset_cleanup_client",
         )
 
 
@@ -274,7 +274,7 @@ async def test_consumer_grants_reject_wrong_ownership_before_changing_acl(
     query = text(
         "SELECT has_table_privilege('legacy_runtime','public.users','SELECT'),"
         "has_any_column_privilege('legacy_runtime','public.users','UPDATE'),"
-        "has_function_privilege('legacy_runtime','aap_identity_v1.authentication_policy()','EXECUTE')"
+        "has_function_privilege('legacy_runtime','yoao_identity_v1.authentication_policy()','EXECUTE')"
     )
     async with test_engine.connect() as observer:
         before = (await observer.execute(query)).one()
@@ -355,7 +355,7 @@ async def test_views_keep_raw_fields_nullable_targets_and_identity_ownership(
                             "SELECT reloptions @> ARRAY['security_barrier=true'],pg_get_userbyid(relowner) "
                             "FROM pg_class WHERE oid=CAST(:view AS regclass)"
                         ),
-                        {"view": f"aap_identity_v1.{view}"},
+                        {"view": f"yoao_identity_v1.{view}"},
                     )
                 ).one()
                 assert barrier
@@ -473,7 +473,7 @@ async def test_independent_consumer_retains_only_approved_reads_and_transactiona
                     )
                 ).scalars()
             )
-            assert functions == {f"aap_identity_v1.{name}" for name in _FUNCTIONS}
+            assert functions == {f"yoao_identity_v1.{name}" for name in _FUNCTIONS}
             await db.rollback()
             statements = [
                 "SELECT id FROM public.users",
@@ -485,10 +485,10 @@ async def test_independent_consumer_retains_only_approved_reads_and_transactiona
                 "UPDATE users SET name='bad' WHERE false",
                 "DELETE FROM users WHERE false",
                 "INSERT INTO users DEFAULT VALUES",
-                "SELECT aap_identity_v1.authentication_policy()",
-                "SELECT aap_identity_v1.advance_credential_generation(NULL::uuid)",
-                "SELECT aap_identity_v1.revoke_jti(NULL::uuid,now())",
-                "SELECT aap_identity_v1.retire_account_credentials(NULL::uuid)",
+                "SELECT yoao_identity_v1.authentication_policy()",
+                "SELECT yoao_identity_v1.advance_credential_generation(NULL::uuid)",
+                "SELECT yoao_identity_v1.revoke_jti(NULL::uuid,now())",
+                "SELECT yoao_identity_v1.retire_account_credentials(NULL::uuid)",
             ]
             for statement in statements:
                 with pytest.raises(DBAPIError) as denied:
@@ -498,7 +498,7 @@ async def test_independent_consumer_retains_only_approved_reads_and_transactiona
                 )
                 await db.rollback()
             for view in _RELATIONS:
-                relation = f"aap_identity_v1.{view}"
+                relation = f"yoao_identity_v1.{view}"
                 assert not await db.scalar(
                     text(
                         "SELECT has_table_privilege(current_user, :view, "

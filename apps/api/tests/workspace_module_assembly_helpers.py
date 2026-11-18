@@ -48,7 +48,7 @@ _WORKSPACE_ROLES = {
     ),
     "configuration": (
         "AAP_MODULE_DATA_WORKSPACE_CONFIGURATION_URL",
-        "workspace_configuration_client",
+        "yoao_workspace_configuration_client",
         "configuration_database_url",
     ),
     "template_query": (
@@ -135,11 +135,11 @@ class WorkspaceModuleStack:
             "AAP_MODULE_DATA_IDENTITY_BRIEFS_URL", "yoao_identity_briefs_client"
         )
         self._identity_auth_dsn: URL = self._role_dsn(
-            "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "identity_auth_client"
+            "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "yoao_identity_auth_client"
         )
         self._inference_dsn: URL = self._role_dsn(
             "AAP_MODULE_DATA_INFERENCE_BACKEND_PROBE_URL",
-            "inference_backend_probe_client",
+            "yoao_inference_backend_probe_client",
         )
         api_host_url = make_url(
             self._required("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL")

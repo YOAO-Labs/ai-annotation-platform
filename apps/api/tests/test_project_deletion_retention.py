@@ -29,13 +29,13 @@ from tests.sample_evaluation_fixtures import Objects, seed as seed_model
 pytestmark = pytest.mark.asyncio
 
 _LOCK_PROJECT_DELETION = text(
-    "SELECT aap_learning_v1.lock_project_deletion(:project_id)"
+    "SELECT yoao_learning_v1.lock_project_deletion(:project_id)"
 )
 _GUARD_PROJECT_DELETION = text(
-    "SELECT aap_learning_v1.guard_project_deletion(:project_id)"
+    "SELECT yoao_learning_v1.guard_project_deletion(:project_id)"
 )
 _DELETE_PROJECT_OWNED_RECORDS = text(
-    "SELECT aap_learning_v1.delete_project_owned_records(:project_id)"
+    "SELECT yoao_learning_v1.delete_project_owned_records(:project_id)"
 )
 
 

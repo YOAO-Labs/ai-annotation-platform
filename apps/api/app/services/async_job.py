@@ -165,7 +165,7 @@ async def bind_execution_snapshot(
         raise ValueError("execution snapshot binding requires a Job row")
     bound = await db.scalar(
         text(
-            "SELECT aap_jobs_v1.bind_prediction_execution_snapshot("
+            "SELECT yoao_jobs_v1.bind_prediction_execution_snapshot("
             "CAST(:job_id AS pg_catalog.uuid), "
             "CAST(:actor_id AS pg_catalog.uuid), "
             "CAST(:snapshot_id AS pg_catalog.uuid))"
