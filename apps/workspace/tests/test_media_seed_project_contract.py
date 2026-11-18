@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,13 @@ from yoao_workspace.media_seed_project_contract import (
     decode_seed_project_projection_write,
     media_seed_project_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _created(*, kind: str, display_id: str, project_id: uuid.UUID) -> dict:
@@ -215,10 +223,10 @@ def test_media_seed_project_schema_freezes_native_signatures_and_projection_fiel
 
     assert schema["$id"] == MEDIA_SEED_PROJECT_PROTOCOL
     assert descriptor["protocol"] == MEDIA_SEED_PROJECT_PROTOCOL
-    assert descriptor["postgres_schema"] == "aap_workspace_v1"
+    assert descriptor["postgres_schema"] == "yoao_workspace_v1"
     assert [function["signature"] for function in functions] == [
-        "aap_workspace_v1.create_media_seed_project(uuid, text, text, uuid, text, jsonb)",
-        "aap_workspace_v1.write_seed_project_projection(uuid, jsonb)",
+        "yoao_workspace_v1.create_media_seed_project(uuid, text, text, uuid, text, jsonb)",
+        "yoao_workspace_v1.write_seed_project_projection(uuid, jsonb)",
     ]
     assert [
         [argument["name"] for argument in function["arguments"]]
@@ -272,5 +280,11 @@ def test_checked_in_schemas_match_the_closed_contract():
         / "api/alembic/sql/0307_workspace_media_seed_project.schema.json"
     )
 
-    assert json.loads(workspace_schema.read_text(encoding="utf-8")) == expected
-    assert json.loads(migration_schema.read_text(encoding="utf-8")) == expected
+    assert (
+        _current_names(json.loads(workspace_schema.read_text(encoding="utf-8")))
+        == expected
+    )
+    assert (
+        _current_names(json.loads(migration_schema.read_text(encoding="utf-8")))
+        == expected
+    )

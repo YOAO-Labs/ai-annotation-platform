@@ -82,11 +82,11 @@
   "$id": "aap-identity-seed-persona/v1",
   "x-native-capabilities": {
     "protocol": "aap-identity-seed-persona/v1",
-    "postgres_schema": "aap_identity_v1",
+    "postgres_schema": "yoao_identity_v1",
     "functions": [
       {
         "name": "create_seed_persona_account",
-        "signature": "aap_identity_v1.create_seed_persona_account(jsonb)",
+        "signature": "yoao_identity_v1.create_seed_persona_account(jsonb)",
         "arguments": [
           {
             "name": "p_request",

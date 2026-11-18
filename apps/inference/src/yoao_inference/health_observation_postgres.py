@@ -13,7 +13,7 @@ from yoao_inference_contract.health_observation import (
     health_observation_policy_ready,
 )
 
-_SCHEMA = "aap_inference_health_observation_v1"
+_SCHEMA = "yoao_inference_health_observation_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.health_observation_policy()"
 _OPEN_SUBJECT_SQL = (
     f"SELECT {_SCHEMA}.open_health_observation_subject($1::text, $2::uuid, $3::uuid)"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 FIXTURE_PREFERENCES_PROTOCOL = "aap-identity-fixture-preferences/v1"
-IDENTITY_SCHEMA = "aap_identity_v1"
+IDENTITY_SCHEMA = "yoao_identity_v1"
 
 
 def fixture_preferences_schema() -> dict[str, Any]:
@@ -34,7 +34,7 @@ def fixture_preferences_schema() -> dict[str, Any]:
                 {
                     "name": "replace_fixture_preferences",
                     "signature": (
-                        "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)"
+                        "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)"
                     ),
                     "arguments": [
                         {

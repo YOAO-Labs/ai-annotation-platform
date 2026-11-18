@@ -49,17 +49,17 @@ class Connection:
         self.queries.append(query)
         return [
             {
-                "nspname": "aap_identity_offboarding_v1",
+                "nspname": "yoao_identity_offboarding_v1",
                 "proname": "offboarding_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_offboarding_v1",
+                "nspname": "yoao_identity_offboarding_v1",
                 "proname": "prepare_offboarding_command",
                 "args": "jsonb",
             },
             {
-                "nspname": "aap_identity_offboarding_v1",
+                "nspname": "yoao_identity_offboarding_v1",
                 "proname": "apply_offboarding_command",
                 "args": "jsonb",
             },
@@ -80,7 +80,7 @@ async def test_prepare_calls_and_validates_native_function_before_return():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_offboarding_v1.prepare_offboarding_command($1::jsonb)"
+        "yoao_identity_offboarding_v1.prepare_offboarding_command($1::jsonb)"
         in connection.queries[0]
     )
 
@@ -125,7 +125,7 @@ async def test_apply_calls_and_validates_native_function_before_return():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_offboarding_v1.apply_offboarding_command($1::jsonb)"
+        "yoao_identity_offboarding_v1.apply_offboarding_command($1::jsonb)"
         in connection.queries[0]
     )
 
@@ -133,9 +133,9 @@ async def test_apply_calls_and_validates_native_function_before_return():
 @pytest.mark.asyncio
 async def test_readiness_requires_exact_three_functions_and_no_direct_data_access():
     expected = {
-        "aap_identity_offboarding_v1.offboarding_policy()",
-        "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
-        "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
+        "yoao_identity_offboarding_v1.offboarding_policy()",
+        "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
+        "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)",
     }
     connection = Connection()
     await OffboardingPostgresData._assert_capabilities(connection, expected)
@@ -148,7 +148,7 @@ async def test_readiness_requires_exact_three_functions_and_no_direct_data_acces
     extra = Connection(
         extra_functions=[
             {
-                "nspname": "aap_labeling_v1",
+                "nspname": "yoao_labeling_v1",
                 "proname": "transfer_identity_offboarding_work",
                 "args": "uuid, jsonb",
             }

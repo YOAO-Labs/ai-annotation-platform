@@ -83,7 +83,7 @@ expected_oids AS (
     SELECT
         expected.signature,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.' || expected.signature
+            'yoao_assets_v1.' || expected.signature
         )::oid AS function_oid
     FROM expected
 ),
@@ -96,7 +96,7 @@ accessible_assets_functions AS (
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = proc.pronamespace
-    WHERE namespace.nspname = 'aap_assets_v1'
+    WHERE namespace.nspname = 'yoao_assets_v1'
       AND proc.prokind IN ('f', 'p')
       AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')
 ),
@@ -172,13 +172,13 @@ SELECT
            OR membership.roleid = login_role.oid
     )
     AND pg_catalog.has_schema_privilege(
-        current_user, 'aap_assets_v1', 'USAGE'
+        current_user, 'yoao_assets_v1', 'USAGE'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND namespace.nspname <> 'aap_assets_v1'
+          AND namespace.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_schema_privilege(
               current_user, namespace.oid, 'USAGE'
           )
@@ -272,7 +272,7 @@ class ImportData:
         self, token: UUID, lease_seconds: int, requested_job: UUID | None = None
     ) -> ImportState | None:
         result = await self._call(
-            "SELECT aap_assets_v1.claim_dataset_import("
+            "SELECT yoao_assets_v1.claim_dataset_import("
             "$1::uuid, $2::integer, $3::uuid)",
             (token, lease_seconds, requested_job),
             ImportState,
@@ -290,7 +290,7 @@ class ImportData:
         self, job_id: UUID, token: UUID, lease_seconds: int
     ) -> ImportState:
         result = await self._call(
-            "SELECT aap_assets_v1.heartbeat_dataset_import("
+            "SELECT yoao_assets_v1.heartbeat_dataset_import("
             "$1::uuid, $2::uuid, $3::integer)",
             (job_id, token, lease_seconds),
             ImportState,
@@ -303,7 +303,7 @@ class ImportData:
         self, job_id: UUID, token: UUID, fallback_allowlist: list[str]
     ) -> ImportConnection:
         result = await self._call(
-            "SELECT aap_assets_v1.read_dataset_import_connection("
+            "SELECT yoao_assets_v1.read_dataset_import_connection("
             "$1::uuid, $2::uuid, $3::jsonb)",
             (job_id, token, fallback_allowlist),
             ImportConnection,
@@ -318,7 +318,7 @@ class ImportData:
     ) -> ImportState:
         payload = [item.model_dump(mode="json") for item in objects]
         result = await self._call(
-            "SELECT aap_assets_v1.save_dataset_import_manifest("
+            "SELECT yoao_assets_v1.save_dataset_import_manifest("
             "$1::uuid, $2::uuid, $3::jsonb)",
             (job_id, token, payload),
             ImportState,
@@ -338,7 +338,7 @@ class ImportData:
         self, job_id: UUID, token: UUID, publication_id: UUID
     ) -> ImportEntry | None:
         result = await self._call(
-            "SELECT aap_assets_v1.next_dataset_import_entry("
+            "SELECT yoao_assets_v1.next_dataset_import_entry("
             "$1::uuid, $2::uuid, $3::uuid)",
             (job_id, token, publication_id),
             ImportEntry,
@@ -359,7 +359,7 @@ class ImportData:
         completion: ImportEntryCompletion,
     ) -> ImportState:
         result = await self._call(
-            "SELECT aap_assets_v1.complete_dataset_import_entry("
+            "SELECT yoao_assets_v1.complete_dataset_import_entry("
             "$1::uuid, $2::uuid, $3::bigint, $4::uuid, $5::jsonb)",
             (
                 job_id,
@@ -380,7 +380,7 @@ class ImportData:
         self, job_id: UUID, token: UUID, fatal_error: str | None
     ) -> ImportState:
         result = await self._call(
-            "SELECT aap_assets_v1.finish_dataset_import($1::uuid, $2::uuid, $3::text)",
+            "SELECT yoao_assets_v1.finish_dataset_import($1::uuid, $2::uuid, $3::text)",
             (job_id, token, fatal_error),
             ImportState,
         )
@@ -469,7 +469,7 @@ class ImportDatabase:
         payload = dict(request)
         payload.setdefault("kind", "role_media")
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.begin_operator_auxiliary($1::jsonb)",
+            "SELECT yoao_assets_v1.begin_operator_auxiliary($1::jsonb)",
             (payload,),
         )
         return decode_managed_original_reply(raw, ManagedOriginalMaterial)
@@ -477,46 +477,55 @@ class ImportDatabase:
     async def open_operation(self, creation_id: UUID) -> ManagedOriginalOperation:
         """Acquire this creation's one permit; verified reuse stays read-only."""
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.open_operator_storage_operation($1::uuid)",
+            "SELECT yoao_assets_v1.open_operator_storage_operation($1::uuid)",
             (creation_id,),
         )
         return decode_managed_original_reply(raw, ManagedOriginalOperation)
 
-    async def reserve_original_read(self, request: dict[str, Any]) -> ManagedOriginalOperation:
+    async def reserve_original_read(
+        self, request: dict[str, Any]
+    ) -> ManagedOriginalOperation:
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.reserve_import_original_read($1::jsonb)",
+            "SELECT yoao_assets_v1.reserve_import_original_read($1::jsonb)",
             (request,),
         )
         return decode_managed_original_reply(raw, ManagedOriginalOperation)
 
     async def cancel_unstarted_original_read(self, request: dict[str, Any]) -> None:
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.cancel_unstarted_import_original_read($1::jsonb)",
+            "SELECT yoao_assets_v1.cancel_unstarted_import_original_read($1::jsonb)",
             (request,),
         )
         if not isinstance(raw, dict) or raw.get("state") not in {
-            "cancelled", "pending", "drained", "completed", "failed", "fenced"
+            "cancelled",
+            "pending",
+            "drained",
+            "completed",
+            "failed",
+            "fenced",
         }:
             raise ImportFailure("invalid_response")
-    async def resume_original(self, request: dict[str, Any]) -> ManagedOriginalOperation:
+
+    async def resume_original(
+        self, request: dict[str, Any]
+    ) -> ManagedOriginalOperation:
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.resume_import_original_verification($1::jsonb)",
+            "SELECT yoao_assets_v1.resume_import_original_verification($1::jsonb)",
             (request,),
         )
         return decode_managed_original_reply(raw, ManagedOriginalOperation)
-
 
     async def original_prepared(
         self, creation_id: UUID, prepared: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
+            "SELECT yoao_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
             (creation_id, prepared),
         )
 
     async def original_writing(self, creation_id: UUID) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.mark_operator_original_writing($1::uuid)",
+            "SELECT yoao_assets_v1.mark_operator_original_writing($1::uuid)",
             (creation_id,),
         )
 
@@ -524,10 +533,9 @@ class ImportDatabase:
         self, creation_id: UUID, receipt: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
+            "SELECT yoao_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
             (creation_id, receipt),
         )
-
 
     async def fail_original(
         self,
@@ -537,11 +545,10 @@ class ImportDatabase:
         evidence: dict[str, Any],
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.fail_operator_original("
+            "SELECT yoao_assets_v1.fail_operator_original("
             "$1::uuid,$2::text,$3::text,$4::jsonb)",
             (creation_id, outcome, error_code, evidence),
         )
-
 
     async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:
         async with self._pool.acquire(

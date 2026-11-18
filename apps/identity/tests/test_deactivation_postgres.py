@@ -116,7 +116,7 @@ async def test_native_user_command_calls_only_lifecycle_capability():
         ).execute_deactivation_command(command.model_dump(mode="json", by_alias=True))
     assert raw == result
     assert connection.calls[0][0] == (
-        "SELECT aap_identity_deactivation_v1.execute_deactivation_command($1::jsonb)"
+        "SELECT yoao_identity_deactivation_v1.execute_deactivation_command($1::jsonb)"
     )
     encoded = json.loads(connection.calls[0][1])
     assert "token" not in encoded
@@ -150,7 +150,7 @@ async def test_due_page_validates_before_operator_transaction_commits(monkeypatc
     assert reply.processed == 2 and reply.blocked_last_super_admin == 1
     assert connection.events == ["commit"] and connection.closed
     assert connection.calls[0][0] == (
-        "SELECT aap_identity_deactivation_v1.process_due_deactivations($1::jsonb)"
+        "SELECT yoao_identity_deactivation_v1.process_due_deactivations($1::jsonb)"
     )
     assert json.loads(connection.calls[0][1]) == {
         "schema": "aap-identity-deactivation-due-native/v1",
@@ -186,7 +186,7 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
         },
         [
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "deactivation_policy",
                 "",
                 False,
@@ -194,7 +194,7 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
                 "jsonb",
             ),
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "execute_deactivation_command",
                 "jsonb",
                 True,
@@ -214,7 +214,7 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
         },
         [
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "due_policy",
                 "",
                 False,
@@ -222,7 +222,7 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
                 "jsonb",
             ),
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "process_due_deactivations",
                 "jsonb",
                 True,
@@ -268,7 +268,7 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
 @pytest.mark.parametrize(
     "extra_grant",
     [
-        ("aap_notifications_v1", "unexpected", "uuid", True, "f", "jsonb"),
+        ("yoao_notifications_v1", "unexpected", "uuid", True, "f", "jsonb"),
         ("public", "unsafe_definer", "uuid", True, "f", "jsonb"),
     ],
 )
@@ -282,7 +282,7 @@ async def test_readiness_rejects_extra_domain_and_security_definer_capabilities(
         },
         [
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "deactivation_policy",
                 "",
                 False,
@@ -290,7 +290,7 @@ async def test_readiness_rejects_extra_domain_and_security_definer_capabilities(
                 "jsonb",
             ),
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "execute_deactivation_command",
                 "jsonb",
                 True,
@@ -328,7 +328,7 @@ async def test_readiness_rejects_table_and_column_privileges(
         },
         [
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "due_policy",
                 "",
                 False,
@@ -336,7 +336,7 @@ async def test_readiness_rejects_table_and_column_privileges(
                 "jsonb",
             ),
             (
-                "aap_identity_deactivation_v1",
+                "yoao_identity_deactivation_v1",
                 "process_due_deactivations",
                 "jsonb",
                 True,

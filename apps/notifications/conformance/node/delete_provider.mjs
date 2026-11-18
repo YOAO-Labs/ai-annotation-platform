@@ -52,7 +52,7 @@ async function verifyOwnerCommands() {
 
   async function command(value) {
     const result = await client.query(
-      "SELECT aap_notifications_v1.delete_command($1::pg_catalog.jsonb) AS reply",
+      "SELECT yoao_notifications_v1.delete_command($1::pg_catalog.jsonb) AS reply",
       [JSON.stringify(value)],
     );
     return result.rows[0].reply;
@@ -60,7 +60,7 @@ async function verifyOwnerCommands() {
 
   async function readStateCommand(value) {
     const result = await client.query(
-      "SELECT aap_notifications_v1.read_state_command($1::pg_catalog.jsonb) AS reply",
+      "SELECT yoao_notifications_v1.read_state_command($1::pg_catalog.jsonb) AS reply",
       [JSON.stringify(value)],
     );
     return result.rows[0].reply;
@@ -78,7 +78,7 @@ async function verifyOwnerCommands() {
       payload: {},
     };
     const result = await client.query(
-      "SELECT aap_notifications_v1.append_notification($1::pg_catalog.jsonb) AS reply",
+      "SELECT yoao_notifications_v1.append_notification($1::pg_catalog.jsonb) AS reply",
       [JSON.stringify(request)],
     );
     assert.equal(result.rows[0].reply.ok, true);
@@ -100,7 +100,7 @@ async function verifyOwnerCommands() {
     const role = await client.query("SELECT current_user AS role");
     assert.equal(
       role.rows[0].role,
-      process.env.NOTIFICATION_DELETE_EXPECTED_ROLE ?? "notification_append_client",
+      process.env.NOTIFICATION_DELETE_EXPECTED_ROLE ?? "yoao_notification_append_client",
     );
 
     await client.query("BEGIN");

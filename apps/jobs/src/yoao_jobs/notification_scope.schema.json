@@ -32,7 +32,7 @@
   "required": ["id", "kind", "scope_project_id"],
   "type": "object",
   "x-postgresql-relations": {
-    "aap_jobs_v1.notification_scope_facts": {
+    "yoao_jobs_v1.notification_scope_facts": {
       "columns": ["id", "kind", "scope_project_id"],
       "column_types": {
         "id": "uuid",

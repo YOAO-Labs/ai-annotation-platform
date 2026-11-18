@@ -68,9 +68,9 @@ class GPUCollectorDataProvider(GPUCollectorData, Protocol):
     def transaction(self) -> AbstractAsyncContextManager[GPUCollectorData]: ...
 
 
-_AUTHORITY_POLICY_SQL = "SELECT aap_inference_gpu_v1.gpu_authority_policy()"
+_AUTHORITY_POLICY_SQL = "SELECT yoao_inference_gpu_v1.gpu_authority_policy()"
 _AUTHORITY_STEP_SQL = (
-    "SELECT aap_inference_gpu_v1.gpu_authority_step($1::text,$2::text)"
+    "SELECT yoao_inference_gpu_v1.gpu_authority_step($1::text,$2::text)"
 )
 _COLLECTOR_POLICY_SQL = "SELECT yoao_inference_gpu_collector_v1.gpu_collector_policy()"
 _COLLECTOR_STEP_SQL = (

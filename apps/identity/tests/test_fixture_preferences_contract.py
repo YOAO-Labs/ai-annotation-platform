@@ -38,7 +38,7 @@ def test_descriptor_names_one_exact_scalar_native_capability():
         "transaction_boundary",
     }
     assert capabilities["protocol"] == FIXTURE_PREFERENCES_PROTOCOL
-    assert capabilities["postgres_schema"] == "aap_identity_v1"
+    assert capabilities["postgres_schema"] == "yoao_identity_v1"
     assert len(capabilities["functions"]) == 1
 
     function = capabilities["functions"][0]
@@ -53,7 +53,7 @@ def test_descriptor_names_one_exact_scalar_native_capability():
     }
     assert function["name"] == "replace_fixture_preferences"
     assert function["signature"] == (
-        "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)"
+        "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)"
     )
     assert [argument["name"] for argument in function["arguments"]] == [
         "p_user_id",

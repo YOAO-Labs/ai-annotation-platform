@@ -200,7 +200,7 @@ def test_role_whitelist_and_policy_are_exact():
         ("record_sync_result", "uuid, text, integer"),
     }
     assert _POLICY["functions"] == [
-        "aap_inference_registry_ingress_v1." + item.split(".", 1)[1]
+        "yoao_inference_registry_ingress_v1." + item.split(".", 1)[1]
         for item in REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS
     ]
 

@@ -11,7 +11,7 @@ from pydantic import StrictBool, StrictStr, TypeAdapter
 from .contract import ClosedModel
 
 E2E_FIXTURE_PROTOCOL = "aap-identity-e2e-fixtures/v1"
-IDENTITY_FIXTURE_SCHEMA = "aap_identity_fixture_v1"
+IDENTITY_FIXTURE_SCHEMA = "yoao_identity_fixture_v1"
 
 ACCOUNT_PROFILE_FIELDS = (
     "id",
@@ -95,7 +95,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "create_account",
                         "signature": (
-                            "aap_identity_fixture_v1.create_account("
+                            "yoao_identity_fixture_v1.create_account("
                             "uuid, text, text, text, text)"
                         ),
                         "arguments": [
@@ -144,7 +144,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "mark_manual_inactive",
                         "signature": (
-                            "aap_identity_fixture_v1.mark_manual_inactive("
+                            "yoao_identity_fixture_v1.mark_manual_inactive("
                             "uuid, timestamptz, uuid)"
                         ),
                         "arguments": [
@@ -186,7 +186,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "create_invitations",
                         "signature": (
-                            "aap_identity_fixture_v1.create_invitations(jsonb)"
+                            "yoao_identity_fixture_v1.create_invitations(jsonb)"
                         ),
                         "arguments": [
                             {
@@ -215,7 +215,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "delete_accounts",
                         "signature": (
-                            "aap_identity_fixture_v1.delete_accounts(boolean, text[])"
+                            "yoao_identity_fixture_v1.delete_accounts(boolean, text[])"
                         ),
                         "arguments": [
                             {
@@ -250,7 +250,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "delete_reset_tokens",
                         "signature": (
-                            "aap_identity_fixture_v1.delete_reset_tokens(uuid[])"
+                            "yoao_identity_fixture_v1.delete_reset_tokens(uuid[])"
                         ),
                         "arguments": [
                             {
@@ -277,7 +277,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "delete_invitations",
                         "signature": (
-                            "aap_identity_fixture_v1.delete_invitations(uuid[])"
+                            "yoao_identity_fixture_v1.delete_invitations(uuid[])"
                         ),
                         "arguments": [
                             {
@@ -304,7 +304,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     {
                         "name": "delete_organization_members",
                         "signature": (
-                            "aap_identity_fixture_v1.delete_organization_members(uuid[])"
+                            "yoao_identity_fixture_v1.delete_organization_members(uuid[])"
                         ),
                         "arguments": [
                             {

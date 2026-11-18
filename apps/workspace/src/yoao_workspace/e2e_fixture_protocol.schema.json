@@ -206,11 +206,11 @@
   "$comment": "Fixed capabilities for existing guarded E2E fixtures. These functions accept no arbitrary SQL, table, or predicate selectors.",
   "x-native-capabilities": {
     "protocol": "aap-workspace-e2e-fixtures/v1",
-    "postgres_schema": "aap_workspace_fixture_v1",
+    "postgres_schema": "yoao_workspace_fixture_v1",
     "functions": [
       {
         "name": "create_project",
-        "signature": "aap_workspace_fixture_v1.create_project(jsonb)",
+        "signature": "yoao_workspace_fixture_v1.create_project(jsonb)",
         "arguments": [
           {
             "name": "p_project",
@@ -294,7 +294,7 @@
       },
       {
         "name": "create_templates",
-        "signature": "aap_workspace_fixture_v1.create_templates(jsonb)",
+        "signature": "yoao_workspace_fixture_v1.create_templates(jsonb)",
         "arguments": [
           {
             "name": "p_templates",
@@ -316,7 +316,7 @@
       },
       {
         "name": "guard_project_cleanup",
-        "signature": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+        "signature": "yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])",
         "arguments": [
           {
             "name": "p_project_ids",
@@ -337,7 +337,7 @@
       },
       {
         "name": "delete_projects",
-        "signature": "aap_workspace_fixture_v1.delete_projects(uuid[])",
+        "signature": "yoao_workspace_fixture_v1.delete_projects(uuid[])",
         "arguments": [
           {
             "name": "p_project_ids",
@@ -360,7 +360,7 @@
       },
       {
         "name": "delete_templates",
-        "signature": "aap_workspace_fixture_v1.delete_templates(boolean, text[])",
+        "signature": "yoao_workspace_fixture_v1.delete_templates(boolean, text[])",
         "arguments": [
           {
             "name": "p_shared",
@@ -392,7 +392,7 @@
     "transaction_boundary": "The caller owns the active transaction, fixture cleanup ordering, commit, and rollback. These functions never commit or retry."
   },
   "x-postgresql-relations": {
-    "aap_workspace_fixture_v1.templates": {
+    "yoao_workspace_fixture_v1.templates": {
       "columns": ["id", "display_id"],
       "row_key": ["id"],
       "read_only": true,

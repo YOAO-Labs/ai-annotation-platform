@@ -258,7 +258,7 @@ def task_workflow_schema() -> dict[str, object]:
     schema = _REPLY_ADAPTER.json_schema()
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = TASK_WORKFLOW_PROTOCOL
-    schema["x-postgresql-functions"] = ["aap_labeling_v1.task_workflow_command(jsonb)"]
+    schema["x-postgresql-functions"] = ["yoao_labeling_v1.task_workflow_command(jsonb)"]
     return schema
 
 

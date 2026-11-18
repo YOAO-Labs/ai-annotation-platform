@@ -26,7 +26,7 @@ from .health_data_postgres import (
     _uuid,
 )
 
-_SCHEMA = "aap_inference_registry_ingress_v1"
+_SCHEMA = "yoao_inference_registry_ingress_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.registry_ingress_policy()"
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
 _TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"

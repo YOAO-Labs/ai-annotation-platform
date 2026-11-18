@@ -12,7 +12,8 @@ const apiSchemaPath = path.resolve(
   "../../../api/alembic/sql/0331_jobs_filter_fixtures.schema.json",
 );
 const apiSqlPath = path.resolve(here, "../../../api/alembic/sql/0331_jobs_filter_fixtures.sql");
-const functionName = "aap_jobs_v1.set_filter_fixture_job_outcomes";
+const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
+const functionName = "yoao_jobs_v1.set_filter_fixture_job_outcomes";
 const columns = [
   "id",
   "kind",
@@ -53,7 +54,7 @@ async function selfCheck() {
     readFile(apiSqlPath, "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  assert.deepEqual(JSON.parse(apiSchemaText), schema);
+  assert.deepEqual(JSON.parse(currentNames(apiSchemaText)), schema);
   assert.equal(sql, apiSql);
   assert.equal(schema.$id, "aap-jobs-filter-fixtures/v1");
   assert.deepEqual(schema.$defs.FilterFixtureJobsRequest.required.sort(), [
@@ -266,7 +267,7 @@ async function liveAcceptance() {
         "pg_catalog.acldefault('f',p.proowner)) ) acl " +
         "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute " +
         "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname='aap_jobs_v1' AND p.proname='set_filter_fixture_job_outcomes'",
+        "WHERE n.nspname='yoao_jobs_v1' AND p.proname='set_filter_fixture_job_outcomes'",
     );
     assert.equal(catalog.rows.length, 1);
     assertFunctionCatalog(catalog.rows[0], expectedRole);

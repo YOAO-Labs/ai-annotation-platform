@@ -168,7 +168,7 @@ def test_schema_describes_only_the_fixed_caller_transaction_function():
     capabilities = schema["x-native-capabilities"]
     assert capabilities["postgres_schema"] == IDENTITY_SCHEMA
     assert [item["signature"] for item in capabilities["functions"]] == [
-        "aap_identity_v1.create_seed_persona_account(jsonb)"
+        "yoao_identity_v1.create_seed_persona_account(jsonb)"
     ]
     function = capabilities["functions"][0]
     assert function["result_postgres_type"] == "jsonb"

@@ -56,7 +56,7 @@ class NotificationSocketPostgresData:
         if cached is not None:
             return cached
         record = await self.connection.fetchrow(
-            "SELECT * FROM aap_notifications_v1.read_notification("
+            "SELECT * FROM yoao_notifications_v1.read_notification("
             "CAST($1 AS pg_catalog.uuid))",
             notification_id,
         )
@@ -86,7 +86,7 @@ class NotificationSocketPostgresData:
     async def job_scopes(self, job_ids: set[uuid.UUID]):
         rows = await self.connection.fetch(
             "SELECT id, scope_project_id, kind "
-            "FROM aap_notifications_v1.delivery_job_scopes("
+            "FROM yoao_notifications_v1.delivery_job_scopes("
             "CAST($1 AS pg_catalog.uuid[]))",
             list(job_ids),
         )
@@ -95,7 +95,7 @@ class NotificationSocketPostgresData:
     async def _pairs(self, function_name: str, pairs):
         rows = await self.connection.fetch(
             f"SELECT project_id, user_id "
-            f"FROM aap_notifications_v1.{function_name}("
+            f"FROM yoao_notifications_v1.{function_name}("
             f"CAST($1 AS pg_catalog.jsonb))",
             [
                 {"project_id": str(project_id), "user_id": str(user_id)}

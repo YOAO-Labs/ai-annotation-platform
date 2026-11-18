@@ -19,7 +19,7 @@ from pydantic import (
 from yoao_workspace_contract.wire import ClosedModel, _json_bytes
 
 SEED_MEMBER_ASSIGNMENT_PROTOCOL = "aap-workspace-seed-member-assignment/v1"
-NATIVE_SCHEMA = "aap_workspace_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
 
 
 class _SeedMemberAssignmentModel(ClosedModel):

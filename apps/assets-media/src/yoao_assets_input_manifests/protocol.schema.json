@@ -1246,7 +1246,7 @@
       "request": "CaptureManifestRequest",
       "result": "ManifestHeader",
       "role": "workflow",
-      "signature": "aap_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)"
+      "signature": "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)"
     },
     "prepare_accepted_image_input_manifest_member": {
       "arguments": [
@@ -1263,14 +1263,14 @@
       "request": "NativePrepareManifestMemberRequest",
       "result": "ManifestMemberReceipt",
       "role": "control",
-      "signature": "aap_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)"
+      "signature": "yoao_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)"
     },
     "read_accepted_image_input_manifest": {
       "arguments": ["job_id", "actor_id", "project_id"],
       "request": "ManifestScope",
       "result": "ManifestHeader",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)"
     },
     "read_accepted_image_input_manifest_page": {
       "arguments": [
@@ -1285,14 +1285,14 @@
       "request": "ManifestPageRequest",
       "result": "ManifestPage",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)"
+      "signature": "yoao_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)"
     },
     "seal_accepted_image_input_manifest": {
       "arguments": ["job_id", "actor_id", "project_id", "selection_digest"],
       "request": "SealManifestRequest",
       "result": "ManifestHeader",
       "role": "control",
-      "signature": "aap_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)"
+      "signature": "yoao_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)"
     }
   }
 }

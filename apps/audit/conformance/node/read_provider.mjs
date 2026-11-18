@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const schemaPath = path.resolve(here, "../../src/yoao_audit/read_relations.schema.json");
 const dailySchemaPath = path.resolve(here, "../../src/yoao_audit/daily_projection.schema.json");
-const relationName = "aap_audit_v1.audit_events";
-const dailyRelationName = "aap_audit_v1.audit_daily_facts";
-const refreshFunctionName = "aap_audit_v1.refresh_audit_bi_mv()";
+const relationName = "yoao_audit_v1.audit_events";
+const dailyRelationName = "yoao_audit_v1.audit_daily_facts";
+const refreshFunctionName = "yoao_audit_v1.refresh_audit_bi_mv()";
 const protocol = "aap-audit-read-relations/v1";
 const dailyProtocol = "aap-audit-daily-projection/v1";
 const minAuditId = -9223372036854775808n;
@@ -276,15 +276,15 @@ export async function verifyReadRelation() {
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("SELECT * FROM aap_identity_v1.account_profiles LIMIT 1"),
+      client.query("SELECT * FROM yoao_identity_v1.account_profiles LIMIT 1"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("SELECT aap_audit_v1.query_events('{}'::pg_catalog.jsonb)"),
+      client.query("SELECT yoao_audit_v1.query_events('{}'::pg_catalog.jsonb)"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("SELECT aap_audit_v1.refresh_audit_bi_mv()"),
+      client.query("SELECT yoao_audit_v1.refresh_audit_bi_mv()"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
@@ -292,7 +292,7 @@ export async function verifyReadRelation() {
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("SELECT aap_audit_v1.append_events('{}'::pg_catalog.jsonb)"),
+      client.query("SELECT yoao_audit_v1.append_events('{}'::pg_catalog.jsonb)"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
@@ -300,15 +300,15 @@ export async function verifyReadRelation() {
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("INSERT INTO aap_audit_v1.audit_events (action) VALUES ('audit.denied')"),
+      client.query("INSERT INTO yoao_audit_v1.audit_events (action) VALUES ('audit.denied')"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("UPDATE aap_audit_v1.audit_events SET action='audit.denied'"),
+      client.query("UPDATE yoao_audit_v1.audit_events SET action='audit.denied'"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("DELETE FROM aap_audit_v1.audit_events"),
+      client.query("DELETE FROM yoao_audit_v1.audit_events"),
       (error) => error.code === "42501",
     );
     await assert.rejects(

@@ -47,7 +47,7 @@ class DatasetUnlinkPostgresData:
             connection,
             schema=NATIVE_SCHEMA,
             functions=_DATASET_UNLINK_FUNCTIONS,
-            role="workspace_dataset_unlink_client",
+            role="yoao_workspace_dataset_unlink_client",
         )
         self._require_active_connection(connection)
 

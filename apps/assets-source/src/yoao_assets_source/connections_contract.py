@@ -745,7 +745,7 @@ def connections_contract_document() -> dict[str, Any]:
         "$defs": document["$defs"],
         "runtime": {
             name: {
-                "signature": f"aap_assets_v1.{name}("
+                "signature": f"yoao_assets_v1.{name}("
                 + RUNTIME_NATIVE_SIGNATURES[name]
                 + ")",
                 "arguments": list(RUNTIME_NATIVE_ARGUMENTS[name]),
@@ -756,7 +756,7 @@ def connections_contract_document() -> dict[str, Any]:
         },
         "native": {
             name: {
-                "signature": f"aap_assets_v1.{name}({CONNECTION_NATIVE_SIGNATURES[name]})",
+                "signature": f"yoao_assets_v1.{name}({CONNECTION_NATIVE_SIGNATURES[name]})",
                 "arguments": list(CONNECTION_NATIVE_ARGUMENTS[name]),
                 "request": pair[0].__name__,
                 "result": pair[1].__name__,

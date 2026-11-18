@@ -43,7 +43,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-identity-accepted-api-key/v1",
   "$comment": "Confirms an already accepted key ID, not credential possession. The caller retains account/project authority locks. The key FOR SHARE lock waits and remains in the caller transaction. Expiry is checked against the real clock after any lock wait. Invalid arguments raise SQLSTATE 22023; database errors propagate.",
-  "x-postgresql-functions": ["aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])"],
+  "x-postgresql-functions": ["yoao_identity_v1.check_accepted_api_key(uuid, uuid, text[])"],
   "x-postgresql-result": {
     "type": "boolean"
   }

@@ -139,11 +139,11 @@
   "$id": "aap-workspace-seed-members/v1",
   "x-native-capabilities": {
     "protocol": "aap-workspace-seed-members/v1",
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "functions": [
       {
         "name": "write_seed_members",
-        "signature": "aap_workspace_v1.write_seed_members(jsonb)",
+        "signature": "yoao_workspace_v1.write_seed_members(jsonb)",
         "arguments": [
           {
             "name": "p_request",

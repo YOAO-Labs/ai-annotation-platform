@@ -159,7 +159,7 @@
     "weekly_target"
   ],
   "x-postgresql-relations": {
-    "aap_workspace_v1.project_member_facts": {
+    "yoao_workspace_v1.project_member_facts": {
       "columns": [
         "id",
         "project_id",
@@ -179,7 +179,7 @@
       "security_barrier": true,
       "semantics": "Return every raw ProjectMember row and native column without filtering, joining, casting, ordering, locking or mutation. The caller owns transaction and authorization semantics."
     },
-    "aap_workspace_v1.project_facts": {
+    "yoao_workspace_v1.project_facts": {
       "columns": [
         "id",
         "organization_id",
@@ -385,7 +385,7 @@
       "security_barrier": true,
       "semantics": "Return every raw Workspace-owned Project column, excluding Labeling counters. JSONB, null and non-finite native values are not decoded or coerced by this relation contract."
     },
-    "aap_labeling_v1.project_catalog_counters": {
+    "yoao_labeling_v1.project_catalog_counters": {
       "columns": [
         "project_id",
         "total_tasks",

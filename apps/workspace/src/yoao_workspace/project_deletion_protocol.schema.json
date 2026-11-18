@@ -233,11 +233,11 @@
         ],
         "name": "delete_project",
         "result_postgres_type": "jsonb",
-        "signature": "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
+        "signature": "yoao_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
         "transaction_semantics": "The binding borrows the caller's already-active transaction. Credential admission and commit remain caller-owned; the Native coordinator rechecks current authority. A failed outer commit rolls back the project graph, audit row, and receipt."
       }
     ],
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "protocol": "aap-project-delete/v1",
     "transaction_boundary": "The caller owns the active transaction and commit."
   }

@@ -33,7 +33,7 @@ class ActorStatusPostgresData:
             async with connection.transaction(readonly=True):
                 row = await connection.fetchrow(
                     "SELECT actor_id, is_active "
-                    "FROM aap_identity_v1.read_actor_facts($1::uuid)",
+                    "FROM yoao_identity_v1.read_actor_facts($1::uuid)",
                     actor_id,
                 )
             if row is None:

@@ -28,7 +28,7 @@ from .pipeline_contract import (
     pipeline_policy,
 )
 
-_SCHEMA = "aap_inference_pipelines_v1"
+_SCHEMA = "yoao_inference_pipelines_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.pipeline_policy()"
 _STEP_SQL = (
     f"SELECT {_SCHEMA}.pipeline_step("

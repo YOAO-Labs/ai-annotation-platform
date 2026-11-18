@@ -136,7 +136,7 @@ async def test_v2_claim_validates_bound_reply_inside_transaction(monkeypatch):
     assert lease.worker_id == WORKER_ID
     assert connection.committed and not connection.rolled_back and connection.closed
     sql, (payload,), in_transaction = connection.calls[0]
-    assert sql == "SELECT aap_identity_mail_v2.claim_mail($1::jsonb)"
+    assert sql == "SELECT yoao_identity_mail_v2.claim_mail($1::jsonb)"
     assert in_transaction
     assert json.loads(payload) == {
         "schema": MAIL_V2_NATIVE_PROTOCOL,
@@ -219,14 +219,14 @@ async def test_v2_readiness_requires_exact_functions_and_no_relation_access(
     monkeypatch,
 ):
     grants = [
-        ("aap_identity_mail_v2", "mail_policy", "", True, "jsonb"),
-        ("aap_identity_mail_v2", "claim_mail", "jsonb", True, "jsonb"),
-        ("aap_identity_mail_v2", "renew_mail", "jsonb", True, "jsonb"),
-        ("aap_identity_mail_v2", "finish_mail", "jsonb", True, "jsonb"),
+        ("yoao_identity_mail_v2", "mail_policy", "", True, "jsonb"),
+        ("yoao_identity_mail_v2", "claim_mail", "jsonb", True, "jsonb"),
+        ("yoao_identity_mail_v2", "renew_mail", "jsonb", True, "jsonb"),
+        ("yoao_identity_mail_v2", "finish_mail", "jsonb", True, "jsonb"),
         ("public", "safe_extension_helper", "text", False, "text"),
-        ("aap_identity_mail_v2", "trigger_hook", "trigger", True, "trigger"),
+        ("yoao_identity_mail_v2", "trigger_hook", "trigger", True, "trigger"),
         (
-            "aap_identity_mail_v2",
+            "yoao_identity_mail_v2",
             "event_trigger_hook",
             "event_trigger",
             True,
@@ -248,7 +248,10 @@ async def test_v2_readiness_requires_exact_functions_and_no_relation_access(
 
     for unsafe_grants, table_access, sequence_access in (
         (
-            [*grants, ("aap_identity_invitations_v1", "unsafe", "uuid", True, "jsonb")],
+            [
+                *grants,
+                ("yoao_identity_invitations_v1", "unsafe", "uuid", True, "jsonb"),
+            ],
             False,
             False,
         ),

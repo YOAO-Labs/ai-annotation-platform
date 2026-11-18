@@ -63,11 +63,11 @@
         "evidence_protection": { "const": "pgcrypto-pgp-aes256-mdc" },
         "functions": {
           "const": [
-            "aap_inference_health_observation_v1.health_observation_policy()",
-            "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
-            "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
-            "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
-            "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)"
+            "yoao_inference_health_observation_v1.health_observation_policy()",
+            "yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+            "yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+            "yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+            "yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)"
           ]
         },
         "ready": { "type": "boolean" }

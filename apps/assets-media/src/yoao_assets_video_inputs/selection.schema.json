@@ -363,14 +363,14 @@
       "consumer": "assets_owner",
       "request": "LockVideoInputManifestMemberRequest",
       "result": "LockedVideoInputManifestMember",
-      "signature": "aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)"
+      "signature": "yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)"
     },
     "open_video_input_manifest_members": {
       "arguments": ["actor_id", "project_id", "selection"],
       "consumer": "assets_owner",
       "request": "OpenVideoInputManifestMembersRequest",
       "result": "OpenVideoInputManifestMembersResult",
-      "signature": "aap_labeling_v1.open_video_input_manifest_members(uuid,uuid,jsonb)"
+      "signature": "yoao_labeling_v1.open_video_input_manifest_members(uuid,uuid,jsonb)"
     }
   },
   "x-stage": "Labeling selection projection; native capture owner integration pending"

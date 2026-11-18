@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.resources import files
 import json
+import re
 from math import radians
 from pathlib import Path
 from uuid import uuid4
@@ -25,6 +26,13 @@ from yoao_labeling.cross_frame_write_contract import (
 )
 from yoao_labeling.cross_frame_write_policy import interpolate_psr
 from yoao_labeling.cross_frame_write_data import CrossFrameWriteDataClient
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _command():
@@ -100,13 +108,16 @@ def test_contract_round_trips_closed_command_and_schema():
         ).read_text()
     )
     assert (
-        files("yoao_labeling").joinpath("cross-frame-writes.schema.json").read_text()
-        == (
-            repository
-            / "apps/api/alembic/sql/0344_labeling_cross_frame_writes.schema.json"
-        ).read_text()
+        _current_names(
+            json.loads(
+                (
+                    repository
+                    / "apps/api/alembic/sql/0344_labeling_cross_frame_writes.schema.json"
+                ).read_text()
+            )
+        )
+        == cross_frame_write_schema()
     )
-
     payload = json.loads(encoded)
     payload["unexpected"] = True
     with pytest.raises(CrossFrameWriteUnavailable):

@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 PREDICTION_RECORDS_PROTOCOL = "aap-labeling-prediction-records/v1"
-PREDICTION_RECORDS_FUNCTION = "aap_labeling_v1.prediction_record_command(jsonb)"
+PREDICTION_RECORDS_FUNCTION = "yoao_labeling_v1.prediction_record_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):
@@ -302,9 +302,7 @@ def prediction_record_schema() -> dict[str, object]:
 
 
 def prediction_record_command_json(command: PredictionRecordCommand) -> str:
-    validated = decode_prediction_record_command(
-        command.model_dump_json(by_alias=True)
-    )
+    validated = decode_prediction_record_command(command.model_dump_json(by_alias=True))
     return validated.model_dump_json(by_alias=True)
 
 

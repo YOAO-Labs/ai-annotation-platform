@@ -13,8 +13,8 @@ from .lifecycle_contract import (
 
 JOBS_ACTION_IDEMPOTENCY_PROTOCOL = "aap-jobs-action-idempotency/v1"
 JOBS_ACTION_IDEMPOTENCY_FUNCTIONS = {
-    "lock": "aap_jobs_v1.lock_action_idempotency",
-    "find": "aap_jobs_v1.find_action_idempotent_jobs",
+    "lock": "yoao_jobs_v1.lock_action_idempotency",
+    "find": "yoao_jobs_v1.find_action_idempotent_jobs",
 }
 
 

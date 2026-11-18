@@ -85,7 +85,7 @@ async def test_read_actor_context_uses_one_readonly_function_call_and_closes_con
     assert connection.closed is True
     assert len(connection.calls) == 1
     query, args = connection.calls[0]
-    assert query == "SELECT aap_identity_v1.read_actor_context($1,$2)"
+    assert query == "SELECT yoao_identity_v1.read_actor_context($1,$2)"
     assert args == (actor_id, "employee")
 
 
@@ -106,11 +106,11 @@ async def test_authentication_readiness_requires_actor_context_as_fifth_capabili
     policy = await data.authentication_policy()
     assert policy["schema"] == "aap-identity-policy/v1"
     assert connection.capability_names == [
-        "aap_identity_v1.authentication_policy()",
-        "aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
-        "aap_identity_v1.read_api_key_candidates(text,uuid,integer)",
-        "aap_identity_v1.confirm_api_key_principal(uuid,text)",
-        "aap_identity_v1.read_actor_context(uuid,text)",
+        "yoao_identity_v1.authentication_policy()",
+        "yoao_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
+        "yoao_identity_v1.read_api_key_candidates(text,uuid,integer)",
+        "yoao_identity_v1.confirm_api_key_principal(uuid,text)",
+        "yoao_identity_v1.read_actor_context(uuid,text)",
     ]
     assert connection.closed is True
 

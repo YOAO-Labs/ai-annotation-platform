@@ -106,18 +106,18 @@
   "$comment": "Fixed trusted local scale-seed capabilities. Functions accept no arbitrary SQL, table, or predicate selectors.",
   "x-native-capabilities": {
     "protocol": "aap-workspace-scale-seed/v1",
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "owner_domains": {
-      "Workspace": "aap_workspace_v1",
-      "Assets": "aap_assets_v1",
-      "Jobs": "aap_jobs_v1",
-      "Learning": "aap_learning_v1",
-      "Labeling": "aap_labeling_v1"
+      "Workspace": "yoao_workspace_v1",
+      "Assets": "yoao_assets_v1",
+      "Jobs": "yoao_jobs_v1",
+      "Learning": "yoao_learning_v1",
+      "Labeling": "yoao_labeling_v1"
     },
     "functions": [
       {
         "name": "create_scale_seed_project",
-        "signature": "aap_workspace_v1.create_scale_seed_project(uuid, text)",
+        "signature": "yoao_workspace_v1.create_scale_seed_project(uuid, text)",
         "owner_domain": "Workspace",
         "arguments": [
           {
@@ -145,7 +145,7 @@
       },
       {
         "name": "ensure_scale_seed_member",
-        "signature": "aap_workspace_v1.ensure_scale_seed_member(uuid, uuid, uuid)",
+        "signature": "yoao_workspace_v1.ensure_scale_seed_member(uuid, uuid, uuid)",
         "owner_domain": "Workspace",
         "arguments": [
           {
@@ -183,7 +183,7 @@
       },
       {
         "name": "guard_scale_seed_cleanup",
-        "signature": "aap_workspace_v1.guard_scale_seed_cleanup(text)",
+        "signature": "yoao_workspace_v1.guard_scale_seed_cleanup(text)",
         "owner_domain": "Workspace",
         "arguments": [
           {
@@ -201,7 +201,7 @@
       },
       {
         "name": "delete_scale_seed_projects",
-        "signature": "aap_workspace_v1.delete_scale_seed_projects(text, uuid[])",
+        "signature": "yoao_workspace_v1.delete_scale_seed_projects(text, uuid[])",
         "owner_domain": "Workspace",
         "arguments": [
           {
@@ -232,7 +232,7 @@
       },
       {
         "name": "guard_scale_seed_dataset_cleanup",
-        "signature": "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid, boolean)",
+        "signature": "yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid, boolean)",
         "owner_domain": "Assets",
         "arguments": [
           {
@@ -260,36 +260,36 @@
     "delegated_guards": [
       {
         "owner_domain": "Learning",
-        "signature": "aap_learning_v1.lock_project_deletion(uuid)"
+        "signature": "yoao_learning_v1.lock_project_deletion(uuid)"
       },
       {
         "owner_domain": "Learning",
-        "signature": "aap_learning_v1.guard_project_deletion(uuid)"
+        "signature": "yoao_learning_v1.guard_project_deletion(uuid)"
       },
       {
         "owner_domain": "Labeling",
-        "signature": "aap_labeling_v1.guard_project_video_deletion(uuid)"
+        "signature": "yoao_labeling_v1.guard_project_video_deletion(uuid)"
       },
       {
         "owner_domain": "Assets",
-        "signature": "aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)",
+        "signature": "yoao_assets_v1._lock_dataset_source_deletion(uuid,uuid)",
         "private": true
       },
       {
         "owner_domain": "Jobs",
-        "signature": "aap_jobs_v1.guard_dataset_source_deletion(uuid)"
+        "signature": "yoao_jobs_v1.guard_dataset_source_deletion(uuid)"
       },
       {
         "owner_domain": "Learning",
-        "signature": "aap_learning_v1.guard_dataset_source_deletion(uuid,uuid)"
+        "signature": "yoao_learning_v1.guard_dataset_source_deletion(uuid,uuid)"
       },
       {
         "owner_domain": "Assets",
-        "signature": "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid,uuid)"
+        "signature": "yoao_assets_v1.guard_dataset_source_auxiliary_retention(uuid,uuid)"
       },
       {
         "owner_domain": "Labeling",
-        "signature": "aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)"
+        "signature": "yoao_labeling_v1.guard_dataset_source_deletion(uuid,uuid)"
       }
     ],
     "authorization_boundary": "Available only through a separately granted trusted operator. The CLI retains its production guard before engine creation; these fixed functions add no application actor policy.",

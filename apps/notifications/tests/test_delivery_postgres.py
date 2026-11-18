@@ -114,7 +114,7 @@ async def test_claim_validates_reply_and_worker_binding_before_commit(monkeypatc
     assert connection.closed
     assert connection.calls == [
         (
-            "SELECT aap_notifications_v1.claim_identity_deliveries($1::jsonb)",
+            "SELECT yoao_notifications_v1.claim_identity_deliveries($1::jsonb)",
             (connection.calls[0][1][0],),
             True,
         )
@@ -205,9 +205,9 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
     monkeypatch,
 ):
     grants = [
-        ("aap_notifications_v1", "identity_delivery_policy", "", False),
-        ("aap_notifications_v1", "claim_identity_deliveries", "jsonb", True),
-        ("aap_notifications_v1", "finish_identity_delivery", "jsonb", True),
+        ("yoao_notifications_v1", "identity_delivery_policy", "", False),
+        ("yoao_notifications_v1", "claim_identity_deliveries", "jsonb", True),
+        ("yoao_notifications_v1", "finish_identity_delivery", "jsonb", True),
         ("public", "safe_extension_helper", "text", False),
     ]
     connection = PolicyConnection(grants)
@@ -223,7 +223,7 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
     assert "OR function.prosecdef" in capability_sql
 
     connection = PolicyConnection(
-        [*grants, ("aap_identity_v1", "unsafe", "uuid", True)]
+        [*grants, ("yoao_identity_v1", "unsafe", "uuid", True)]
     )
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
     with pytest.raises(NotificationDeliveryUnavailable):

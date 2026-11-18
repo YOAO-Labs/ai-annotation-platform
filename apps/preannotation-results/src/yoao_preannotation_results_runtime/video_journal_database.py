@@ -15,7 +15,7 @@ from yoao_preannotation_results.video_execution_journal import (
     validate_request,
 )
 
-_SCHEMA = "aap_jobs_v1"
+_SCHEMA = "yoao_jobs_v1"
 _STEP_SQL = f"SELECT {_SCHEMA}.video_execution_checkpoint_step($1::text,$2::text)"
 _FUNCTIONS = {
     ("video_execution_step", "text, text"),
@@ -42,7 +42,7 @@ class VideoJournalPostgresData:
                 connection,
                 schema=_SCHEMA,
                 functions=_FUNCTIONS,
-                role="video_execution_client",
+                role="yoao_video_execution_client",
             )
             reply = decode_native_reply(
                 "policy",

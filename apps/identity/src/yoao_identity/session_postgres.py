@@ -41,12 +41,12 @@ class SessionPostgresData:
             async with connection.transaction():
                 if function == "session_policy":
                     raw = await connection.fetchval(
-                        "SELECT aap_identity_sessions_v1.session_policy()"
+                        "SELECT yoao_identity_sessions_v1.session_policy()"
                     )
                     required = [
-                        "aap_identity_sessions_v1.session_policy()",
-                        "aap_identity_sessions_v1.read_login_candidate(text)",
-                        "aap_identity_sessions_v1.execute_session_command(jsonb)",
+                        "yoao_identity_sessions_v1.session_policy()",
+                        "yoao_identity_sessions_v1.read_login_candidate(text)",
+                        "yoao_identity_sessions_v1.execute_session_command(jsonb)",
                     ]
                     allowed = await connection.fetchval(
                         "SELECT bool_and(has_function_privilege(current_user, capability, 'EXECUTE')) "
@@ -57,12 +57,12 @@ class SessionPostgresData:
                         raise IdentityUnavailable()
                 elif function == "read_login_candidate":
                     raw = await connection.fetchval(
-                        "SELECT aap_identity_sessions_v1.read_login_candidate($1::text)",
+                        "SELECT yoao_identity_sessions_v1.read_login_candidate($1::text)",
                         *args,
                     )
                 elif function == "execute_session_command":
                     raw = await connection.fetchval(
-                        "SELECT aap_identity_sessions_v1.execute_session_command($1::jsonb)",
+                        "SELECT yoao_identity_sessions_v1.execute_session_command($1::jsonb)",
                         *args,
                     )
                 else:

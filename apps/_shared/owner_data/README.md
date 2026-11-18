@@ -14,5 +14,5 @@ The role name defaults to the schema-derived owner client using the legacy `aap_
 stripping rule; that derivation is unchanged. Callers on the `yoao_` namespace
 supply their intended role explicitly. A caller may also supply an explicit role
 when multiple function-only profiles share a schema, such as
-`video_execution_client` in `aap_jobs_v1`. The exact function inventory and all
+`yoao_video_execution_client` in `yoao_jobs_v1`. The exact function inventory and all
 other privilege checks remain mandatory for that profile.

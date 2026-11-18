@@ -220,7 +220,7 @@ async def test_postgres_binding_borrows_transaction_without_flush_or_commit():
 
     assert len(session.calls) == 1
     statement, parameters = session.calls[0]
-    assert "aap_notifications_v1.append_notification" in statement
+    assert "yoao_notifications_v1.append_notification" in statement
     assert json.loads(parameters["request"]) == json.loads(
         request.model_dump_json(by_alias=True, exclude_none=True)
     )

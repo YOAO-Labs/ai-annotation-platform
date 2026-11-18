@@ -110,10 +110,10 @@ async def test_recovery_policy_checks_its_four_native_capabilities(monkeypatch):
 
     assert result.protocol == "aap-identity-recovery-policy/v1"
     assert connection.calls[1][1][0] == [
-        "aap_identity_recovery_v1.recovery_policy()",
-        "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
-        "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
-        "aap_identity_recovery_v1.read_registration_status(jsonb)",
+        "yoao_identity_recovery_v1.recovery_policy()",
+        "yoao_identity_recovery_v1.prepare_recovery_command(jsonb)",
+        "yoao_identity_recovery_v1.apply_recovery_command(jsonb)",
+        "yoao_identity_recovery_v1.read_registration_status(jsonb)",
     ]
     assert connection.committed and connection.closed
 
@@ -143,7 +143,7 @@ async def test_read_registration_status_uses_the_owner_function_in_one_transacti
         "data": {"allow_open_registration": True},
     }
     query, args, in_transaction = connection.calls[0]
-    assert "aap_identity_recovery_v1.read_registration_status($1::jsonb)" in query
+    assert "yoao_identity_recovery_v1.read_registration_status($1::jsonb)" in query
     assert json.loads(args[0]) == fallbacks
     assert in_transaction
     assert connection.committed and connection.closed

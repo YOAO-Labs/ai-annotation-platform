@@ -277,8 +277,8 @@ def test_portable_descriptor_contains_only_the_existing_native_capabilities():
         "preview_dataset_unlink",
     ]
     assert schema["x-postgresql-functions"] == [
-        "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
-        "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)",
+        "yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+        "yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)",
     ]
     assert descriptor["functions"][0]["arguments"][-1]["nullable"] is True
     assert descriptor["functions"][1]["volatility"] == "VOLATILE"

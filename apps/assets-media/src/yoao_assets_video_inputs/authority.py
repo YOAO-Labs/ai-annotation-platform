@@ -127,7 +127,7 @@ class FoundVideoJob(Value):
 @dataclass(frozen=True)
 class NativeAuthority:
     schema: str
-    namespace: Literal["aap_labeling_v1", "aap_jobs_v1"]
+    namespace: Literal["yoao_labeling_v1", "yoao_jobs_v1"]
     request: type[Value]
     result: type[Value]
     arguments: tuple[str, ...]
@@ -138,7 +138,7 @@ class NativeAuthority:
 OPERATIONS = {
     "read_video_input_task_source": NativeAuthority(
         TASK_SCHEMA,
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         ReadVideoTaskRequest,
         VideoTaskSource,
         ("task_id", "actor_id"),
@@ -146,7 +146,7 @@ OPERATIONS = {
     ),
     "lock_video_input_task_source": NativeAuthority(
         TASK_SCHEMA,
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         LockVideoTaskRequest,
         VideoTaskSource,
         ("task_id", "actor_id", "expected_binding"),
@@ -154,7 +154,7 @@ OPERATIONS = {
     ),
     "project_video_input_job": NativeAuthority(
         JOB_SCHEMA,
-        "aap_jobs_v1",
+        "yoao_jobs_v1",
         VideoJobRequest,
         FoundVideoJob,
         (

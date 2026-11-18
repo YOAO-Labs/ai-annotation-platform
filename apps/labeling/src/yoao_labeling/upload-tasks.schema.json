@@ -56,7 +56,7 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_labeling_v1.create_uploading_task": {
+    "yoao_labeling_v1.create_uploading_task": {
       "arguments": "uuid,uuid,text,text,text,text,uuid",
       "request": "CreateUploadingTask",
       "returns": "boolean",
@@ -64,7 +64,7 @@
       "volatility": "volatile",
       "parallel": "unsafe"
     },
-    "aap_labeling_v1.publish_task_original": {
+    "yoao_labeling_v1.publish_task_original": {
       "arguments": "uuid,uuid,uuid,uuid,uuid,text",
       "request": "PublishTaskOriginal",
       "returns": "table(original_id uuid, status text, version int8)",

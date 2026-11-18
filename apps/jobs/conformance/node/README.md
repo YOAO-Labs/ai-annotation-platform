@@ -6,7 +6,7 @@ SQL match without connecting to a database.
 
 `node list_query_acceptance.mjs --live` additionally requires the pinned
 `pg@8.16.3` driver and a disposable database connection as the dedicated
-`jobs_list_query_client` LOGIN. It checks the page and total ABI, returned
+`yoao_jobs_list_query_client` LOGIN. It checks the page and total ABI, returned
 PostgreSQL types, row order, exact function grants, and denial of private/helper
 access. Provide the scoped fixture values through these environment variables:
 

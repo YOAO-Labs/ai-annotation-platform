@@ -541,7 +541,7 @@ class _Error(Value):
 
 @dataclass(frozen=True)
 class NativeOperation:
-    namespace: Literal["aap_assets_v1", "aap_labeling_v1"]
+    namespace: Literal["yoao_assets_v1", "yoao_labeling_v1"]
     request: type[BaseModel]
     result: type[BaseModel]
     arguments: tuple[str, ...]
@@ -550,7 +550,7 @@ class NativeOperation:
 
 
 def _operation(
-    namespace: Literal["aap_assets_v1", "aap_labeling_v1"],
+    namespace: Literal["yoao_assets_v1", "yoao_labeling_v1"],
     request: type[BaseModel],
     result: type[BaseModel],
     arguments: tuple[str, ...],
@@ -562,7 +562,7 @@ def _operation(
 
 TRACKER_OPERATIONS: dict[str, NativeOperation] = {
     "begin_tracker_prepare_original": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         TrackerPrepareOriginalRequest,
         OriginalRead,
         (
@@ -578,7 +578,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "control",
     ),
     "begin_tracker_control_original": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         TrackerControlOriginalRequest,
         OriginalRead,
         (
@@ -595,7 +595,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "control",
     ),
     "finish_tracker_control_original": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         FinishOriginalReadRequest,
         FinishedOriginalRead,
         ("creation_id", "operation_id"),
@@ -603,7 +603,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "control",
     ),
     "begin_tracker_video_original": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.VideoInputLeaseRequest,
         OriginalRead,
         ("input_id", "generation", "lease_token"),
@@ -611,7 +611,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "finish_tracker_video_original": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         FinishOriginalReadRequest,
         FinishedOriginalRead,
         ("creation_id", "operation_id"),
@@ -619,7 +619,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "capture_video_tracker_input": _operation(
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         TrackerVideoInputRequest,
         TrackerVideoInputRecord,
         ("actor_id", "tracker_job_id", "grid_step"),
@@ -627,7 +627,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "labeling",
     ),
     "read_video_tracker_input": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         TrackerInputReadRequest,
         TrackerVideoInputWork,
         ("actor_id", "tracker_job_id", "task_id"),
@@ -635,7 +635,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "control",
     ),
     "prepare_video_tracker_input": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         PrepareTrackerInputRequest,
         TrackerVideoInputRecord,
         (
@@ -653,7 +653,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "control",
     ),
     "reference_video_tracker_source": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         TrackerSourceReferenceRequest,
         TrackerVideoSourceMaterial,
         (
@@ -668,7 +668,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "control",
     ),
     "claim_video_tracker_input": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.ClaimVideoInputRequest,
         e.ClaimedVideoInput,
         ("worker_id", "input_id", "lease_seconds"),
@@ -676,7 +676,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "heartbeat_video_tracker_input": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.HeartbeatVideoInputRequest,
         e.VideoInputLease,
         ("input_id", "generation", "lease_token", "lease_seconds"),
@@ -684,7 +684,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "stage_video_tracker_times": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.StageVideoTimesRequest,
         e.StagedVideoTimes,
         ("input_id", "generation", "lease_token", "cursor", "entries"),
@@ -692,7 +692,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "finish_video_tracker_input": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.FinishVideoInputRequest,
         e.VideoInputRecord,
         ("input_id", "generation", "lease_token", "plan"),
@@ -700,7 +700,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "fail_video_tracker_input": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.FailVideoInputRequest,
         e.VideoInputRecord,
         ("input_id", "generation", "lease_token", "error_code"),
@@ -708,7 +708,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "sweep_video_tracker_inputs": _operation(
-        "aap_assets_v1",
+        "yoao_assets_v1",
         e.SweepVideoInputsRequest,
         e.SweptVideoInputs,
         ("limit",),
@@ -716,7 +716,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "worker",
     ),
     "lock_video_tracker_input_for_accept": _operation(
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         LockTrackerVideoInputRequest,
         TrackerVideoInputAcceptance,
         (
@@ -731,7 +731,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "labeling",
     ),
     "lock_video_tracker_input_for_stage": _operation(
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         LockTrackerVideoInputRequest,
         TrackerVideoInputAcceptance,
         (
@@ -746,7 +746,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "labeling",
     ),
     "attach_annotation_video_tracker_input_source": _operation(
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         AttachTrackerVideoInputSourceRequest,
         TrackerVideoInputPin,
         ("actor_id", "tracker_job_id", "annotation_id", "evidence"),
@@ -754,7 +754,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "labeling",
     ),
     "copy_annotation_video_tracker_input_sources": _operation(
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         CopyTrackerVideoInputSourcesRequest,
         TrackerVideoInputPins,
         ("actor_id", "source_annotation_id", "target_annotation_id"),
@@ -762,7 +762,7 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
         "labeling",
     ),
     "video_tracker_input_referenced": _operation(
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         TrackerVideoInputReferenceRequest,
         TrackerVideoInputReferenceStatus,
         ("input_id",),
@@ -774,12 +774,12 @@ TRACKER_OPERATIONS: dict[str, NativeOperation] = {
 LABELING_OPERATIONS = {
     name: operation
     for name, operation in TRACKER_OPERATIONS.items()
-    if operation.namespace == "aap_labeling_v1"
+    if operation.namespace == "yoao_labeling_v1"
 }
 ASSETS_OPERATIONS = {
     name: operation
     for name, operation in TRACKER_OPERATIONS.items()
-    if operation.namespace == "aap_assets_v1"
+    if operation.namespace == "yoao_assets_v1"
 }
 
 
@@ -804,7 +804,7 @@ def parse_native(operation: str, request: Value, raw: Any) -> Value:
             raise ValueError("oversized tracker reply")
         schema = (
             LABELING_SCHEMA
-            if definition.namespace == "aap_labeling_v1"
+            if definition.namespace == "yoao_labeling_v1"
             else TRACKER_SCHEMA
         )
         if (
@@ -1080,7 +1080,7 @@ def contract_document() -> dict[str, Any]:
                 "result": operation.result.__name__,
                 "role": operation.role,
                 "owner": "labeling"
-                if operation.namespace == "aap_labeling_v1"
+                if operation.namespace == "yoao_labeling_v1"
                 else "assets",
                 "private": True,
             }
@@ -1094,7 +1094,7 @@ def contract_document() -> dict[str, Any]:
         },
         "x-workspace-projections": {
             "read_media_video_collaboration_policy": {
-                "signature": "aap_workspace_v1.read_media_video_collaboration_policy(uuid)",
+                "signature": "yoao_workspace_v1.read_media_video_collaboration_policy(uuid)",
                 "schema": WORKSPACE_POLICY_SCHEMA,
                 "result": "MediaVideoCollaborationPolicy",
                 "owner": "workspace",

@@ -325,7 +325,7 @@ class AsyncpgImageAdmissionData:
         )
         try:
             raw = await self._connection.fetchval(
-                f"SELECT aap_assets_v1.{operation}({placeholders})", *arguments
+                f"SELECT yoao_assets_v1.{operation}({placeholders})", *arguments
             )
         except Exception:
             raise c.ImageFailure("storage_unavailable") from None

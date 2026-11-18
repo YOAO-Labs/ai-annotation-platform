@@ -21,7 +21,7 @@ from .annotation_write_contract import _json_bytes
 from .batch_control_contract import BatchControlState
 
 TASK_MAINTENANCE_PROTOCOL = "aap-labeling-task-maintenance/v1"
-TASK_MAINTENANCE_FUNCTION = "aap_labeling_v1.task_maintenance_command(jsonb)"
+TASK_MAINTENANCE_FUNCTION = "yoao_labeling_v1.task_maintenance_command(jsonb)"
 
 
 class _Closed(BaseModel):

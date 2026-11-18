@@ -28,7 +28,7 @@ from yoao_inference_contract.video_execution import (
     decode_video_scope_data,
 )
 
-_SCHEMA = "aap_inference_routing_v1"
+_SCHEMA = "yoao_inference_routing_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.routing_policy()"
 _STEP_SQL = f"SELECT {_SCHEMA}.routing_step($1::text,$2::text)"
 _SUPERSEDE_SQL = f"SELECT {_SCHEMA}.supersede_unbegun_scope($1::text)"
@@ -132,9 +132,7 @@ class RoutingPostgresData:
         self._transaction_id = transaction_id
 
     @classmethod
-    async def bind(
-        cls, connection: Any, *, expected_login: str
-    ) -> RoutingPostgresData:
+    async def bind(cls, connection: Any, *, expected_login: str) -> RoutingPostgresData:
         try:
             if (
                 type(expected_login) is not str

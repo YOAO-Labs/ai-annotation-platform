@@ -18,15 +18,15 @@ from pydantic import (
 )
 
 JOBS_LIFECYCLE_PROTOCOL = "aap-jobs-lifecycle/v1"
-ASYNC_JOB_CREATION_RELATION = "aap_jobs_v1.async_job_creation"
-ASYNC_JOB_READ_FUNCTION = "aap_jobs_v1.read_job"
-ASYNC_JOB_BY_EXECUTION_ID_FUNCTION = "aap_jobs_v1.jobs_by_execution_id"
-ASYNC_JOB_VIDEO_SUMMARY_FUNCTION = "aap_jobs_v1.insert_video_summary"
-ASYNC_JOB_APPLY_LIFECYCLE_FUNCTION = "aap_jobs_v1.apply_lifecycle"
-ASYNC_JOB_DISPATCH_FAILED_FUNCTION = "aap_jobs_v1.mark_dispatch_failed"
-ASYNC_JOB_CANCEL_BATCH_FUNCTION = "aap_jobs_v1.cancel_batch_predict_jobs"
-ASYNC_JOB_DELETE_BATCH_FUNCTION = "aap_jobs_v1.delete_batch_predict_jobs"
-ASYNC_JOB_DELETE_TERMINAL_FUNCTION = "aap_jobs_v1.delete_terminal_jobs_before"
+ASYNC_JOB_CREATION_RELATION = "yoao_jobs_v1.async_job_creation"
+ASYNC_JOB_READ_FUNCTION = "yoao_jobs_v1.read_job"
+ASYNC_JOB_BY_EXECUTION_ID_FUNCTION = "yoao_jobs_v1.jobs_by_execution_id"
+ASYNC_JOB_VIDEO_SUMMARY_FUNCTION = "yoao_jobs_v1.insert_video_summary"
+ASYNC_JOB_APPLY_LIFECYCLE_FUNCTION = "yoao_jobs_v1.apply_lifecycle"
+ASYNC_JOB_DISPATCH_FAILED_FUNCTION = "yoao_jobs_v1.mark_dispatch_failed"
+ASYNC_JOB_CANCEL_BATCH_FUNCTION = "yoao_jobs_v1.cancel_batch_predict_jobs"
+ASYNC_JOB_DELETE_BATCH_FUNCTION = "yoao_jobs_v1.delete_batch_predict_jobs"
+ASYNC_JOB_DELETE_TERMINAL_FUNCTION = "yoao_jobs_v1.delete_terminal_jobs_before"
 
 ASYNC_JOB_ROW_COLUMNS = (
     "id",

@@ -64,7 +64,7 @@ async def test_presence_data_calls_only_operator_function_in_own_transaction(
     }
     assert connection.calls == [
         (
-            "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline($1::timestamptz)",
+            "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline($1::timestamptz)",
             (cutoff,),
             True,
         )

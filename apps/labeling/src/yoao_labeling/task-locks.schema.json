@@ -357,7 +357,7 @@
   "$id": "aap-labeling-task-locks/v1",
   "title": "Labeling task edit-lock commands",
   "x-postgresql-functions": {
-    "aap_labeling_v1.task_edit_lock_command(jsonb)": {
+    "yoao_labeling_v1.task_edit_lock_command(jsonb)": {
       "argument_types": ["jsonb"],
       "returns": "jsonb",
       "owner": "labeling",
@@ -365,7 +365,7 @@
       "fixed_targets": [
         "public.task_locks",
         "public.tasks",
-        "aap_identity_v1.lock_accounts_share(uuid[],boolean)"
+        "yoao_identity_v1.lock_accounts_share(uuid[],boolean)"
       ],
       "caller_transaction_required": true,
       "same_transaction_advisory_lock": true,

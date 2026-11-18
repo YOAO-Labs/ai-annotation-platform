@@ -246,7 +246,7 @@ class FinishPredictionRetryDeliveryResult(Value):
 
 @dataclass(frozen=True, slots=True)
 class NativeOperation:
-    namespace: Literal["aap_jobs_v1", "aap_labeling_v1"]
+    namespace: Literal["yoao_jobs_v1", "yoao_labeling_v1"]
     request: type[BaseModel]
     result: type[BaseModel]
     role: Literal["executor", "writer"]
@@ -255,37 +255,37 @@ class NativeOperation:
 OPERATION = MappingProxyType(
     {
         "admit_prediction_retry": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             AdmitPredictionRetryRequest,
             AdmitPredictionRetryResult,
             "writer",
         ),
         "read_prediction_retry": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             ReadPredictionRetryRequest,
             ReadPredictionRetryResult,
             "executor",
         ),
         "finish_prediction_retry_write": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             FinishPredictionRetryWriteRequest,
             FinishPredictionRetryWriteResult,
             "writer",
         ),
         "finish_prediction_retry_failure": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             FinishPredictionRetryFailureRequest,
             FinishPredictionRetryFailureResult,
             "writer",
         ),
         "claim_prediction_retry_deliveries": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             ClaimPredictionRetryDeliveriesRequest,
             ClaimPredictionRetryDeliveriesResult,
             "executor",
         ),
         "finish_prediction_retry_delivery": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             FinishPredictionRetryDeliveryRequest,
             FinishPredictionRetryDeliveryResult,
             "executor",

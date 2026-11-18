@@ -2840,7 +2840,7 @@
       "request": "VideoInputLeaseRequest",
       "result": "OriginalRead",
       "role": "worker",
-      "signature": "aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)"
+      "signature": "yoao_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)"
     },
     "begin_video_control_original": {
       "arguments": [
@@ -2855,7 +2855,7 @@
       "request": "ControlOriginalReadRequest",
       "result": "OriginalRead",
       "role": "control",
-      "signature": "aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)"
+      "signature": "yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)"
     },
     "begin_video_member_original": {
       "arguments": [
@@ -2871,98 +2871,98 @@
       "request": "MemberOriginalReadRequest",
       "result": "OriginalRead",
       "role": "control",
-      "signature": "aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)"
+      "signature": "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)"
     },
     "capture_accepted_video_manifest": {
       "arguments": ["job_id", "actor_id", "project_id", "selection"],
       "request": "CaptureVideoManifestRequest",
       "result": "VideoManifestHeader",
       "role": "workflow",
-      "signature": "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)"
+      "signature": "yoao_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)"
     },
     "claim_accepted_video_frame": {
       "arguments": ["worker_id", "frame_id", "lease_seconds"],
       "request": "ClaimVideoFrameRequest",
       "result": "ClaimedVideoFrame",
       "role": "worker",
-      "signature": "aap_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)"
+      "signature": "yoao_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)"
     },
     "claim_accepted_video_input": {
       "arguments": ["worker_id", "input_id", "lease_seconds"],
       "request": "ClaimVideoInputRequest",
       "result": "ClaimedVideoInput",
       "role": "worker",
-      "signature": "aap_assets_v1.claim_accepted_video_input(uuid,uuid,integer)"
+      "signature": "yoao_assets_v1.claim_accepted_video_input(uuid,uuid,integer)"
     },
     "claim_accepted_video_input_garbage": {
       "arguments": ["worker_id", "lease_seconds", "page_size"],
       "request": "ClaimVideoGarbageRequest",
       "result": "VideoGarbageBatch",
       "role": "cleanup",
-      "signature": "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)"
+      "signature": "yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)"
     },
     "complete_accepted_video_input_garbage": {
       "arguments": ["garbage_id", "lease_token"],
       "request": "CompleteVideoGarbageRequest",
       "result": "VideoGarbageAck",
       "role": "cleanup",
-      "signature": "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)"
+      "signature": "yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)"
     },
     "fail_accepted_video_frame": {
       "arguments": ["frame_id", "generation", "lease_token", "error_code"],
       "request": "FailVideoFrameRequest",
       "result": "VideoFrameRecord",
       "role": "worker",
-      "signature": "aap_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)"
+      "signature": "yoao_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)"
     },
     "fail_accepted_video_input": {
       "arguments": ["input_id", "generation", "lease_token", "error_code"],
       "request": "FailVideoInputRequest",
       "result": "VideoInputRecord",
       "role": "worker",
-      "signature": "aap_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)"
+      "signature": "yoao_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)"
     },
     "finish_accepted_video_frame": {
       "arguments": ["frame_id", "generation", "lease_token", "blob"],
       "request": "FinishVideoFrameRequest",
       "result": "VideoFrameRecord",
       "role": "worker",
-      "signature": "aap_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)"
+      "signature": "yoao_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)"
     },
     "finish_accepted_video_input": {
       "arguments": ["input_id", "generation", "lease_token", "plan"],
       "request": "FinishVideoInputRequest",
       "result": "VideoInputRecord",
       "role": "worker",
-      "signature": "aap_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)"
+      "signature": "yoao_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)"
     },
     "finish_accepted_video_original": {
       "arguments": ["creation_id", "operation_id"],
       "request": "FinishOriginalReadRequest",
       "result": "FinishedOriginalRead",
       "role": "worker",
-      "signature": "aap_assets_v1.finish_accepted_video_original(uuid,uuid)"
+      "signature": "yoao_assets_v1.finish_accepted_video_original(uuid,uuid)"
     },
     "finish_video_control_original": {
       "arguments": ["creation_id", "operation_id"],
       "request": "FinishOriginalReadRequest",
       "result": "FinishedOriginalRead",
       "role": "control",
-      "signature": "aap_assets_v1.finish_video_control_original(uuid,uuid)"
+      "signature": "yoao_assets_v1.finish_video_control_original(uuid,uuid)"
     },
     "heartbeat_accepted_video_frame": {
       "arguments": ["frame_id", "generation", "lease_token", "lease_seconds"],
       "request": "HeartbeatVideoFrameRequest",
       "result": "VideoFrameLease",
       "role": "worker",
-      "signature": "aap_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)"
+      "signature": "yoao_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)"
     },
     "heartbeat_accepted_video_input": {
       "arguments": ["input_id", "generation", "lease_token", "lease_seconds"],
       "request": "HeartbeatVideoInputRequest",
       "result": "VideoInputLease",
       "role": "worker",
-      "signature": "aap_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)"
+      "signature": "yoao_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)"
     },
     "lock_accepted_video_frame": {
       "arguments": [
@@ -2978,14 +2978,14 @@
       "request": "LockVideoFrameRequest",
       "result": "VideoFrameRecord",
       "role": "labeling",
-      "signature": "aap_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)"
+      "signature": "yoao_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)"
     },
     "lock_accepted_video_input": {
       "arguments": ["input_id", "job_id", "task_id", "actor_id", "plan_digest"],
       "request": "LockVideoInputRequest",
       "result": "VideoInputRecord",
       "role": "labeling",
-      "signature": "aap_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)"
+      "signature": "yoao_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)"
     },
     "prepare_accepted_video_member": {
       "arguments": [
@@ -3003,35 +3003,35 @@
       "request": "ObserveVideoMemberRequest",
       "result": "VideoMemberReceipt",
       "role": "control",
-      "signature": "aap_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text)"
+      "signature": "yoao_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text)"
     },
     "read_accepted_video_frame": {
       "arguments": ["actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal"],
       "request": "VideoFrameRequest",
       "result": "VideoFrameRecord",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)"
+      "signature": "yoao_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)"
     },
     "read_accepted_video_input": {
       "arguments": ["input_id", "job_id", "task_id", "actor_id"],
       "request": "ReadVideoInputRequest",
       "result": "VideoInputRecord",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid)"
     },
     "read_accepted_video_input_work": {
       "arguments": ["input_id", "job_id", "task_id", "actor_id"],
       "request": "ReadVideoInputRequest",
       "result": "VideoInputWork",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)"
     },
     "read_accepted_video_manifest": {
       "arguments": ["job_id", "actor_id", "project_id"],
       "request": "VideoManifestScope",
       "result": "VideoManifestHeader",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)"
     },
     "read_accepted_video_manifest_page": {
       "arguments": [
@@ -3046,7 +3046,7 @@
       "request": "VideoManifestPageRequest",
       "result": "VideoManifestPage",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)"
+      "signature": "yoao_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)"
     },
     "read_accepted_video_times": {
       "arguments": [
@@ -3061,35 +3061,35 @@
       "request": "FramePageRequest",
       "result": "FrameTimePage",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)"
+      "signature": "yoao_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)"
     },
     "require_accepted_video_frame": {
       "arguments": ["actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal"],
       "request": "VideoFrameRequest",
       "result": "VideoFrameRecord",
       "role": "control",
-      "signature": "aap_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)"
+      "signature": "yoao_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)"
     },
     "seal_accepted_video_manifest": {
       "arguments": ["job_id", "actor_id", "project_id", "selection_digest"],
       "request": "SealVideoManifestRequest",
       "result": "VideoManifestHeader",
       "role": "control",
-      "signature": "aap_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text)"
+      "signature": "yoao_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text)"
     },
     "stage_accepted_video_times": {
       "arguments": ["input_id", "generation", "lease_token", "cursor", "entries"],
       "request": "StageVideoTimesRequest",
       "result": "StagedVideoTimes",
       "role": "worker",
-      "signature": "aap_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)"
+      "signature": "yoao_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)"
     },
     "sweep_accepted_video_inputs": {
       "arguments": ["limit"],
       "request": "SweepVideoInputsRequest",
       "result": "SweptVideoInputs",
       "role": "system",
-      "signature": "aap_assets_v1.sweep_accepted_video_inputs(integer)"
+      "signature": "yoao_assets_v1.sweep_accepted_video_inputs(integer)"
     }
   },
   "x-stage": "owner contract; native and HTTP admission not activated"

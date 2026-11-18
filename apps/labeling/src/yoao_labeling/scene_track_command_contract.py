@@ -23,7 +23,7 @@ from pydantic import (
 
 
 SCENE_TRACK_COMMAND_PROTOCOL = "aap-labeling-scene-track-commands/v1"
-SCENE_TRACK_COMMAND_FUNCTION = "aap_labeling_v1.scene_track_command(jsonb)"
+SCENE_TRACK_COMMAND_FUNCTION = "yoao_labeling_v1.scene_track_command(jsonb)"
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 TrackId = Annotated[StrictStr, Field(min_length=1, max_length=64)]
 
@@ -455,12 +455,12 @@ def scene_track_command_schema() -> dict[str, object]:
             "owner": "labeling",
             "security_definer": True,
             "caller_transaction_required": True,
-            "dependencies": ["aap_assets_v1.spatial_item_references"],
+            "dependencies": ["yoao_assets_v1.spatial_item_references"],
             "actions": ["lock", "replay", "apply", "inspect", "list", "revert"],
             "fixed_targets": [
                 "public.tasks",
                 "public.task_dataset_item_links",
-                "aap_assets_v1.spatial_item_references",
+                "yoao_assets_v1.spatial_item_references",
                 "public.scene_tracks",
                 "public.scene_track_intervals",
                 "public.annotations",
@@ -471,7 +471,7 @@ def scene_track_command_schema() -> dict[str, object]:
                 "public.task_dataset_item_links": {
                     "select": ["task_id", "dataset_item_id", "role"]
                 },
-                "aap_assets_v1.spatial_item_references": {
+                "yoao_assets_v1.spatial_item_references": {
                     "select": ["item_id", "scene_id", "frame_index"]
                 },
                 "public.scene_tracks": {

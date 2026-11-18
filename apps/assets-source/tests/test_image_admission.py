@@ -318,6 +318,6 @@ async def test_asyncpg_binding_uses_only_published_sql_and_same_connection():
 
     assert result.owner.id == source.item_id
     assert connection.calls[0][0].startswith(
-        "SELECT aap_assets_v1.resolve_internal_image_source("
+        "SELECT yoao_assets_v1.resolve_internal_image_source("
     )
     assert connection.calls[0][1] == ("dataset_item", source.item_id, None, None)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from builtins import BaseExceptionGroup
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -93,7 +94,7 @@ async def publication_session(database_url, lease):
             lease.lease_token,
         )
         entered = await connection.fetchval(
-            "SELECT aap_jobs_v1.begin_dispatch_publication($1, $2, $3, $4, $5)",
+            "SELECT yoao_jobs_v1.begin_dispatch_publication($1, $2, $3, $4, $5)",
             *arguments,
         )
         if entered not in {"entered", "settled"}:
@@ -112,7 +113,7 @@ async def retry_publication_session(
     encoded_kwargs = json.dumps(kwargs, allow_nan=False, separators=(",", ":"))
     async with _publication_connection(database_url) as connection:
         intent = await connection.fetchval(
-            "SELECT aap_jobs_v1.retry_publication_intent($1, $2, $3, $4::jsonb, $5::jsonb)",
+            "SELECT yoao_jobs_v1.retry_publication_intent($1, $2, $3, $4::jsonb, $5::jsonb)",
             job_id,
             execution_id,
             task_name,
@@ -128,7 +129,7 @@ async def retry_publication_session(
         )
         nonce = uuid.uuid4()
         state = await connection.fetchval(
-            "SELECT aap_jobs_v1.begin_retry_publication("
+            "SELECT yoao_jobs_v1.begin_retry_publication("
             "$1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)",
             intent,
             job_id,
@@ -150,7 +151,7 @@ async def retry_publication_session(
 
 async def settle_retry_publication(connection, arguments):
     settled = await connection.fetchval(
-        "SELECT aap_jobs_v1.finish_retry_publication($1, $2, $3, $4, $5)",
+        "SELECT yoao_jobs_v1.finish_retry_publication($1, $2, $3, $4, $5)",
         *arguments,
     )
     if settled is not True:
@@ -159,7 +160,7 @@ async def settle_retry_publication(connection, arguments):
 
 async def settle_publication(connection, arguments):
     settled = await connection.fetchval(
-        "SELECT aap_jobs_v1.finish_dispatch_publication($1, $2, $3, $4, $5)",
+        "SELECT yoao_jobs_v1.finish_dispatch_publication($1, $2, $3, $4, $5)",
         *arguments,
     )
     if settled is not True:
@@ -168,7 +169,7 @@ async def settle_publication(connection, arguments):
 
 async def refuse_publication(connection, arguments):
     recorded = await connection.fetchval(
-        "SELECT aap_jobs_v1.refuse_dispatch_publication($1, $2, $3, $4, $5)",
+        "SELECT yoao_jobs_v1.refuse_dispatch_publication($1, $2, $3, $4, $5)",
         *arguments,
     )
     if recorded is not True:
@@ -195,7 +196,7 @@ async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
             raise PublicationUnavailable("Fixture media publication is already owned")
         nonce = uuid.uuid4()
         raw = await connection.fetchval(
-            "SELECT aap_jobs_v1.begin_fixture_media_publication($1, $2)",
+            "SELECT yoao_jobs_v1.begin_fixture_media_publication($1, $2)",
             delivery_id,
             nonce,
         )
@@ -203,19 +204,26 @@ async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
             receipt = json.loads(raw) if isinstance(raw, str) else raw
             if (
                 not isinstance(receipt, dict)
-                or set(receipt) != {"state", "delivery_id", "payload_digest", "envelope"}
+                or set(receipt)
+                != {"state", "delivery_id", "payload_digest", "envelope"}
                 or receipt["state"] not in {"entered", "accepted"}
                 or receipt["delivery_id"] != str(delivery_id)
                 or not isinstance(receipt["payload_digest"], str)
                 or len(receipt["payload_digest"]) != 64
-                or any(char not in "0123456789abcdef" for char in receipt["payload_digest"])
+                or any(
+                    char not in "0123456789abcdef" for char in receipt["payload_digest"]
+                )
             ):
                 raise ValueError
             operation = decode_queue_request(encode_queue_request(receipt["envelope"]))
-            if not isinstance(operation, QueueDispatch) or operation.execution_id != str(delivery_id):
+            if not isinstance(
+                operation, QueueDispatch
+            ) or operation.execution_id != str(delivery_id):
                 raise ValueError
         except (AttributeError, KeyError, TypeError, ValueError):
-            raise PublicationUnavailable("Fixture media publication receipt is invalid") from None
+            raise PublicationUnavailable(
+                "Fixture media publication receipt is invalid"
+            ) from None
         if receipt["state"] == "accepted":
             return str(delivery_id)
         try:
@@ -223,21 +231,33 @@ async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
         except JobsQueueNotSent as primary:
             try:
                 recorded = await connection.fetchval(
-                    "SELECT aap_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
-                    delivery_id, nonce, "not_sent",
+                    "SELECT yoao_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
+                    delivery_id,
+                    nonce,
+                    "not_sent",
                 )
                 if recorded is not True:
-                    raise PublicationUnavailable("Fixture media refusal was not acknowledged")
+                    raise PublicationUnavailable(
+                        "Fixture media refusal was not acknowledged"
+                    )
             except BaseException as closing:
                 raise BaseExceptionGroup(
-                    "Fixture media refusal and owner recording failed", [primary, closing]
+                    "Fixture media refusal and owner recording failed",
+                    [primary, closing],
                 ) from None
             raise
         if published != str(delivery_id):
             raise JobsQueueUnavailable()
-        if await connection.fetchval(
-            "SELECT aap_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
-            delivery_id, nonce, "accepted",
-        ) is not True:
-            raise PublicationUnavailable("Fixture media publication was not acknowledged")
+        if (
+            await connection.fetchval(
+                "SELECT yoao_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
+                delivery_id,
+                nonce,
+                "accepted",
+            )
+            is not True
+        ):
+            raise PublicationUnavailable(
+                "Fixture media publication was not acknowledged"
+            )
         return str(delivery_id)

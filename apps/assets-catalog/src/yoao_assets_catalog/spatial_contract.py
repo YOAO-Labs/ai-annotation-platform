@@ -1095,7 +1095,7 @@ def spatial_json_schema() -> dict[str, Any]:
         "$defs": definitions,
         "x-native-capabilities": {
             name: {
-                "signature": f"aap_assets_v1.{name}({SPATIAL_NATIVE_SIGNATURES[name]})",
+                "signature": f"yoao_assets_v1.{name}({SPATIAL_NATIVE_SIGNATURES[name]})",
                 "arguments": list(SPATIAL_NATIVE_ARGUMENTS[name]),
                 "request": {"$ref": f"#/$defs/{request.__name__}"},
                 "response": {"$ref": f"#/$defs/{result.__name__}"},
@@ -1138,11 +1138,11 @@ def spatial_json_schema() -> dict[str, Any]:
             },
         },
         "x-postgresql-projections": {
-            "aap_assets_v1.spatial_item_references": {
+            "yoao_assets_v1.spatial_item_references": {
                 "row": {"$ref": "#/$defs/SpatialItemReference"},
                 "semantics": "Current Source/Scene fields; calibration_metadata_present is JSONB key presence, not validity or history resolution",
             },
-            "aap_assets_v1.spatial_scene_references": {
+            "yoao_assets_v1.spatial_scene_references": {
                 "row": {"$ref": "#/$defs/SpatialSceneReference"},
                 "semantics": "Current Scene names, including Scenes without items",
             },

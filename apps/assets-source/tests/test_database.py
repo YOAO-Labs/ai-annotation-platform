@@ -158,7 +158,7 @@ async def test_upload_reserve_calls_exact_native_capability_and_commits() -> Non
 
     assert result.item_id == request.item_id
     sql, arguments = connection.calls[0]
-    assert "aap_assets_v1.reserve_dataset_upload" in sql
+    assert "yoao_assets_v1.reserve_dataset_upload" in sql
     assert arguments == (
         request.item_id,
         request.actor_id,
@@ -442,7 +442,7 @@ async def test_all_nine_connection_capabilities_use_frozen_name_types_and_argume
             for index, type_name in enumerate(expected_types, start=1)
         )
         assert connection.calls[-1] == (
-            f"SELECT aap_assets_v1.{operation}({placeholders})",
+            f"SELECT yoao_assets_v1.{operation}({placeholders})",
             expected_arguments,
         )
         assert len(expected_arguments) == len(CONNECTION_NATIVE_ARGUMENTS[operation])
@@ -642,7 +642,7 @@ async def test_delete_item_uses_configured_native_function_and_scope_order() -> 
 
     assert receipt.deleted_items == 1
     sql, arguments = connection.calls[0]
-    assert "aap_assets_v1.delete_dataset_item" in sql
+    assert "yoao_assets_v1.delete_dataset_item" in sql
     assert arguments == (
         operation_id,
         actor_id,

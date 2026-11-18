@@ -12,6 +12,7 @@ const apiSchemaPath = path.resolve(
   "../../../api/alembic/sql/0332_jobs_action_idempotency.schema.json",
 );
 const apiSqlPath = path.resolve(here, "../../../api/alembic/sql/0332_jobs_action_idempotency.sql");
+const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
 const rowColumns = [
   "id",
   "kind",
@@ -121,7 +122,7 @@ async function selfCheck() {
     readFile(apiSqlPath, "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  const apiSchema = JSON.parse(apiSchemaText);
+  const apiSchema = JSON.parse(currentNames(apiSchemaText));
   assert.deepEqual(apiSchema, schema);
   assert.equal(sql, apiSql);
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
@@ -129,8 +130,8 @@ async function selfCheck() {
   assert.deepEqual(schema["x-row-columns"], rowColumns);
   assert.deepEqual(Object.keys(schema["x-row-types"]).sort(), [...rowColumns].sort());
   assert.deepEqual(Object.keys(schema["x-postgresql-functions"]).sort(), [
-    "aap_jobs_v1.find_action_idempotent_jobs",
-    "aap_jobs_v1.lock_action_idempotency",
+    "yoao_jobs_v1.find_action_idempotent_jobs",
+    "yoao_jobs_v1.lock_action_idempotency",
   ]);
   const lockRequest = schema.$defs.ActionIdempotencyLockRequest;
   const queryRequest = schema.$defs.ActionIdempotencyQueryRequest;
@@ -143,13 +144,13 @@ async function selfCheck() {
       assert.ok(property.anyOf.some((item) => item.type === "null"));
     }
   }
-  assert.deepEqual(schema["x-postgresql-functions"]["aap_jobs_v1.lock_action_idempotency"], {
+  assert.deepEqual(schema["x-postgresql-functions"]["yoao_jobs_v1.lock_action_idempotency"], {
     arguments: "text, uuid, uuid, text",
     returns: "void",
     volatility: "volatile",
     parallel: "unsafe",
   });
-  assert.deepEqual(schema["x-postgresql-functions"]["aap_jobs_v1.find_action_idempotent_jobs"], {
+  assert.deepEqual(schema["x-postgresql-functions"]["yoao_jobs_v1.find_action_idempotent_jobs"], {
     arguments: "text, uuid, uuid, text",
     returns: rowResult,
     volatility: "volatile",
@@ -285,19 +286,19 @@ async function live() {
         "EXISTS (SELECT FROM pg_catalog.aclexplode(COALESCE(p.proacl, " +
         "pg_catalog.acldefault('f',p.proowner))) acl " +
         "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute, " +
-        "pg_catalog.has_function_privilege('jobs_lifecycle_client',p.oid,'EXECUTE') " +
+        "pg_catalog.has_function_privilege('yoao_jobs_lifecycle_client',p.oid,'EXECUTE') " +
         "AS lifecycle_execute, CASE WHEN pg_catalog.to_regrole(" +
-        "'jobs_list_query_client') IS NULL THEN false ELSE " +
-        "pg_catalog.has_function_privilege('jobs_list_query_client',p.oid,'EXECUTE') " +
+        "'yoao_jobs_list_query_client') IS NULL THEN false ELSE " +
+        "pg_catalog.has_function_privilege('yoao_jobs_list_query_client',p.oid,'EXECUTE') " +
         "END AS list_execute FROM pg_catalog.pg_proc p " +
         "JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname='aap_jobs_v1' AND p.proname=ANY($1::pg_catalog.text[]) " +
+        "WHERE n.nspname='yoao_jobs_v1' AND p.proname=ANY($1::pg_catalog.text[]) " +
         "ORDER BY p.proname",
       [functions],
     );
     assert.equal(catalog.rows.length, functions.length);
     for (const row of catalog.rows) {
-      const fullName = `aap_jobs_v1.${row.proname}`;
+      const fullName = `yoao_jobs_v1.${row.proname}`;
       const contract = schema["x-postgresql-functions"][fullName];
       assert.ok(contract);
       assert.equal(normalize(row.arguments), normalize(contract.arguments));
@@ -321,7 +322,7 @@ async function live() {
     await client.query("SET TIME ZONE 'UTC'");
     await client.query("SET DateStyle TO 'ISO, YMD'");
     const found = await client.query(
-      "SELECT * FROM aap_jobs_v1.find_action_idempotent_jobs(" +
+      "SELECT * FROM yoao_jobs_v1.find_action_idempotent_jobs(" +
         "$1::pg_catalog.text,$2::pg_catalog.uuid,$3::pg_catalog.uuid,$4::pg_catalog.text)",
       [kind, projectId, actorId, key],
     );
@@ -335,7 +336,7 @@ async function live() {
     assert.match(found.rows[0].result, /9007199254740993/);
 
     const nullKey = await client.query(
-      "SELECT * FROM aap_jobs_v1.find_action_idempotent_jobs(" +
+      "SELECT * FROM yoao_jobs_v1.find_action_idempotent_jobs(" +
         "$1::pg_catalog.text,$2::pg_catalog.uuid,$3::pg_catalog.uuid,$4::pg_catalog.text)",
       [kind, projectId, actorId, null],
     );
@@ -346,7 +347,7 @@ async function live() {
     const waiter = await connect();
     const probe = await connect();
     const lockSql =
-      "SELECT aap_jobs_v1.lock_action_idempotency(" +
+      "SELECT yoao_jobs_v1.lock_action_idempotency(" +
       "$1::pg_catalog.text,$2::pg_catalog.uuid,$3::pg_catalog.uuid,$4::pg_catalog.text)";
     const trySql =
       "SELECT pg_catalog.pg_try_advisory_xact_lock(" +

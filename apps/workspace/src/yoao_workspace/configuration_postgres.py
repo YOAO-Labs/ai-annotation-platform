@@ -14,7 +14,7 @@ from .configuration_contract import (
 )
 from yoao_workspace_contract.wire import _json_bytes
 
-CONFIGURATION_SCHEMA = "aap_workspace_configuration_v1"
+CONFIGURATION_SCHEMA = "yoao_workspace_configuration_v1"
 CONFIGURATION_FUNCTIONS = {
     ("configuration_policy", ""),
     ("configuration_step", "jsonb, text, jsonb, text[], text[]"),

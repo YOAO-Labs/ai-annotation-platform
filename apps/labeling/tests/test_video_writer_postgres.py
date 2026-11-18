@@ -96,9 +96,9 @@ async def test_owned_provider_opens_read_committed_and_commits_after_manager_sco
     assert seen == [
         (
             connection,
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             {("video_writer_step", "text, text")},
-            "labeling_video_writer_client",
+            "yoao_labeling_video_writer_client",
         )
     ]
 
@@ -139,9 +139,9 @@ async def test_borrowed_provider_preserves_caller_transaction_and_fences_xid(
     assert connection.active is True
     assert connection.events == []
     assert seen[0][1:] == (
-        "aap_labeling_v1",
+        "yoao_labeling_v1",
         {("video_writer_step", "text, text")},
-        "labeling_video_writer_client",
+        "yoao_labeling_video_writer_client",
     )
 
 

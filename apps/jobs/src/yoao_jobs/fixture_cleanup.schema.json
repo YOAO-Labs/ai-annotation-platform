@@ -25,7 +25,7 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.delete_fixture_project_jobs": {
+    "yoao_jobs_v1.delete_fixture_project_jobs": {
       "arguments": "uuid[]",
       "returns": "bigint",
       "volatility": "volatile",
@@ -37,7 +37,7 @@
   "x-security": {
     "database": "actual database name must end in _test or _e2e",
     "owner": "Jobs definer; PUBLIC execute revoked",
-    "guard": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+    "guard": "yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])",
     "search_path": "pg_catalog,pg_temp"
   },
   "x-errors": {

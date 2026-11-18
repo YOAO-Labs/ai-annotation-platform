@@ -16,9 +16,9 @@ RESTORE_PROTOCOL = "aap-video-restore/v1"
 RESTORE_DATA_PROTOCOL = "aap-video-restore-data/v1"
 RESTORE_REQUEST_MAX_BYTES = 65_536
 RESTORE_REPLY_MAX_BYTES = 65_536
-RESTORE_NATIVE_SCHEMA = "aap_inference_routing_v1"
-RESTORE_NATIVE_ROLE = "video_restore_operator_client"
-RESTORE_NATIVE_FUNCTIONS = ("aap_inference_routing_v1.video_restore_step(text,text)",)
+RESTORE_NATIVE_SCHEMA = "yoao_inference_routing_v1"
+RESTORE_NATIVE_ROLE = "yoao_video_restore_operator_client"
+RESTORE_NATIVE_FUNCTIONS = ("yoao_inference_routing_v1.video_restore_step(text,text)",)
 RESTORE_ACTIONS = frozenset(
     {"policy", "inspect", "prepare", "status", "observe", "record_bound", "finish"}
 )

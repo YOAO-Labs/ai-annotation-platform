@@ -222,9 +222,9 @@ async def test_mail_settings_client_calls_only_its_capability(fake_asyncpg):
     assert result.smtp_host == "smtp.example.test"
     assert "smtp-secret" not in repr(result)
     assert [sql for sql, _ in fake_asyncpg if "SELECT " in sql] == [
-        "SELECT aap_settings_v1.mail_delivery_policy($1::jsonb)",
+        "SELECT yoao_settings_v1.mail_delivery_policy($1::jsonb)",
         "SELECT has_function_privilege(current_user, "
-        "'aap_settings_v1.mail_delivery_policy(jsonb)', 'EXECUTE')",
+        "'yoao_settings_v1.mail_delivery_policy(jsonb)', 'EXECUTE')",
     ]
 
 

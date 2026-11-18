@@ -20,7 +20,7 @@ from pydantic import (
 from .annotation_write_contract import _json_bytes
 
 MASK_EDIT_PROTOCOL = "aap-labeling-mask-edits/v1"
-MASK_EDIT_FUNCTION = "aap_labeling_v1.mask_edit_command(jsonb)"
+MASK_EDIT_FUNCTION = "yoao_labeling_v1.mask_edit_command(jsonb)"
 MAX_MASK_UPLOAD_KEYS_PER_COMMAND = 1000
 
 

@@ -221,7 +221,7 @@ def test_worker_login_has_only_its_frozen_execution_operations():
             name, request, allowed_roles={"worker"}
         )
         operation = OPERATIONS[name]
-        assert f"aap_assets_v1.{name}(" in statement
+        assert f"yoao_assets_v1.{name}(" in statement
         assert all(
             f"${position}::{sql_type}" in statement
             for position, sql_type in enumerate(operation.sql_types, start=1)
@@ -268,7 +268,7 @@ def test_native_binding_enforces_per_page_record_budget(monkeypatch):
 @pytest.mark.asyncio
 async def test_capability_preflight_requires_only_image_and_image_input_worker_oids():
     signatures = {
-        "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": index
+        "yoao_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": index
         for index, (name, operation) in enumerate(
             (
                 (name, operation)
@@ -305,7 +305,7 @@ async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_swee
         (TRACKER_OPERATIONS, {"control"}),
     )
     control_signatures = {
-        "aap_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": oid
+        "yoao_assets_v1." + name + "(" + ", ".join(operation.sql_types) + ")": oid
         for oid, (name, operation) in enumerate(
             (
                 (name, operation)
@@ -339,7 +339,7 @@ async def test_asyncpg_binding_commits_only_after_typed_reply_and_scope_validati
     result = await database.call("claim_image_media", request)
 
     statement, parameters = pool.connection.calls[0]
-    assert "aap_assets_v1.claim_image_media(" in statement
+    assert "yoao_assets_v1.claim_image_media(" in statement
     assert parameters[0] == request.worker_id
     assert isinstance(result, ClaimedImageWork)
     assert result.claim is None
@@ -368,7 +368,9 @@ async def test_finish_binding_accepts_pyramid_generation_independent_of_job_gene
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad_path", ["other_output", "empty_segment", "parent", "legacy"])
+@pytest.mark.parametrize(
+    "bad_path", ["other_output", "empty_segment", "parent", "legacy"]
+)
 async def test_finish_binding_rejects_members_outside_the_saved_output(bad_path):
     request = _worker_requests()["finish_image_media"]
     result = request.result

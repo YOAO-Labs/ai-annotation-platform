@@ -52,12 +52,12 @@ class Connection:
         self.queries.append(query)
         return [
             {
-                "nspname": "aap_identity_deletions_v1",
+                "nspname": "yoao_identity_deletions_v1",
                 "proname": "deletion_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_deletions_v1",
+                "nspname": "yoao_identity_deletions_v1",
                 "proname": "execute_deletion_command",
                 "args": "jsonb",
             },
@@ -75,7 +75,7 @@ async def test_transaction_calls_only_versioned_deletion_function():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_deletions_v1.execute_deletion_command($1::jsonb)"
+        "yoao_identity_deletions_v1.execute_deletion_command($1::jsonb)"
         in connection.queries[0]
     )
 
@@ -83,8 +83,8 @@ async def test_transaction_calls_only_versioned_deletion_function():
 @pytest.mark.asyncio
 async def test_readiness_requires_exact_functions_and_no_direct_data_access():
     expected = {
-        "aap_identity_deletions_v1.deletion_policy()",
-        "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
+        "yoao_identity_deletions_v1.deletion_policy()",
+        "yoao_identity_deletions_v1.execute_deletion_command(jsonb)",
     }
     connection = Connection()
     await DeletionPostgresData._assert_capabilities(connection, expected)
@@ -99,7 +99,7 @@ async def test_readiness_requires_exact_functions_and_no_direct_data_access():
     extra = Connection(
         extra_functions=[
             {
-                "nspname": "aap_labeling_v1",
+                "nspname": "yoao_labeling_v1",
                 "proname": "transfer_identity_deletion_work",
                 "args": "uuid, uuid",
             }
@@ -112,8 +112,8 @@ async def test_readiness_requires_exact_functions_and_no_direct_data_access():
 @pytest.mark.asyncio
 async def test_readiness_rejects_relation_sequence_and_schema_capabilities():
     expected = {
-        "aap_identity_deletions_v1.deletion_policy()",
-        "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
+        "yoao_identity_deletions_v1.deletion_policy()",
+        "yoao_identity_deletions_v1.execute_deletion_command(jsonb)",
     }
     for connection in (
         Connection(relation_access=True),

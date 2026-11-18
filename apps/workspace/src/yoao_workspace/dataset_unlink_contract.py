@@ -23,7 +23,7 @@ from yoao_workspace_contract.wire import _json_bytes
 DATASET_UNLINK_PROTOCOL = "aap-dataset-unlink/v1"
 DATASET_UNLINK_PREVIEW_PROTOCOL = "aap-dataset-unlink-preview/v1"
 DATASET_UNLINK_SCHEMA = "urn:aap:contract:dataset-unlink:v1"
-NATIVE_SCHEMA = "aap_workspace_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
 
 Count = Annotated[int, Field(strict=True, ge=0)]
 

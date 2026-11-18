@@ -31,7 +31,7 @@ def prepare_native_call(
             value = c.json_bytes(document[name]).decode("utf-8")
         arguments.append(value)
         placeholders.append(f"${index}::{kind}")
-    return f"SELECT aap_assets_v1.{operation}({', '.join(placeholders)})", tuple(
+    return f"SELECT yoao_assets_v1.{operation}({', '.join(placeholders)})", tuple(
         arguments
     )
 

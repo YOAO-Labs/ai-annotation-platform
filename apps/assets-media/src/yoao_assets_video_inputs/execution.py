@@ -1142,7 +1142,7 @@ def contract_document() -> dict:
         "x-manifest-digest": "SHA-256 chains of typed UTF-8 length-prefixed fields; see ADR-0109",
         "x-native": {
             name: {
-                "signature": "aap_assets_v1."
+                "signature": "yoao_assets_v1."
                 + name
                 + "("
                 + ",".join(op.sql_types)

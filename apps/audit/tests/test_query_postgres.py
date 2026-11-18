@@ -64,7 +64,7 @@ async def test_query_uses_borrowed_session_and_preserves_autoflush(autoflush, ex
     result = await AuditQueryPostgresData(session).query(_request())
 
     statement, parameters = session.calls[0]
-    assert "aap_audit_v1.query_events" in statement
+    assert "yoao_audit_v1.query_events" in statement
     assert "pg_catalog.jsonb" in statement
     assert json.loads(parameters["request"])["page"] == 2
     assert session.events == expected

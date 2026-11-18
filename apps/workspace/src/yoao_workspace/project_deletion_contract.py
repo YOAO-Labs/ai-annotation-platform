@@ -20,7 +20,7 @@ from yoao_audit_contract import ProjectDeletionAuditContext
 from yoao_workspace_contract.wire import _json_bytes
 
 PROJECT_DELETION_PROTOCOL = "aap-project-delete/v1"
-NATIVE_SCHEMA = "aap_workspace_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
 
 
 class _Value(BaseModel):

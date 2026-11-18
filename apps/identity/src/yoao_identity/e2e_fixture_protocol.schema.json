@@ -157,11 +157,11 @@
   "anyOf": [{ "$ref": "#/$defs/FixtureAccountProfile" }, { "$ref": "#/$defs/FixtureInvitation" }],
   "x-native-capabilities": {
     "protocol": "aap-identity-e2e-fixtures/v1",
-    "postgres_schema": "aap_identity_fixture_v1",
+    "postgres_schema": "yoao_identity_fixture_v1",
     "functions": [
       {
         "name": "create_account",
-        "signature": "aap_identity_fixture_v1.create_account(uuid, text, text, text, text)",
+        "signature": "yoao_identity_fixture_v1.create_account(uuid, text, text, text, text)",
         "arguments": [
           {
             "name": "p_id",
@@ -196,7 +196,7 @@
       },
       {
         "name": "mark_manual_inactive",
-        "signature": "aap_identity_fixture_v1.mark_manual_inactive(uuid, timestamptz, uuid)",
+        "signature": "yoao_identity_fixture_v1.mark_manual_inactive(uuid, timestamptz, uuid)",
         "arguments": [
           {
             "name": "p_id",
@@ -221,7 +221,7 @@
       },
       {
         "name": "create_invitations",
-        "signature": "aap_identity_fixture_v1.create_invitations(jsonb)",
+        "signature": "yoao_identity_fixture_v1.create_invitations(jsonb)",
         "arguments": [
           {
             "name": "p_invitations",
@@ -239,7 +239,7 @@
       },
       {
         "name": "delete_accounts",
-        "signature": "aap_identity_fixture_v1.delete_accounts(boolean, text[])",
+        "signature": "yoao_identity_fixture_v1.delete_accounts(boolean, text[])",
         "arguments": [
           {
             "name": "p_shared",
@@ -262,7 +262,7 @@
       },
       {
         "name": "delete_reset_tokens",
-        "signature": "aap_identity_fixture_v1.delete_reset_tokens(uuid[])",
+        "signature": "yoao_identity_fixture_v1.delete_reset_tokens(uuid[])",
         "arguments": [
           {
             "name": "p_user_ids",
@@ -280,7 +280,7 @@
       },
       {
         "name": "delete_invitations",
-        "signature": "aap_identity_fixture_v1.delete_invitations(uuid[])",
+        "signature": "yoao_identity_fixture_v1.delete_invitations(uuid[])",
         "arguments": [
           {
             "name": "p_inviter_ids",
@@ -298,7 +298,7 @@
       },
       {
         "name": "delete_organization_members",
-        "signature": "aap_identity_fixture_v1.delete_organization_members(uuid[])",
+        "signature": "yoao_identity_fixture_v1.delete_organization_members(uuid[])",
         "arguments": [
           {
             "name": "p_user_ids",
@@ -319,7 +319,7 @@
     "transaction_boundary": "The caller owns the active transaction, commit, rollback, and fixture cleanup ordering. These functions never commit or retry."
   },
   "x-postgresql-relations": {
-    "aap_identity_fixture_v1.account_profiles": {
+    "yoao_identity_fixture_v1.account_profiles": {
       "columns": [
         "id",
         "email",

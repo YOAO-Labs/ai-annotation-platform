@@ -46,12 +46,12 @@ class Connection:
         self.queries.append(query)
         return [
             {
-                "nspname": "aap_identity_platform_roles_v1",
+                "nspname": "yoao_identity_platform_roles_v1",
                 "proname": "platform_role_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_platform_roles_v1",
+                "nspname": "yoao_identity_platform_roles_v1",
                 "proname": "execute_platform_role_command",
                 "args": "jsonb",
             },
@@ -77,7 +77,7 @@ async def test_transaction_calls_only_the_versioned_platform_role_function():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_platform_roles_v1.execute_platform_role_command($1::jsonb)"
+        "yoao_identity_platform_roles_v1.execute_platform_role_command($1::jsonb)"
         in connection.queries[0]
     )
 
@@ -85,8 +85,8 @@ async def test_transaction_calls_only_the_versioned_platform_role_function():
 @pytest.mark.asyncio
 async def test_readiness_requires_exact_functions_and_no_direct_data_access():
     expected = {
-        "aap_identity_platform_roles_v1.platform_role_policy()",
-        "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
+        "yoao_identity_platform_roles_v1.platform_role_policy()",
+        "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
     }
     connection = Connection()
     await PlatformRolePostgresData._assert_capabilities(connection, expected)
@@ -101,7 +101,7 @@ async def test_readiness_requires_exact_functions_and_no_direct_data_access():
     extra = Connection(
         extra_functions=[
             {
-                "nspname": "aap_workspace_v1",
+                "nspname": "yoao_workspace_v1",
                 "proname": "identity_platform_role_facts",
                 "args": "uuid",
             }
@@ -114,8 +114,8 @@ async def test_readiness_requires_exact_functions_and_no_direct_data_access():
 @pytest.mark.asyncio
 async def test_readiness_rejects_relation_sequence_and_schema_capabilities():
     expected = {
-        "aap_identity_platform_roles_v1.platform_role_policy()",
-        "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
+        "yoao_identity_platform_roles_v1.platform_role_policy()",
+        "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
     }
     for connection in (
         Connection(relation_access=True),

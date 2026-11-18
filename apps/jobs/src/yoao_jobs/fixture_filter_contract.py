@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 JOBS_FILTER_FIXTURE_PROTOCOL = "aap-jobs-filter-fixtures/v1"
-JOBS_FILTER_FIXTURE_FUNCTION = "aap_jobs_v1.set_filter_fixture_job_outcomes"
+JOBS_FILTER_FIXTURE_FUNCTION = "yoao_jobs_v1.set_filter_fixture_job_outcomes"
 
 
 class FilterFixtureJobsRequest(BaseModel):

@@ -75,7 +75,7 @@ async def test_native_command_uses_only_the_versioned_owner_function():
     assert returned == result
     assert len(connection.calls) == 1
     assert connection.calls[0][0] == (
-        "SELECT aap_identity_groups_v1.execute_group_command($1::jsonb)"
+        "SELECT yoao_identity_groups_v1.execute_group_command($1::jsonb)"
     )
     payload = json.loads(connection.calls[0][1])
     assert payload["schema"] == "aap-identity-groups-native/v1"

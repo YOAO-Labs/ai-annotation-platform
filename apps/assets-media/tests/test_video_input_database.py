@@ -46,7 +46,7 @@ def test_native_time_staging_serializes_nested_values_without_interpolated_sql()
     )
     assert (
         sql
-        == "SELECT aap_assets_v1.stage_accepted_video_times($1::uuid, $2::bigint, $3::uuid, $4::bigint, $5::jsonb)"
+        == "SELECT yoao_assets_v1.stage_accepted_video_times($1::uuid, $2::bigint, $3::uuid, $4::bigint, $5::jsonb)"
     )
     assert arguments[:4] == (staging.input_id, 1, LEASE, 0)
     assert json.loads(arguments[4]) == [

@@ -50,8 +50,8 @@ uses that history when retrying a Job's failed items.
 Video tracking has a separate private `aap-video-execution-data/v1` contract in
 `video_execution.py`. Claim, renew, guard and release use exact job/run/worker,
 generation and lease-token identities. `VideoExecutionPostgresData` binds the
-`aap_jobs_v1.video_execution_step(text,text)` function to an already active
-asyncpg transaction under `video_execution_client`. This LOGIN has exactly that
+`yoao_jobs_v1.video_execution_step(text,text)` function to an already active
+asyncpg transaction under `yoao_video_execution_client`. This LOGIN has exactly that
 function and `video_execution_checkpoint_step(text,text)`; deploy the matching
 two-function grants and adapters together. A guard's locks remain in
 that transaction until the caller commits or rolls back; it is not a standalone

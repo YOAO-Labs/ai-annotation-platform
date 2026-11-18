@@ -1,4 +1,4 @@
-CREATE FUNCTION aap_jobs_v1._async_job_list_rows(
+CREATE FUNCTION yoao_jobs_v1._async_job_list_rows(
     p_actor_id uuid,
     p_platform_role text,
     p_statuses text[],
@@ -21,11 +21,11 @@ AS $function$
     ),
     current_actor_facts AS (
         SELECT actor.actor_id, actor.platform_role, actor.is_active
-        FROM aap_identity_v1.read_actor_facts(p_actor_id) AS actor
+        FROM yoao_identity_v1.read_actor_facts(p_actor_id) AS actor
     ),
     valid_memberships AS (
         SELECT membership.project_id, membership.member_role
-        FROM aap_workspace_v1.actor_project_memberships(p_actor_id) AS membership
+        FROM yoao_workspace_v1.actor_project_memberships(p_actor_id) AS membership
         JOIN current_actor_facts AS actor ON actor.actor_id = p_actor_id
         WHERE p_platform_role IN (
                   'super_admin', 'project_admin', 'employee', 'viewer'
@@ -125,11 +125,11 @@ AS $function$
       )
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_jobs_v1._async_job_list_rows(
+REVOKE ALL ON FUNCTION yoao_jobs_v1._async_job_list_rows(
     uuid, text, text[], text[], uuid, text
 ) FROM PUBLIC;
 -- aap-statement-break
-CREATE FUNCTION aap_jobs_v1.async_job_list_page(
+CREATE FUNCTION yoao_jobs_v1.async_job_list_page(
     p_actor_id uuid,
     p_platform_role text,
     p_statuses text[],
@@ -176,7 +176,7 @@ AS $function$
            job.completed_at,
            job.created_at,
            job.updated_at
-    FROM aap_jobs_v1._async_job_list_rows(
+    FROM yoao_jobs_v1._async_job_list_rows(
         p_actor_id,
         p_platform_role,
         p_statuses,
@@ -189,11 +189,11 @@ AS $function$
     OFFSET p_offset
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_jobs_v1.async_job_list_page(
+REVOKE ALL ON FUNCTION yoao_jobs_v1.async_job_list_page(
     uuid, text, text[], text[], uuid, text, integer, integer
 ) FROM PUBLIC;
 -- aap-statement-break
-CREATE FUNCTION aap_jobs_v1.async_job_list_total(
+CREATE FUNCTION yoao_jobs_v1.async_job_list_total(
     p_actor_id uuid,
     p_platform_role text,
     p_statuses text[],
@@ -208,7 +208,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
     SELECT pg_catalog.count(*)
-    FROM aap_jobs_v1._async_job_list_rows(
+    FROM yoao_jobs_v1._async_job_list_rows(
         p_actor_id,
         p_platform_role,
         p_statuses,
@@ -218,6 +218,6 @@ AS $function$
     ) AS job
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_jobs_v1.async_job_list_total(
+REVOKE ALL ON FUNCTION yoao_jobs_v1.async_job_list_total(
     uuid, text, text[], text[], uuid, text
 ) FROM PUBLIC;

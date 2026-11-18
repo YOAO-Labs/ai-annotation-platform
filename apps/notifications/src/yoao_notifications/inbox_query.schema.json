@@ -62,15 +62,15 @@
   "$id": "aap-notifications-inbox-query/v1",
   "$comment": "The API passes the authenticated actor ID and platform role from its immediately preceding Identity actor-status snapshot. The capability owns inbox visibility, page filtering, ordering, and counts; calls borrow the caller's transaction.",
   "x-postgresql-functions": {
-    "aap_notifications_v1.inbox_page": {
+    "yoao_notifications_v1.inbox_page": {
       "arguments": "uuid, text, boolean, integer, integer",
-      "returns": "SETOF aap_notifications_v1.notification_facts"
+      "returns": "SETOF yoao_notifications_v1.notification_facts"
     },
-    "aap_notifications_v1.inbox_total_count": {
+    "yoao_notifications_v1.inbox_total_count": {
       "arguments": "uuid, text",
       "returns": "bigint"
     },
-    "aap_notifications_v1.inbox_unread_count": {
+    "yoao_notifications_v1.inbox_unread_count": {
       "arguments": "uuid, text",
       "returns": "bigint"
     }
@@ -102,7 +102,7 @@
     "inbox_query_client_execute": "three public inbox functions only",
     "private_helper_execute": false
   },
-  "x-private-helper": "aap_notifications_v1._visible_inbox_rows(uuid, text)",
+  "x-private-helper": "yoao_notifications_v1._visible_inbox_rows(uuid, text)",
   "x-borrowed-transaction": {
     "commit": false,
     "rollback": false,

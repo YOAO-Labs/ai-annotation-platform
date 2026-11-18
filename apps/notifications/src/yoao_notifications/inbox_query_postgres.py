@@ -38,7 +38,7 @@ class NotificationInboxQueryPostgresData:
     ) -> list[Any]:
         statement = select(self.notification_model).from_statement(
             text(
-                f"SELECT * FROM aap_notifications_v1.inbox_page{self._suffix}("
+                f"SELECT * FROM yoao_notifications_v1.inbox_page{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text), "
                 "CAST(:unread_only AS pg_catalog.bool), "
@@ -63,7 +63,7 @@ class NotificationInboxQueryPostgresData:
             func.count(self.notification_model.id).label("inbox_total_count")
         ).from_statement(
             text(
-                f"SELECT aap_notifications_v1.inbox_total_count{self._suffix}("
+                f"SELECT yoao_notifications_v1.inbox_total_count{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text)) AS inbox_total_count"
             )
@@ -79,7 +79,7 @@ class NotificationInboxQueryPostgresData:
             func.count(self.notification_model.id).label("inbox_unread_count")
         ).from_statement(
             text(
-                f"SELECT aap_notifications_v1.inbox_unread_count{self._suffix}("
+                f"SELECT yoao_notifications_v1.inbox_unread_count{self._suffix}("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text)) AS inbox_unread_count"
             )

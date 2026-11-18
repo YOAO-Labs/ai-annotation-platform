@@ -81,7 +81,7 @@ def registration_status_schema() -> dict:
                 "creates accounts, mail, audit events or receipts."
             ),
             "x-postgresql-functions": [
-                "aap_identity_recovery_v1.read_registration_status(jsonb)"
+                "yoao_identity_recovery_v1.read_registration_status(jsonb)"
             ],
         }
     )

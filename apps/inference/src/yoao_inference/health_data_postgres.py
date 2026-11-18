@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-_SCHEMA = "aap_inference_health_data_v1"
+_SCHEMA = "yoao_inference_health_data_v1"
 _POLICY_SCHEMA = "aap-inference-health-data-native/v1"
 _DATA_PROTOCOL = "aap-inference-health-data/v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.health_data_policy()"

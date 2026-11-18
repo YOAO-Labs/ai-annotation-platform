@@ -20,7 +20,7 @@ from pydantic import (
 from .append_contract import JSONValue
 
 READ_RELATION_PROTOCOL = "aap-audit-read-relations/v1"
-AUDIT_EVENTS_RELATION = "aap_audit_v1.audit_events"
+AUDIT_EVENTS_RELATION = "yoao_audit_v1.audit_events"
 AUDIT_EVENT_ROW_KEY = ("id", "created_at")
 
 AUDIT_EVENT_COLUMNS = (

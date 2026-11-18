@@ -20,26 +20,26 @@ from yoao_inference_contract.backend_endpoint import (
 )
 
 
-_ENDPOINT_SCHEMA = "aap_inference_backend_endpoint_v1"
+_ENDPOINT_SCHEMA = "yoao_inference_backend_endpoint_v1"
 _MAX_ENDPOINT_JSON_BYTES = 64 * 1024
 _CAPTURE_REPLY_MAX_BYTES = BACKEND_ENDPOINT_MAX_BYTES + 256  # status/subject envelope
 _ENDPOINT_POLICY_SQL = (
-    "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
+    "SELECT yoao_inference_backend_endpoint_v1.backend_endpoint_policy()"
 )
 _ENDPOINT_CAPTURE_SQL = (
-    "SELECT aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
+    "SELECT yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
     "$1::uuid,$2::uuid,$3::text,$4::text)"
 )
 _ENDPOINT_OPEN_HEALTH_SQL = (
-    "SELECT aap_inference_backend_endpoint_v1.open_health_observation_endpoint("
+    "SELECT yoao_inference_backend_endpoint_v1.open_health_observation_endpoint("
     "$1::text,$2::uuid,$3::uuid,$4::text)"
 )
 _ENDPOINT_OPEN_GPU_CONTROL_SQL = (
-    "SELECT aap_inference_backend_endpoint_v1.open_gpu_control_endpoint("
+    "SELECT yoao_inference_backend_endpoint_v1.open_gpu_control_endpoint("
     "$1::text,$2::uuid,$3::uuid,$4::text)"
 )
 _ENDPOINT_OPEN_TERMINAL_SQL = (
-    "SELECT aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint("
+    "SELECT yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint("
     "$1::uuid,$2::uuid,$3::text,$4::text,$5::text)"
 )
 _ENDPOINT_FUNCTIONS = {

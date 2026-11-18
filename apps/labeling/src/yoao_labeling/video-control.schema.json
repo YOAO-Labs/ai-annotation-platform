@@ -3441,7 +3441,7 @@
     }
   },
   "x-postgresql-functions": [
-    "aap_labeling_v1.video_control_command(jsonb)",
-    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)"
+    "yoao_labeling_v1.video_control_command(jsonb)",
+    "yoao_labeling_v1.video_segment_lifecycle_command(jsonb)"
   ]
 }

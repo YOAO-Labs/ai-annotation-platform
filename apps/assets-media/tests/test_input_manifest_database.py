@@ -56,7 +56,7 @@ def test_binding_freezes_names_arguments_and_denies_workflow_capture():
         allowed_roles={"control"},
     )
     assert sql == (
-        "SELECT aap_assets_v1.prepare_accepted_image_input_manifest_member("
+        "SELECT yoao_assets_v1.prepare_accepted_image_input_manifest_member("
         "$1::uuid, $2::uuid, $3::uuid, $4::text, $5::bigint, $6::uuid, "
         "$7::text, $8::jsonb, $9::text)"
     )
@@ -157,7 +157,7 @@ async def test_asyncpg_binding_validates_typed_reply_before_commit():
     assert await database.call("read_accepted_image_input_manifest", request) == valid
     assert connection.events == ["begin", "timeout", "commit"]
     assert connection.calls[0][0].startswith(
-        "SELECT aap_assets_v1.read_accepted_image_input_manifest($1::uuid"
+        "SELECT yoao_assets_v1.read_accepted_image_input_manifest($1::uuid"
     )
 
     connection = FakeConnection(

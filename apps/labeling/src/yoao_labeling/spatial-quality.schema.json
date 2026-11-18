@@ -2615,7 +2615,7 @@
   "$id": "aap-labeling-spatial-quality/v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "x-postgresql-functions": {
-    "aap_labeling_v1.spatial_quality_command(jsonb)": {
+    "yoao_labeling_v1.spatial_quality_command(jsonb)": {
       "actions": [
         "create_point_evaluation",
         "create_point_run",
@@ -2655,8 +2655,8 @@
       "argument_types": ["jsonb"],
       "caller_transaction_required": true,
       "dependencies": [
-        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)",
-        "aap_assets_v1.video_chapter_facts"
+        "yoao_assets_v1.workspace_project_query_dataset_ids(uuid)",
+        "yoao_assets_v1.video_chapter_facts"
       ],
       "fixed_targets": [
         "public.tasks",
@@ -2670,15 +2670,15 @@
         "public.point_cloud_quality_evaluations",
         "public.video_track_quality_runs",
         "public.video_track_quality_issues",
-        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)",
-        "aap_assets_v1.video_chapter_facts"
+        "yoao_assets_v1.workspace_project_query_dataset_ids(uuid)",
+        "yoao_assets_v1.video_chapter_facts"
       ],
       "owner": "labeling",
       "returns": "jsonb",
       "security_definer": true,
       "sequences": [],
       "table_access": {
-        "aap_assets_v1.workspace_project_query_dataset_ids(uuid)": {
+        "yoao_assets_v1.workspace_project_query_dataset_ids(uuid)": {
           "execute": true
         },
         "public.tasks": {
@@ -2996,7 +2996,7 @@
           ],
           "delete": ["run_id"]
         },
-        "aap_assets_v1.video_chapter_facts": {
+        "yoao_assets_v1.video_chapter_facts": {
           "select": ["id", "dataset_item_id", "title", "start_frame", "end_frame"]
         }
       }

@@ -155,7 +155,7 @@
     "relations": [
       {
         "name": "account_roles",
-        "qualified_name": "aap_identity_audit_v1.account_roles",
+        "qualified_name": "yoao_identity_audit_v1.account_roles",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -206,7 +206,7 @@
       },
       {
         "name": "invitation_facts",
-        "qualified_name": "aap_identity_audit_v1.invitation_facts",
+        "qualified_name": "yoao_identity_audit_v1.invitation_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -321,7 +321,7 @@
       },
       {
         "name": "schema_capabilities",
-        "qualified_name": "aap_identity_audit_v1.schema_capabilities",
+        "qualified_name": "yoao_identity_audit_v1.schema_capabilities",
         "kind": "security_barrier_view",
         "columns": [
           {

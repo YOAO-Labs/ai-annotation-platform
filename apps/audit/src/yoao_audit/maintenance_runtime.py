@@ -8,7 +8,7 @@ import json
 
 from .maintenance_config import MaintenanceConfig, load_config
 
-MAINTENANCE_SCHEMA = "aap_audit_v1"
+MAINTENANCE_SCHEMA = "yoao_audit_v1"
 MAINTENANCE_FUNCTIONS = {("maintenance_command", "jsonb")}
 DATABASE_CONNECT_TIMEOUT_SECONDS = 5
 DATABASE_COMMAND_TIMEOUT_SECONDS = 60
@@ -22,7 +22,7 @@ async def _call_maintenance(connection, request: dict):
         allow_nan=False,
     )
     reply = await connection.fetchval(
-        "SELECT aap_audit_v1.maintenance_command($1::jsonb)", encoded
+        "SELECT yoao_audit_v1.maintenance_command($1::jsonb)", encoded
     )
     if isinstance(reply, str):
         return json.loads(reply)

@@ -21,7 +21,7 @@ from pydantic import (
 
 ANNOTATION_STATISTICS_PROTOCOL = "aap-labeling-annotation-statistics/v1"
 ANNOTATION_STATISTICS_DATA_SCHEMA = "aap-labeling-annotation-statistics-data/v1"
-ANNOTATION_STATISTICS_FUNCTION = "aap_labeling_v1.annotation_statistics_command(jsonb)"
+ANNOTATION_STATISTICS_FUNCTION = "yoao_labeling_v1.annotation_statistics_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

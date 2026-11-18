@@ -1767,8 +1767,8 @@
     "data_protocol": "aap-inference-routing-data/v1",
     "transaction": "caller_owned",
     "functions": [
-      "aap_inference_routing_v1.routing_policy()",
-      "aap_inference_routing_v1.routing_step(text,text)"
+      "yoao_inference_routing_v1.routing_policy()",
+      "yoao_inference_routing_v1.routing_step(text,text)"
     ],
     "actions": [
       "command_status",

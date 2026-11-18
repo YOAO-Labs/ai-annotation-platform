@@ -21,7 +21,7 @@ from pydantic import (
 
 
 SPATIAL_QUALITY_PROTOCOL = "aap-labeling-spatial-quality/v1"
-SPATIAL_QUALITY_FUNCTION = "aap_labeling_v1.spatial_quality_command(jsonb)"
+SPATIAL_QUALITY_FUNCTION = "yoao_labeling_v1.spatial_quality_command(jsonb)"
 
 
 class _Closed(BaseModel):

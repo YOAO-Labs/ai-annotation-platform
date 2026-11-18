@@ -3211,7 +3211,7 @@
   },
   "x-native-capabilities": {
     "guard_spatial_actor": {
-      "signature": "aap_assets_v1.guard_spatial_actor(uuid,text)",
+      "signature": "yoao_assets_v1.guard_spatial_actor(uuid,text)",
       "arguments": ["actor_id", "access"],
       "request": {
         "$ref": "#/$defs/GuardSpatialActorRequest"
@@ -3221,7 +3221,7 @@
       }
     },
     "list_spatial_scenes": {
-      "signature": "aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)",
+      "signature": "yoao_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)",
       "arguments": ["actor_id", "dataset_id", "after_created_at", "after_scene_id", "page_size"],
       "request": {
         "$ref": "#/$defs/ListScenesRequest"
@@ -3231,7 +3231,7 @@
       }
     },
     "get_spatial_scene": {
-      "signature": "aap_assets_v1.get_spatial_scene(uuid,uuid)",
+      "signature": "yoao_assets_v1.get_spatial_scene(uuid,uuid)",
       "arguments": ["actor_id", "scene_id"],
       "request": {
         "$ref": "#/$defs/GetSceneRequest"
@@ -3241,7 +3241,7 @@
       }
     },
     "read_spatial_layout": {
-      "signature": "aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)",
+      "signature": "yoao_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)",
       "arguments": [
         "actor_id",
         "dataset_id",
@@ -3257,7 +3257,7 @@
       }
     },
     "read_spatial_items": {
-      "signature": "aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)",
+      "signature": "yoao_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)",
       "arguments": ["dataset_id", "item_ids", "after_item_id", "page_size"],
       "request": {
         "$ref": "#/$defs/ReadItemsRequest"
@@ -3267,7 +3267,7 @@
       }
     },
     "read_spatial_poses": {
-      "signature": "aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)",
+      "signature": "yoao_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)",
       "arguments": ["actor_id", "scene_id", "after_frame_index", "page_size"],
       "request": {
         "$ref": "#/$defs/ReadPosesRequest"
@@ -3277,7 +3277,7 @@
       }
     },
     "read_spatial_pose_pairs": {
-      "signature": "aap_assets_v1.read_spatial_pose_pairs(jsonb)",
+      "signature": "yoao_assets_v1.read_spatial_pose_pairs(jsonb)",
       "arguments": ["pairs"],
       "request": {
         "$ref": "#/$defs/ReadPosePairsRequest"
@@ -3287,7 +3287,7 @@
       }
     },
     "read_spatial_calibrations": {
-      "signature": "aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)",
+      "signature": "yoao_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)",
       "arguments": [
         "dataset_item_ids",
         "include_history",
@@ -3303,7 +3303,7 @@
       }
     },
     "lock_spatial_calibration_facts": {
-      "signature": "aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)",
+      "signature": "yoao_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)",
       "arguments": [
         "actor_id",
         "task_id",
@@ -3319,7 +3319,7 @@
       }
     },
     "mutate_spatial_scene": {
-      "signature": "aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)",
+      "signature": "yoao_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)",
       "arguments": ["operation_id", "actor_id", "scene_id", "patch", "audit_context"],
       "request": {
         "$ref": "#/$defs/MutateSceneRequest"
@@ -3329,7 +3329,7 @@
       }
     },
     "apply_spatial_layout": {
-      "signature": "aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)",
+      "signature": "yoao_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)",
       "arguments": [
         "operation_id",
         "actor_id",
@@ -3347,7 +3347,7 @@
       }
     },
     "read_spatial_layout_receipt": {
-      "signature": "aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean)",
+      "signature": "yoao_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean)",
       "arguments": ["operation_id", "actor_id", "dataset_id", "mode", "dry_run"],
       "request": {
         "$ref": "#/$defs/BackfillScenesRequest"
@@ -3357,7 +3357,7 @@
       }
     },
     "upsert_spatial_poses": {
-      "signature": "aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)",
+      "signature": "yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "scene_id", "poses"],
       "request": {
         "$ref": "#/$defs/UpsertPosesRequest"
@@ -3367,7 +3367,7 @@
       }
     },
     "create_spatial_scene": {
-      "signature": "aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)",
+      "signature": "yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)",
       "arguments": [
         "operation_id",
         "scene_id",
@@ -3385,7 +3385,7 @@
       }
     },
     "assign_spatial_items": {
-      "signature": "aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb)",
+      "signature": "yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "dataset_id", "assignments"],
       "request": {
         "$ref": "#/$defs/AssignItemsRequest"
@@ -3395,7 +3395,7 @@
       }
     },
     "set_spatial_scene_source": {
-      "signature": "aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)",
+      "signature": "yoao_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)",
       "arguments": ["operation_id", "scene_id", "source_format", "source_metadata"],
       "request": {
         "$ref": "#/$defs/SetSceneSourceRequest"
@@ -3405,7 +3405,7 @@
       }
     },
     "update_spatial_calibration": {
-      "signature": "aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)",
+      "signature": "yoao_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)",
       "arguments": [
         "operation_id",
         "actor_id",
@@ -3427,7 +3427,7 @@
       }
     },
     "read_pointcloud_preparation": {
-      "signature": "aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)",
+      "signature": "yoao_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)",
       "arguments": ["creation_operation_id", "after_item_id", "page_size"],
       "request": {
         "$ref": "#/$defs/ReadPreparationRequest"
@@ -3437,7 +3437,7 @@
       }
     },
     "apply_pointcloud_preparation": {
-      "signature": "aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)",
+      "signature": "yoao_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)",
       "arguments": ["creation_operation_id", "snapshot", "calibration_updates", "frame_plan"],
       "request": {
         "$ref": "#/$defs/ApplyPreparationRequest"
@@ -3447,7 +3447,7 @@
       }
     },
     "read_spatial_camera_target": {
-      "signature": "aap_assets_v1.read_spatial_camera_target(uuid,uuid,text)",
+      "signature": "yoao_assets_v1.read_spatial_camera_target(uuid,uuid,text)",
       "arguments": ["actor_id", "task_id", "camera_role"],
       "request": {
         "$ref": "#/$defs/ReadCameraTargetRequest"
@@ -3457,7 +3457,7 @@
       }
     },
     "record_spatial_calibration_provenance": {
-      "signature": "aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)",
+      "signature": "yoao_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "dataset_id", "entries"],
       "request": {
         "$ref": "#/$defs/RecordCalibrationProvenanceRequest"
@@ -3467,7 +3467,7 @@
       }
     },
     "set_spatial_dataset_axis": {
-      "signature": "aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)",
+      "signature": "yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)",
       "arguments": ["operation_id", "dataset_id", "axis_convention"],
       "request": {
         "$ref": "#/$defs/SetDatasetAxisRequest"
@@ -3740,13 +3740,13 @@
     }
   },
   "x-postgresql-projections": {
-    "aap_assets_v1.spatial_item_references": {
+    "yoao_assets_v1.spatial_item_references": {
       "row": {
         "$ref": "#/$defs/SpatialItemReference"
       },
       "semantics": "Current Source/Scene fields; calibration_metadata_present is JSONB key presence, not validity or history resolution"
     },
-    "aap_assets_v1.spatial_scene_references": {
+    "yoao_assets_v1.spatial_scene_references": {
       "row": {
         "$ref": "#/$defs/SpatialSceneReference"
       },

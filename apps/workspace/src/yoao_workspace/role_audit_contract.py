@@ -10,7 +10,7 @@ from pydantic import Field, StrictBool, StrictStr, TypeAdapter
 from yoao_workspace_contract.wire import ClosedModel
 
 ROLE_AUDIT_PROTOCOL = "aap-workspace-role-audit/v1"
-ROLE_AUDIT_SCHEMA = "aap_workspace_audit_v1"
+ROLE_AUDIT_SCHEMA = "yoao_workspace_audit_v1"
 ROLE_AUDIT_VIEWS = (
     "project_facts",
     "project_member_facts",

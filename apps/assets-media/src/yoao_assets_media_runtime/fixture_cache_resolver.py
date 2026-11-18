@@ -34,7 +34,11 @@ def _credentials():
             raise ValueError("invalid resolver file")
         value = json.loads(encoded)
         if not isinstance(value, dict) or set(value) != {
-            "schema", "suite_id", "dsn", "database_oid", "database_owner_marker"
+            "schema",
+            "suite_id",
+            "dsn",
+            "database_oid",
+            "database_owner_marker",
         }:
             raise ValueError("invalid resolver file")
         suite = uuid.UUID(value["suite_id"])
@@ -62,7 +66,9 @@ def _credentials():
             raise ValueError("invalid resolver file")
         return value, url
     except (OSError, ValueError, TypeError, UnicodeError, KeyError, RecursionError):
-        raise RuntimeError("fixture native resolver credentials are unavailable") from None
+        raise RuntimeError(
+            "fixture native resolver credentials are unavailable"
+        ) from None
 
 
 class FixtureCacheResolver:
@@ -85,13 +91,15 @@ class FixtureCacheResolver:
                 "FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()"
             )
             if (
-                identity is None or identity[0] != value["database_oid"]
+                identity is None
+                or identity[0] != value["database_oid"]
                 or identity[1] != value["database_owner_marker"]
             ):
                 raise RuntimeError("fixture native resolver database changed")
             http = httpx.AsyncClient(
                 timeout=httpx.Timeout(read_timeout, connect=connect_timeout),
-                trust_env=False, follow_redirects=False,
+                trust_env=False,
+                follow_redirects=False,
             )
             return cls(connection, http)
         except BaseException:
@@ -101,21 +109,27 @@ class FixtureCacheResolver:
     async def url(self, key, expires_in):
         async with self.lock:
             result = await self.connection.fetchval(
-                "SELECT aap_assets_v1.resolve_fixture_native_cache($1::text)", key
+                "SELECT yoao_assets_v1.resolve_fixture_native_cache($1::text)", key
             )
         if result is None:
             return None
         try:
             if isinstance(result, str):
                 result = json.loads(result)
-            if not isinstance(result, dict) or set(result) != {"run_id", "write_id", "proxy_origin"}:
+            if not isinstance(result, dict) or set(result) != {
+                "run_id",
+                "write_id",
+                "proxy_origin",
+            }:
                 raise ValueError("invalid output reference")
             run, write = uuid.UUID(result["run_id"]), uuid.UUID(result["write_id"])
             if result["run_id"] != str(run) or result["write_id"] != str(write):
                 raise ValueError("invalid output reference")
         except (ValueError, TypeError, KeyError, RecursionError):
             raise RuntimeError("fixture native output reference changed") from None
-        return fixture_output_capabilities.issue(run, write, expires_in, result["proxy_origin"])
+        return fixture_output_capabilities.issue(
+            run, write, expires_in, result["proxy_origin"]
+        )
 
     async def close(self):
         errors = []
@@ -128,4 +142,6 @@ class FixtureCacheResolver:
         except BaseException as exc:
             errors.append(exc)
         if errors:
-            raise builtins.BaseExceptionGroup("Fixture native resolver close failed", errors)
+            raise builtins.BaseExceptionGroup(
+                "Fixture native resolver close failed", errors
+            )

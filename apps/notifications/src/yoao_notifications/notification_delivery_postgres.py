@@ -23,9 +23,9 @@ from .notification_delivery_contract import (
 )
 
 _DELIVERY_CAPABILITIES = {
-    "aap_notifications_v1.identity_delivery_policy()",
-    "aap_notifications_v1.claim_identity_deliveries(jsonb)",
-    "aap_notifications_v1.finish_identity_delivery(jsonb)",
+    "yoao_notifications_v1.identity_delivery_policy()",
+    "yoao_notifications_v1.claim_identity_deliveries(jsonb)",
+    "yoao_notifications_v1.finish_identity_delivery(jsonb)",
 }
 
 
@@ -167,7 +167,7 @@ class NotificationDeliveryPostgresData:
             connection = await self._open()
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_notifications_v1.identity_delivery_policy()"
+                    "SELECT yoao_notifications_v1.identity_delivery_policy()"
                 )
                 await self._assert_capabilities(connection)
                 policy = decode_notification_delivery_policy(self._decode_json(raw))
@@ -198,7 +198,7 @@ class NotificationDeliveryPostgresData:
             connection = await self._open()
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    f"SELECT aap_notifications_v1.{function}($1::jsonb)", encoded
+                    f"SELECT yoao_notifications_v1.{function}($1::jsonb)", encoded
                 )
                 value = self._decode_json(raw)
                 # Validate the complete owner reply and its request binding before

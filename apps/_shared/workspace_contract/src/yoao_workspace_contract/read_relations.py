@@ -11,9 +11,9 @@ from .member_values import PROJECT_MEMBER_COLUMNS, ProjectMemberRow
 from .project_query_contract import PROJECT_ROW_COLUMNS
 
 READ_RELATIONS_SCHEMA = "aap-workspace-read-relations/v1"
-PROJECT_MEMBER_FACTS_RELATION = "aap_workspace_v1.project_member_facts"
-PROJECT_FACTS_RELATION = "aap_workspace_v1.project_facts"
-PROJECT_COUNTER_FACTS_RELATION = "aap_labeling_v1.project_catalog_counters"
+PROJECT_MEMBER_FACTS_RELATION = "yoao_workspace_v1.project_member_facts"
+PROJECT_FACTS_RELATION = "yoao_workspace_v1.project_facts"
+PROJECT_COUNTER_FACTS_RELATION = "yoao_labeling_v1.project_catalog_counters"
 
 PROJECT_COUNTER_COLUMNS = (
     "total_tasks",

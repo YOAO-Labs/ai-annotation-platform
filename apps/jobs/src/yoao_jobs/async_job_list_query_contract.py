@@ -9,9 +9,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, TypeAdapter
 
 ASYNC_JOB_LIST_QUERY_PROTOCOL = "aap-jobs-async-job-list-query/v1"
-ASYNC_JOB_LIST_PAGE_FUNCTION = "aap_jobs_v1.async_job_list_page"
-ASYNC_JOB_LIST_TOTAL_FUNCTION = "aap_jobs_v1.async_job_list_total"
-ASYNC_JOB_LIST_HELPER_FUNCTION = "aap_jobs_v1._async_job_list_rows"
+ASYNC_JOB_LIST_PAGE_FUNCTION = "yoao_jobs_v1.async_job_list_page"
+ASYNC_JOB_LIST_TOTAL_FUNCTION = "yoao_jobs_v1.async_job_list_total"
+ASYNC_JOB_LIST_HELPER_FUNCTION = "yoao_jobs_v1._async_job_list_rows"
 
 ASYNC_JOB_STATUSES = Literal["pending", "running", "completed", "failed", "cancelled"]
 ASYNC_JOB_LIST_ROW_COLUMNS = (
@@ -140,7 +140,7 @@ def async_job_list_query_schema() -> dict[str, Any]:
                 "inactive_actor": "return empty items and total before Jobs call",
                 "same_statement_membership_facts": (
                     "Each page/total statement reads current actor active/role facts "
-                    "through aap_identity_v1.read_actor_facts(uuid), matching the "
+                    "through yoao_identity_v1.read_actor_facts(uuid), matching the "
                     "old membership predicate without replacing the preflight snapshot."
                 ),
             },
@@ -156,13 +156,13 @@ def async_job_list_query_schema() -> dict[str, Any]:
                     "super-admin and manager-owned branches."
                 ),
                 "workspace_facts": [
-                    "aap_workspace_v1.actor_project_memberships(uuid)",
+                    "yoao_workspace_v1.actor_project_memberships(uuid)",
                     "yoao_workspace_project_query_v1.project_search_scope(uuid,text)",
                 ],
                 "unknown_kinds": "preserved as open strings and only visible under normal scope rules",
             },
             "x-owner-capabilities": {
-                "aap_identity_v1.read_actor_facts(uuid)": {
+                "yoao_identity_v1.read_actor_facts(uuid)": {
                     "grant_to": "jobs_owner",
                     "use": "membership predicate only; no direct Identity table access",
                 }

@@ -82,7 +82,7 @@ async def test_asyncpg_binding_uses_exact_signature_and_commits_before_return():
 
     statement, parameters = pool.connection.calls[0]
     operation = OPERATIONS["claim_video_media"]
-    assert "aap_assets_v1.claim_video_media(" in statement
+    assert "yoao_assets_v1.claim_video_media(" in statement
     assert all(
         f"${i}::{sql_type}" in statement
         for i, sql_type in enumerate(operation.sql_types, 1)
@@ -100,7 +100,7 @@ def test_json_arguments_are_serialized_under_frozen_function_signature():
     )
     statement, parameters = prepare_native_call("schedule_video_media", request)
     assert statement == (
-        "SELECT aap_assets_v1.schedule_video_media("
+        "SELECT yoao_assets_v1.schedule_video_media("
         "$1::uuid, $2::uuid, $3::jsonb, $4::boolean)"
     )
     assert parameters[0] == request.operation_id
@@ -115,7 +115,7 @@ def test_optional_jsonb_none_is_bound_as_sql_null():
         "resolve_internal_media_source", request
     )
     assert statement == (
-        "SELECT aap_assets_v1.resolve_internal_media_source("
+        "SELECT yoao_assets_v1.resolve_internal_media_source("
         "$1::uuid, $2::text, $3::jsonb)"
     )
     assert parameters == (request.dataset_item_id, None, None)

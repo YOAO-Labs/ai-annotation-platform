@@ -40,9 +40,9 @@ class Connection:
     ):
         self.reply = reply
         self.functions = functions or [
-            ("aap_identity_invitations_v1", "invitation_policy", ""),
-            ("aap_identity_invitations_v1", "prepare_invitation_command", "jsonb"),
-            ("aap_identity_invitations_v1", "apply_invitation_command", "jsonb"),
+            ("yoao_identity_invitations_v1", "invitation_policy", ""),
+            ("yoao_identity_invitations_v1", "prepare_invitation_command", "jsonb"),
+            ("yoao_identity_invitations_v1", "apply_invitation_command", "jsonb"),
         ]
         self.table_access = table_access
         self.column_access = column_access
@@ -121,7 +121,7 @@ async def test_invitation_prepare_calls_only_owner_capability_and_validates_repl
     assert returned.data.result.invitations == []
     assert len(connection.calls) == 1
     assert connection.calls[0][0] == (
-        "SELECT aap_identity_invitations_v1.prepare_invitation_command($1::jsonb)"
+        "SELECT yoao_identity_invitations_v1.prepare_invitation_command($1::jsonb)"
     )
     payload = json.loads(connection.calls[0][1][0])
     assert "token" not in payload
@@ -166,10 +166,10 @@ async def test_invitation_policy_requires_exact_functions_and_no_direct_privileg
                 "policy": "aap-identity-invitations/v1",
             },
             functions=[
-                ("aap_identity_invitations_v1", "invitation_policy", ""),
-                ("aap_identity_invitations_v1", "prepare_invitation_command", "jsonb"),
-                ("aap_identity_invitations_v1", "apply_invitation_command", "jsonb"),
-                ("aap_workspace_v1", "unsafe_capability", "uuid"),
+                ("yoao_identity_invitations_v1", "invitation_policy", ""),
+                ("yoao_identity_invitations_v1", "prepare_invitation_command", "jsonb"),
+                ("yoao_identity_invitations_v1", "apply_invitation_command", "jsonb"),
+                ("yoao_workspace_v1", "unsafe_capability", "uuid"),
             ],
         ),
         Connection(

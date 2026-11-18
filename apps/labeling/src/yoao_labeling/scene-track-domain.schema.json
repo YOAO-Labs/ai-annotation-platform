@@ -418,7 +418,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-labeling-scene-track-domain/v1",
   "x-postgresql-functions": {
-    "aap_labeling_v1.scene_track_domain_command(jsonb)": {
+    "yoao_labeling_v1.scene_track_domain_command(jsonb)": {
       "argument_types": ["jsonb"],
       "returns": "jsonb",
       "owner": "labeling",

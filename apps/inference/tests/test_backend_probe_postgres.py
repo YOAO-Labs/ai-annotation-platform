@@ -29,8 +29,8 @@ _POLICY = {
     "subject_protocol": "aap-inference-backend-probe-subject/v1",
     "origin_transaction": "in_progress",
     "functions": [
-        "aap_inference_backend_probe_v1.backend_probe_policy()",
-        "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+        "yoao_inference_backend_probe_v1.backend_probe_policy()",
+        "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
     ],
     "ready": True,
 }

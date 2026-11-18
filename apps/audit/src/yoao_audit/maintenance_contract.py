@@ -25,7 +25,7 @@ from pydantic import (
 from .append_contract import JSONValue
 
 MAINTENANCE_PROTOCOL = "aap-audit-maintenance/v1"
-MAINTENANCE_FUNCTION = "aap_audit_v1.maintenance_command"
+MAINTENANCE_FUNCTION = "yoao_audit_v1.maintenance_command"
 _PARTITION_NAME = re.compile(r"^audit_logs_y([0-9]{4})m(0[1-9]|1[0-2])$")
 _MAX_OID = (1 << 32) - 1
 _MAX_POSTGRES_BIGINT = (1 << 63) - 1

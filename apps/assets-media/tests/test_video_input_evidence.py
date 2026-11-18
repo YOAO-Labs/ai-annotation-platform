@@ -16,7 +16,7 @@ def test_evidence_contract_artifact_fixes_types_keys_and_native_owner_boundary()
     artifact = Path(e.__file__).with_name("evidence.schema.json")
     assert json.loads(artifact.read_text()) == e.contract_document()
     assert e.ASSETS_PIN_OPERATION.signature == (
-        "aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)"
+        "yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)"
     )
     assert e.ASSETS_PIN_OPERATION.role == "labeling"
     assert e.contract_document()["x-native"]["assets_pin"]["owner"] == "assets"

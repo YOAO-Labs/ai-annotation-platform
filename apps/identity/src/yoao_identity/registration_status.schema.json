@@ -87,5 +87,5 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-identity-registration-status/v1",
   "$comment": "The Recovery owner supplies deployment defaults. read_status resolves the existing Settings policy in a bounded read transaction; read_deployment_default does not read overrides. Neither operation creates accounts, mail, audit events or receipts.",
-  "x-postgresql-functions": ["aap_identity_recovery_v1.read_registration_status(jsonb)"]
+  "x-postgresql-functions": ["yoao_identity_recovery_v1.read_registration_status(jsonb)"]
 }

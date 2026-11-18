@@ -101,7 +101,7 @@ async def test_step_uses_only_the_fixed_rpc_and_preserves_closed_rejection(monke
     assert reply["reason"] == "pool_not_enabled"
     statement, args = connection.calls[-1]
     assert statement == (
-        "SELECT aap_inference_routing_v1.routing_step($1::text,$2::text)"
+        "SELECT yoao_inference_routing_v1.routing_step($1::text,$2::text)"
     )
     assert args == (
         "command_status",
@@ -166,7 +166,7 @@ async def test_retirement_step_uses_only_the_fixed_adjacent_rpc(monkeypatch):
     assert reply["status"] == "ok"
     statement, args = connection.calls[-1]
     assert statement == (
-        "SELECT aap_inference_routing_v1.scope_retirement_step($1::text,$2::text)"
+        "SELECT yoao_inference_routing_v1.scope_retirement_step($1::text,$2::text)"
     )
     assert args[0] == "status"
     assert json.loads(args[1])["capability"] == "private-scope-token"

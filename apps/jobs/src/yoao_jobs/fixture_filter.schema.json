@@ -27,7 +27,7 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.set_filter_fixture_job_outcomes": {
+    "yoao_jobs_v1.set_filter_fixture_job_outcomes": {
       "arguments": "uuid, uuid",
       "returns": "bigint",
       "volatility": "volatile",

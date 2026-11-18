@@ -85,22 +85,22 @@
         "functions": {
           "type": "array",
           "const": [
-            "aap_inference_backend_endpoint_v1.backend_endpoint_policy()",
-            "aap_inference_backend_endpoint_v1.controlled_model_credential_policy(uuid)",
-            "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)",
-            "aap_inference_backend_endpoint_v1.open_health_observation_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_setup_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_catalog_fallback_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_stats_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_backend_read_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_lifecycle_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_gpu_control_endpoint(text,uuid,uuid,text)",
-            "aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)",
-            "aap_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
-            "aap_inference_backend_endpoint_v1.stats_endpoint_rows()",
-            "aap_inference_backend_endpoint_v1.catalog_endpoint_rows()",
-            "aap_inference_backend_endpoint_v1.observation_registration_labels(text[])"
+            "yoao_inference_backend_endpoint_v1.backend_endpoint_policy()",
+            "yoao_inference_backend_endpoint_v1.controlled_model_credential_policy(uuid)",
+            "yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)",
+            "yoao_inference_backend_endpoint_v1.open_health_observation_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_setup_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_catalog_fallback_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_stats_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_backend_read_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_lifecycle_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_gpu_control_endpoint(text,uuid,uuid,text)",
+            "yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)",
+            "yoao_inference_backend_endpoint_v1.health_backend_row(uuid,boolean)",
+            "yoao_inference_backend_endpoint_v1.stats_endpoint_rows()",
+            "yoao_inference_backend_endpoint_v1.catalog_endpoint_rows()",
+            "yoao_inference_backend_endpoint_v1.observation_registration_labels(text[])"
           ]
         },
         "ready": { "type": "boolean" }

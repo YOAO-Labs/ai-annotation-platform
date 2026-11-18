@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from importlib.resources import files
 from pathlib import Path
@@ -20,6 +21,13 @@ from yoao_labeling.e2e_fixture_contract import (
     fixture_command_json,
 )
 
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
+
 
 def test_fixture_schema_matches_the_current_contract_and_migration():
     root = Path(__file__).resolve().parents[3]
@@ -31,7 +39,9 @@ def test_fixture_schema_matches_the_current_contract_and_migration():
         resource.joinpath("e2e-fixtures.schema.json").read_text(encoding="utf-8")
     )
 
-    assert packaged_schema == json.loads(migration.read_text(encoding="utf-8"))
+    assert _current_names(json.loads(migration.read_text(encoding="utf-8"))) == (
+        packaged_schema
+    )
     assert packaged_schema == e2e_fixture_schema()
     assert packaged_schema["$id"] == LABELING_E2E_FIXTURE_PROTOCOL
     functions = packaged_schema["x-postgresql-functions"]

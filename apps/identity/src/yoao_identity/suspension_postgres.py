@@ -29,7 +29,7 @@ class SuspensionPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_suspensions_v1.execute_suspension_command($1::jsonb)",
+                "SELECT yoao_identity_suspensions_v1.execute_suspension_command($1::jsonb)",
                 encoded,
             )
             return json.loads(raw) if isinstance(raw, str) else raw
@@ -154,10 +154,10 @@ class SuspensionPostgresData:
                 """
                 SELECT
                     NOT pg_catalog.has_schema_privilege(
-                        current_user, 'aap_identity_suspensions_v1', 'USAGE'
+                        current_user, 'yoao_identity_suspensions_v1', 'USAGE'
                     )
                     OR pg_catalog.has_schema_privilege(
-                        current_user, 'aap_identity_suspensions_v1', 'CREATE'
+                        current_user, 'yoao_identity_suspensions_v1', 'CREATE'
                     )
                     OR pg_catalog.has_schema_privilege(
                         current_user, 'public', 'CREATE'
@@ -167,7 +167,7 @@ class SuspensionPostgresData:
                         FROM pg_catalog.pg_namespace AS namespace
                         WHERE namespace.nspname NOT IN (
                             'pg_catalog', 'information_schema',
-                            'aap_identity_suspensions_v1', 'public'
+                            'yoao_identity_suspensions_v1', 'public'
                         )
                           AND namespace.nspname NOT LIKE 'pg_toast%'
                           AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -288,13 +288,13 @@ class SuspensionPostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_suspensions_v1.suspension_policy()"
+                    "SELECT yoao_identity_suspensions_v1.suspension_policy()"
                 )
                 await self._assert_capabilities(
                     connection,
                     {
-                        "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
-                        "aap_identity_suspensions_v1.suspension_policy()",
+                        "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
+                        "yoao_identity_suspensions_v1.suspension_policy()",
                     },
                 )
                 value = json.loads(raw) if isinstance(raw, str) else raw

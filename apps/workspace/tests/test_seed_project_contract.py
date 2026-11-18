@@ -213,10 +213,10 @@ def test_seed_project_schema_freezes_functions_and_transaction_boundaries():
     functions = descriptor["functions"]
 
     assert schema["$id"] == PROTOCOL
-    assert descriptor["postgres_schema"] == "aap_workspace_v1"
+    assert descriptor["postgres_schema"] == "yoao_workspace_v1"
     assert [function["signature"] for function in functions] == [
-        "aap_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)",
-        "aap_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)",
+        "yoao_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)",
+        "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)",
     ]
     assert [
         [argument["name"] for argument in function["arguments"]]

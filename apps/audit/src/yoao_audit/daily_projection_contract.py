@@ -17,7 +17,7 @@ from pydantic import (
 )
 
 DAILY_PROJECTION_PROTOCOL = "aap-audit-daily-projection/v1"
-AUDIT_DAILY_FACTS_RELATION = "aap_audit_v1.audit_daily_facts"
+AUDIT_DAILY_FACTS_RELATION = "yoao_audit_v1.audit_daily_facts"
 AUDIT_DAILY_FACTS_ROW_KEY = (
     "day",
     "action",
@@ -42,7 +42,7 @@ AUDIT_DAILY_FACTS_COLUMN_TYPES: dict[str, str] = {
     "event_count": "bigint",
 }
 AUDIT_DAILY_FACTS_NULLABLE_COLUMNS: tuple[str, ...] = ()
-AUDIT_DAILY_REFRESH_FUNCTION = "aap_audit_v1.refresh_audit_bi_mv"
+AUDIT_DAILY_REFRESH_FUNCTION = "yoao_audit_v1.refresh_audit_bi_mv"
 
 _MAX_POSTGRES_BIGINT = (1 << 63) - 1
 _CANONICAL_BIGINT_PATTERN = r"^(?:0|[1-9][0-9]*)$"

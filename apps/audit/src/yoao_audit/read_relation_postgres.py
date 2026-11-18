@@ -26,7 +26,7 @@ audit_events = table(
     column("detail_json", JSONB),
     column("request_id", String(36)),
     column("created_at", DateTime(timezone=True)),
-    schema="aap_audit_v1",
+    schema="yoao_audit_v1",
 ).alias(AUDIT_EVENTS_RELATION.rsplit(".", 1)[-1])
 
 audit_daily_facts = table(

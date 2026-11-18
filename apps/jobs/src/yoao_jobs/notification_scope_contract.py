@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, TypeAdapter
 
 NOTIFICATION_SCOPE_PROTOCOL = "aap-jobs-notification-scope-facts/v1"
-NOTIFICATION_SCOPE_RELATION = "aap_jobs_v1.notification_scope_facts"
+NOTIFICATION_SCOPE_RELATION = "yoao_jobs_v1.notification_scope_facts"
 NOTIFICATION_SCOPE_COLUMNS = ("id", "kind", "scope_project_id")
 
 

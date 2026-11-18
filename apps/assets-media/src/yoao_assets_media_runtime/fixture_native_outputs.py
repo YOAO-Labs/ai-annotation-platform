@@ -74,7 +74,9 @@ def _dsn():
 async def _verified_connection(business, dsn=None):
     import asyncpg
 
-    connection = await asyncpg.connect(dsn if dsn is not None else _dsn(), command_timeout=30)
+    connection = await asyncpg.connect(
+        dsn if dsn is not None else _dsn(), command_timeout=30
+    )
     try:
         database = await connection.fetchval("SELECT current_database()")
         if not database.lower().endswith(("_test", "_e2e")):
@@ -117,8 +119,14 @@ def load_target_file(selector, database_url, role_prefix):
             raise ValueError("invalid target file")
         target = json.loads(encoded)
         fields = {
-            "schema", "run_id", "endpoint", "bucket", "storage_identity",
-            "receipt_sha256", "access_key", "secret_key",
+            "schema",
+            "run_id",
+            "endpoint",
+            "bucket",
+            "storage_identity",
+            "receipt_sha256",
+            "access_key",
+            "secret_key",
         }
         if not isinstance(target, dict) or set(target) != fields:
             raise ValueError("invalid target file")
@@ -137,19 +145,31 @@ def load_target_file(selector, database_url, role_prefix):
             or endpoint.query
             or endpoint.fragment
             or target["bucket"] != f"fixture-media-{run_id.hex}"
-            or not all(isinstance(target[name], str) and target[name] for name in (
-                "access_key", "secret_key",
-            ))
+            or not all(
+                isinstance(target[name], str) and target[name]
+                for name in (
+                    "access_key",
+                    "secret_key",
+                )
+            )
             or not isinstance(target["receipt_sha256"], str)
             or re.fullmatch(r"[0-9a-f]{64}", target["receipt_sha256"]) is None
-            or target["storage_identity"] != hashlib.sha256(
+            or target["storage_identity"]
+            != hashlib.sha256(
                 json.dumps([target["endpoint"], target["bucket"]]).encode()
             ).hexdigest()
         ):
             raise ValueError("invalid target file")
         endpoint.port
         return target
-    except (OSError, ValueError, TypeError, UnicodeError, AttributeError, RecursionError):
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        UnicodeError,
+        AttributeError,
+        RecursionError,
+    ):
         raise RuntimeError("fixture native output target is unavailable") from None
 
 
@@ -211,25 +231,40 @@ def verify_object(client, bucket, key, digest, size, etag, version):
 async def native_producer_ready(database, family):
     """Validate the process's private target and same-server execution identity."""
     dsn = _dsn()
-    target = load_target("AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE", dsn, "aap_fixture_media_")
+    target = load_target(
+        "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE", dsn, "aap_fixture_media_"
+    )
     run_id = uuid.UUID(target["run_id"])
     async with database.fixture_business_connection() as business:
         connection = await _verified_connection(business, dsn)
     try:
         observed = await connection.fetchval(
-            "SELECT aap_assets_v1.fixture_native_producer_ready($1::uuid)", run_id
+            "SELECT yoao_assets_v1.fixture_native_producer_ready($1::uuid)", run_id
         )
         if isinstance(observed, str):
             observed = json.loads(observed)
         if (
             not isinstance(observed, dict)
-            or set(observed) != {
-                "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
-                "database_oid", "database_owner_marker",
+            or set(observed)
+            != {
+                "run_id",
+                "endpoint",
+                "bucket",
+                "storage_identity",
+                "receipt_sha256",
+                "database_oid",
+                "database_owner_marker",
             }
-            or any(observed[name] != target[name] for name in (
-                "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
-            ))
+            or any(
+                observed[name] != target[name]
+                for name in (
+                    "run_id",
+                    "endpoint",
+                    "bucket",
+                    "storage_identity",
+                    "receipt_sha256",
+                )
+            )
             or type(observed["database_oid"]) is not int
             or observed["database_oid"] <= 0
             or not isinstance(observed["database_owner_marker"], str)
@@ -237,7 +272,7 @@ async def native_producer_ready(database, family):
         ):
             raise RuntimeError("fixture native producer identity changed")
         values = await connection.fetchval(
-            "SELECT aap_assets_v1.fixture_native_job_candidates($1::text)", family
+            "SELECT yoao_assets_v1.fixture_native_job_candidates($1::text)", family
         )
         if not isinstance(values, list):
             raise RuntimeError("fixture native queue changed")
@@ -254,9 +289,11 @@ async def native_job_candidates(database, family):
         connection = await _verified_connection(business)
     try:
         values = await connection.fetchval(
-            "SELECT aap_assets_v1.fixture_native_job_candidates($1::text)", family
+            "SELECT yoao_assets_v1.fixture_native_job_candidates($1::text)", family
         )
-        if not isinstance(values, list) or any(not isinstance(value, uuid.UUID) for value in values):
+        if not isinstance(values, list) or any(
+            not isinstance(value, uuid.UUID) for value in values
+        ):
             raise RuntimeError("fixture native queue changed")
         return values
     finally:
@@ -285,12 +322,15 @@ async def native_execution(database, family, job_id):
     token = None
     try:
         await connection.fetchval(
-            "SELECT pg_catalog.pg_advisory_lock(pg_catalog.hashtextextended($1,0))", label
+            "SELECT pg_catalog.pg_advisory_lock(pg_catalog.hashtextextended($1,0))",
+            label,
         )
         locked = True
         outcome = await connection.fetchval(
-            "SELECT aap_assets_v1.begin_fixture_native_execution($1::text,$2::uuid,$3::uuid)",
-            family, job_id, execution_id,
+            "SELECT yoao_assets_v1.begin_fixture_native_execution($1::text,$2::uuid,$3::uuid)",
+            family,
+            job_id,
+            execution_id,
         )
         if outcome in {"blocked", "ordinary"}:
             yield False
@@ -304,10 +344,13 @@ async def native_execution(database, family, job_id):
             exc.storage_operation_unsettled = True
             raise
         else:
-            if await connection.fetchval(
-                "SELECT aap_assets_v1.finish_fixture_native_execution($1::uuid)",
-                execution_id,
-            ) is not True:
+            if (
+                await connection.fetchval(
+                    "SELECT yoao_assets_v1.finish_fixture_native_execution($1::uuid)",
+                    execution_id,
+                )
+                is not True
+            ):
                 error = RuntimeError("fixture native execution is unsettled")
                 error.storage_operation_unsettled = True
                 raise error
@@ -320,10 +363,13 @@ async def native_execution(database, family, job_id):
             errors = []
             if locked:
                 try:
-                    if await connection.fetchval(
-                        "SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended($1,0))",
-                        label,
-                    ) is not True:
+                    if (
+                        await connection.fetchval(
+                            "SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended($1,0))",
+                            label,
+                        )
+                        is not True
+                    ):
                         raise RuntimeError("fixture native execution lock was lost")
                 except BaseException as exc:
                     errors.append(exc)
@@ -332,7 +378,9 @@ async def native_execution(database, family, job_id):
             except BaseException as exc:
                 errors.append(exc)
             if errors:
-                raise builtins.BaseExceptionGroup("Native execution cleanup failed", errors)
+                raise builtins.BaseExceptionGroup(
+                    "Native execution cleanup failed", errors
+                )
 
         task = asyncio.create_task(cleanup())
         cancelled = None
@@ -348,14 +396,18 @@ async def native_execution(database, family, job_id):
         except BaseException as error:
             error.storage_operation_unsettled = True
             if failure is not None:
-                combined = builtins.BaseExceptionGroup("Native execution and cleanup failed", [failure, error])
+                combined = builtins.BaseExceptionGroup(
+                    "Native execution and cleanup failed", [failure, error]
+                )
                 combined.storage_operation_unsettled = True
                 raise combined from None
             raise
         if cancelled is not None:
             cancelled.storage_operation_unsettled = True
             if failure is not None:
-                combined = builtins.BaseExceptionGroup("Native execution cancelled while closing", [failure, cancelled])
+                combined = builtins.BaseExceptionGroup(
+                    "Native execution cancelled while closing", [failure, cancelled]
+                )
                 combined.storage_operation_unsettled = True
                 raise combined from None
             raise cancelled
@@ -377,40 +429,53 @@ async def _business_admission(business, family, request, *, scan):
     try:
         pid = await business.fetchval("SELECT pg_catalog.pg_backend_pid()")
         await business.fetchval(
-            "SELECT pg_catalog.pg_advisory_lock_shared(pg_catalog.hashtextextended($1,0))", label
+            "SELECT pg_catalog.pg_advisory_lock_shared(pg_catalog.hashtextextended($1,0))",
+            label,
         )
         locked = True
         if scan:
             accepted = await connection.fetchval(
-                "SELECT aap_assets_v1.begin_fixture_native_scan("
+                "SELECT yoao_assets_v1.begin_fixture_native_scan("
                 "$1::uuid,$2::uuid,$3::bigint,$4::uuid,$5::integer,$6::uuid)",
-                execution_id, job_id, request.generation, request.lease_token, pid, token,
+                execution_id,
+                job_id,
+                request.generation,
+                request.lease_token,
+                pid,
+                token,
             )
             if accepted == "sealed":
                 raise FixtureNativeRunSealed()
             accepted = accepted == "started"
         else:
             accepted = await connection.fetchval(
-                "SELECT aap_assets_v1.begin_fixture_native_claim($1::uuid,$2::integer,$3::uuid)",
-                execution_id, pid, token,
+                "SELECT yoao_assets_v1.begin_fixture_native_claim($1::uuid,$2::integer,$3::uuid)",
+                execution_id,
+                pid,
+                token,
             )
         if accepted is not True:
             raise RuntimeError("fixture native business admission denied")
         admitted = True
         yield
         finish = "finish_fixture_native_scan" if scan else "finish_fixture_native_claim"
-        if await connection.fetchval(
-            f"SELECT aap_assets_v1.{finish}($1::uuid,$2::uuid)",
-            execution_id, token,
-        ) is not True:
+        if (
+            await connection.fetchval(
+                f"SELECT yoao_assets_v1.{finish}($1::uuid,$2::uuid)",
+                execution_id,
+                token,
+            )
+            is not True
+        ):
             raise RuntimeError("fixture native claim is unsettled")
     except BaseException as exc:
         cause = getattr(exc, "orig", exc)
         if admitted and scan and getattr(cause, "sqlstate", None) == "APF01":
             try:
                 finished = await connection.fetchval(
-                    "SELECT aap_assets_v1.finish_fixture_native_scan($1::uuid,$2::uuid)",
-                    execution_id, token,
+                    "SELECT yoao_assets_v1.finish_fixture_native_scan($1::uuid,$2::uuid)",
+                    execution_id,
+                    token,
                 )
                 if finished is not True:
                     raise RuntimeError("fixture native scan is unsettled")
@@ -424,10 +489,12 @@ async def _business_admission(business, family, request, *, scan):
         raise
     finally:
         if locked:
-            task = asyncio.create_task(business.fetchval(
-                "SELECT pg_catalog.pg_advisory_unlock_shared(pg_catalog.hashtextextended($1,0))",
-                label,
-            ))
+            task = asyncio.create_task(
+                business.fetchval(
+                    "SELECT pg_catalog.pg_advisory_unlock_shared(pg_catalog.hashtextextended($1,0))",
+                    label,
+                )
+            )
             failure = sys.exception()
             cancelled = None
             while not task.done():
@@ -443,17 +510,22 @@ async def _business_admission(business, family, request, *, scan):
             except BaseException as error:
                 error.storage_operation_unsettled = True
                 if failure is not None:
-                    combined = builtins.BaseExceptionGroup("Native claim and unlock failed", [failure, error])
+                    combined = builtins.BaseExceptionGroup(
+                        "Native claim and unlock failed", [failure, error]
+                    )
                     combined.storage_operation_unsettled = True
                     raise combined from None
                 raise
             if cancelled is not None:
                 cancelled.storage_operation_unsettled = True
                 if failure is not None:
-                    combined = builtins.BaseExceptionGroup("Native claim cancelled while unlocking", [failure, cancelled])
+                    combined = builtins.BaseExceptionGroup(
+                        "Native claim cancelled while unlocking", [failure, cancelled]
+                    )
                     combined.storage_operation_unsettled = True
                     raise combined from None
                 raise cancelled
+
 
 def claim_admission(business, family, request):
     return _business_admission(business, family, request, scan=False)
@@ -461,7 +533,6 @@ def claim_admission(business, family, request):
 
 def scan_admission(business, family, request):
     return _business_admission(business, family, request, scan=True)
-
 
 
 @asynccontextmanager
@@ -482,7 +553,7 @@ async def source_admission(business, family, request):
         )
         locked = True
         outcome = await connection.fetchval(
-            "SELECT aap_assets_v1.begin_fixture_native_source_admission("
+            "SELECT yoao_assets_v1.begin_fixture_native_source_admission("
             "$1::text,$2::uuid,$3::bigint,$4::uuid,$5::integer,$6::uuid)",
             family,
             request.job_id,
@@ -505,11 +576,13 @@ async def source_admission(business, family, request):
             if admitted:
                 try:
                     result = await connection.fetchval(
-                        "SELECT aap_assets_v1.finish_fixture_native_source_admission($1::uuid)",
+                        "SELECT yoao_assets_v1.finish_fixture_native_source_admission($1::uuid)",
                         token,
                     )
                     if result is not True:
-                        raise RuntimeError("fixture native source admission is unsettled")
+                        raise RuntimeError(
+                            "fixture native source admission is unsettled"
+                        )
                 except BaseException as exc:
                     errors.append(exc)
             if locked:
@@ -631,7 +704,7 @@ class NativeFixtureWriter:
             self._prepare_target()
             await self._connect()
             result = await self.connection.fetchval(
-                "SELECT aap_assets_v1.begin_fixture_native_cache_write("
+                "SELECT yoao_assets_v1.begin_fixture_native_cache_write("
                 "$1::text,$2::uuid,$3::bigint,$4::uuid,$5::uuid,$6::uuid,"
                 "$7::text,$8::text,$9::text,$10::text,$11::text,$12::bigint,$13::uuid)",
                 self.family,
@@ -657,7 +730,7 @@ class NativeFixtureWriter:
             if self.connection is None:
                 raise RuntimeError("fixture native cache control is unavailable")
             result = await self.connection.fetchval(
-                "SELECT aap_assets_v1.advance_fixture_native_cache_write("
+                "SELECT yoao_assets_v1.advance_fixture_native_cache_write("
                 "$1::uuid,$2::uuid,$3::text,$4::text,$5::text)",
                 identifier,
                 self.permit.operation_id,
@@ -683,7 +756,9 @@ class NativeFixtureWriter:
                 errors.append(exc)
             self.client = None
         if errors:
-            raise builtins.BaseExceptionGroup("Native fixture writer close failed", errors)
+            raise builtins.BaseExceptionGroup(
+                "Native fixture writer close failed", errors
+            )
 
 
 @asynccontextmanager
@@ -730,7 +805,8 @@ async def output_scope(database, storage, claim, family, permit):
                 raise failure from close_error
             if failure is not None:
                 combined = builtins.BaseExceptionGroup(
-                    "Native fixture output and control close failed", [failure, close_error]
+                    "Native fixture output and control close failed",
+                    [failure, close_error],
                 )
                 combined.storage_operation_unsettled = True
                 raise combined from None
@@ -738,7 +814,8 @@ async def output_scope(database, storage, claim, family, permit):
         if cancelled is not None:
             if failure is not None:
                 combined = builtins.BaseExceptionGroup(
-                    "Native fixture output failed while control closed", [failure, cancelled]
+                    "Native fixture output failed while control closed",
+                    [failure, cancelled],
                 )
                 if getattr(failure, "storage_operation_unsettled", False):
                     combined.storage_operation_unsettled = True

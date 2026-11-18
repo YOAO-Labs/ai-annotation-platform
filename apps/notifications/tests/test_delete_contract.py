@@ -168,7 +168,7 @@ async def test_delete_manager_borrows_session_flush_mode_and_does_not_commit():
     assert (await manager.clear_read(user_id)).deleted == 3
     assert normal.flushes == 2
     for statement, parameters in normal.calls:
-        assert "aap_notifications_v1.delete_command" in statement
+        assert "yoao_notifications_v1.delete_command" in statement
         assert "CAST(:request AS pg_catalog.jsonb)" in statement
         assert "DELETE FROM public.notifications" not in statement
         assert json.loads(parameters["request"])["user_id"] == str(user_id)

@@ -10,12 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 
 JOBS_DISPATCH_PROTOCOL = "aap-jobs-dispatch-ledger/v1"
 JOBS_DISPATCH_FUNCTIONS = {
-    "prepare": "aap_jobs_v1.prepare_dispatch",
-    "claim": "aap_jobs_v1.claim_dispatches",
-    "finish": "aap_jobs_v1.finish_dispatch",
-    "status": "aap_jobs_v1.dispatch_status",
+    "prepare": "yoao_jobs_v1.prepare_dispatch",
+    "claim": "yoao_jobs_v1.claim_dispatches",
+    "finish": "yoao_jobs_v1.finish_dispatch",
+    "status": "yoao_jobs_v1.dispatch_status",
 }
-JOBS_MEDIA_PREPARE_FUNCTION = "aap_jobs_v1.prepare_media_delivery"
+JOBS_MEDIA_PREPARE_FUNCTION = "yoao_jobs_v1.prepare_media_delivery"
 
 DispatchPurpose = Literal["execution", "frame_canvas", "tracker_retirement"]
 DispatchState = Literal["leased", "pending", "submitted", "retired"]

@@ -84,7 +84,7 @@ async function verifyDeliveryReadRole() {
         "pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') AS can_execute " +
         "FROM pg_catalog.pg_proc AS p " +
         "JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname='aap_notifications_v1' " +
+        "WHERE n.nspname='yoao_notifications_v1' " +
         "AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') " +
         "ORDER BY p.proname, arguments",
     );
@@ -107,7 +107,7 @@ async function verifyDeliveryReadRole() {
     }
 
     const notificationResult = await client.query(
-      "SELECT * FROM aap_notifications_v1.read_notification($1::uuid)",
+      "SELECT * FROM yoao_notifications_v1.read_notification($1::uuid)",
       [notificationId],
     );
     assert.equal(notificationResult.rows.length, 1);
@@ -120,7 +120,7 @@ async function verifyDeliveryReadRole() {
     assert.deepEqual(notification.payload, { read_relation: true });
 
     const terminal = await client.query(
-      "SELECT aap_notifications_v1.find_terminal_notification(" +
+      "SELECT yoao_notifications_v1.find_terminal_notification(" +
         "$1::uuid,'job.completed',$2::uuid) AS id",
       [userId, randomUUID()],
     );
@@ -128,7 +128,7 @@ async function verifyDeliveryReadRole() {
 
     const jobs = await client.query(
       "SELECT id, scope_project_id, kind FROM " +
-        "aap_notifications_v1.delivery_job_scopes($1::uuid[])",
+        "yoao_notifications_v1.delivery_job_scopes($1::uuid[])",
       [jobId === undefined ? [] : [jobId]],
     );
     if (jobId === undefined) {
@@ -150,7 +150,7 @@ async function verifyDeliveryReadRole() {
       "delivery_super_pairs",
     ]) {
       const result = await client.query(
-        `SELECT project_id, user_id FROM aap_notifications_v1.${name}($1::pg_catalog.jsonb)`,
+        `SELECT project_id, user_id FROM yoao_notifications_v1.${name}($1::pg_catalog.jsonb)`,
         [pairInput],
       );
       const pairs = result.rows
@@ -166,7 +166,7 @@ async function verifyDeliveryReadRole() {
 
     await assert.rejects(
       client.query(
-        "SELECT * FROM aap_notifications_v1.delivery_member_pairs($1::pg_catalog.jsonb)",
+        "SELECT * FROM yoao_notifications_v1.delivery_member_pairs($1::pg_catalog.jsonb)",
         ['[{"project_id":1,"user_id":2}]'],
       ),
       (error) => error.code === "22023",
@@ -175,13 +175,13 @@ async function verifyDeliveryReadRole() {
     async function assertDenied(statement, parameters = []) {
       await assert.rejects(client.query(statement, parameters), (error) => error.code === "42501");
     }
-    await assertDenied("SELECT id FROM aap_notifications_v1.notification_facts LIMIT 0");
+    await assertDenied("SELECT id FROM yoao_notifications_v1.notification_facts LIMIT 0");
     await assertDenied("SELECT id FROM public.notifications LIMIT 0");
     await assertDenied("SELECT id FROM public.async_jobs LIMIT 0");
-    await assertDenied("SELECT id FROM aap_jobs_v1.notification_scope_facts LIMIT 0");
-    await assertDenied("SELECT id FROM aap_identity_v1.account_profiles LIMIT 0");
+    await assertDenied("SELECT id FROM yoao_jobs_v1.notification_scope_facts LIMIT 0");
+    await assertDenied("SELECT id FROM yoao_identity_v1.account_profiles LIMIT 0");
     await assertDenied(
-      "UPDATE aap_notifications_v1.notification_facts SET read_at=now() WHERE id=$1::uuid",
+      "UPDATE yoao_notifications_v1.notification_facts SET read_at=now() WHERE id=$1::uuid",
       [notificationId],
     );
     await assertDenied("DELETE FROM public.notifications WHERE id=$1::uuid", [notificationId]);

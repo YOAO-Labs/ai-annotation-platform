@@ -124,9 +124,9 @@ async def test_account_policy_checks_exact_function_grants(monkeypatch):
     policy = await AccountPostgresData("postgresql://account").account_policy()
     assert policy.protocol == "aap-identity-accounts-policy/v1"
     assert connection.calls[1][1][0] == [
-        "aap_identity_accounts_v1.account_policy()",
-        "aap_identity_accounts_v1.prepare_account_command(jsonb)",
-        "aap_identity_accounts_v1.apply_account_command(jsonb)",
+        "yoao_identity_accounts_v1.account_policy()",
+        "yoao_identity_accounts_v1.prepare_account_command(jsonb)",
+        "yoao_identity_accounts_v1.apply_account_command(jsonb)",
     ]
     assert connection.committed and connection.closed
 

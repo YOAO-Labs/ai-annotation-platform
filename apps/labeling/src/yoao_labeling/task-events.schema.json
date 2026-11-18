@@ -349,6 +349,6 @@
   "required": ["schema", "ok", "request", "data"],
   "title": "_TaskEventReply",
   "type": "object",
-  "x-postgresql-functions": ["aap_labeling_v1.task_event_command(jsonb)"],
-  "x-postgresql-relations": ["aap_labeling_v1.task_event_facts"]
+  "x-postgresql-functions": ["yoao_labeling_v1.task_event_command(jsonb)"],
+  "x-postgresql-relations": ["yoao_labeling_v1.task_event_facts"]
 }

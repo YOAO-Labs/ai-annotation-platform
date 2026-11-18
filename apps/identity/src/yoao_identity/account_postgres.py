@@ -35,7 +35,7 @@ class AccountPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_accounts_v1.prepare_account_command($1::jsonb)",
+                "SELECT yoao_identity_accounts_v1.prepare_account_command($1::jsonb)",
                 encoded,
             )
             result = json.loads(raw) if isinstance(raw, str) else raw
@@ -56,7 +56,7 @@ class AccountPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_accounts_v1.apply_account_command($1::jsonb)",
+                "SELECT yoao_identity_accounts_v1.apply_account_command($1::jsonb)",
                 encoded,
             )
             result = json.loads(raw) if isinstance(raw, str) else raw
@@ -127,12 +127,12 @@ class AccountPostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_accounts_v1.account_policy()"
+                    "SELECT yoao_identity_accounts_v1.account_policy()"
                 )
                 required = [
-                    "aap_identity_accounts_v1.account_policy()",
-                    "aap_identity_accounts_v1.prepare_account_command(jsonb)",
-                    "aap_identity_accounts_v1.apply_account_command(jsonb)",
+                    "yoao_identity_accounts_v1.account_policy()",
+                    "yoao_identity_accounts_v1.prepare_account_command(jsonb)",
+                    "yoao_identity_accounts_v1.apply_account_command(jsonb)",
                 ]
                 allowed = await connection.fetchval(
                     "SELECT bool_and(has_function_privilege(current_user, capability, 'EXECUTE')) "

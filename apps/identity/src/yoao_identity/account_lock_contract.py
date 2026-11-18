@@ -28,7 +28,7 @@ def accepted_api_key_facts_schema() -> dict:
             "lock; no transaction is committed or rolled back."
         ),
         "x-postgresql-functions": [
-            "aap_identity_v1.read_accepted_api_key_facts(uuid, uuid)"
+            "yoao_identity_v1.read_accepted_api_key_facts(uuid, uuid)"
         ],
         "x-postgresql-result": {
             "type": "array",
@@ -69,7 +69,7 @@ def accepted_api_key_schema() -> dict:
                 "arguments raise SQLSTATE 22023; database errors propagate."
             ),
             "x-postgresql-functions": [
-                "aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])"
+                "yoao_identity_v1.check_accepted_api_key(uuid, uuid, text[])"
             ],
             "x-postgresql-result": {"type": "boolean"},
         }

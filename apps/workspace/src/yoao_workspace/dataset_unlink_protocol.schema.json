@@ -340,16 +340,16 @@
     }
   ],
   "x-postgresql-functions": [
-    "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
-    "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)"
+    "yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+    "yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)"
   ],
   "x-native-capabilities": {
     "protocols": ["aap-dataset-unlink/v1", "aap-dataset-unlink-preview/v1"],
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "functions": [
       {
         "name": "unlink_dataset",
-        "signature": "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+        "signature": "yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
         "arguments": [
           {
             "name": "operation_id",
@@ -383,7 +383,7 @@
       },
       {
         "name": "preview_dataset_unlink",
-        "signature": "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)",
+        "signature": "yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)",
         "arguments": [
           {
             "name": "actor_id",

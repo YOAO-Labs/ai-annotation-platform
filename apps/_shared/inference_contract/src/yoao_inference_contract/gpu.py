@@ -12,7 +12,7 @@ GPU_AUTHORITY_PROTOCOL = "aap-inference-gpu-authority/v1"
 GPU_AUTHORITY_DATA_PROTOCOL = "aap-inference-gpu-native/v1"
 GPU_AUTHORITY_REQUEST_MAX_BYTES = 1024 * 1024
 GPU_AUTHORITY_REPLY_MAX_BYTES = 4 * 1024 * 1024
-GPU_AUTHORITY_NATIVE_SCHEMA = "aap_inference_gpu_v1"
+GPU_AUTHORITY_NATIVE_SCHEMA = "yoao_inference_gpu_v1"
 GPU_AUTHORITY_SCHEMA = GPU_AUTHORITY_NATIVE_SCHEMA
 GPU_COLLECTOR_SCHEMA = "yoao_inference_gpu_collector_v1"
 GPU_COLLECTOR_REQUEST_MAX_BYTES = 1024 * 1024
@@ -36,8 +36,8 @@ GPU_ADMIN_INSTALLATION_QUIESCE_PATH = (
     "/internal/inference/gpu/v1/admin/quiesce-installation"
 )
 GPU_AUTHORITY_NATIVE_FUNCTIONS = (
-    "aap_inference_gpu_v1.gpu_authority_policy()",
-    "aap_inference_gpu_v1.gpu_authority_step(text,text)",
+    "yoao_inference_gpu_v1.gpu_authority_policy()",
+    "yoao_inference_gpu_v1.gpu_authority_step(text,text)",
 )
 GPU_AUTHORITY_NATIVE_ACTIONS = (
     "fence_advance",

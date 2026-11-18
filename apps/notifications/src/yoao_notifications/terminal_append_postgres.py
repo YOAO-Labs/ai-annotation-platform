@@ -20,7 +20,7 @@ class NotificationTerminalAppendPostgresData:
     async def command(self, request: TerminalNotificationRequest) -> Any:
         return await self.session.scalar(
             text(
-                "SELECT aap_notifications_v1.append_job_terminal_notification("
+                "SELECT yoao_notifications_v1.append_job_terminal_notification("
                 "CAST(:request AS pg_catalog.jsonb))"
             ),
             {"request": request.model_dump_json(by_alias=True)},

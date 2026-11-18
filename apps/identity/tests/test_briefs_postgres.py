@@ -148,7 +148,7 @@ async def test_readiness_requires_exact_two_functions_and_no_direct_access():
         Connection(
             extra_functions=[
                 {
-                    "nspname": "aap_workspace_v1",
+                    "nspname": "yoao_workspace_v1",
                     "proname": "unrelated_capability",
                     "args": "uuid",
                 }

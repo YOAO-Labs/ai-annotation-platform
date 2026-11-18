@@ -32,7 +32,7 @@ still lose the row. This path remains best-effort and has no exactly-once
 guarantee. This normalization is limited to middleware HTTP metadata; explicit
 business-audit calls still use the request-context ID directly, so their
 overlength handling remains a separate existing follow-up. Existing narrow
-`aap_audit_v1.record_*` functions remain the cross-owner transaction path.
+`yoao_audit_v1.record_*` functions remain the cross-owner transaction path.
 
 `query_events(jsonb)` provides the fixed global filters used by the super-admin
 list and export endpoints. It returns the matching total before cursor or
@@ -43,7 +43,7 @@ event rows so the API can return 413. The SQLAlchemy adapter follows the
 caller's normal autoflush setting and never commits. Export still appends
 `audit.export` and commits before returning its response stream.
 
-The read-only `aap_audit_v1.audit_events` view publishes the 14 fixed `AuditLog`
+The read-only `yoao_audit_v1.audit_events` view publishes the 14 fixed `AuditLog`
 columns under a security barrier. Its `ip` column remains native PostgreSQL
 `inet`; Python SQLAlchemy therefore sees the same address/network values as the
 previous ORM read, and Node `pg` receives PostgreSQL's text representation.
@@ -86,7 +86,7 @@ abort the caller's transaction. It returns the deleted-row count and grants
 ordinary callers no direct Audit deletes. Forward migration refuses historical
 UUID ownership rows rather than adopting them or inventing event timestamps.
 
-`aap_audit_v1.audit_daily_facts` publishes the existing six-dimension daily
+`yoao_audit_v1.audit_daily_facts` publishes the existing six-dimension daily
 materialization through a read-only security-barrier view. Its row key matches
 the materialized view's unique index, and PostgreSQL `date`, `smallint`, and
 `bigint` types are preserved. The monthly summary reads completed days through
@@ -135,7 +135,7 @@ dedicated LOGIN activation and consolidated runtime acceptance remain pending.
 
 The `yoao-audit-maintenance` one-shot CLI provides `ensure-partitions`,
 `archive-partitions`, and `refresh-daily`. It uses the same fixed
-`aap_audit_v1.maintenance_command(jsonb)` capability as the retained API/Celery
+`yoao_audit_v1.maintenance_command(jsonb)` capability as the retained API/Celery
 adapter and verifies at startup that its database LOGIN can execute only that
 function. It has no HTTP listener, scheduler, queue, or application imports.
 The existing API/Celery binding remains available during migration.

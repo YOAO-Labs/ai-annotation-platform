@@ -26,8 +26,8 @@ from .video_window_checkpoint import (
 SCHEMA = "aap-video-checkpoint-data/v1"
 MAX_BYTES = 2 * 1024 * 1024
 NATIVE_FUNCTIONS = (
-    "aap_jobs_v1.video_execution_step(text,text)",
-    "aap_jobs_v1.video_execution_checkpoint_step(text,text)",
+    "yoao_jobs_v1.video_execution_step(text,text)",
+    "yoao_jobs_v1.video_execution_checkpoint_step(text,text)",
 )
 _AttemptState = Literal[
     "started", "capturing", "captured", "replay_verified", "abandoned"

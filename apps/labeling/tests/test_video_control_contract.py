@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,13 @@ from yoao_labeling.video_control_contract import (
     video_control_schema,
 )
 from yoao_labeling.video_control_data import VideoControlDataClient
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _request():
@@ -242,7 +250,7 @@ def test_video_control_schema_snapshots_match_the_closed_contract():
         root / "apps/labeling/src/yoao_labeling/video-control.schema.json",
         root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.schema.json",
     ):
-        assert json.loads(snapshot.read_text()) == expected
+        assert _current_names(json.loads(snapshot.read_text())) == expected
     assert expected["x-postgresql-functions"] == [
         VIDEO_CONTROL_FUNCTION,
         VIDEO_SEGMENT_LIFECYCLE_FUNCTION,

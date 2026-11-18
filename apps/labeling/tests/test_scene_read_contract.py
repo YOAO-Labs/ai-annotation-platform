@@ -55,8 +55,8 @@ def test_scene_read_contract_rejects_unknown_actions_and_reply_mismatch():
 
 def test_scene_read_schema_has_one_function_only_owner_capability():
     function = scene_read_schema()["x-postgresql-functions"]
-    assert list(function) == ["aap_labeling_v1.scene_read_query(jsonb)"]
-    assert function["aap_labeling_v1.scene_read_query(jsonb)"]["actions"] == [
+    assert list(function) == ["yoao_labeling_v1.scene_read_query(jsonb)"]
+    assert function["yoao_labeling_v1.scene_read_query(jsonb)"]["actions"] == [
         "resolve_primary_link",
         "resolve_task_frames",
         "scene_frame_tasks",

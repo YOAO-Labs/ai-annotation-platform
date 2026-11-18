@@ -20,8 +20,8 @@ from yoao_workspace_contract.wire import ClosedModel, _json_bytes
 
 PROTOCOL = "aap-workspace-scale-seed/v1"
 SOURCE_GUARD_PROTOCOL = "aap-workspace-scale-source-guard/v1"
-NATIVE_SCHEMA = "aap_workspace_v1"
-ASSETS_NATIVE_SCHEMA = "aap_assets_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
+ASSETS_NATIVE_SCHEMA = "yoao_assets_v1"
 
 
 class _ScaleSeedModel(ClosedModel):
@@ -254,9 +254,9 @@ def scale_seed_schema() -> dict[str, Any]:
         "owner_domains": {
             "Workspace": NATIVE_SCHEMA,
             "Assets": ASSETS_NATIVE_SCHEMA,
-            "Jobs": "aap_jobs_v1",
-            "Learning": "aap_learning_v1",
-            "Labeling": "aap_labeling_v1",
+            "Jobs": "yoao_jobs_v1",
+            "Learning": "yoao_learning_v1",
+            "Labeling": "yoao_labeling_v1",
         },
         "functions": [
             {
@@ -293,36 +293,36 @@ def scale_seed_schema() -> dict[str, Any]:
         "delegated_guards": [
             {
                 "owner_domain": "Learning",
-                "signature": "aap_learning_v1.lock_project_deletion(uuid)",
+                "signature": "yoao_learning_v1.lock_project_deletion(uuid)",
             },
             {
                 "owner_domain": "Learning",
-                "signature": "aap_learning_v1.guard_project_deletion(uuid)",
+                "signature": "yoao_learning_v1.guard_project_deletion(uuid)",
             },
             {
                 "owner_domain": "Labeling",
-                "signature": "aap_labeling_v1.guard_project_video_deletion(uuid)",
+                "signature": "yoao_labeling_v1.guard_project_video_deletion(uuid)",
             },
             {
                 "owner_domain": "Assets",
-                "signature": "aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)",
+                "signature": "yoao_assets_v1._lock_dataset_source_deletion(uuid,uuid)",
                 "private": True,
             },
             {
                 "owner_domain": "Jobs",
-                "signature": "aap_jobs_v1.guard_dataset_source_deletion(uuid)",
+                "signature": "yoao_jobs_v1.guard_dataset_source_deletion(uuid)",
             },
             {
                 "owner_domain": "Learning",
-                "signature": "aap_learning_v1.guard_dataset_source_deletion(uuid,uuid)",
+                "signature": "yoao_learning_v1.guard_dataset_source_deletion(uuid,uuid)",
             },
             {
                 "owner_domain": "Assets",
-                "signature": "aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid,uuid)",
+                "signature": "yoao_assets_v1.guard_dataset_source_auxiliary_retention(uuid,uuid)",
             },
             {
                 "owner_domain": "Labeling",
-                "signature": "aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)",
+                "signature": "yoao_labeling_v1.guard_dataset_source_deletion(uuid,uuid)",
             },
         ],
         "authorization_boundary": (

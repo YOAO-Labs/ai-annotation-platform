@@ -29,10 +29,10 @@ VIDEO_EXECUTION_SCOPE_ACTIONS = frozenset(
     {"policy", "prepare", "reserve", "status", "record"}
 )
 VIDEO_EXECUTION_SCOPE_FUNCTIONS = (
-    "aap_inference_routing_v1.routing_policy()",
-    "aap_inference_routing_v1.routing_step(text,text)",
-    "aap_inference_routing_v1.scope_retirement_step(text,text)",
-    "aap_inference_routing_v1.video_execution_scope_step(text,text)",
+    "yoao_inference_routing_v1.routing_policy()",
+    "yoao_inference_routing_v1.routing_step(text,text)",
+    "yoao_inference_routing_v1.scope_retirement_step(text,text)",
+    "yoao_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 
 

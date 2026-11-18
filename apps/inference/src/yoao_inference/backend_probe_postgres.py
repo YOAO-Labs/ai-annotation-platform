@@ -12,7 +12,7 @@ from yoao_inference_contract.probe import (
     backend_probe_policy_ready,
 )
 
-_SCHEMA = "aap_inference_backend_probe_v1"
+_SCHEMA = "yoao_inference_backend_probe_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.backend_probe_policy()"
 _OPEN_SUBJECT_SQL = f"SELECT {_SCHEMA}.open_backend_probe_subject($1::text, $2::uuid)"
 _FUNCTIONS = {

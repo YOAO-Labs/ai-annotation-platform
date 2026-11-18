@@ -39,14 +39,14 @@ def identity_read_relation_schema() -> dict:
                 "generation or lifecycle fields are published."
             ),
             "x-postgresql-relations": {
-                "aap_identity_v1.account_profiles": {
+                "yoao_identity_v1.account_profiles": {
                     "columns": list(AccountProfile.model_fields),
                     "row": {"$ref": "#/$defs/AccountProfile"},
                     "row_key": ["id"],
                     "read_only": True,
                     "security_barrier": True,
                 },
-                "aap_identity_v1.invitation_audit_targets": {
+                "yoao_identity_v1.invitation_audit_targets": {
                     "columns": list(InvitationAuditTarget.model_fields),
                     "row": {"$ref": "#/$defs/InvitationAuditTarget"},
                     "row_key": ["id"],

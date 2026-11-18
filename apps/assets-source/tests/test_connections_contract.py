@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,6 +30,13 @@ from yoao_assets_source.connections_contract import (
     decode_connection_reply,
     require_connection_scope,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _facts(connection_id=None):
@@ -71,7 +79,7 @@ def test_connection_contract_freezes_nine_native_and_six_public_operations():
         / "apps/api/alembic/sql/0371_assets_owner_main_integration.schema.json"
     )
     if native.exists():
-        assert json.loads(native.read_text()) == expected
+        assert _current_names(json.loads(native.read_text())) == expected
 
 
 def test_connection_reply_rejects_extra_fields_bad_errors_and_wrong_scope():

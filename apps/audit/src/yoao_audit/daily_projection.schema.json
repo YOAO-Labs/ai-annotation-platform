@@ -54,7 +54,7 @@
   ],
   "title": "Audit daily aggregate projection",
   "x-postgresql-functions": {
-    "aap_audit_v1.refresh_audit_bi_mv()": {
+    "yoao_audit_v1.refresh_audit_bi_mv()": {
       "argument_types": [],
       "caller_commit_required": true,
       "concurrent": true,
@@ -66,7 +66,7 @@
     }
   },
   "x-postgresql-relations": {
-    "aap_audit_v1.audit_daily_facts": {
+    "yoao_audit_v1.audit_daily_facts": {
       "column_types": {
         "action": "character varying(64)",
         "actor_role": "character varying",

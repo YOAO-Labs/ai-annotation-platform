@@ -29,7 +29,7 @@ class AuditAppendPostgresData:
             raise ValueError("unsupported audit append protocol")
         reply = await self.session.scalar(
             text(
-                "SELECT aap_audit_v1.append_events(CAST(:request AS pg_catalog.jsonb))"
+                "SELECT yoao_audit_v1.append_events(CAST(:request AS pg_catalog.jsonb))"
             ),
             {"request": request.model_dump_json(by_alias=True)},
         )

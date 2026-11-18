@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 SCENE_TRACK_DOMAIN_PROTOCOL = "aap-labeling-scene-track-domain/v1"
-SCENE_TRACK_DOMAIN_FUNCTION = "aap_labeling_v1.scene_track_domain_command(jsonb)"
+SCENE_TRACK_DOMAIN_FUNCTION = "yoao_labeling_v1.scene_track_domain_command(jsonb)"
 INTERVAL_SOURCES = frozenset({"legacy_envelope", "manual", "imported", "derived"})
 
 

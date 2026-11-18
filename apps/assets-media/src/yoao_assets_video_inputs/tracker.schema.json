@@ -2118,8 +2118,8 @@
   ],
   "x-native": {
     "capture_video_tracker_input": {
-      "namespace": "aap_labeling_v1",
-      "signature": "aap_labeling_v1.capture_video_tracker_input(uuid,uuid,integer)",
+      "namespace": "yoao_labeling_v1",
+      "signature": "yoao_labeling_v1.capture_video_tracker_input(uuid,uuid,integer)",
       "arguments": ["actor_id", "tracker_job_id", "grid_step"],
       "request": "TrackerVideoInputRequest",
       "result": "TrackerVideoInputRecord",
@@ -2128,8 +2128,8 @@
       "private": true
     },
     "read_video_tracker_input": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.read_video_tracker_input(uuid,uuid,uuid)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.read_video_tracker_input(uuid,uuid,uuid)",
       "arguments": ["actor_id", "tracker_job_id", "task_id"],
       "request": "TrackerInputReadRequest",
       "result": "TrackerVideoInputWork",
@@ -2138,8 +2138,8 @@
       "private": true
     },
     "prepare_video_tracker_input": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.prepare_video_tracker_input(uuid,uuid,uuid,uuid,text,text,bigint,jsonb,text)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.prepare_video_tracker_input(uuid,uuid,uuid,uuid,text,text,bigint,jsonb,text)",
       "arguments": [
         "actor_id",
         "tracker_job_id",
@@ -2158,8 +2158,8 @@
       "private": true
     },
     "reference_video_tracker_source": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)",
       "arguments": [
         "actor_id",
         "tracker_job_id",
@@ -2175,8 +2175,8 @@
       "private": true
     },
     "claim_video_tracker_input": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.claim_video_tracker_input(uuid,uuid,integer)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.claim_video_tracker_input(uuid,uuid,integer)",
       "arguments": ["worker_id", "input_id", "lease_seconds"],
       "request": "ClaimVideoInputRequest",
       "result": "ClaimedVideoInput",
@@ -2185,8 +2185,8 @@
       "private": true
     },
     "heartbeat_video_tracker_input": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.heartbeat_video_tracker_input(uuid,bigint,uuid,integer)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.heartbeat_video_tracker_input(uuid,bigint,uuid,integer)",
       "arguments": ["input_id", "generation", "lease_token", "lease_seconds"],
       "request": "HeartbeatVideoInputRequest",
       "result": "VideoInputLease",
@@ -2195,8 +2195,8 @@
       "private": true
     },
     "stage_video_tracker_times": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.stage_video_tracker_times(uuid,bigint,uuid,bigint,jsonb)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.stage_video_tracker_times(uuid,bigint,uuid,bigint,jsonb)",
       "arguments": ["input_id", "generation", "lease_token", "cursor", "entries"],
       "request": "StageVideoTimesRequest",
       "result": "StagedVideoTimes",
@@ -2205,8 +2205,8 @@
       "private": true
     },
     "finish_video_tracker_input": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.finish_video_tracker_input(uuid,bigint,uuid,jsonb)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.finish_video_tracker_input(uuid,bigint,uuid,jsonb)",
       "arguments": ["input_id", "generation", "lease_token", "plan"],
       "request": "FinishVideoInputRequest",
       "result": "VideoInputRecord",
@@ -2215,8 +2215,8 @@
       "private": true
     },
     "fail_video_tracker_input": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.fail_video_tracker_input(uuid,bigint,uuid,text)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.fail_video_tracker_input(uuid,bigint,uuid,text)",
       "arguments": ["input_id", "generation", "lease_token", "error_code"],
       "request": "FailVideoInputRequest",
       "result": "VideoInputRecord",
@@ -2225,8 +2225,8 @@
       "private": true
     },
     "sweep_video_tracker_inputs": {
-      "namespace": "aap_assets_v1",
-      "signature": "aap_assets_v1.sweep_video_tracker_inputs(integer)",
+      "namespace": "yoao_assets_v1",
+      "signature": "yoao_assets_v1.sweep_video_tracker_inputs(integer)",
       "arguments": ["limit"],
       "request": "SweepVideoInputsRequest",
       "result": "SweptVideoInputs",
@@ -2235,8 +2235,8 @@
       "private": true
     },
     "lock_video_tracker_input_for_accept": {
-      "namespace": "aap_labeling_v1",
-      "signature": "aap_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text)",
+      "namespace": "yoao_labeling_v1",
+      "signature": "yoao_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text)",
       "arguments": [
         "actor_id",
         "tracker_job_id",
@@ -2252,8 +2252,8 @@
       "private": true
     },
     "lock_video_tracker_input_for_stage": {
-      "namespace": "aap_labeling_v1",
-      "signature": "aap_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text)",
+      "namespace": "yoao_labeling_v1",
+      "signature": "yoao_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text)",
       "arguments": [
         "actor_id",
         "tracker_job_id",
@@ -2269,8 +2269,8 @@
       "private": true
     },
     "attach_annotation_video_tracker_input_source": {
-      "namespace": "aap_labeling_v1",
-      "signature": "aap_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb)",
+      "namespace": "yoao_labeling_v1",
+      "signature": "yoao_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb)",
       "arguments": ["actor_id", "tracker_job_id", "annotation_id", "evidence"],
       "request": "AttachTrackerVideoInputSourceRequest",
       "result": "TrackerVideoInputPin",
@@ -2279,8 +2279,8 @@
       "private": true
     },
     "copy_annotation_video_tracker_input_sources": {
-      "namespace": "aap_labeling_v1",
-      "signature": "aap_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid)",
+      "namespace": "yoao_labeling_v1",
+      "signature": "yoao_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid)",
       "arguments": ["actor_id", "source_annotation_id", "target_annotation_id"],
       "request": "CopyTrackerVideoInputSourcesRequest",
       "result": "TrackerVideoInputPins",
@@ -2289,8 +2289,8 @@
       "private": true
     },
     "video_tracker_input_referenced": {
-      "namespace": "aap_labeling_v1",
-      "signature": "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+      "namespace": "yoao_labeling_v1",
+      "signature": "yoao_labeling_v1.video_tracker_input_referenced(uuid)",
       "arguments": ["input_id"],
       "request": "TrackerVideoInputReferenceRequest",
       "result": "TrackerVideoInputReferenceStatus",
@@ -2307,7 +2307,7 @@
   },
   "x-workspace-projections": {
     "read_media_video_collaboration_policy": {
-      "signature": "aap_workspace_v1.read_media_video_collaboration_policy(uuid)",
+      "signature": "yoao_workspace_v1.read_media_video_collaboration_policy(uuid)",
       "schema": "aap-workspace-video-collaboration-policy/v1",
       "result": "MediaVideoCollaborationPolicy",
       "owner": "workspace",

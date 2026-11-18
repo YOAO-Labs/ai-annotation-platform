@@ -39,7 +39,7 @@ def notification_read_relation_schema() -> dict:
                 "ordering, pagination and borrowed transaction semantics."
             ),
             "x-postgresql-relations": {
-                "aap_notifications_v1.notification_facts": {
+                "yoao_notifications_v1.notification_facts": {
                     "columns": list(NotificationFact.model_fields),
                     "row_schema": "#",
                     "row_key": ["id"],

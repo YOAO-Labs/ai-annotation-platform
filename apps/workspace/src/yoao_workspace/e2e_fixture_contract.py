@@ -19,7 +19,7 @@ from pydantic import (
 from yoao_workspace_contract.wire import ClosedModel as _ClosedModel, _json_bytes
 
 PROTOCOL = "aap-workspace-e2e-fixtures/v1"
-NATIVE_SCHEMA = "aap_workspace_fixture_v1"
+NATIVE_SCHEMA = "yoao_workspace_fixture_v1"
 
 
 class _FixtureModel(_ClosedModel):
@@ -153,7 +153,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                 "functions": [
                     {
                         "name": "create_project",
-                        "signature": "aap_workspace_fixture_v1.create_project(jsonb)",
+                        "signature": "yoao_workspace_fixture_v1.create_project(jsonb)",
                         "arguments": [
                             {
                                 "name": "p_project",
@@ -175,7 +175,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     },
                     {
                         "name": "create_templates",
-                        "signature": "aap_workspace_fixture_v1.create_templates(jsonb)",
+                        "signature": "yoao_workspace_fixture_v1.create_templates(jsonb)",
                         "arguments": [
                             {
                                 "name": "p_templates",
@@ -200,7 +200,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     },
                     {
                         "name": "guard_project_cleanup",
-                        "signature": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+                        "signature": "yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])",
                         "arguments": [
                             {
                                 "name": "p_project_ids",
@@ -224,7 +224,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     },
                     {
                         "name": "delete_projects",
-                        "signature": "aap_workspace_fixture_v1.delete_projects(uuid[])",
+                        "signature": "yoao_workspace_fixture_v1.delete_projects(uuid[])",
                         "arguments": [
                             {
                                 "name": "p_project_ids",
@@ -248,7 +248,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     },
                     {
                         "name": "delete_templates",
-                        "signature": "aap_workspace_fixture_v1.delete_templates(boolean, text[])",
+                        "signature": "yoao_workspace_fixture_v1.delete_templates(boolean, text[])",
                         "arguments": [
                             {
                                 "name": "p_shared",
@@ -286,7 +286,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                 ),
             },
             "x-postgresql-relations": {
-                "aap_workspace_fixture_v1.templates": {
+                "yoao_workspace_fixture_v1.templates": {
                     "columns": ["id", "display_id"],
                     "row_key": ["id"],
                     "read_only": True,

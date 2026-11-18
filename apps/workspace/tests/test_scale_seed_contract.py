@@ -1,6 +1,7 @@
 """Contract and reply-validation tests for the local scale-seed boundary."""
 
 import json
+import re
 from pathlib import Path
 import uuid
 
@@ -20,6 +21,13 @@ from yoao_workspace.scale_seed_contract import (
     decode_scale_seed_source_guard,
     scale_seed_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _cleanup_reply(*, marker: str, project_ids: list[uuid.UUID], ok: bool = True):
@@ -164,14 +172,14 @@ def test_schema_describes_only_the_fixed_owner_capabilities():
         "Assets",
     ]
     assert [function["signature"] for function in functions] == [
-        "aap_workspace_v1.create_scale_seed_project(uuid, text)",
-        "aap_workspace_v1.ensure_scale_seed_member(uuid, uuid, uuid)",
-        "aap_workspace_v1.guard_scale_seed_cleanup(text)",
-        "aap_workspace_v1.delete_scale_seed_projects(text, uuid[])",
-        "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid, boolean)",
+        "yoao_workspace_v1.create_scale_seed_project(uuid, text)",
+        "yoao_workspace_v1.ensure_scale_seed_member(uuid, uuid, uuid)",
+        "yoao_workspace_v1.guard_scale_seed_cleanup(text)",
+        "yoao_workspace_v1.delete_scale_seed_projects(text, uuid[])",
+        "yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid, boolean)",
     ]
     assert any(
-        guard["signature"] == "aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)"
+        guard["signature"] == "yoao_assets_v1._lock_dataset_source_deletion(uuid,uuid)"
         and guard["private"] is True
         for guard in capabilities["delegated_guards"]
     )
@@ -189,5 +197,11 @@ def test_checked_in_schemas_match_the_contract_descriptor():
         / "api/alembic/sql/0310_workspace_scale_seed.schema.json"
     )
 
-    assert json.loads(package_schema.read_text(encoding="utf-8")) == expected
-    assert json.loads(migration_schema.read_text(encoding="utf-8")) == expected
+    assert (
+        _current_names(json.loads(package_schema.read_text(encoding="utf-8")))
+        == expected
+    )
+    assert (
+        _current_names(json.loads(migration_schema.read_text(encoding="utf-8")))
+        == expected
+    )

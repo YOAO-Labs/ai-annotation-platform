@@ -96,7 +96,7 @@ def create_app(settings=None):
                 login = await connection.fetchval("SELECT session_user")
                 await verify_function_only_role(
                     connection,
-                    schema="aap_notifications_v1",
+                    schema="yoao_notifications_v1",
                     functions=_SOCKET_CAPABILITIES,
                     role=login,
                 )

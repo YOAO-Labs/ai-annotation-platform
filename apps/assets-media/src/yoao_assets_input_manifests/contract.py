@@ -448,7 +448,7 @@ def contract_document() -> dict[str, Any]:
         },
         "x-native": {
             name: {
-                "signature": "aap_assets_v1."
+                "signature": "yoao_assets_v1."
                 + name
                 + "("
                 + ",".join(op.sql_types)

@@ -277,9 +277,9 @@ def test_seed_member_descriptor_freezes_one_function_and_transaction_rules():
     schema = seed_member_schema()
     descriptor = schema["x-native-capabilities"]
     assert descriptor["protocol"] == SEED_MEMBER_PROTOCOL
-    assert descriptor["postgres_schema"] == "aap_workspace_v1"
+    assert descriptor["postgres_schema"] == "yoao_workspace_v1"
     assert [function["signature"] for function in descriptor["functions"]] == [
-        "aap_workspace_v1.write_seed_members(jsonb)"
+        "yoao_workspace_v1.write_seed_members(jsonb)"
     ]
     function = descriptor["functions"][0]
     assert [argument["name"] for argument in function["arguments"]] == ["p_request"]

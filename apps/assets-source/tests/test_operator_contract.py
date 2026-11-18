@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -30,6 +31,13 @@ from yoao_assets_source.operator_contract import (
     operator_contract_document,
     require_operator_scope,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _item(dataset_id, entry):
@@ -62,7 +70,9 @@ def test_operator_contract_is_installed_with_six_exact_native_signatures():
         / "apps/api/alembic/sql/0218_assets_operator.schema.json"
     )
     if native.exists():
-        assert source.read_bytes() == native.read_bytes()
+        assert json.loads(source.read_text()) == _current_names(
+            json.loads(native.read_text())
+        )
 
 
 @pytest.mark.parametrize(

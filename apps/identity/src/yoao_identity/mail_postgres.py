@@ -95,13 +95,13 @@ class MailPostgresData:
             connection = await self._open()
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_recovery_v1.mail_policy()"
+                    "SELECT yoao_identity_recovery_v1.mail_policy()"
                 )
                 required = [
-                    "aap_identity_recovery_v1.mail_policy()",
-                    "aap_identity_recovery_v1.claim_mail(jsonb)",
-                    "aap_identity_recovery_v1.renew_mail(jsonb)",
-                    "aap_identity_recovery_v1.finish_mail(jsonb)",
+                    "yoao_identity_recovery_v1.mail_policy()",
+                    "yoao_identity_recovery_v1.claim_mail(jsonb)",
+                    "yoao_identity_recovery_v1.renew_mail(jsonb)",
+                    "yoao_identity_recovery_v1.finish_mail(jsonb)",
                 ]
                 allowed = await connection.fetchval(
                     "SELECT bool_and(has_function_privilege(current_user, capability, "
@@ -164,7 +164,7 @@ class MailPostgresData:
             return delivery
 
         return await self._execute(
-            "SELECT aap_identity_recovery_v1.claim_mail($1::jsonb)",
+            "SELECT yoao_identity_recovery_v1.claim_mail($1::jsonb)",
             request,
             decode,
         )
@@ -186,7 +186,7 @@ class MailPostgresData:
             return True
 
         return await self._execute(
-            "SELECT aap_identity_recovery_v1.renew_mail($1::jsonb)",
+            "SELECT yoao_identity_recovery_v1.renew_mail($1::jsonb)",
             request,
             decode,
         )
@@ -221,7 +221,7 @@ class MailPostgresData:
             return True
 
         return await self._execute(
-            "SELECT aap_identity_recovery_v1.finish_mail($1::jsonb)",
+            "SELECT yoao_identity_recovery_v1.finish_mail($1::jsonb)",
             request,
             decode,
         )
@@ -266,11 +266,11 @@ class MailSettingsPostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_settings_v1.mail_delivery_policy($1::jsonb)", encoded
+                    "SELECT yoao_settings_v1.mail_delivery_policy($1::jsonb)", encoded
                 )
                 allowed = await connection.fetchval(
                     "SELECT has_function_privilege(current_user, "
-                    "'aap_settings_v1.mail_delivery_policy(jsonb)', 'EXECUTE')"
+                    "'yoao_settings_v1.mail_delivery_policy(jsonb)', 'EXECUTE')"
                 )
                 if allowed is not True:
                     raise IdentityUnavailable()

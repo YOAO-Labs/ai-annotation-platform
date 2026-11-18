@@ -1632,7 +1632,7 @@
       "arguments": ["actor_id", "connection_id", "access"],
       "request": "CaptureConnectionRequest",
       "result": "ConnectionCapture",
-      "signature": "aap_assets_v1.capture_storage_connection(uuid,uuid,text)"
+      "signature": "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)"
     },
     "create_storage_connection": {
       "arguments": [
@@ -1647,37 +1647,37 @@
       ],
       "request": "CreateConnectionNativeRequest",
       "result": "NativeConnectionMutation",
-      "signature": "aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)"
+      "signature": "yoao_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb)"
     },
     "delete_storage_connection": {
       "arguments": ["operation_id", "actor_id", "connection_id", "audit_context"],
       "request": "DeleteConnectionRequest",
       "result": "NativeConnectionMutation",
-      "signature": "aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)"
+      "signature": "yoao_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb)"
     },
     "list_storage_connections": {
       "arguments": ["actor_id", "after_created_at", "after_id", "page_size"],
       "request": "ListConnectionsRequest",
       "result": "NativeConnectionsPage",
-      "signature": "aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer)"
+      "signature": "yoao_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer)"
     },
     "read_storage_connection": {
       "arguments": ["actor_id", "connection_id"],
       "request": "ReadConnectionRequest",
       "result": "NativeConnectionRead",
-      "signature": "aap_assets_v1.read_storage_connection(uuid,uuid)"
+      "signature": "yoao_assets_v1.read_storage_connection(uuid,uuid)"
     },
     "read_storage_connection_policy": {
       "arguments": ["actor_id", "fallback_allowlist"],
       "request": "ConnectionPolicyRequest",
       "result": "ConnectionPolicy",
-      "signature": "aap_assets_v1.read_storage_connection_policy(uuid,jsonb)"
+      "signature": "yoao_assets_v1.read_storage_connection_policy(uuid,jsonb)"
     },
     "read_storage_connection_receipt": {
       "arguments": ["operation_id", "actor_id", "action", "connection_id", "intent"],
       "request": "ConnectionReceiptRequest",
       "result": "ConnectionReceiptLookup",
-      "signature": "aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)"
+      "signature": "yoao_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb)"
     },
     "record_storage_connection_test": {
       "arguments": [
@@ -1692,7 +1692,7 @@
       ],
       "request": "RecordConnectionTestRequest",
       "result": "ConnectionProbeReceipt",
-      "signature": "aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)"
+      "signature": "yoao_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)"
     },
     "update_storage_connection_authorized": {
       "arguments": [
@@ -1712,7 +1712,7 @@
       ],
       "request": "UpdateConnectionAuthorizedRequest",
       "result": "NativeConnectionMutation",
-      "signature": "aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)"
+      "signature": "yoao_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)"
     }
   },
   "operations": {
@@ -1758,7 +1758,7 @@
       "arguments": ["connection_id", "actor_id", "api_key_id", "required_scopes"],
       "request": "BeginConnectionProbeRequest",
       "result": "ConnectionProbeLease",
-      "signature": "aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])"
+      "signature": "yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])"
     },
     "finish_connection_probe": {
       "arguments": [
@@ -1772,7 +1772,7 @@
       ],
       "request": "FinishConnectionProbeRequest",
       "result": "ConnectionProbeFinish",
-      "signature": "aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)"
+      "signature": "yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)"
     }
   },
   "schema": "aap-assets-connections/v1",

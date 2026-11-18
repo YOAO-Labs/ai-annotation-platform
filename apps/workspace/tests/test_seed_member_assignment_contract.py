@@ -146,9 +146,9 @@ def test_assignment_schema_freezes_receipt_native_signature_and_behavior():
 
     assert schema["$id"] == SEED_MEMBER_ASSIGNMENT_PROTOCOL
     assert descriptor["protocol"] == SEED_MEMBER_ASSIGNMENT_PROTOCOL
-    assert descriptor["postgres_schema"] == "aap_workspace_v1"
+    assert descriptor["postgres_schema"] == "yoao_workspace_v1"
     assert function["signature"] == (
-        "aap_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)"
+        "yoao_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)"
     )
     assert [argument["name"] for argument in function["arguments"]] == [
         "p_member_id",

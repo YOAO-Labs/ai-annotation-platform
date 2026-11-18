@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +18,13 @@ from yoao_identity.role_audit_contract import (
     RoleAuditSchemaCapabilities,
     role_audit_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen installer copies through the current namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def test_account_row_preserves_unknown_roles_and_nullable_diagnostics():
@@ -159,7 +169,6 @@ def test_schema_freezes_all_three_read_relations_and_nullable_fields():
 
 def test_role_audit_schema_files_match():
     import json
-    from pathlib import Path
     import yoao_identity.role_audit_contract as contract
 
     expected = contract.role_audit_schema()
@@ -171,8 +180,12 @@ def test_role_audit_schema_files_match():
     )
     repository = Path(__file__).resolve().parents[3]
     assert (
-        json.loads(
-            (repository / "infra/docker/identity-role-audit.schema.json").read_text()
+        _current_names(
+            json.loads(
+                (
+                    repository / "infra/docker/identity-role-audit.schema.json"
+                ).read_text()
+            )
         )
         == expected
     )

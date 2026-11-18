@@ -110,7 +110,7 @@ async def test_list_call_uses_frozen_argument_order_and_decodes_json_text() -> N
 
     assert result.total == 1
     sql, args = connection.calls[0]
-    assert "aap_assets_v1.list_catalog_datasets" in sql
+    assert "yoao_assets_v1.list_catalog_datasets" in sql
     assert args == (actor_id, "road%", "lidar", False, 25, 5)
     assert connection.transaction_events == ["commit"]
 
@@ -140,7 +140,7 @@ async def test_create_passes_canonical_default_payload_and_maps_typed_error() ->
     )
     assert isinstance(result, DatasetMutationResult)
     sql, args = connection.calls[0]
-    assert "aap_assets_v1.create_catalog_dataset" in sql
+    assert "yoao_assets_v1.create_catalog_dataset" in sql
     assert args[:2] == (operation_id, actor_id)
     assert args[2] == {
         "name": "catalog",
@@ -316,7 +316,7 @@ async def test_association_read_calls_use_exact_argument_order_and_envelope() ->
     )
 
     assert dataset_result.dataset_id == dataset_id
-    assert "aap_assets_v1.list_dataset_projects" in dataset_projects.calls[0][0]
+    assert "yoao_assets_v1.list_dataset_projects" in dataset_projects.calls[0][0]
     assert dataset_projects.calls[0][1] == (actor_id, dataset_id)
 
     project_datasets = _Connection(
@@ -332,7 +332,7 @@ async def test_association_read_calls_use_exact_argument_order_and_envelope() ->
     )
 
     assert project_result.project_id == project_id
-    assert "aap_assets_v1.list_project_datasets" in project_datasets.calls[0][0]
+    assert "yoao_assets_v1.list_project_datasets" in project_datasets.calls[0][0]
     assert project_datasets.calls[0][1] == (actor_id, project_id)
 
 
@@ -423,7 +423,7 @@ async def test_spatial_calibration_binding_preserves_the_frozen_native_argument_
 
     assert result.state.dataset_item_id == item_id
     sql, args = connection.calls[0]
-    assert "aap_assets_v1.update_spatial_calibration" in sql
+    assert "yoao_assets_v1.update_spatial_calibration" in sql
     assert args == (
         operation_id,
         actor_id,
@@ -484,6 +484,6 @@ async def test_dataset_axis_binding_passes_null_axis_in_frozen_argument_order():
 
     assert result.axis_convention is None
     sql, args = connection.calls[0]
-    assert "aap_assets_v1.set_spatial_dataset_axis" in sql
+    assert "yoao_assets_v1.set_spatial_dataset_axis" in sql
     assert args == (operation_id, dataset_id, None)
     assert connection.transaction_events == ["commit"]

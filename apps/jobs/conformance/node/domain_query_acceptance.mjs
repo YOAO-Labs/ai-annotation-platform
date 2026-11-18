@@ -157,13 +157,13 @@ async function main() {
         "pg_catalog.acldefault('f',p.proowner))) AS acl " +
         "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute " +
         "FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n " +
-        "ON n.oid=p.pronamespace WHERE n.nspname='aap_jobs_v1' " +
+        "ON n.oid=p.pronamespace WHERE n.nspname='yoao_jobs_v1' " +
         "AND p.proname = ANY($1::pg_catalog.text[]) ORDER BY p.proname",
       [functionNames],
     );
     assert.equal(catalog.rows.length, 5);
     for (const row of catalog.rows) {
-      const signature = `aap_jobs_v1.${row.proname}`;
+      const signature = `yoao_jobs_v1.${row.proname}`;
       const expected = schema["x-postgresql-functions"][signature];
       assert.ok(expected);
       assert.equal(normalize(row.arguments), normalize(expected.arguments));
@@ -180,14 +180,14 @@ async function main() {
     await client.query("BEGIN");
     inTransaction = true;
     const lock = await client.query(
-      "SELECT aap_jobs_v1.lock_cross_frame_singleflight($1::pg_catalog.uuid, $2::pg_catalog.text)",
+      "SELECT yoao_jobs_v1.lock_cross_frame_singleflight($1::pg_catalog.uuid, $2::pg_catalog.text)",
       [actorId, singleflightKey],
     );
     assert.equal(lock.fields[0].dataTypeID, 2278);
 
     phase = "active cross-frame result";
     const active = await client.query(
-      "SELECT * FROM aap_jobs_v1.active_cross_frame_job($1::pg_catalog.uuid, $2::pg_catalog.text)",
+      "SELECT * FROM yoao_jobs_v1.active_cross_frame_job($1::pg_catalog.uuid, $2::pg_catalog.text)",
       [actorId, singleflightKey],
     );
     assertJobRowFields(active);
@@ -200,7 +200,7 @@ async function main() {
 
     phase = "cross-frame page and count";
     const page = await client.query(
-      "SELECT * FROM aap_jobs_v1.cross_frame_job_page(" +
+      "SELECT * FROM yoao_jobs_v1.cross_frame_job_page(" +
         "$1::pg_catalog.uuid, $2::pg_catalog.text, $3::pg_catalog.int4)",
       [actorId, sceneId, 50],
     );
@@ -216,7 +216,7 @@ async function main() {
       assert.equal(typeof row.updated_at, "string");
     }
     const count = await client.query(
-      "SELECT aap_jobs_v1.cross_frame_job_count($1::pg_catalog.uuid, $2::pg_catalog.text)",
+      "SELECT yoao_jobs_v1.cross_frame_job_count($1::pg_catalog.uuid, $2::pg_catalog.text)",
       [actorId, sceneId],
     );
     assert.equal(count.fields[0].dataTypeID, 20);
@@ -225,7 +225,7 @@ async function main() {
 
     phase = "latest batch prediction tuples";
     const latest = await client.query(
-      "SELECT * FROM aap_jobs_v1.latest_batch_prediction_times($1::pg_catalog.uuid[])",
+      "SELECT * FROM yoao_jobs_v1.latest_batch_prediction_times($1::pg_catalog.uuid[])",
       [projectIds],
     );
     assert.deepEqual(

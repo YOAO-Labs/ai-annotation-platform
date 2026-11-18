@@ -40,7 +40,7 @@ class ProjectDeletionPostgresData:
             connection,
             schema=NATIVE_SCHEMA,
             functions=_PROJECT_DELETION_FUNCTIONS,
-            role="workspace_project_deletion_client",
+            role="yoao_workspace_project_deletion_client",
         )
         if is_closed():
             raise ValueError("Project deletion requires an open asyncpg connection")

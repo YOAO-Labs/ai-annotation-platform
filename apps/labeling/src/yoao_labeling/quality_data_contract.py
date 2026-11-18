@@ -22,9 +22,9 @@ from .annotation_write_contract import _json_bytes
 
 QUALITY_DATA_PROTOCOL = "aap-labeling-quality-data/v1"
 QUALITY_DATA_FUNCTIONS = (
-    "aap_labeling_v1.mask_qc_command(jsonb)",
-    "aap_labeling_v1.mask_repair_command(jsonb)",
-    "aap_labeling_v1.raster_mask_retention_query(jsonb)",
+    "yoao_labeling_v1.mask_qc_command(jsonb)",
+    "yoao_labeling_v1.mask_repair_command(jsonb)",
+    "yoao_labeling_v1.raster_mask_retention_query(jsonb)",
 )
 
 
@@ -641,7 +641,7 @@ def quality_data_schema() -> dict[str, object]:
     schema["$id"] = QUALITY_DATA_PROTOCOL
     schema["x-postgresql-functions"] = list(QUALITY_DATA_FUNCTIONS)
     schema["x-postgresql-dependencies"] = [
-        "aap_identity_v1.lock_active_actor(uuid)",
-        "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+        "yoao_identity_v1.lock_active_actor(uuid)",
+        "yoao_labeling_v1.video_tracker_input_referenced(uuid)",
     ]
     return schema

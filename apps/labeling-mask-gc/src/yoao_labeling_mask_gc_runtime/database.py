@@ -41,7 +41,7 @@ def prepare_native_call(
     if len(payload) > c.MAX_REQUEST_BYTES:
         raise c.MaskGcFailure("invalid_request")
     return (
-        f"SELECT aap_labeling_v1.{operation}($1::jsonb)",
+        f"SELECT yoao_labeling_v1.{operation}($1::jsonb)",
         (payload.decode("utf-8"),),
     )
 

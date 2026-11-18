@@ -454,7 +454,7 @@ def operator_contract_document() -> dict[str, Any]:
         "x-failure-codes": sorted(OPERATOR_ERROR_CODES),
         "x-native": {
             name: {
-                "signature": f"aap_assets_v1.{name}({OPERATOR_NATIVE_SIGNATURES[name]})",
+                "signature": f"yoao_assets_v1.{name}({OPERATOR_NATIVE_SIGNATURES[name]})",
                 "arguments": list(OPERATOR_NATIVE_ARGUMENTS[name]),
                 "request": pair[0].__name__,
                 "result": pair[1].__name__,

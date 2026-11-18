@@ -18,7 +18,7 @@ from yoao_inference_contract.backend_endpoint import (
 
 from .backend_endpoint import BackendEndpointSnapshot, _snapshot
 
-_SCHEMA = "aap_inference_backend_endpoint_v1"
+_SCHEMA = "yoao_inference_backend_endpoint_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.backend_endpoint_policy()"
 _STATS_FUNCTIONS = {
     ("backend_endpoint_policy", ""),

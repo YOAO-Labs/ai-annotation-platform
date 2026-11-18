@@ -31,7 +31,7 @@ class PlatformRolePostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_platform_roles_v1.execute_platform_role_command($1::jsonb)",
+                "SELECT yoao_identity_platform_roles_v1.execute_platform_role_command($1::jsonb)",
                 encoded,
             )
             return json.loads(raw) if isinstance(raw, str) else raw
@@ -158,10 +158,10 @@ class PlatformRolePostgresData:
                 """
                 SELECT
                     NOT pg_catalog.has_schema_privilege(
-                        current_user, 'aap_identity_platform_roles_v1', 'USAGE'
+                        current_user, 'yoao_identity_platform_roles_v1', 'USAGE'
                     )
                     OR pg_catalog.has_schema_privilege(
-                        current_user, 'aap_identity_platform_roles_v1', 'CREATE'
+                        current_user, 'yoao_identity_platform_roles_v1', 'CREATE'
                     )
                     OR pg_catalog.has_schema_privilege(
                         current_user, 'public', 'CREATE'
@@ -171,7 +171,7 @@ class PlatformRolePostgresData:
                         FROM pg_catalog.pg_namespace AS namespace
                         WHERE namespace.nspname NOT IN (
                             'pg_catalog', 'information_schema',
-                            'aap_identity_platform_roles_v1', 'public'
+                            'yoao_identity_platform_roles_v1', 'public'
                         )
                           AND namespace.nspname NOT LIKE 'pg_toast%'
                           AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -294,13 +294,13 @@ class PlatformRolePostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_platform_roles_v1.platform_role_policy()"
+                    "SELECT yoao_identity_platform_roles_v1.platform_role_policy()"
                 )
                 await self._assert_capabilities(
                     connection,
                     {
-                        "aap_identity_platform_roles_v1.platform_role_policy()",
-                        "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
+                        "yoao_identity_platform_roles_v1.platform_role_policy()",
+                        "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
                     },
                 )
                 value = json.loads(raw) if isinstance(raw, str) else raw

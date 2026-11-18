@@ -17,7 +17,7 @@ async function loadContract() {
 
 export async function selfCheck() {
   const contract = await loadContract();
-  const relation = contract["x-postgresql-relations"]?.["aap_jobs_v1.notification_scope_facts"];
+  const relation = contract["x-postgresql-relations"]?.["yoao_jobs_v1.notification_scope_facts"];
   assert.equal(contract.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(contract.$id, "aap-jobs-notification-scope-facts/v1");
   assert.equal(contract.additionalProperties, false);
@@ -73,7 +73,7 @@ async function verifyRelation() {
     const metadata = await client.query(
       "SELECT column_name, data_type, character_maximum_length " +
         "FROM information_schema.columns " +
-        "WHERE table_schema='aap_jobs_v1' AND table_name='notification_scope_facts' " +
+        "WHERE table_schema='yoao_jobs_v1' AND table_name='notification_scope_facts' " +
         "ORDER BY ordinal_position",
     );
     assert.deepEqual(
@@ -90,11 +90,11 @@ async function verifyRelation() {
     );
     const viewOptions = await client.query(
       "SELECT reloptions FROM pg_catalog.pg_class " +
-        "WHERE oid='aap_jobs_v1.notification_scope_facts'::pg_catalog.regclass",
+        "WHERE oid='yoao_jobs_v1.notification_scope_facts'::pg_catalog.regclass",
     );
     assert.ok(viewOptions.rows[0]?.reloptions?.includes("security_barrier=true"));
     const result = await client.query(
-      "SELECT id, kind, scope_project_id FROM aap_jobs_v1.notification_scope_facts WHERE id=$1",
+      "SELECT id, kind, scope_project_id FROM yoao_jobs_v1.notification_scope_facts WHERE id=$1",
       [jobId],
     );
     assert.equal(result.rows.length, 1);
@@ -121,14 +121,14 @@ async function verifyRelation() {
     await assertDenied("UPDATE public.async_jobs SET kind='scope_probe' WHERE id=$1", [jobId]);
     await assertDenied("DELETE FROM public.async_jobs WHERE id=$1", [jobId]);
     await assertDenied(
-      "INSERT INTO aap_jobs_v1.notification_scope_facts (id, kind) VALUES ($1, 'future_probe')",
+      "INSERT INTO yoao_jobs_v1.notification_scope_facts (id, kind) VALUES ($1, 'future_probe')",
       [randomUUID()],
     );
     await assertDenied(
-      "UPDATE aap_jobs_v1.notification_scope_facts SET kind='changed' WHERE id=$1",
+      "UPDATE yoao_jobs_v1.notification_scope_facts SET kind='changed' WHERE id=$1",
       [jobId],
     );
-    await assertDenied("DELETE FROM aap_jobs_v1.notification_scope_facts WHERE id=$1", [jobId]);
+    await assertDenied("DELETE FROM yoao_jobs_v1.notification_scope_facts WHERE id=$1", [jobId]);
     await client.query("ROLLBACK");
   } finally {
     await client.end();

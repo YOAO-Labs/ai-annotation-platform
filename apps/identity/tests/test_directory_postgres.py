@@ -46,12 +46,12 @@ class Connection:
         self.queries.append(query)
         rows = [
             {
-                "nspname": "aap_identity_directory_v1",
+                "nspname": "yoao_identity_directory_v1",
                 "proname": "directory_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_directory_v1",
+                "nspname": "yoao_identity_directory_v1",
                 "proname": "execute_directory_command",
                 "args": "jsonb",
             },
@@ -71,7 +71,7 @@ async def test_transaction_calls_only_the_versioned_owner_function():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_directory_v1.execute_directory_command($1::jsonb)"
+        "yoao_identity_directory_v1.execute_directory_command($1::jsonb)"
         in connection.queries[0]
     )
     assert NATIVE_DIRECTORY_PROTOCOL == command.protocol
@@ -83,8 +83,8 @@ async def test_readiness_requires_exact_callable_directory_functions():
     await DirectoryPostgresData._assert_capabilities(
         connection,
         {
-            "aap_identity_directory_v1.directory_policy()",
-            "aap_identity_directory_v1.execute_directory_command(jsonb)",
+            "yoao_identity_directory_v1.directory_policy()",
+            "yoao_identity_directory_v1.execute_directory_command(jsonb)",
         },
     )
     assert "oidvectortypes" in connection.queries[0]
@@ -101,7 +101,7 @@ async def test_readiness_requires_exact_callable_directory_functions():
     extra = Connection(
         extra_functions=[
             {
-                "nspname": "aap_workspace_v1",
+                "nspname": "yoao_workspace_v1",
                 "proname": "identity_directory_owned_member_ids",
                 "args": "uuid",
             },
@@ -116,8 +116,8 @@ async def test_readiness_requires_exact_callable_directory_functions():
         await DirectoryPostgresData._assert_capabilities(
             extra,
             {
-                "aap_identity_directory_v1.directory_policy()",
-                "aap_identity_directory_v1.execute_directory_command(jsonb)",
+                "yoao_identity_directory_v1.directory_policy()",
+                "yoao_identity_directory_v1.execute_directory_command(jsonb)",
             },
         )
 
@@ -125,8 +125,8 @@ async def test_readiness_requires_exact_callable_directory_functions():
 @pytest.mark.asyncio
 async def test_readiness_rejects_column_table_sequence_and_foreign_schema_access():
     expected = {
-        "aap_identity_directory_v1.directory_policy()",
-        "aap_identity_directory_v1.execute_directory_command(jsonb)",
+        "yoao_identity_directory_v1.directory_policy()",
+        "yoao_identity_directory_v1.execute_directory_command(jsonb)",
     }
     for connection in (
         Connection(relation_access=True),

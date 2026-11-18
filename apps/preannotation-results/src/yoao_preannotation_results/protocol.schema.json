@@ -2473,7 +2473,7 @@
   "x-native-operations": {
     "begin_batch_result": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "BeginBatchResultRequest",
       "result": "BeginBatchResultResult",
       "role": "executor",
@@ -2481,7 +2481,7 @@
     },
     "claim_batch_result_execution": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "ClaimBatchResultExecutionRequest",
       "result": "ClaimBatchResultExecutionResult",
       "role": "executor",
@@ -2489,7 +2489,7 @@
     },
     "finish_batch_result_execution": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "FinishBatchResultExecutionRequest",
       "result": "FinishBatchResultExecutionResult",
       "role": "executor",
@@ -2497,7 +2497,7 @@
     },
     "finish_batch_result_failure": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "FinishBatchResultFailureRequest",
       "result": "FinishBatchResultFailureResult",
       "role": "writer",
@@ -2505,7 +2505,7 @@
     },
     "finish_batch_result_write": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "FinishBatchResultWriteRequest",
       "result": "FinishBatchResultWriteResult",
       "role": "writer",
@@ -2513,7 +2513,7 @@
     },
     "heartbeat_batch_result_execution": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "HeartbeatBatchResultExecutionRequest",
       "result": "HeartbeatBatchResultExecutionResult",
       "role": "executor",
@@ -2521,7 +2521,7 @@
     },
     "lock_batch_result_write": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "LockBatchResultWriteRequest",
       "result": "LockBatchResultWriteResult",
       "role": "writer",
@@ -2529,7 +2529,7 @@
     },
     "mark_batch_result_overwrite": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "MarkBatchResultOverwriteRequest",
       "result": "MarkBatchResultOverwriteResult",
       "role": "executor",
@@ -2537,7 +2537,7 @@
     },
     "put_batch_result_part": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "PutBatchResultPartRequest",
       "result": "PutBatchResultPartResult",
       "role": "executor",
@@ -2545,7 +2545,7 @@
     },
     "read_batch_result": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "ReadBatchResultRequest",
       "result": "ReadBatchResultResult",
       "role": "executor",
@@ -2553,7 +2553,7 @@
     },
     "read_batch_result_execution": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "ReadBatchResultExecutionRequest",
       "result": "ReadBatchResultExecutionResult",
       "role": "executor",
@@ -2561,7 +2561,7 @@
     },
     "release_batch_result_execution": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "ReleaseBatchResultExecutionRequest",
       "result": "ReleaseBatchResultExecutionResult",
       "role": "executor",
@@ -2569,7 +2569,7 @@
     },
     "seal_batch_result": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "SealBatchResultRequest",
       "result": "SealBatchResultResult",
       "role": "executor",
@@ -2577,7 +2577,7 @@
     },
     "skip_batch_result_member": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "SkipBatchResultMemberRequest",
       "result": "SkipBatchResultMemberResult",
       "role": "executor",
@@ -2585,7 +2585,7 @@
     },
     "stage_batch_result_members": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "StageBatchResultMembersRequest",
       "result": "StageBatchResultMembersResult",
       "role": "executor",
@@ -2593,7 +2593,7 @@
     },
     "start_batch_result_execution": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "StartBatchResultExecutionRequest",
       "result": "StartBatchResultExecutionResult",
       "role": "executor",
@@ -2601,7 +2601,7 @@
     },
     "start_batch_result_member": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "StartBatchResultMemberRequest",
       "result": "StartBatchResultMemberResult",
       "role": "executor",

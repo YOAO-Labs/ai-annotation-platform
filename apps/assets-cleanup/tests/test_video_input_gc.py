@@ -172,8 +172,8 @@ async def test_video_factory_uses_only_cleanup_capabilities_and_committed_claims
     assert events[2] == ("delete", claim.prefix)
     assert events[3][1] == (claim.garbage_id, claim.lease_token)
     assert all(
-        "aap_assets_v1.claim_accepted_video_input_garbage" in statement
-        or "aap_assets_v1.complete_accepted_video_input_garbage" in statement
+        "yoao_assets_v1.claim_accepted_video_input_garbage" in statement
+        or "yoao_assets_v1.complete_accepted_video_input_garbage" in statement
         for statement in connection.statements
     )
     cleanup_ops = {

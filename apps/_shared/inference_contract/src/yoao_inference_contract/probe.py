@@ -29,8 +29,8 @@ BACKEND_PROBE_REPLY_MAX_BYTES = 4096
 BACKEND_PROBE_NATIVE_POLICY_SCHEMA = "aap-inference-backend-probe-native/v1"
 BACKEND_PROBE_SUBJECT_PROTOCOL = "aap-inference-backend-probe-subject/v1"
 BACKEND_PROBE_NATIVE_FUNCTIONS = (
-    "aap_inference_backend_probe_v1.backend_probe_policy()",
-    "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+    "yoao_inference_backend_probe_v1.backend_probe_policy()",
+    "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
 )
 _MODALITY_ORDER = ("image", "video", "lidar")
 _NATIVE_POLICY_KEYS = frozenset(

@@ -26,15 +26,15 @@ export async function selfCheck() {
   assert.equal(contract.$id, "aap-notifications-read-relations/v1");
   assert.equal(contract.additionalProperties, false);
   assert.deepEqual(
-    contract["x-postgresql-relations"]["aap_notifications_v1.notification_facts"].columns,
+    contract["x-postgresql-relations"]["yoao_notifications_v1.notification_facts"].columns,
     columns,
   );
   assert.equal(
-    contract["x-postgresql-relations"]["aap_notifications_v1.notification_facts"].read_only,
+    contract["x-postgresql-relations"]["yoao_notifications_v1.notification_facts"].read_only,
     true,
   );
   assert.equal(
-    contract["x-postgresql-relations"]["aap_notifications_v1.notification_facts"].security_barrier,
+    contract["x-postgresql-relations"]["yoao_notifications_v1.notification_facts"].security_barrier,
     true,
   );
   assert.deepEqual(Object.keys(contract.properties), columns);
@@ -62,7 +62,7 @@ async function verifyReadRelation() {
 
     await client.query("BEGIN");
     const result = await client.query(
-      "SELECT * FROM aap_notifications_v1.notification_facts " + "WHERE user_id=$1 AND id=$2",
+      "SELECT * FROM yoao_notifications_v1.notification_facts " + "WHERE user_id=$1 AND id=$2",
       [userId, notificationId],
     );
     assert.equal(result.rows.length, 1);
@@ -73,7 +73,7 @@ async function verifyReadRelation() {
     assert.deepEqual(row.payload, { read_relation: true });
 
     const wrongUser = await client.query(
-      "SELECT id FROM aap_notifications_v1.notification_facts " + "WHERE user_id=$1 AND id=$2",
+      "SELECT id FROM yoao_notifications_v1.notification_facts " + "WHERE user_id=$1 AND id=$2",
       [crypto.randomUUID(), notificationId],
     );
     assert.equal(wrongUser.rows.length, 0);
@@ -87,16 +87,16 @@ async function verifyReadRelation() {
 
     await assertDenied("SELECT id FROM public.notifications LIMIT 1");
     await assertDenied(
-      "INSERT INTO aap_notifications_v1.notification_facts " +
+      "INSERT INTO yoao_notifications_v1.notification_facts " +
         "(id,user_id,type,target_type,target_id,payload) " +
         "VALUES ($1,$2,'read_relation.write','task',$3,'{}'::pg_catalog.jsonb)",
       [crypto.randomUUID(), userId, crypto.randomUUID()],
     );
     await assertDenied(
-      "UPDATE aap_notifications_v1.notification_facts SET read_at=now() WHERE id=$1",
+      "UPDATE yoao_notifications_v1.notification_facts SET read_at=now() WHERE id=$1",
       [notificationId],
     );
-    await assertDenied("DELETE FROM aap_notifications_v1.notification_facts WHERE id=$1", [
+    await assertDenied("DELETE FROM yoao_notifications_v1.notification_facts WHERE id=$1", [
       notificationId,
     ]);
     await client.query("ROLLBACK");

@@ -5,12 +5,22 @@
     "request": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "owner_kind", "owner_id", "producer_kind", "delivery_id", "source", "envelope"],
+      "required": [
+        "schema",
+        "owner_kind",
+        "owner_id",
+        "producer_kind",
+        "delivery_id",
+        "source",
+        "envelope"
+      ],
       "properties": {
         "schema": { "const": "aap-jobs-media-prepare/v1" },
         "owner_kind": { "enum": ["task", "dataset_item"] },
         "owner_id": { "type": "string", "format": "uuid" },
-        "producer_kind": { "enum": ["pyramid", "thumbnail", "task_thumbnail", "video_metadata", "video_derivatives"] },
+        "producer_kind": {
+          "enum": ["pyramid", "thumbnail", "task_thumbnail", "video_metadata", "video_derivatives"]
+        },
         "delivery_id": { "type": "string", "format": "uuid" },
         "source": { "type": "object" },
         "envelope": { "type": "object" }
@@ -58,7 +68,7 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.prepare_media_delivery": {
+    "yoao_jobs_v1.prepare_media_delivery": {
       "arguments": "p_request jsonb",
       "returns": "jsonb",
       "volatility": "volatile",

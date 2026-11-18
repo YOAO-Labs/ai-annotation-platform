@@ -208,5 +208,5 @@
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-labeling-mask-revisions/v1",
-  "x-postgresql-functions": ["aap_labeling_v1.mask_revision_command(jsonb)"]
+  "x-postgresql-functions": ["yoao_labeling_v1.mask_revision_command(jsonb)"]
 }

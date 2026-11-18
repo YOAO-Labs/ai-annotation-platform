@@ -1,9 +1,9 @@
 {
   "protocol": "aap-inference-gpu-authority/v1",
   "native": {
-    "schema": "aap_inference_gpu_v1",
-    "policy_function": "aap_inference_gpu_v1.gpu_authority_policy()",
-    "step_function": "aap_inference_gpu_v1.gpu_authority_step(text,text)",
+    "schema": "yoao_inference_gpu_v1",
+    "policy_function": "yoao_inference_gpu_v1.gpu_authority_policy()",
+    "step_function": "yoao_inference_gpu_v1.gpu_authority_step(text,text)",
     "actions": [
       "fence_advance",
       "fence_token_expiry",

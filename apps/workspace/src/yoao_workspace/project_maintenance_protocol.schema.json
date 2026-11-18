@@ -110,7 +110,7 @@
         "result_model": "ImportProjectReference",
         "result_postgres_type": "jsonb",
         "result_schema_ref": "#/$defs/ImportProjectReference",
-        "signature": "aap_workspace_v1.read_import_project(text)",
+        "signature": "yoao_workspace_v1.read_import_project(text)",
         "transaction_semantics": "Read-only lookup inside the caller's transaction; the caller owns authorization and transaction commit. A missing row returns a null project_id."
       },
       {
@@ -163,7 +163,7 @@
         "result_model": "ImportProjectCreated",
         "result_postgres_type": "jsonb",
         "result_schema_ref": "#/$defs/ImportProjectCreated",
-        "signature": "aap_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)",
+        "signature": "yoao_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)",
         "transaction_semantics": "Insert one Project with the caller-supplied UUID and return its reference; this is not an upsert. The caller owns authorization, the surrounding workflow transaction, and commit. Uniqueness, foreign-key, and length errors remain database errors."
       },
       {
@@ -194,11 +194,11 @@
         "result_model": "PointQualityConfigWrite",
         "result_postgres_type": "jsonb",
         "result_schema_ref": "#/$defs/PointQualityConfigWrite",
-        "signature": "aap_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)",
+        "signature": "yoao_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)",
         "transaction_semantics": "Update the Project configuration in the caller's existing transaction. The caller owns authorization, Project FOR UPDATE, evaluation, Audit, and commit. An equal JSONB value leaves updated_at unchanged; a missing Project raises no_data_found. No compare-and-swap or lock mode is added by this capability."
       }
     ],
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "protocol": "aap-workspace-project-maintenance/v1",
     "transaction_boundary": "The caller owns the surrounding transaction and commit."
   }

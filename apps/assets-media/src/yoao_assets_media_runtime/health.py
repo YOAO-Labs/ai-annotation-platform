@@ -18,7 +18,7 @@ SELECT current_user = session_user
       AND has_schema_privilege(current_user, n.oid, 'CREATE'))
   AND NOT EXISTS (
     SELECT 1 FROM pg_namespace n
-    WHERE n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema','public','aap_assets_v1')
+    WHERE n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema','public','yoao_assets_v1')
       AND has_schema_privilege(current_user, n.oid, 'USAGE'))
   AND NOT EXISTS (
     SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace
@@ -50,19 +50,19 @@ async def check_capabilities(pool, role: str) -> bool:
         return await shared_control(pool, "control")
     wanted_roles = {"control", "system"} if role == "control" else {"worker"}
     expected = {
-        "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
+        "yoao_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
         for name, op in OPERATIONS.items()
         if op.role in wanted_roles
     }
     expected.update(
-        "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
+        "yoao_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
         for name, op in VIDEO_INPUT_OPERATIONS.items()
         if op.role in {"worker", "system"}
     )
     expected.update(
-        "aap_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
+        "yoao_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
         for name, op in TRACKER_OPERATIONS.items()
-        if op.namespace == "aap_assets_v1" and op.role == "worker"
+        if op.namespace == "yoao_assets_v1" and op.role == "worker"
     )
     try:
         async with pool.acquire(timeout=2) as connection:

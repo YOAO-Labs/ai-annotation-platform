@@ -11,31 +11,31 @@ from pydantic import BaseModel, ConfigDict, StrictStr, TypeAdapter
 DELIVERY_READ_PROTOCOL = "aap-notifications-delivery-read/v1"
 DELIVERY_READ_GLOBAL_JOB_KINDS = ("audit_archive", "dataset_import")
 DELIVERY_READ_FUNCTIONS = {
-    "aap_notifications_v1.read_notification": {
+    "yoao_notifications_v1.read_notification": {
         "arguments": "uuid",
-        "returns": "SETOF aap_notifications_v1.notification_facts",
+        "returns": "SETOF yoao_notifications_v1.notification_facts",
     },
-    "aap_notifications_v1.find_terminal_notification": {
+    "yoao_notifications_v1.find_terminal_notification": {
         "arguments": "uuid, text, uuid",
         "returns": "uuid or null",
     },
-    "aap_notifications_v1.delivery_job_scopes": {
+    "yoao_notifications_v1.delivery_job_scopes": {
         "arguments": "uuid[]",
         "returns": "TABLE(id uuid, scope_project_id uuid, kind varchar(40))",
     },
-    "aap_notifications_v1.delivery_member_pairs": {
+    "yoao_notifications_v1.delivery_member_pairs": {
         "arguments": "jsonb pair array",
         "returns": "TABLE(project_id uuid, user_id uuid)",
     },
-    "aap_notifications_v1.delivery_reviewer_pairs": {
+    "yoao_notifications_v1.delivery_reviewer_pairs": {
         "arguments": "jsonb pair array",
         "returns": "TABLE(project_id uuid, user_id uuid)",
     },
-    "aap_notifications_v1.delivery_owner_pairs": {
+    "yoao_notifications_v1.delivery_owner_pairs": {
         "arguments": "jsonb pair array",
         "returns": "TABLE(project_id uuid, user_id uuid)",
     },
-    "aap_notifications_v1.delivery_super_pairs": {
+    "yoao_notifications_v1.delivery_super_pairs": {
         "arguments": "jsonb pair array",
         "returns": "TABLE(project_id uuid, user_id uuid)",
     },

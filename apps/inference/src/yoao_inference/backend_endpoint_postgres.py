@@ -16,7 +16,7 @@ from yoao_inference_contract.backend_endpoint import (
 
 from .backend_endpoint import BackendEndpointUnavailable
 
-_SCHEMA = "aap_inference_backend_endpoint_v1"
+_SCHEMA = "yoao_inference_backend_endpoint_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.backend_endpoint_policy()"
 _OPENERS = {
     "health_observation": (

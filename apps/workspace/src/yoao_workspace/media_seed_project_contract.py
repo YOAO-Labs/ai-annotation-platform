@@ -23,7 +23,7 @@ from yoao_workspace_contract.wire import ClosedModel, _json_bytes
 
 PROTOCOL = "aap-workspace-media-seed-project/v1"
 MEDIA_SEED_PROJECT_PROTOCOL = PROTOCOL
-NATIVE_SCHEMA = "aap_workspace_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
 MediaSeedKind = Literal["coco8", "video", "ocr", "large_image"]
 
 MEDIA_SEED_PROJECT_PROJECTION_FIELDS = (

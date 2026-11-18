@@ -19,8 +19,8 @@ from pydantic import (
 )
 
 LABELING_E2E_FIXTURE_PROTOCOL = "aap-labeling-e2e-fixtures/v1"
-LABELING_E2E_FIXTURE_FUNCTION = "aap_labeling_v1.e2e_fixture_command"
-LABELING_E2E_FILTERING_RENDER_FUNCTION = "aap_labeling_v1.prepare_filtering_rendering"
+LABELING_E2E_FIXTURE_FUNCTION = "yoao_labeling_v1.e2e_fixture_command"
+LABELING_E2E_FILTERING_RENDER_FUNCTION = "yoao_labeling_v1.prepare_filtering_rendering"
 MAX_E2E_FIXTURE_ROWS = 512
 MAX_E2E_FIXTURE_REQUEST_BYTES = 16 * 1024 * 1024
 

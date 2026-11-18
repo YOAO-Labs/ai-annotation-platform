@@ -78,5 +78,5 @@
   "required": ["schema", "ok", "request", "data"],
   "title": "PredictionPartitionReply",
   "type": "object",
-  "x-postgresql-functions": ["aap_labeling_v1.prediction_partition_command(jsonb)"]
+  "x-postgresql-functions": ["yoao_labeling_v1.prediction_partition_command(jsonb)"]
 }

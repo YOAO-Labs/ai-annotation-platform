@@ -3,7 +3,7 @@
 `yoao-labeling-mask-gc` is an independently deployable Python worker for the
 Labeling-owned Mask deletion fence. Its portable package contains the frozen
 JSON contract, a small HTTP client, and the bounded coordinator. The runtime
-package calls only the six cleanup `aap_labeling_v1` JSONB functions and
+package calls only the six cleanup `yoao_labeling_v1` JSONB functions and
 the private Mask GC HTTP service.
 
 The three write-epoch functions and the running-tracker root registration are

@@ -27,7 +27,7 @@ class NotificationPreferencesPostgresData:
         # The API keeps this transaction and publishes sync only after commit.
         return await self.session.scalar(
             text(
-                "SELECT aap_notifications_v1.preference_command("
+                "SELECT yoao_notifications_v1.preference_command("
                 "CAST(:request AS jsonb))"
             ),
             {"request": request.model_dump_json(by_alias=True, exclude_none=True)},

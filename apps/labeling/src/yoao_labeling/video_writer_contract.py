@@ -47,7 +47,7 @@ from yoao_preannotation_results.video_window_checkpoint import (
 
 LABELING_VIDEO_WRITER_PROTOCOL = "aap-labeling-video-writer/v1"
 LABELING_VIDEO_WRITER_DATA_SCHEMA = "aap-labeling-video-writer-data/v1"
-VIDEO_WRITER_FUNCTION = "aap_labeling_v1.video_writer_step(text,text)"
+VIDEO_WRITER_FUNCTION = "yoao_labeling_v1.video_writer_step(text,text)"
 MAX_VIDEO_WRITER_REQUEST_BYTES = 68_157_440  # 65 MiB, decimal by protocol.
 MAX_VIDEO_WRITER_STAGED_BYTES = 67_108_864  # Existing 64 MiB candidate cap.
 MAX_VIDEO_WRITER_RESPONSE_BYTES = 2 * 1024 * 1024

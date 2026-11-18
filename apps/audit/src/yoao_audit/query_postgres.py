@@ -36,7 +36,7 @@ class AuditQueryPostgresData:
             await self.session.flush()
         reply = await self.session.scalar(
             text(
-                "SELECT aap_audit_v1.query_events(CAST(:request AS pg_catalog.jsonb))"
+                "SELECT yoao_audit_v1.query_events(CAST(:request AS pg_catalog.jsonb))"
             ),
             {"request": request.model_dump_json(by_alias=True)},
         )

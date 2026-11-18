@@ -134,8 +134,8 @@ def test_retry_registry_is_separate_and_assigns_exact_database_roles():
         "finish_prediction_retry_write",
         "finish_prediction_retry_failure",
     }
-    assert c.OPERATION["admit_prediction_retry"].namespace == "aap_labeling_v1"
-    assert c.OPERATION["claim_prediction_retry_deliveries"].namespace == "aap_jobs_v1"
+    assert c.OPERATION["admit_prediction_retry"].namespace == "yoao_labeling_v1"
+    assert c.OPERATION["claim_prediction_retry_deliveries"].namespace == "yoao_jobs_v1"
 
 
 def test_retry_attempt_is_closed_strict_and_all_nullable_fields_are_required():
@@ -451,7 +451,7 @@ def test_native_call_is_one_jsonb_argument_and_writer_scope_is_separate():
         actor_id=ACTOR_ID,
     )
     sql, arguments = prepare_native_call("read_prediction_retry", read)
-    assert sql == "SELECT aap_labeling_v1.read_prediction_retry($1::jsonb)"
+    assert sql == "SELECT yoao_labeling_v1.read_prediction_retry($1::jsonb)"
     assert len(arguments) == 1
     assert json.loads(arguments[0]) == read.model_dump(mode="json")
 
@@ -465,7 +465,7 @@ def test_native_call_is_one_jsonb_argument_and_writer_scope_is_separate():
         prepare_native_call("admit_prediction_retry", admit)
     assert prepare_native_call("admit_prediction_retry", admit, writer=True)[
         0
-    ].startswith("SELECT aap_labeling_v1.")
+    ].startswith("SELECT yoao_labeling_v1.")
     with pytest.raises(PermissionError):
         prepare_native_call("read_prediction_retry", read, writer=True)
 
@@ -542,7 +542,7 @@ def test_executor_adapter_commits_only_valid_reply_and_rejects_writer_ops():
     assert pool.connection.commits == 1
     assert pool.connection.rollbacks == 0
     assert pool.connection.statements[1][0] == (
-        "SELECT aap_jobs_v1.claim_prediction_retry_deliveries($1::jsonb)"
+        "SELECT yoao_jobs_v1.claim_prediction_retry_deliveries($1::jsonb)"
     )
 
     admit = c.AdmitPredictionRetryRequest(

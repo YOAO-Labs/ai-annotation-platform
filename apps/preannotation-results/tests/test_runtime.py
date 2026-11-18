@@ -146,7 +146,7 @@ def test_asyncpg_adapter_uses_one_jsonb_argument_and_commits_valid_result():
         0,
     )
     assert connection.statements[1][0] == (
-        "SELECT aap_jobs_v1.read_batch_result_execution($1::jsonb)"
+        "SELECT yoao_jobs_v1.read_batch_result_execution($1::jsonb)"
     )
     statement, arguments = connection.statements[1]
     assert len(arguments) == 1
@@ -201,7 +201,7 @@ def test_writer_calls_require_explicit_bridge_scope():
     statement, arguments = prepare_native_call(
         "finish_batch_result_write", request, writer=True
     )
-    assert statement == "SELECT aap_labeling_v1.finish_batch_result_write($1::jsonb)"
+    assert statement == "SELECT yoao_labeling_v1.finish_batch_result_write($1::jsonb)"
     assert len(arguments) == 1
     assert json.loads(arguments[0])["ordinal"] == 1
 
@@ -216,7 +216,7 @@ def test_writer_calls_require_explicit_bridge_scope():
 def test_native_prepare_checks_request_bytes_and_allowlisted_namespace():
     request = read_request()
     statement, arguments = prepare_native_call("read_batch_result_execution", request)
-    assert statement.startswith("SELECT aap_jobs_v1.")
+    assert statement.startswith("SELECT yoao_jobs_v1.")
     assert len(arguments) == 1
     with pytest.raises(TypeError):
         prepare_native_call("not_a_capability", request)

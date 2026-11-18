@@ -255,13 +255,13 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.lock_action_idempotency": {
+    "yoao_jobs_v1.lock_action_idempotency": {
       "arguments": "text, uuid, uuid, text",
       "returns": "void",
       "volatility": "volatile",
       "parallel": "unsafe"
     },
-    "aap_jobs_v1.find_action_idempotent_jobs": {
+    "yoao_jobs_v1.find_action_idempotent_jobs": {
       "arguments": "text, uuid, uuid, text",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
       "volatility": "volatile",

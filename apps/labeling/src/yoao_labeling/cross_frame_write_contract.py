@@ -24,7 +24,7 @@ from .cross_frame_write_policy import PROPAGATABLE_GEOMETRY_TYPES
 from .scene_track_domain_contract import SceneTrackRecord
 
 CROSS_FRAME_WRITE_PROTOCOL = "aap-labeling-cross-frame-writes/v1"
-CROSS_FRAME_WRITE_FUNCTION = "aap_labeling_v1.cross_frame_write_command(jsonb)"
+CROSS_FRAME_WRITE_FUNCTION = "yoao_labeling_v1.cross_frame_write_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):
@@ -439,7 +439,7 @@ def cross_frame_write_schema() -> dict[str, object]:
             },
             "sequence_access": [],
             "public_capabilities": [
-                "aap_labeling_v1.scene_track_domain_command(jsonb)"
+                "yoao_labeling_v1.scene_track_domain_command(jsonb)"
             ],
         }
     }

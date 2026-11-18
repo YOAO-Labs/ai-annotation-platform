@@ -87,7 +87,7 @@ setup failure keeps legacy fail-open behavior; internal provider failure aborts,
 and legacy materialization failure retains generic500/rollback. See ADR-0149.
 
 Adjacent import and point-cloud quality writes use three fixed SQL capabilities
-in `aap_workspace_v1`, described by `aap-workspace-project-maintenance/v1`.
+in `yoao_workspace_v1`, described by `aap-workspace-project-maintenance/v1`.
 The nuScenes caller retains its stable display ID, ORM creation defaults and
 outer Assets/Labeling/calibration transaction, consuming only a Project UUID.
 Point-quality promotion keeps its caller-held Project lock, evaluation policy
@@ -95,7 +95,7 @@ and Audit transaction; the native write synchronizes the API identity map withou
 another ORM mutation. Neither path commits or rolls back the caller, selects an
 independent DSN, retries a unique conflict or adds authorization/CAS policy.
 
-The dedicated `workspace_project_maintenance_client` LOGIN has exactly these
+The dedicated `yoao_workspace_project_maintenance_client` LOGIN has exactly these
 three application-owned Native capabilities, with no table/column, sequence,
 DDL or TEMP access. Standard PostgreSQL/public invoker helpers are outside that
 count. Existing task-creation/configuration capability roles are unchanged.
@@ -125,7 +125,7 @@ Dataset unlink uses the existing unlink/preview Native capabilities through
 `DatasetUnlinkManager` and portable command/receipt values. The API retains its
 borrowed SQLAlchemy session, explicit write flush, cache invalidation and commit.
 `DatasetUnlinkPostgresData(connection)` requires an already-active asyncpg
-transaction and checks the exact two-function `workspace_dataset_unlink_client`
+transaction and checks the exact two-function `yoao_workspace_dataset_unlink_client`
 credential. It never opens/closes connections or begins/commits/rolls back/retries
 transactions. Preview locks current authority, so neither operation belongs in a
 READ ONLY transaction.

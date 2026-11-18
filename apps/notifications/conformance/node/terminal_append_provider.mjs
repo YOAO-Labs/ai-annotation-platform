@@ -61,7 +61,7 @@ async function verifyOwnerAppend() {
 
   async function append(value) {
     const result = await client.query(
-      "SELECT aap_notifications_v1.append_job_terminal_notification($1::jsonb) AS reply",
+      "SELECT yoao_notifications_v1.append_job_terminal_notification($1::jsonb) AS reply",
       [JSON.stringify(value)],
     );
     return result.rows[0].reply;
@@ -70,7 +70,7 @@ async function verifyOwnerAppend() {
   await client.connect();
   try {
     const role = await client.query("SELECT current_user AS role");
-    assert.equal(role.rows[0].role, "notification_append_client");
+    assert.equal(role.rows[0].role, "yoao_notification_append_client");
 
     const firstRequest = request("completed");
     const first = await append(firstRequest);

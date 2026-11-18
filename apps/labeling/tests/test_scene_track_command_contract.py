@@ -1,6 +1,7 @@
 """Pure checks for the closed SceneTrack command protocol."""
 
 import json
+import re
 from pathlib import Path
 import uuid
 
@@ -16,6 +17,13 @@ from yoao_labeling.scene_track_command_contract import (
     scene_track_command_json,
     scene_track_command_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def test_apply_command_round_trips_and_rejects_unlisted_fields():
@@ -164,7 +172,7 @@ def test_command_reply_preserves_native_failure_and_schema_is_frozen():
     schema = scene_track_command_schema()
     assert schema["$id"] == SCENE_TRACK_COMMAND_PROTOCOL
     assert (
-        schema["x-postgresql-functions"]["aap_labeling_v1.scene_track_command(jsonb)"][
+        schema["x-postgresql-functions"]["yoao_labeling_v1.scene_track_command(jsonb)"][
             "sequences"
         ]
         == []
@@ -180,11 +188,13 @@ def test_command_reply_preserves_native_failure_and_schema_is_frozen():
         == schema
     )
     assert (
-        json.loads(
-            (
-                root
-                / "apps/api/alembic/sql/0343_labeling_scene_track_commands.schema.json"
-            ).read_text(encoding="utf-8")
+        _current_names(
+            json.loads(
+                (
+                    root
+                    / "apps/api/alembic/sql/0343_labeling_scene_track_commands.schema.json"
+                ).read_text(encoding="utf-8")
+            )
         )
         == schema
     )

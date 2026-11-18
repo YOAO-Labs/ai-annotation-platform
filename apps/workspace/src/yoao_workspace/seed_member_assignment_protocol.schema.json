@@ -105,11 +105,11 @@
   "$id": "aap-workspace-seed-member-assignment/v1",
   "x-native-capabilities": {
     "protocol": "aap-workspace-seed-member-assignment/v1",
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "functions": [
       {
         "name": "pin_seed_member_assignment",
-        "signature": "aap_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)",
+        "signature": "yoao_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)",
         "arguments": [
           {
             "name": "p_member_id",

@@ -88,7 +88,7 @@ def test_native_operation_allowlist_is_one_jsonb_argument():
         assert operation.arguments == ("payload",)
         assert operation.sql_types == ("jsonb",)
         statement, arguments = prepare_native_call(name, _request_for(name))
-        assert statement == f"SELECT aap_labeling_v1.{name}($1::jsonb)"
+        assert statement == f"SELECT yoao_labeling_v1.{name}($1::jsonb)"
         assert len(arguments) == 1
 
     assert c.OPERATIONS["inspect_mask_gc_page"].role == "cleanup"

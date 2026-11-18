@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "fixture_guard.schema.json");
-const functionName = "aap_jobs_v1.delete_fixture_project_jobs";
+const functionName = "yoao_jobs_v1.delete_fixture_project_jobs";
 
 let phase = "startup";
 
@@ -36,7 +36,7 @@ async function selfCheck() {
   assert.equal(fn.returns, "bigint");
   assert.equal(fn.volatility, "volatile");
   assert.equal(
-    schema["x-postgresql-functions"]["aap_jobs_v1.guard_fixture_project_jobs"].returns,
+    schema["x-postgresql-functions"]["yoao_jobs_v1.guard_fixture_project_jobs"].returns,
     "void",
   );
   process.stdout.write("Jobs fixture-cleanup contract self-check passed\n");
@@ -121,9 +121,9 @@ async function liveAcceptance() {
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE') AS can_update, " +
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE') AS can_delete, " +
         "pg_catalog.has_function_privilege(current_user," +
-        "'aap_jobs_v1.guard_fixture_project_jobs(uuid[])','EXECUTE') AS can_guard, " +
+        "'yoao_jobs_v1.guard_fixture_project_jobs(uuid[])','EXECUTE') AS can_guard, " +
         "pg_catalog.has_function_privilege(current_user," +
-        "'aap_jobs_v1.delete_fixture_project_jobs(uuid[])','EXECUTE') AS can_cleanup",
+        "'yoao_jobs_v1.delete_fixture_project_jobs(uuid[])','EXECUTE') AS can_cleanup",
     );
     assert.deepEqual(Object.values(rights.rows[0]), [
       true,
@@ -145,7 +145,7 @@ async function liveAcceptance() {
         "pg_catalog.acldefault('f',p.proowner))) acl " +
         "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute " +
         "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname='aap_jobs_v1' AND p.proname='delete_fixture_project_jobs'",
+        "WHERE n.nspname='yoao_jobs_v1' AND p.proname='delete_fixture_project_jobs'",
     );
     assert.equal(catalog.rows.length, 1);
     assert.deepEqual(Object.values(catalog.rows[0]), [

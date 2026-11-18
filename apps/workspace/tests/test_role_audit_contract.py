@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 import uuid
 
@@ -16,6 +17,13 @@ from yoao_workspace.role_audit_contract import (
     WorkspaceRoleAuditSchemaCapabilities,
     workspace_role_audit_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen installer copies through the current namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def test_workspace_rows_keep_unknown_values_and_nullable_diagnostics():
@@ -141,10 +149,12 @@ def test_schema_files_match_the_portable_descriptor():
 
     repository = Path(__file__).resolve().parents[3]
     assert (
-        json.loads(
-            (
-                repository / "infra" / "docker" / "workspace-role-audit.schema.json"
-            ).read_text(encoding="utf-8")
+        _current_names(
+            json.loads(
+                (
+                    repository / "infra" / "docker" / "workspace-role-audit.schema.json"
+                ).read_text(encoding="utf-8")
+            )
         )
         == expected
     )

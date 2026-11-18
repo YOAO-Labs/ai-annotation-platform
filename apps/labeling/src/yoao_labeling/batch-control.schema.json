@@ -2242,5 +2242,5 @@
   "required": ["schema", "ok", "request"],
   "title": "BatchControlReply",
   "type": "object",
-  "x-postgresql-functions": ["aap_labeling_v1.batch_control_command(jsonb)"]
+  "x-postgresql-functions": ["yoao_labeling_v1.batch_control_command(jsonb)"]
 }

@@ -20,7 +20,7 @@ from pydantic import (
 )
 
 VIDEO_BBOX_EDITING_PROTOCOL = "aap-labeling-video-bbox-editing/v1"
-VIDEO_BBOX_EDITING_FUNCTION = "aap_labeling_v1.video_bbox_editing_command(jsonb)"
+VIDEO_BBOX_EDITING_FUNCTION = "yoao_labeling_v1.video_bbox_editing_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

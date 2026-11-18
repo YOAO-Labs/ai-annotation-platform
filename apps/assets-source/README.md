@@ -59,7 +59,7 @@ duplicating Items, source writes, or image jobs. Image admission is part of the
 registration transaction.
 
 The Source PostgreSQL login executes exactly forty functions in
-`aap_assets_v1`: fifteen source/ingest capabilities, eleven connection
+`yoao_assets_v1`: fifteen source/ingest capabilities, eleven connection
 capabilities, three image-source/admission capabilities, eight managed-original
 capabilities, and three Native pyramid signer capture capabilities. It has no direct
 relation or sequence privileges, no access to other owner schemas, no
@@ -71,7 +71,7 @@ import capabilities; the Catalog login remains separate with twenty-nine
 capabilities.
 
 The local image and nuScenes importer scripts register Dataset/Item state
-through the Assets operator functions. The trusted `asset_operator_client`
+through the Assets operator functions. The trusted `yoao_asset_operator_client`
 login can also execute Identity's bounded `read_first_seed_account()` for local
 image attribution. It receives no Identity table or profile-relation access.
 The nuScenes importer additionally composes Workspace, Labeling and spatial

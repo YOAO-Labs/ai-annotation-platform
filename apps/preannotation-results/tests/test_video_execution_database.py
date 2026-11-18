@@ -32,7 +32,7 @@ class Connection:
                 "schema": "aap-video-execution-data/v1",
                 "status": "ok",
                 "ready": True,
-                "functions": ["aap_jobs_v1.video_execution_step(text,text)"],
+                "functions": ["yoao_jobs_v1.video_execution_step(text,text)"],
             }
         self.native_mutations += 1
         raise AssertionError("a stale binding must not send a native mutation")
@@ -48,12 +48,12 @@ def test_binding_cannot_carry_writer_authority_across_transactions(monkeypatch):
         data = await VideoExecutionPostgresData.bind(connection)
         verify.assert_awaited_once_with(
             connection,
-            schema="aap_jobs_v1",
+            schema="yoao_jobs_v1",
             functions={
                 ("video_execution_step", "text, text"),
                 ("video_execution_checkpoint_step", "text, text"),
             },
-            role="video_execution_client",
+            role="yoao_video_execution_client",
         )
         connection.transaction_id = "42"
         with pytest.raises(VideoExecutionFailure, match="^storage_unavailable$"):

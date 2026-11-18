@@ -20,9 +20,9 @@ from pydantic import (
 from .annotation_write_contract import _json_bytes
 
 DISCUSSION_PROTOCOL = "aap-labeling-discussion/v1"
-DISCUSSION_FUNCTION = "aap_labeling_v1.discussion_command(jsonb)"
+DISCUSSION_FUNCTION = "yoao_labeling_v1.discussion_command(jsonb)"
 TASK_EVENT_PROTOCOL = "aap-labeling-task-events/v1"
-TASK_EVENT_FUNCTION = "aap_labeling_v1.task_event_command(jsonb)"
+TASK_EVENT_FUNCTION = "yoao_labeling_v1.task_event_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):
@@ -405,9 +405,9 @@ def discussion_schema() -> dict[str, object]:
     schema["$id"] = DISCUSSION_PROTOCOL
     schema["x-postgresql-functions"] = [DISCUSSION_FUNCTION]
     schema["x-postgresql-relations"] = [
-        "aap_labeling_v1.annotation_comment_facts",
-        "aap_labeling_v1.annotation_feedback_facts",
-        "aap_labeling_v1.task_event_facts",
+        "yoao_labeling_v1.annotation_comment_facts",
+        "yoao_labeling_v1.annotation_feedback_facts",
+        "yoao_labeling_v1.task_event_facts",
         "public.v_annotation_feedback_unified",
     ]
     return schema
@@ -418,5 +418,5 @@ def task_event_schema() -> dict[str, object]:
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = TASK_EVENT_PROTOCOL
     schema["x-postgresql-functions"] = [TASK_EVENT_FUNCTION]
-    schema["x-postgresql-relations"] = ["aap_labeling_v1.task_event_facts"]
+    schema["x-postgresql-relations"] = ["yoao_labeling_v1.task_event_facts"]
     return schema

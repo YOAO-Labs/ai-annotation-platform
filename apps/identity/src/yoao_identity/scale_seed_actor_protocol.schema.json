@@ -37,11 +37,11 @@
   },
   "x-native-capabilities": {
     "protocol": "aap-identity-scale-seed-actors/v1",
-    "postgres_schema": "aap_identity_v1",
+    "postgres_schema": "yoao_identity_v1",
     "functions": [
       {
         "name": "read_scale_seed_super_admin",
-        "signature": "aap_identity_v1.read_scale_seed_super_admin()",
+        "signature": "yoao_identity_v1.read_scale_seed_super_admin()",
         "arguments": [],
         "result_postgres_type": "jsonb",
         "result_model": "ScaleSeedActorReply",
@@ -51,7 +51,7 @@
       },
       {
         "name": "read_scale_seed_annotator",
-        "signature": "aap_identity_v1.read_scale_seed_annotator(uuid[])",
+        "signature": "yoao_identity_v1.read_scale_seed_annotator(uuid[])",
         "arguments": [
           {
             "name": "p_candidate_ids",

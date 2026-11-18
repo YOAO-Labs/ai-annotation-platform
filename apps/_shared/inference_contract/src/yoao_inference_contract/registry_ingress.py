@@ -31,17 +31,17 @@ REGISTRY_ENV_SYNC_REPLY_MAX_BYTES = 24 * 1024 * 1024
 REGISTRY_ENV_SYNC_NATIVE_POLICY_SCHEMA = "aap-inference-registry-ingress-native/v1"
 REGISTRY_INGRESS_DATA_PROTOCOL = "aap-inference-registry-ingress/v1"
 REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS = (
-    "aap_inference_registry_ingress_v1.registry_ingress_policy()",
-    "aap_inference_registry_ingress_v1.registry_by_url(text)",
-    "aap_inference_registry_ingress_v1.registry_candidates(text)",
-    "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)",
-    "aap_inference_registry_ingress_v1.singleton_pool(uuid)",
-    "aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)",
-    "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)",
-    "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)",
-    "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)",
-    "aap_inference_registry_ingress_v1.sync_result(uuid,text)",
-    "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)",
+    "yoao_inference_registry_ingress_v1.registry_ingress_policy()",
+    "yoao_inference_registry_ingress_v1.registry_by_url(text)",
+    "yoao_inference_registry_ingress_v1.registry_candidates(text)",
+    "yoao_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)",
+    "yoao_inference_registry_ingress_v1.singleton_pool(uuid)",
+    "yoao_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)",
+    "yoao_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)",
+    "yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)",
+    "yoao_inference_registry_ingress_v1.tag_seed_registry(uuid,text)",
+    "yoao_inference_registry_ingress_v1.sync_result(uuid,text)",
+    "yoao_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)",
 )
 
 _POLICY_KEYS = frozenset(

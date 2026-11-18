@@ -96,7 +96,7 @@ async def test_status_adapter_uses_only_the_existing_fact_function_and_fields(
     assert options["command_timeout"] == 2.5
     query, bound_actor_id = connection.calls[0]
     assert query == (
-        "SELECT actor_id, is_active FROM aap_identity_v1.read_actor_facts($1::uuid)"
+        "SELECT actor_id, is_active FROM yoao_identity_v1.read_actor_facts($1::uuid)"
     )
     assert bound_actor_id == actor_id
     assert "platform_role" not in query and connection.readonly == [True]

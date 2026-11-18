@@ -22,7 +22,7 @@ from pydantic import (
 
 BATCH_CONTROL_PROTOCOL = "aap-labeling-batch-control/v1"
 BATCH_CONTROL_DATA_SCHEMA = "aap-labeling-batch-control-data/v1"
-BATCH_CONTROL_FUNCTION = "aap_labeling_v1.batch_control_command(jsonb)"
+BATCH_CONTROL_FUNCTION = "yoao_labeling_v1.batch_control_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

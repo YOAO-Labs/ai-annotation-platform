@@ -151,7 +151,7 @@ target_login AS (
 ),
 expected_oids AS (
     SELECT pg_catalog.to_regprocedure(
-        'aap_assets_v1.' || expected.signature
+        'yoao_assets_v1.' || expected.signature
     )::oid AS function_oid
     FROM expected
 ),
@@ -160,7 +160,7 @@ accessible_assets_functions AS (
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = proc.pronamespace
-    WHERE namespace.nspname = 'aap_assets_v1'
+    WHERE namespace.nspname = 'yoao_assets_v1'
       AND proc.prokind IN ('f', 'p')
       AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')
 ),
@@ -237,13 +237,13 @@ SELECT
            OR membership.roleid = login_role.oid
     )
     AND pg_catalog.has_schema_privilege(
-        current_user, 'aap_assets_v1', 'USAGE'
+        current_user, 'yoao_assets_v1', 'USAGE'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND namespace.nspname <> 'aap_assets_v1'
+          AND namespace.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_schema_privilege(
               current_user, namespace.oid, 'USAGE'
           )
@@ -381,7 +381,7 @@ class _NativeData:
             if payload.get(name) is None:
                 payload.pop(name, None)
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.begin_operator_auxiliary($1::jsonb)",
+            "SELECT yoao_assets_v1.begin_operator_auxiliary($1::jsonb)",
             (payload,),
         )
         try:
@@ -394,7 +394,7 @@ class _NativeData:
     async def open_operation(self, creation_id: UUID) -> ManagedOriginalOperation:
         """Acquire this creation's one permit; verified reuse stays read-only."""
         raw = await self._original_reply(
-            "SELECT aap_assets_v1.open_operator_storage_operation($1::uuid)",
+            "SELECT yoao_assets_v1.open_operator_storage_operation($1::uuid)",
             (creation_id,),
         )
         try:
@@ -408,13 +408,13 @@ class _NativeData:
         self, creation_id: UUID, prepared: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
+            "SELECT yoao_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
             (creation_id, prepared),
         )
 
     async def original_writing(self, creation_id: UUID) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.mark_operator_original_writing($1::uuid)",
+            "SELECT yoao_assets_v1.mark_operator_original_writing($1::uuid)",
             (creation_id,),
         )
 
@@ -422,7 +422,7 @@ class _NativeData:
         self, creation_id: UUID, receipt: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
+            "SELECT yoao_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
             (creation_id, receipt),
         )
 
@@ -430,7 +430,7 @@ class _NativeData:
         self, creation_id: UUID, verification: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.record_operator_original_verified($1::uuid,$2::jsonb)",
+            "SELECT yoao_assets_v1.record_operator_original_verified($1::uuid,$2::jsonb)",
             (creation_id, verification),
         )
 
@@ -442,7 +442,7 @@ class _NativeData:
         evidence: dict[str, Any],
     ) -> None:
         await self._original_ok(
-            "SELECT aap_assets_v1.fail_operator_original("
+            "SELECT yoao_assets_v1.fail_operator_original("
             "$1::uuid,$2::text,$3::text,$4::jsonb)",
             (creation_id, outcome, error_code, evidence),
         )
@@ -452,7 +452,7 @@ class _NativeData:
     ) -> None:
         """Settle only this creation's own read permit after a proven drain."""
         await self._original_ok(
-            "SELECT aap_assets_v1.close_operator_storage_operation("
+            "SELECT yoao_assets_v1.close_operator_storage_operation("
             "$1::uuid,$2::uuid,$3::boolean)",
             (creation_id, operation_id, physical_settled),
         )
@@ -505,7 +505,7 @@ class NativeConnectionProbeData(_NativeData):
                 values.append(list(value))
             else:
                 values.append(value)
-        statement = f"SELECT aap_assets_v1.{name}({placeholders})"
+        statement = f"SELECT yoao_assets_v1.{name}({placeholders})"
         if self._pool is None:
             raw = await self._connection.fetchval(statement, *values)
         else:
@@ -697,7 +697,7 @@ class NativeConnectionsData(NativeConnectionProbeData):
             f"${index}::{type_name}"
             for index, type_name in enumerate(signature.split(","), start=1)
         )
-        statement = f"SELECT aap_assets_v1.{operation}({placeholders})"
+        statement = f"SELECT yoao_assets_v1.{operation}({placeholders})"
         raw = await self._connection.fetchval(statement, *arguments)
         try:
             payload = self._parse_payload(raw)
@@ -715,7 +715,7 @@ class NativeConnectionsData(NativeConnectionProbeData):
 class NativeUploadData(_NativeData):
     async def reserve(self, request: UploadInitRequest) -> DatasetUploadIntent:
         result = await self._call(
-            "SELECT aap_assets_v1.reserve_dataset_upload("
+            "SELECT yoao_assets_v1.reserve_dataset_upload("
             "$1::uuid, $2::uuid, $3::uuid, $4::text, $5::text)",
             (
                 request.item_id,
@@ -744,7 +744,7 @@ class NativeUploadData(_NativeData):
         self, *, actor_id: UUID, dataset_id: UUID, item_id: UUID
     ) -> DatasetUploadIntent:
         result = await self._call(
-            "SELECT aap_assets_v1.lock_dataset_upload($1::uuid, $2::uuid, $3::uuid)",
+            "SELECT yoao_assets_v1.lock_dataset_upload($1::uuid, $2::uuid, $3::uuid)",
             (actor_id, dataset_id, item_id),
             lambda payload: decode_dataset_upload_reply(payload, DatasetUploadIntent),
             (DatasetUploadFailure,),
@@ -763,7 +763,7 @@ class NativeUploadData(_NativeData):
         content_hash: str | None,
     ) -> DatasetUploadDuplicate:
         result = await self._call(
-            "SELECT aap_assets_v1.find_dataset_upload_duplicate("
+            "SELECT yoao_assets_v1.find_dataset_upload_duplicate("
             "$1::uuid, $2::uuid, $3::uuid, $4::text)",
             (actor_id, dataset_id, item_id, content_hash),
             lambda payload: decode_dataset_upload_reply(
@@ -779,7 +779,7 @@ class NativeUploadData(_NativeData):
         self, request: DatasetUploadCompletion
     ) -> DatasetUploadAcceptance:
         result = await self._call(
-            "SELECT aap_assets_v1.complete_dataset_upload("
+            "SELECT yoao_assets_v1.complete_dataset_upload("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::bigint, $6::text, "
             "$7::integer, $8::integer)",
             (
@@ -809,7 +809,7 @@ class NativeUploadData(_NativeData):
 
     async def discard(self, request: DatasetUploadDiscard) -> DatasetUploadIntent:
         result = await self._call(
-            "SELECT aap_assets_v1.discard_dataset_upload("
+            "SELECT yoao_assets_v1.discard_dataset_upload("
             "$1::uuid, $2::uuid, $3::uuid, $4::text)",
             (
                 request.actor_id,
@@ -847,7 +847,7 @@ class NativeUploadData(_NativeData):
 class NativeLegacyUploadData(_NativeData):
     async def read(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
         result = await self._call(
-            "SELECT aap_assets_v1.read_legacy_dataset_upload("
+            "SELECT yoao_assets_v1.read_legacy_dataset_upload("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid)",
             (
                 request.operation_id,
@@ -863,7 +863,7 @@ class NativeLegacyUploadData(_NativeData):
 
     async def lock(self, request: LegacyUploadLockRequest) -> LegacyUploadState:
         result = await self._call(
-            "SELECT aap_assets_v1.lock_legacy_dataset_upload("
+            "SELECT yoao_assets_v1.lock_legacy_dataset_upload("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid)",
             (
                 request.operation_id,
@@ -879,7 +879,7 @@ class NativeLegacyUploadData(_NativeData):
 
     async def complete(self, request: LegacyUploadCompletion) -> LegacyUploadState:
         result = await self._call(
-            "SELECT aap_assets_v1.complete_legacy_dataset_upload("
+            "SELECT yoao_assets_v1.complete_legacy_dataset_upload("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::bigint, "
             "$7::text, $8::integer, $9::integer)",
             (
@@ -931,7 +931,7 @@ class NativeDeletionData(_NativeData):
         )
         if command.item_id is None:
             statement = (
-                "SELECT aap_assets_v1.delete_dataset("
+                "SELECT yoao_assets_v1.delete_dataset("
                 "$1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb)"
             )
             arguments = (
@@ -943,7 +943,7 @@ class NativeDeletionData(_NativeData):
             )
         else:
             statement = (
-                "SELECT aap_assets_v1.delete_dataset_item("
+                "SELECT yoao_assets_v1.delete_dataset_item("
                 "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::jsonb)"
             )
             arguments = (
@@ -984,7 +984,7 @@ class NativeIngestData(_NativeData):
         self, command: IngestCommand, descriptor: IngestDescriptor
     ) -> IngestContext:
         result = await self._call_ingest(
-            "SELECT aap_assets_v1.begin_dataset_ingest("
+            "SELECT yoao_assets_v1.begin_dataset_ingest("
             "$1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
             (
                 command.operation_id,
@@ -1007,7 +1007,7 @@ class NativeIngestData(_NativeData):
         entries: list[IngestSourceEntry],
     ) -> IngestBatchPlan:
         result = await self._call_ingest(
-            "SELECT aap_assets_v1.prepare_dataset_ingest_batch("
+            "SELECT yoao_assets_v1.prepare_dataset_ingest_batch("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::jsonb)",
             (
                 command.operation_id,
@@ -1030,7 +1030,7 @@ class NativeIngestData(_NativeData):
         entries: list[IngestEntryCompletion],
     ) -> IngestBatchResult:
         result = await self._call_ingest(
-            "SELECT aap_assets_v1.stage_dataset_ingest_batch("
+            "SELECT yoao_assets_v1.stage_dataset_ingest_batch("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::jsonb)",
             (
                 command.operation_id,
@@ -1053,7 +1053,7 @@ class NativeIngestData(_NativeData):
         entries: list[IngestEntryCompletion],
     ) -> IngestBatchResult:
         result = await self._call_ingest(
-            "SELECT aap_assets_v1.complete_dataset_ingest_batch("
+            "SELECT yoao_assets_v1.complete_dataset_ingest_batch("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::jsonb)",
             (
                 command.operation_id,
@@ -1077,7 +1077,7 @@ class NativeIngestData(_NativeData):
         limit: int = 500,
     ) -> IngestLayoutPage:
         result = await self._call_ingest(
-            "SELECT aap_assets_v1.read_dataset_ingest_layout("
+            "SELECT yoao_assets_v1.read_dataset_ingest_layout("
             "$1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer)",
             (
                 command.operation_id,
@@ -1095,7 +1095,7 @@ class NativeIngestData(_NativeData):
         self, command: IngestCommand, finish: IngestFinish
     ) -> IngestReceipt:
         result = await self._call_ingest(
-            "SELECT aap_assets_v1.finish_dataset_ingest("
+            "SELECT yoao_assets_v1.finish_dataset_ingest("
             "$1::uuid, $2::uuid, $3::uuid, $4::jsonb)",
             (
                 command.operation_id,
@@ -1193,7 +1193,7 @@ class SourceDatabase:
     ) -> NativePyramidIoContext:
         """Capture one exact writer scope; the statement commits on its own."""
         return await self._capture_native_context(
-            "SELECT aap_assets_v1.capture_native_pyramid_write_io("
+            "SELECT yoao_assets_v1.capture_native_pyramid_write_io("
             "$1::uuid,$2::uuid,$3::bigint,$4::uuid,$5::text)",
             (operation_id, job_id, job_generation, lease_token, mode),
         )
@@ -1206,7 +1206,7 @@ class SourceDatabase:
     ) -> NativePyramidIoContext:
         """Capture one exact read permit scope without holding a transaction."""
         return await self._capture_native_context(
-            "SELECT aap_assets_v1.capture_native_pyramid_read_io("
+            "SELECT yoao_assets_v1.capture_native_pyramid_read_io("
             "$1::uuid,$2::uuid,$3::jsonb)",
             (operation_id, token, relative_keys),
         )
@@ -1219,7 +1219,7 @@ class SourceDatabase:
     ) -> NativePyramidIoContext:
         """Capture one exact prepared retirement page scope."""
         return await self._capture_native_context(
-            "SELECT aap_assets_v1.capture_native_pyramid_retirement_io("
+            "SELECT yoao_assets_v1.capture_native_pyramid_retirement_io("
             "$1::uuid,$2::uuid,$3::uuid)",
             (output_id, lease_token, page_id),
         )
@@ -1239,24 +1239,34 @@ class SourceDatabase:
         except (SourceFailure, TypeError, ValueError, ValidationError):
             raise ImageFailure("invalid_response") from None
 
-    async def import_verification(self, operation: str, request: dict | None, result=None) -> dict:
+    async def import_verification(
+        self, operation: str, request: dict | None, result=None
+    ) -> dict:
         statements = {
-            "begin": "SELECT aap_assets_v1.begin_import_original_verification($1::jsonb)",
-            "status": "SELECT aap_assets_v1.status_import_original_verification($1::jsonb)",
-            "record": "SELECT aap_assets_v1.record_import_original_read($1::jsonb,$2::jsonb)",
-            "finish": "SELECT aap_assets_v1.finish_import_original_verification($1::jsonb,$2::jsonb)",
-            "recover": "SELECT aap_assets_v1.recover_import_original_verification($1::jsonb)",
+            "begin": "SELECT yoao_assets_v1.begin_import_original_verification($1::jsonb)",
+            "status": "SELECT yoao_assets_v1.status_import_original_verification($1::jsonb)",
+            "record": "SELECT yoao_assets_v1.record_import_original_read($1::jsonb,$2::jsonb)",
+            "finish": "SELECT yoao_assets_v1.finish_import_original_verification($1::jsonb,$2::jsonb)",
+            "recover": "SELECT yoao_assets_v1.recover_import_original_verification($1::jsonb)",
         }
-        async with self._pool.acquire(timeout=self._config.pool_timeout_seconds) as connection:
-            arguments = (request, result) if operation in {"record", "finish"} else (request,)
+        async with self._pool.acquire(
+            timeout=self._config.pool_timeout_seconds
+        ) as connection:
+            arguments = (
+                (request, result) if operation in {"record", "finish"} else (request,)
+            )
             if operation == "begin":
                 # The insert must not autocommit while admission is cancelled.
                 async with connection.transaction():
                     raw = await connection.fetchval(statements[operation], *arguments)
-                    payload = _NativeData(connection, self._config.max_response_bytes)._parse_payload(raw)
+                    payload = _NativeData(
+                        connection, self._config.max_response_bytes
+                    )._parse_payload(raw)
             else:
                 raw = await connection.fetchval(statements[operation], *arguments)
-                payload = _NativeData(connection, self._config.max_response_bytes)._parse_payload(raw)
+                payload = _NativeData(
+                    connection, self._config.max_response_bytes
+                )._parse_payload(raw)
         if not isinstance(payload, dict):
             raise SourceFailure("invalid_response")
         return payload

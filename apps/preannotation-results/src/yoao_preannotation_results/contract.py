@@ -683,7 +683,7 @@ class FinishBatchResultFailureResult(Value):
 
 @dataclass(frozen=True, slots=True)
 class NativeOperation:
-    namespace: Literal["aap_jobs_v1", "aap_labeling_v1"]
+    namespace: Literal["yoao_jobs_v1", "yoao_labeling_v1"]
     request: type[BaseModel]
     result: type[BaseModel]
     role: Literal["executor", "writer"]
@@ -692,97 +692,103 @@ class NativeOperation:
 OPERATION = MappingProxyType(
     {
         "claim_batch_result_execution": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             ClaimBatchResultExecutionRequest,
             ClaimBatchResultExecutionResult,
             "executor",
         ),
         "heartbeat_batch_result_execution": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             HeartbeatBatchResultExecutionRequest,
             HeartbeatBatchResultExecutionResult,
             "executor",
         ),
         "release_batch_result_execution": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             ReleaseBatchResultExecutionRequest,
             ReleaseBatchResultExecutionResult,
             "executor",
         ),
         "stage_batch_result_members": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             StageBatchResultMembersRequest,
             StageBatchResultMembersResult,
             "executor",
         ),
         "start_batch_result_execution": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             StartBatchResultExecutionRequest,
             StartBatchResultExecutionResult,
             "executor",
         ),
         "start_batch_result_member": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             StartBatchResultMemberRequest,
             StartBatchResultMemberResult,
             "executor",
         ),
         "read_batch_result_execution": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             ReadBatchResultExecutionRequest,
             ReadBatchResultExecutionResult,
             "executor",
         ),
         "mark_batch_result_overwrite": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             MarkBatchResultOverwriteRequest,
             MarkBatchResultOverwriteResult,
             "executor",
         ),
         "skip_batch_result_member": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             SkipBatchResultMemberRequest,
             SkipBatchResultMemberResult,
             "executor",
         ),
         "finish_batch_result_execution": NativeOperation(
-            "aap_jobs_v1",
+            "yoao_jobs_v1",
             FinishBatchResultExecutionRequest,
             FinishBatchResultExecutionResult,
             "executor",
         ),
         "begin_batch_result": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             BeginBatchResultRequest,
             BeginBatchResultResult,
             "executor",
         ),
         "put_batch_result_part": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             PutBatchResultPartRequest,
             PutBatchResultPartResult,
             "executor",
         ),
         "seal_batch_result": NativeOperation(
-            "aap_labeling_v1", SealBatchResultRequest, SealBatchResultResult, "executor"
+            "yoao_labeling_v1",
+            SealBatchResultRequest,
+            SealBatchResultResult,
+            "executor",
         ),
         "read_batch_result": NativeOperation(
-            "aap_labeling_v1", ReadBatchResultRequest, ReadBatchResultResult, "executor"
+            "yoao_labeling_v1",
+            ReadBatchResultRequest,
+            ReadBatchResultResult,
+            "executor",
         ),
         "lock_batch_result_write": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             LockBatchResultWriteRequest,
             LockBatchResultWriteResult,
             "writer",
         ),
         "finish_batch_result_write": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             FinishBatchResultWriteRequest,
             FinishBatchResultWriteResult,
             "writer",
         ),
         "finish_batch_result_failure": NativeOperation(
-            "aap_labeling_v1",
+            "yoao_labeling_v1",
             FinishBatchResultFailureRequest,
             FinishBatchResultFailureResult,
             "writer",

@@ -342,7 +342,7 @@
   ],
   "x-native-data-protocol": {
     "schema": "aap-labeling-video-writer-data/v1",
-    "function": "aap_labeling_v1.video_writer_step(text,text)",
+    "function": "yoao_labeling_v1.video_writer_step(text,text)",
     "actions": [
       "policy",
       "prepare",

@@ -330,8 +330,8 @@ async def run() -> None:
                 limits,
                 max_concurrency=max_concurrency,
                 admin=gpu_token is not None,
-                gpu_authority_role="inference_gpu_authority_client",
-                health_data_role="inference_health_data_client",
+                gpu_authority_role="yoao_inference_gpu_authority_client",
+                health_data_role="yoao_inference_health_data_client",
             )
             from .backend_endpoint import BackendEndpointManager
             from .backend_endpoint_postgres import BackendEndpointPostgresData

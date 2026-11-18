@@ -1153,7 +1153,7 @@
   ],
   "$id": "aap-labeling-screenshot-operations/v2",
   "x-postgresql-functions": {
-    "aap_labeling_v1.screenshot_operations_command(jsonb)": {
+    "yoao_labeling_v1.screenshot_operations_command(jsonb)": {
       "arguments": "jsonb",
       "returns": "jsonb",
       "volatility": "volatile",
@@ -1165,7 +1165,7 @@
     "owner": "Labeling NOLOGIN definer; ordinary runtime receives EXECUTE only",
     "search_path": "pg_catalog,pg_temp",
     "timezone": "UTC",
-    "project_fence": "open screenshot run manifest and aap_workspace_v1.read_project_row(uuid)"
+    "project_fence": "open screenshot run manifest and yoao_workspace_v1.read_project_row(uuid)"
   },
   "x-owner-columns": {
     "public.tasks": {

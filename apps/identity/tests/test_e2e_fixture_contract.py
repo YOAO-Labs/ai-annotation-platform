@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,6 +16,13 @@ from yoao_identity.e2e_fixture_contract import (
     FixtureInvitation,
     e2e_fixture_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def test_fixture_invitation_is_frozen_closed_and_preserves_legacy_role_values():
@@ -101,7 +109,9 @@ def test_schema_snapshots_match_the_owner_descriptor():
 
     assert schema["$id"] == E2E_FIXTURE_PROTOCOL
     for snapshot in snapshots:
-        assert json.loads(snapshot.read_text(encoding="utf-8")) == schema
+        assert (
+            _current_names(json.loads(snapshot.read_text(encoding="utf-8"))) == schema
+        )
 
 
 def test_descriptor_names_only_the_seven_fixed_fixture_capabilities():
@@ -110,13 +120,13 @@ def test_descriptor_names_only_the_seven_fixed_fixture_capabilities():
     functions = capabilities["functions"]
 
     assert [function["signature"] for function in functions] == [
-        "aap_identity_fixture_v1.create_account(uuid, text, text, text, text)",
-        "aap_identity_fixture_v1.mark_manual_inactive(uuid, timestamptz, uuid)",
-        "aap_identity_fixture_v1.create_invitations(jsonb)",
-        "aap_identity_fixture_v1.delete_accounts(boolean, text[])",
-        "aap_identity_fixture_v1.delete_reset_tokens(uuid[])",
-        "aap_identity_fixture_v1.delete_invitations(uuid[])",
-        "aap_identity_fixture_v1.delete_organization_members(uuid[])",
+        "yoao_identity_fixture_v1.create_account(uuid, text, text, text, text)",
+        "yoao_identity_fixture_v1.mark_manual_inactive(uuid, timestamptz, uuid)",
+        "yoao_identity_fixture_v1.create_invitations(jsonb)",
+        "yoao_identity_fixture_v1.delete_accounts(boolean, text[])",
+        "yoao_identity_fixture_v1.delete_reset_tokens(uuid[])",
+        "yoao_identity_fixture_v1.delete_invitations(uuid[])",
+        "yoao_identity_fixture_v1.delete_organization_members(uuid[])",
     ]
     assert [function["result_postgres_type"] for function in functions] == [
         "uuid",
@@ -140,8 +150,8 @@ def test_descriptor_names_only_the_seven_fixed_fixture_capabilities():
     assert functions[6]["result_postgres_type"] == "integer"
 
     relations = schema["x-postgresql-relations"]
-    assert list(relations) == ["aap_identity_fixture_v1.account_profiles"]
-    relation = relations["aap_identity_fixture_v1.account_profiles"]
+    assert list(relations) == ["yoao_identity_fixture_v1.account_profiles"]
+    relation = relations["yoao_identity_fixture_v1.account_profiles"]
     assert relation["columns"] == list(ACCOUNT_PROFILE_FIELDS)
     assert relation["row"] == {"$ref": "#/$defs/FixtureAccountProfile"}
     assert relation["row_key"] == ["id"]

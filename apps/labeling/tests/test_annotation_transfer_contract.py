@@ -1,4 +1,5 @@
 import json
+import re
 from uuid import uuid4
 
 import pytest
@@ -13,6 +14,13 @@ from yoao_labeling.annotation_transfer_contract import (
     _Reply,
     decode_annotation_transfer_reply,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def test_transfer_reply_rejects_task_facts_outside_project_scope():
@@ -80,7 +88,7 @@ def test_transfer_command_is_closed_and_frozen_schema_matches_both_artifacts():
     expected["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     expected["$id"] = ANNOTATION_TRANSFER_PROTOCOL
     expected["x-postgresql-functions"] = [
-        "aap_labeling_v1.annotation_transfer_command(jsonb)"
+        "yoao_labeling_v1.annotation_transfer_command(jsonb)"
     ]
     root = Path(__file__).resolve().parents[3]
     package_schema = json.loads(
@@ -88,9 +96,11 @@ def test_transfer_command_is_closed_and_frozen_schema_matches_both_artifacts():
             root / "apps/labeling/src/yoao_labeling/annotation-transfer.schema.json"
         ).read_text()
     )
-    api_schema = json.loads(
-        (
-            root / "apps/api/alembic/sql/0431_labeling_mask_staging.schema.json"
-        ).read_text()
+    api_schema = _current_names(
+        json.loads(
+            (
+                root / "apps/api/alembic/sql/0431_labeling_mask_staging.schema.json"
+            ).read_text()
+        )
     )
     assert package_schema == api_schema == expected

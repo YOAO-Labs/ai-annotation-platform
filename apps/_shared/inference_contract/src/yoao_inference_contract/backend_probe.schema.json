@@ -83,8 +83,8 @@
         "origin_transaction": { "const": "in_progress" },
         "functions": {
           "const": [
-            "aap_inference_backend_probe_v1.backend_probe_policy()",
-            "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)"
+            "yoao_inference_backend_probe_v1.backend_probe_policy()",
+            "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)"
           ]
         },
         "ready": { "type": "boolean" }

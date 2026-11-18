@@ -21,7 +21,7 @@ from yoao_workspace_contract.wire import ClosedModel, _json_bytes
 
 
 SEED_MEMBER_PROTOCOL = "aap-workspace-seed-members/v1"
-NATIVE_SCHEMA = "aap_workspace_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
 
 
 class _SeedMemberModel(ClosedModel):

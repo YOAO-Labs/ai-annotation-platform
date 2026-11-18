@@ -5,7 +5,7 @@
 `JobsLifecycleManager` owns the existing generic lifecycle rules. The API keeps
 its ORM identities and caller-owned transaction. Creation retains the original
 full flush and compiled INSERT/defaults/RETURNING through the fixed
-`aap_jobs_v1.async_job_creation` relation; all dirty Job rows use one native
+`yoao_jobs_v1.async_job_creation` relation; all dirty Job rows use one native
 `apply_lifecycle` update at their original mapper flush position. The net column
 mask preserves UPDATE OF triggers, partial flush and default timestamp expiry.
 Ordered commands retain partial writes when a later Python conversion raises.
@@ -41,8 +41,8 @@ closure or runtime recovery.
 ## Test project fixture cleanup
 
 The `aap-jobs-fixture-guard/v1` contract exposes
-`aap_jobs_v1.guard_fixture_project_jobs(uuid[])` and
-`aap_jobs_v1.delete_fixture_project_jobs(uuid[])`. They lock the exact sealed
+`yoao_jobs_v1.guard_fixture_project_jobs(uuid[])` and
+`yoao_jobs_v1.delete_fixture_project_jobs(uuid[])`. They lock the exact sealed
 fixture projects and their Jobs, retain the Workspace video guard, and require
 the native prediction or Export retirement proofs before deleting a real Job.
 Undelivered presentation Jobs require their own birth proof; unmatched Jobs,
@@ -73,7 +73,7 @@ must remain denied both direct Jobs deletion and private fixture cleanup; a
 test database suffix does not grant that caller authority.
 
 Dataset-scoped fixture media backfills use the private
-`aap_jobs_v1.delete_fixture_media_backfills(run_id,dataset_id)` capability before
+`yoao_jobs_v1.delete_fixture_media_backfills(run_id,dataset_id)` capability before
 the Dataset is deleted. It locks the exact sealed run and Dataset, requires each
 recorded Job's Jobs and Assets retirement proofs, and preserves immutable
 publication and execution evidence. A missing Dataset, foreign run, active
@@ -84,7 +84,7 @@ deletion and rollback.
 ## Filtering fixture outcomes
 
 `aap-jobs-filter-fixtures/v1` provides the fixed
-`aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)` capability. It updates
+`yoao_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)` capability. It updates
 the two original filtering fixture projections and returns native bigint `2`.
 The completed row receives status/progress/result; the failed row receives
 status/progress/error. Both retain all other fields, including null lifecycle
@@ -171,7 +171,7 @@ the existing cached getter without forced refresh.
 
 ## Public notification scope facts
 
-`yoao-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`
+`yoao-jobs` publishes the fixed, read-only `yoao_jobs_v1.notification_scope_facts`
 relation for consumers that need only an async job's identity, kind, and retained
 project scope. The projection keeps unknown `kind` values intact and derives
 `scope_project_id` from `coalesce(project_id, retained_project_id)`.
@@ -186,7 +186,7 @@ consumers can validate the relation without importing the API or SQLAlchemy mode
 
 ## Jobs async-job list query
 
-`aap_jobs_v1.async_job_list_page` and `aap_jobs_v1.async_job_list_total` expose
+`yoao_jobs_v1.async_job_list_page` and `yoao_jobs_v1.async_job_list_total` expose
 the existing API list filters and visibility rules as two separate,
 same-transaction capabilities. Page rows have a fixed column contract suitable
 for hydrating the API's existing `AsyncJob` identity-map objects; the private
@@ -256,7 +256,7 @@ or deployment path.
 ## Durable dispatch handoff
 
 `aap-jobs-dispatch-ledger/v1` freezes complete queue envelopes in the Jobs-owned
-private `aap_jobs_v1.dispatch_intents` table. Migration 0368, the packaged SQL,
+private `yoao_jobs_v1.dispatch_intents` table. Migration 0368, the packaged SQL,
 and `dispatch.schema.json` define the Native ABI:
 
 - API: `prepare_dispatch(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.

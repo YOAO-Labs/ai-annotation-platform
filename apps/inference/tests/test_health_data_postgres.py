@@ -38,17 +38,17 @@ _POLICY = {
     "data_protocol": "aap-inference-health-data/v1",
     "transaction": "caller_owned",
     "functions": [
-        "aap_inference_health_data_v1.health_data_policy()",
-        "aap_inference_health_data_v1.backend_row(uuid,boolean)",
-        "aap_inference_health_data_v1.membership_row(uuid,text,boolean)",
-        "aap_inference_health_data_v1.observation_clock()",
-        "aap_inference_health_data_v1.lock_resource(text)",
-        "aap_inference_health_data_v1.try_promotion()",
-        "aap_inference_health_data_v1.write_backend(uuid,text,timestamptz,text,boolean,boolean)",
-        "aap_inference_health_data_v1.member_pool(uuid)",
-        "aap_inference_health_data_v1.pool_row(uuid,uuid)",
-        "aap_inference_health_data_v1.member_row(uuid)",
-        "aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)",
+        "yoao_inference_health_data_v1.health_data_policy()",
+        "yoao_inference_health_data_v1.backend_row(uuid,boolean)",
+        "yoao_inference_health_data_v1.membership_row(uuid,text,boolean)",
+        "yoao_inference_health_data_v1.observation_clock()",
+        "yoao_inference_health_data_v1.lock_resource(text)",
+        "yoao_inference_health_data_v1.try_promotion()",
+        "yoao_inference_health_data_v1.write_backend(uuid,text,timestamptz,text,boolean,boolean)",
+        "yoao_inference_health_data_v1.member_pool(uuid)",
+        "yoao_inference_health_data_v1.pool_row(uuid,uuid)",
+        "yoao_inference_health_data_v1.member_row(uuid)",
+        "yoao_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)",
     ],
     "ready": True,
 }
@@ -164,7 +164,7 @@ def _bind_runtime(monkeypatch, connection):
 async def _bound(monkeypatch, connection):
     _bind_runtime(monkeypatch, connection)
     data = await HealthDataPostgresData.bind(
-        connection, expected_role="inference_health_data_client"
+        connection, expected_role="yoao_inference_health_data_client"
     )
     return data
 
@@ -179,7 +179,7 @@ async def test_bind_requires_an_active_function_only_caller_transaction(monkeypa
     connection = _Connection(active=False)
     with pytest.raises(HealthDataUnavailable):
         await HealthDataPostgresData.bind(
-            connection, expected_role="inference_health_data_client"
+            connection, expected_role="yoao_inference_health_data_client"
         )
     assert connection.calls == []
 
@@ -525,7 +525,7 @@ async def test_bind_rejects_a_stale_or_malformed_native_policy(monkeypatch):
 
     with pytest.raises(HealthDataUnavailable):
         await HealthDataPostgresData.bind(
-            connection, expected_role="inference_health_data_client"
+            connection, expected_role="yoao_inference_health_data_client"
         )
 
 

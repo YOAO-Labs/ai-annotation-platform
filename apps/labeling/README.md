@@ -45,8 +45,8 @@ current status and limits.
 
 The closed contracts `aap-labeling-task-locks/v1` and
 `aap-labeling-task-workflow/v1` call
-`aap_labeling_v1.task_edit_lock_command(jsonb)` and
-`aap_labeling_v1.task_workflow_command(jsonb)`. The current `0466` SQL/schema
+`yoao_labeling_v1.task_edit_lock_command(jsonb)` and
+`yoao_labeling_v1.task_workflow_command(jsonb)`. The current `0466` SQL/schema
 pair matches its frozen migration resource; earlier packaged revision artifacts
 stay byte-identical to their frozen copies. Portable data clients accept a
 callback and do not import the API or SQLAlchemy.
@@ -94,7 +94,7 @@ is not a deployment claim.
 The contracts `aap-labeling-annotation-writes/v1`,
 `aap-labeling-scene-track-domain/v1` and
 `aap-labeling-annotation-statistics/v1` use three fixed JSONB commands in
-`aap_labeling_v1`: `annotation_write_command`, `scene_track_domain_command`
+`yoao_labeling_v1`: `annotation_write_command`, `scene_track_domain_command`
 and `annotation_statistics_command`.
 
 Manual create, field updates, soft deletion and create receipts retain the
@@ -127,7 +127,7 @@ separately held cross-owner workflow.
 The closed contracts `aap-labeling-annotation-bulk/v1`,
 `aap-labeling-video-bbox-editing/v1` and `aap-labeling-batch-control/v1` use
 `annotation_bulk_command(jsonb)`, `video_bbox_editing_command(jsonb)` and
-`batch_control_command(jsonb)` in `aap_labeling_v1`. Portable clients borrow
+`batch_control_command(jsonb)` in `yoao_labeling_v1`. Portable clients borrow
 an execution callback; the API keeps its current connection, authorization and
 commit. No transaction lock is transferred over HTTP.
 
@@ -202,7 +202,7 @@ the two prediction-write functions and the partition-maintenance function. Scene
 `infra/docker/labeling-scene-track-commands-grants.sql` and
 `infra/docker/labeling-cross-frame-grants.sql`, each with one function. The LOGIN
 roles receive no private tables, role membership, CREATE or TEMP. Test-only
-fixture cleanup now uses `aap_labeling_v1.delete_fixture_project_rows(uuid[])`;
+fixture cleanup now uses `yoao_labeling_v1.delete_fixture_project_rows(uuid[])`;
 the fixed owner command is available only in `_test` and `_e2e` databases, keeps
 the caller's transaction and Workspace retirement guard, and does not establish
 complete module deployment or recovery qualification. The remaining Labeling
@@ -360,7 +360,7 @@ tracked with its exact source and scope in the module deployment ledger. See
 ## Operational consumers
 
 `infra/docker/labeling-role-audit-grants.sql` explicitly installs the five fixed
-`aap_labeling_audit_v1` read projections for the historical project-role audit.
+`yoao_labeling_audit_v1` read projections for the historical project-role audit.
 Its sibling `labeling-role-audit.schema.json` publishes column types and raw
 nullable semantics. It supports the pre-preparation schema without advancing
 Alembic; rerun it after adding preparation columns. The audit LOGIN has no direct

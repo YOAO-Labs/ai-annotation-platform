@@ -199,7 +199,7 @@ def test_portable_descriptor_names_only_the_existing_delete_capability():
     assert len(schema["oneOf"]) == 3
     assert [item["name"] for item in descriptor["functions"]] == ["delete_project"]
     assert descriptor["functions"][0]["signature"] == (
-        "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)"
+        "yoao_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)"
     )
     assert descriptor["functions"][0]["arguments"][-1]["nullable"] is True
     assert "caller" in descriptor["transaction_boundary"]

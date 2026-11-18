@@ -18,7 +18,7 @@ from pydantic import (
 )
 
 ANNOTATION_WRITE_PROTOCOL = "aap-labeling-annotation-writes/v1"
-ANNOTATION_WRITE_FUNCTION = "aap_labeling_v1.annotation_write_command(jsonb)"
+ANNOTATION_WRITE_FUNCTION = "yoao_labeling_v1.annotation_write_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

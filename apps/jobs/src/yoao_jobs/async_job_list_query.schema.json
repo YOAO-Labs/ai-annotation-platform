@@ -243,11 +243,11 @@
     "inactive_actor": "return empty items and total before Jobs call",
     "passed_fields": ["actor_id", "platform_role"],
     "preflight_reads_per_list_request": 1,
-    "same_statement_membership_facts": "Each page/total statement reads current actor active/role facts through aap_identity_v1.read_actor_facts(uuid), matching the old membership predicate without replacing the preflight snapshot.",
+    "same_statement_membership_facts": "Each page/total statement reads current actor active/role facts through yoao_identity_v1.read_actor_facts(uuid), matching the old membership predicate without replacing the preflight snapshot.",
     "source": "IdentityAccountLockData.read_actor_status"
   },
   "x-owner-capabilities": {
-    "aap_identity_v1.read_actor_facts(uuid)": {
+    "yoao_identity_v1.read_actor_facts(uuid)": {
       "grant_to": "jobs_owner",
       "use": "membership predicate only; no direct Identity table access"
     }
@@ -274,20 +274,20 @@
     "super_admin": "all existing project scopes; global jobs retain kind policy",
     "unknown_kinds": "preserved as open strings and only visible under normal scope rules",
     "workspace_facts": [
-      "aap_workspace_v1.actor_project_memberships(uuid)",
+      "yoao_workspace_v1.actor_project_memberships(uuid)",
       "yoao_workspace_project_query_v1.project_search_scope(uuid,text)"
     ]
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1._async_job_list_rows": {
+    "yoao_jobs_v1._async_job_list_rows": {
       "arguments": "uuid, text, text[], text[], uuid, text",
       "returns": "SETOF public.async_jobs (private helper)"
     },
-    "aap_jobs_v1.async_job_list_page": {
+    "yoao_jobs_v1.async_job_list_page": {
       "arguments": "uuid, text, text[], text[], uuid, text, integer, integer",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)"
     },
-    "aap_jobs_v1.async_job_list_total": {
+    "yoao_jobs_v1.async_job_list_total": {
       "arguments": "uuid, text, text[], text[], uuid, text",
       "returns": "bigint"
     }
@@ -332,7 +332,7 @@
   },
   "x-security": {
     "api_async_jobs_revoke": false,
-    "api_execute": ["aap_jobs_v1.async_job_list_page", "aap_jobs_v1.async_job_list_total"],
+    "api_execute": ["yoao_jobs_v1.async_job_list_page", "yoao_jobs_v1.async_job_list_total"],
     "functions": "stable security_definer",
     "private_helper_execute": false,
     "public_execute": false,

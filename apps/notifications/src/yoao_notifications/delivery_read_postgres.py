@@ -27,7 +27,7 @@ class NotificationDeliveryReadPostgresData:
         result = await self.session.execute(
             select(self.notification_model).from_statement(
                 text(
-                    "SELECT * FROM aap_notifications_v1.read_notification("
+                    "SELECT * FROM yoao_notifications_v1.read_notification("
                     "CAST(:notification_id AS pg_catalog.uuid))"
                 )
             ),
@@ -40,7 +40,7 @@ class NotificationDeliveryReadPostgresData:
             text(
                 "SELECT n.id, n.user_id, n.target_type, n.target_id, n.payload "
                 "FROM pg_catalog.unnest(CAST(:ids AS pg_catalog.uuid[])) AS requested(id) "
-                "CROSS JOIN LATERAL aap_notifications_v1.read_notification(requested.id) AS n "
+                "CROSS JOIN LATERAL yoao_notifications_v1.read_notification(requested.id) AS n "
                 "WHERE n.user_id = CAST(:user_id AS pg_catalog.uuid)"
             ),
             {"ids": list(notification_ids), "user_id": user_id},
@@ -53,7 +53,7 @@ class NotificationDeliveryReadPostgresData:
                 self.notification_model.id.label("find_terminal_notification")
             ).from_statement(
                 text(
-                    "SELECT aap_notifications_v1.find_terminal_notification("
+                    "SELECT yoao_notifications_v1.find_terminal_notification("
                     "CAST(:user_id AS pg_catalog.uuid), "
                     "CAST(:notification_type AS pg_catalog.text), "
                     "CAST(:target_id AS pg_catalog.uuid))"
@@ -72,7 +72,7 @@ class NotificationDeliveryReadPostgresData:
         result = await self.session.execute(
             text(
                 "SELECT id, scope_project_id, kind "
-                "FROM aap_notifications_v1.delivery_job_scopes("
+                "FROM yoao_notifications_v1.delivery_job_scopes("
                 "CAST(:job_ids AS pg_catalog.uuid[]))"
             ),
             {"job_ids": list(job_ids)},
@@ -86,7 +86,7 @@ class NotificationDeliveryReadPostgresData:
             self.notification_model.user_id.label("user_id"),
         ).from_statement(
             text(
-                "SELECT project_id, user_id FROM aap_notifications_v1."
+                "SELECT project_id, user_id FROM yoao_notifications_v1."
                 + function_name
                 + "(CAST(:pairs AS pg_catalog.jsonb))"
             )
@@ -123,7 +123,7 @@ class NotificationDeliveryReadPostgresData:
             await self.session.flush()
         result = await self.session.execute(
             text(
-                "SELECT actor.id FROM aap_identity_v1.account_profiles AS actor "
+                "SELECT actor.id FROM yoao_identity_v1.account_profiles AS actor "
                 "WHERE actor.id = ANY(CAST(:user_ids AS pg_catalog.uuid[])) "
                 "AND actor.is_active IS TRUE AND actor.role = 'super_admin'"
             ),

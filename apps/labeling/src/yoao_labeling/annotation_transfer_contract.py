@@ -23,7 +23,7 @@ from .annotation_write_contract import _json_bytes
 from .cross_frame_write_contract import CrossFrameAnnotationSnapshot
 
 ANNOTATION_TRANSFER_PROTOCOL = "aap-labeling-annotation-transfer/v1"
-ANNOTATION_TRANSFER_FUNCTION = "aap_labeling_v1.annotation_transfer_command(jsonb)"
+ANNOTATION_TRANSFER_FUNCTION = "yoao_labeling_v1.annotation_transfer_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

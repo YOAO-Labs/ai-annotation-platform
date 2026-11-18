@@ -14,12 +14,12 @@ from .lifecycle_contract import (
 
 JOBS_DOMAIN_QUERY_PROTOCOL = "aap-jobs-domain-queries/v1"
 JOBS_DOMAIN_QUERY_FUNCTIONS = {
-    "lock_cross_frame_singleflight": "aap_jobs_v1.lock_cross_frame_singleflight",
-    "active_cross_frame_job": "aap_jobs_v1.active_cross_frame_job",
-    "cross_frame_page": "aap_jobs_v1.cross_frame_job_page",
-    "cross_frame_count": "aap_jobs_v1.cross_frame_job_count",
-    "latest_batch_prediction_times": "aap_jobs_v1.latest_batch_prediction_times",
-    "frozen_deployment_usage": "aap_jobs_v1.frozen_deployment_usage",
+    "lock_cross_frame_singleflight": "yoao_jobs_v1.lock_cross_frame_singleflight",
+    "active_cross_frame_job": "yoao_jobs_v1.active_cross_frame_job",
+    "cross_frame_page": "yoao_jobs_v1.cross_frame_job_page",
+    "cross_frame_count": "yoao_jobs_v1.cross_frame_job_count",
+    "latest_batch_prediction_times": "yoao_jobs_v1.latest_batch_prediction_times",
+    "frozen_deployment_usage": "yoao_jobs_v1.frozen_deployment_usage",
 }
 
 

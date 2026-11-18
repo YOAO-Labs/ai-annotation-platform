@@ -41,126 +41,126 @@ from .spatial_contract import (
 )
 
 LIST_DATASETS_SQL = """
-SELECT aap_assets_v1.list_catalog_datasets(
+SELECT yoao_assets_v1.list_catalog_datasets(
     $1::uuid, $2::text, $3::text, $4::boolean, $5::integer, $6::bigint
 )
 """
 GET_DATASET_SQL = """
-SELECT aap_assets_v1.get_catalog_dataset($1::uuid, $2::uuid)
+SELECT yoao_assets_v1.get_catalog_dataset($1::uuid, $2::uuid)
 """
 LIST_ITEMS_SQL = """
-SELECT aap_assets_v1.list_catalog_items(
+SELECT yoao_assets_v1.list_catalog_items(
     $1::uuid, $2::uuid, $3::integer, $4::bigint
 )
 """
 CREATE_DATASET_SQL = """
-SELECT aap_assets_v1.create_catalog_dataset($1::uuid, $2::uuid, $3::jsonb)
+SELECT yoao_assets_v1.create_catalog_dataset($1::uuid, $2::uuid, $3::jsonb)
 """
 UPDATE_DATASET_SQL = """
-SELECT aap_assets_v1.update_catalog_dataset(
+SELECT yoao_assets_v1.update_catalog_dataset(
     $1::uuid, $2::uuid, $3::uuid, $4::jsonb
 )
 """
 LIST_DATASET_PROJECTS_SQL = """
-SELECT aap_assets_v1.list_dataset_projects($1::uuid, $2::uuid)
+SELECT yoao_assets_v1.list_dataset_projects($1::uuid, $2::uuid)
 """
 LIST_PROJECT_DATASETS_SQL = """
-SELECT aap_assets_v1.list_project_datasets($1::uuid, $2::uuid)
+SELECT yoao_assets_v1.list_project_datasets($1::uuid, $2::uuid)
 """
 GUARD_SPATIAL_ACTOR_SQL = """
-SELECT aap_assets_v1.guard_spatial_actor($1::uuid, $2::text)
+SELECT yoao_assets_v1.guard_spatial_actor($1::uuid, $2::text)
 """
 LIST_SPATIAL_SCENES_SQL = """
-SELECT aap_assets_v1.list_spatial_scenes(
+SELECT yoao_assets_v1.list_spatial_scenes(
     $1::uuid, $2::uuid, $3::timestamptz, $4::uuid, $5::integer
 )
 """
 GET_SPATIAL_SCENE_SQL = """
-SELECT aap_assets_v1.get_spatial_scene($1::uuid, $2::uuid)
+SELECT yoao_assets_v1.get_spatial_scene($1::uuid, $2::uuid)
 """
 READ_SPATIAL_LAYOUT_SQL = """
-SELECT aap_assets_v1.read_spatial_layout(
+SELECT yoao_assets_v1.read_spatial_layout(
     $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::integer
 )
 """
 READ_SPATIAL_ITEMS_SQL = """
-SELECT aap_assets_v1.read_spatial_items(
+SELECT yoao_assets_v1.read_spatial_items(
     $1::uuid, $2::uuid[], $3::uuid, $4::integer
 )
 """
 READ_SPATIAL_POSES_SQL = """
-SELECT aap_assets_v1.read_spatial_poses(
+SELECT yoao_assets_v1.read_spatial_poses(
     $1::uuid, $2::uuid, $3::integer, $4::integer
 )
 """
-READ_SPATIAL_POSE_PAIRS_SQL = "SELECT aap_assets_v1.read_spatial_pose_pairs($1::jsonb)"
+READ_SPATIAL_POSE_PAIRS_SQL = "SELECT yoao_assets_v1.read_spatial_pose_pairs($1::jsonb)"
 READ_SPATIAL_CALIBRATIONS_SQL = """
-SELECT aap_assets_v1.read_spatial_calibrations(
+SELECT yoao_assets_v1.read_spatial_calibrations(
     $1::uuid[], $2::boolean, $3::uuid, $4::integer, $5::integer
 )
 """
 LOCK_SPATIAL_CALIBRATION_FACTS_SQL = """
-SELECT aap_assets_v1.lock_spatial_calibration_facts(
+SELECT yoao_assets_v1.lock_spatial_calibration_facts(
     $1::uuid, $2::uuid, $3::text, $4::uuid, $5::jsonb
 )
 """
 MUTATE_SPATIAL_SCENE_SQL = """
-SELECT aap_assets_v1.mutate_spatial_scene(
+SELECT yoao_assets_v1.mutate_spatial_scene(
     $1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb
 )
 """
 APPLY_SPATIAL_LAYOUT_SQL = """
-SELECT aap_assets_v1.apply_spatial_layout(
+SELECT yoao_assets_v1.apply_spatial_layout(
     $1::uuid, $2::uuid, $3::uuid, $4::text, $5::boolean, $6::jsonb, $7::jsonb
 )
 """
 READ_SPATIAL_LAYOUT_RECEIPT_SQL = """
-SELECT aap_assets_v1.read_spatial_layout_receipt(
+SELECT yoao_assets_v1.read_spatial_layout_receipt(
     $1::uuid, $2::uuid, $3::uuid, $4::text, $5::boolean
 )
 """
 UPSERT_SPATIAL_POSES_SQL = """
-SELECT aap_assets_v1.upsert_spatial_poses($1::uuid, $2::uuid, $3::jsonb)
+SELECT yoao_assets_v1.upsert_spatial_poses($1::uuid, $2::uuid, $3::jsonb)
 """
 CREATE_SPATIAL_SCENE_SQL = """
-SELECT aap_assets_v1.create_spatial_scene(
+SELECT yoao_assets_v1.create_spatial_scene(
     $1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::jsonb, $7::uuid
 )
 """
 ASSIGN_SPATIAL_ITEMS_SQL = """
-SELECT aap_assets_v1.assign_spatial_items($1::uuid, $2::uuid, $3::jsonb)
+SELECT yoao_assets_v1.assign_spatial_items($1::uuid, $2::uuid, $3::jsonb)
 """
 SET_SPATIAL_SCENE_SOURCE_SQL = """
-SELECT aap_assets_v1.set_spatial_scene_source(
+SELECT yoao_assets_v1.set_spatial_scene_source(
     $1::uuid, $2::uuid, $3::text, $4::jsonb
 )
 """
 UPDATE_SPATIAL_CALIBRATION_SQL = """
-SELECT aap_assets_v1.update_spatial_calibration(
+SELECT yoao_assets_v1.update_spatial_calibration(
     $1::uuid, $2::uuid, $3::uuid, $4::text, $5::integer, $6::text,
     $7::jsonb, $8::text, $9::text, $10::jsonb, $11::jsonb
 )
 """
 READ_POINTCLOUD_PREPARATION_SQL = """
-SELECT aap_assets_v1.read_pointcloud_preparation(
+SELECT yoao_assets_v1.read_pointcloud_preparation(
     $1::uuid, $2::uuid, $3::integer
 )
 """
 APPLY_POINTCLOUD_PREPARATION_SQL = """
-SELECT aap_assets_v1.apply_pointcloud_preparation(
+SELECT yoao_assets_v1.apply_pointcloud_preparation(
     $1::uuid, $2::jsonb, $3::jsonb, $4::jsonb
 )
 """
 READ_SPATIAL_CAMERA_TARGET_SQL = """
-SELECT aap_assets_v1.read_spatial_camera_target($1::uuid, $2::uuid, $3::text)
+SELECT yoao_assets_v1.read_spatial_camera_target($1::uuid, $2::uuid, $3::text)
 """
 RECORD_SPATIAL_CALIBRATION_PROVENANCE_SQL = """
-SELECT aap_assets_v1.record_spatial_calibration_provenance(
+SELECT yoao_assets_v1.record_spatial_calibration_provenance(
     $1::uuid, $2::uuid, $3::jsonb
 )
 """
 SET_SPATIAL_DATASET_AXIS_SQL = """
-SELECT aap_assets_v1.set_spatial_dataset_axis($1::uuid, $2::uuid, $3::text)
+SELECT yoao_assets_v1.set_spatial_dataset_axis($1::uuid, $2::uuid, $3::text)
 """
 
 _CATALOG_FUNCTIONS = frozenset(
@@ -197,7 +197,7 @@ expected_oids AS (
     SELECT
         expected.signature,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.' || expected.signature
+            'yoao_assets_v1.' || expected.signature
         )::oid AS function_oid
     FROM expected
 ),
@@ -206,7 +206,7 @@ accessible_assets_functions AS (
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = proc.pronamespace
-    WHERE namespace.nspname = 'aap_assets_v1'
+    WHERE namespace.nspname = 'yoao_assets_v1'
       AND proc.prokind IN ('f', 'p')
       AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')
 ),
@@ -283,13 +283,13 @@ SELECT
            OR membership.roleid = login_role.oid
     )
     AND pg_catalog.has_schema_privilege(
-        current_user, 'aap_assets_v1', 'USAGE'
+        current_user, 'yoao_assets_v1', 'USAGE'
     )
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND namespace.nspname <> 'aap_assets_v1'
+          AND namespace.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_schema_privilege(
               current_user, namespace.oid, 'USAGE'
           )

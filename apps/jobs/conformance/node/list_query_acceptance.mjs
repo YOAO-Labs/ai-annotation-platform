@@ -8,10 +8,11 @@ const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "async_job_list_query.schema.json");
 const sqlPath = path.join(jobsRoot, "sql/async_job_list_query.sql");
 const frozenRoot = path.resolve(here, "../../../api/alembic/sql");
+const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
 const pageSignature =
-  "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)";
-const totalSignature = "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)";
-const helperSignature = "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)";
+  "yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)";
+const totalSignature = "yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)";
+const helperSignature = "yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const statusValues = new Set(["pending", "running", "completed", "failed", "cancelled"]);
 const nativeColumnOids = {
@@ -141,29 +142,24 @@ async function selfCheck() {
     readFile(path.join(frozenRoot, "0326_jobs_list_query.sql"), "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  // Preserve the frozen wire contract; only the display title and the owner
-  // of the search capability changed. Historical installation SQL stays intact.
-  const expectedSchema = JSON.parse(frozenSchemaText);
+  // Preserve the frozen wire contract; only the display title and the current
+  // owner namespaces changed. Historical installation SQL stays intact.
+  const expectedSchema = JSON.parse(currentNames(frozenSchemaText));
   expectedSchema.title = "YOAO Jobs async-job list query";
-  const oldScope = "aap_workspace_project_query_v1.project_search_scope";
-  const currentScope = "yoao_workspace_project_query_v1.project_search_scope";
-  expectedSchema["x-policy"].workspace_facts = expectedSchema["x-policy"].workspace_facts.map(
-    (fact) => fact.replace(oldScope, currentScope),
-  );
   assert.deepEqual(schema, expectedSchema);
-  assert.equal(sql, frozenSql.replace(oldScope, currentScope));
+  assert.equal(sql, currentNames(frozenSql));
   const columns = schema["x-row-columns"];
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(schema.$id, "aap-jobs-async-job-list-query/v1");
   assert.deepEqual(schema["x-policy"].workspace_facts, [
-    "aap_workspace_v1.actor_project_memberships(uuid)",
+    "yoao_workspace_v1.actor_project_memberships(uuid)",
     "yoao_workspace_project_query_v1.project_search_scope(uuid,text)",
   ]);
   assert.deepEqual(Object.keys(nativeColumnOids).sort(), [...schema["x-row-columns"]].sort());
   assert.deepEqual(
     [
-      "aap_jobs_v1.async_job_list_page(uuid, text, text[], text[], uuid, text, integer, integer)",
-      "aap_jobs_v1.async_job_list_total(uuid, text, text[], text[], uuid, text)",
+      "yoao_jobs_v1.async_job_list_page(uuid, text, text[], text[], uuid, text, integer, integer)",
+      "yoao_jobs_v1.async_job_list_total(uuid, text, text[], text[], uuid, text)",
     ]
       .map(normalizeSql)
       .sort(),
@@ -179,17 +175,17 @@ async function selfCheck() {
     [...columns].sort(),
   );
   assert.equal(
-    schema["x-postgresql-functions"]["aap_jobs_v1.async_job_list_page"].arguments,
+    schema["x-postgresql-functions"]["yoao_jobs_v1.async_job_list_page"].arguments,
     "uuid, text, text[], text[], uuid, text, integer, integer",
   );
   assert.equal(
-    schema["x-postgresql-functions"]["aap_jobs_v1.async_job_list_total"].returns,
+    schema["x-postgresql-functions"]["yoao_jobs_v1.async_job_list_total"].returns,
     "bigint",
   );
-  assert.match(sql, /CREATE FUNCTION aap_jobs_v1\._async_job_list_rows\(/);
-  assert.match(sql, /CREATE FUNCTION aap_jobs_v1\.async_job_list_page\(/);
-  assert.match(sql, /CREATE FUNCTION aap_jobs_v1\.async_job_list_total\(/);
-  assert.match(sql, /aap_identity_v1\.read_actor_facts\(p_actor_id\)/);
+  assert.match(sql, /CREATE FUNCTION yoao_jobs_v1\._async_job_list_rows\(/);
+  assert.match(sql, /CREATE FUNCTION yoao_jobs_v1\.async_job_list_page\(/);
+  assert.match(sql, /CREATE FUNCTION yoao_jobs_v1\.async_job_list_total\(/);
+  assert.match(sql, /yoao_identity_v1\.read_actor_facts\(p_actor_id\)/);
   assert.match(sql, /SET search_path = pg_catalog, pg_temp/g);
   assert.equal((sql.match(/SECURITY DEFINER/g) ?? []).length, 3);
   assert.equal((sql.match(/STABLE/g) ?? []).length, 3);
@@ -198,10 +194,10 @@ async function selfCheck() {
     "async_job_list_page",
     "async_job_list_total",
   ]) {
-    assert.match(sql, new RegExp(`REVOKE ALL ON FUNCTION aap_jobs_v1\\.${functionName}\\(`));
+    assert.match(sql, new RegExp(`REVOKE ALL ON FUNCTION yoao_jobs_v1\\.${functionName}\\(`));
   }
   assert.equal(sql.includes("FROM public.users"), false);
-  assert.equal(sql.includes("aap_identity_v1.account_profiles"), false);
+  assert.equal(sql.includes("yoao_identity_v1.account_profiles"), false);
   assert.equal(sql.includes("GRANT EXECUTE"), false);
   process.stdout.write("Jobs list-query Node contract self-check passed\n");
 }
@@ -277,7 +273,7 @@ async function verifyListQueryRole() {
         "pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') AS can_execute " +
         "FROM pg_catalog.pg_proc AS p " +
         "JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname='aap_jobs_v1' " +
+        "WHERE n.nspname='yoao_jobs_v1' " +
         "AND p.proname IN ('async_job_list_page','async_job_list_total','_async_job_list_rows') " +
         "ORDER BY p.proname",
     );
@@ -295,12 +291,12 @@ async function verifyListQueryRole() {
       totalSignature.slice(totalSignature.indexOf("(") + 1, -1),
     );
     assert.equal(
-      `aap_jobs_v1._async_job_list_rows(${helper.arguments.replaceAll(", ", ",")})`,
+      `yoao_jobs_v1._async_job_list_rows(${helper.arguments.replaceAll(", ", ",")})`,
       helperSignature,
     );
     assert.equal(
       normalizeSql(page.returns),
-      normalizeSql(contract["x-postgresql-functions"]["aap_jobs_v1.async_job_list_page"].returns),
+      normalizeSql(contract["x-postgresql-functions"]["yoao_jobs_v1.async_job_list_page"].returns),
     );
     assert.equal(normalizeSql(total.returns), "bigint");
     for (const fn of [page, total, helper]) {
@@ -340,7 +336,7 @@ async function verifyListQueryRole() {
     phase = "page result types and order";
     const args = [actorId, platformRole, statuses, kinds, projectId, searchPattern, limit, offset];
     const pageResult = await client.query(
-      "SELECT * FROM aap_jobs_v1.async_job_list_page(" +
+      "SELECT * FROM yoao_jobs_v1.async_job_list_page(" +
         "$1::pg_catalog.uuid,$2::pg_catalog.text,$3::pg_catalog.text[],$4::pg_catalog.text[]," +
         "$5::pg_catalog.uuid,$6::pg_catalog.text,$7::pg_catalog.int4,$8::pg_catalog.int4)",
       args,
@@ -363,7 +359,7 @@ async function verifyListQueryRole() {
 
     phase = "separate total result";
     const totalResult = await client.query(
-      "SELECT aap_jobs_v1.async_job_list_total(" +
+      "SELECT yoao_jobs_v1.async_job_list_total(" +
         "$1::pg_catalog.uuid,$2::pg_catalog.text,$3::pg_catalog.text[],$4::pg_catalog.text[]," +
         "$5::pg_catalog.uuid,$6::pg_catalog.text) AS total",
       args.slice(0, 6),
@@ -396,7 +392,7 @@ async function verifyListQueryRole() {
     );
     assert.deepEqual(
       aapSchemas.rows.map((row) => row.nspname),
-      ["aap_jobs_v1"],
+      ["yoao_jobs_v1"],
     );
 
     const extraSchemas = await client.query(
@@ -404,7 +400,7 @@ async function verifyListQueryRole() {
         "WHERE n.nspname NOT IN ('pg_catalog','information_schema') " +
         "AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp_%' " +
         "AND (pg_catalog.has_schema_privilege(current_user,n.oid,'CREATE') OR " +
-        "(n.nspname NOT IN ('public','aap_jobs_v1') AND " +
+        "(n.nspname NOT IN ('public','yoao_jobs_v1') AND " +
         "pg_catalog.has_schema_privilege(current_user,n.oid,'USAGE'))) " +
         "ORDER BY n.nspname",
     );
@@ -454,17 +450,17 @@ async function verifyListQueryRole() {
       assert.equal(failure?.code, "42501");
     }
     await assertDenied(
-      "SELECT * FROM aap_jobs_v1._async_job_list_rows(" +
+      "SELECT * FROM yoao_jobs_v1._async_job_list_rows(" +
         "$1::pg_catalog.uuid,$2::pg_catalog.text,$3::pg_catalog.text[],$4::pg_catalog.text[]," +
         "$5::pg_catalog.uuid,$6::pg_catalog.text)",
       args.slice(0, 6),
     );
     await assertDenied("SELECT id FROM public.async_jobs WHERE id=$1::pg_catalog.uuid", [actorId]);
     await assertDenied(
-      "SELECT id FROM aap_jobs_v1.notification_scope_facts WHERE id=$1::pg_catalog.uuid",
+      "SELECT id FROM yoao_jobs_v1.notification_scope_facts WHERE id=$1::pg_catalog.uuid",
       [actorId],
     );
-    await assertDenied("SELECT * FROM aap_identity_v1.read_actor_facts($1::pg_catalog.uuid)", [
+    await assertDenied("SELECT * FROM yoao_identity_v1.read_actor_facts($1::pg_catalog.uuid)", [
       actorId,
     ]);
     await assertDenied("UPDATE public.async_jobs SET kind=kind WHERE id=$1::pg_catalog.uuid", [

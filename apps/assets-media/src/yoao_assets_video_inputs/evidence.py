@@ -237,7 +237,7 @@ ASSETS_PIN_OPERATION = NativeOperation(
     ("task_id", "project_id", "evidence", "actor_id"),
     ("uuid", "uuid", "jsonb", "uuid"),
     "labeling",
-    "aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
+    "yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
 )
 
 LABELING_OPERATIONS = {
@@ -247,7 +247,7 @@ LABELING_OPERATIONS = {
         ("annotation_id", "actor_id", "evidence"),
         ("uuid", "uuid", "jsonb"),
         "labeling",
-        "aap_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
+        "yoao_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
     ),
     "copy_annotation_video_input_sources": NativeOperation(
         CopyAnnotationVideoInputSourcesRequest,
@@ -255,7 +255,7 @@ LABELING_OPERATIONS = {
         ("source_annotation_id", "target_annotation_id"),
         ("uuid", "uuid"),
         "labeling",
-        "aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
+        "yoao_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
     ),
     "accepted_video_input_referenced": NativeOperation(
         VideoInputReferenceRequest,
@@ -263,7 +263,7 @@ LABELING_OPERATIONS = {
         ("input_id",),
         ("uuid",),
         "labeling",
-        "aap_labeling_v1.accepted_video_input_referenced(uuid)",
+        "yoao_labeling_v1.accepted_video_input_referenced(uuid)",
     ),
 }
 

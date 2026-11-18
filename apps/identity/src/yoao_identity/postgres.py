@@ -37,18 +37,18 @@ class PostgresData:
             async with transaction:
                 params = ",".join(f"${i}" for i in range(1, len(args) + 1))
                 raw = await connection.fetchval(
-                    f"SELECT aap_identity_v1.{function}({params})", *args
+                    f"SELECT yoao_identity_v1.{function}({params})", *args
                 )
                 if function == "authentication_policy":
                     allowed = await connection.fetchval(
                         "SELECT bool_and(has_function_privilege(current_user, capability, 'EXECUTE')) "
                         "FROM unnest($1::text[]) AS required(capability)",
                         [
-                            "aap_identity_v1.authentication_policy()",
-                            "aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
-                            "aap_identity_v1.read_api_key_candidates(text,uuid,integer)",
-                            "aap_identity_v1.confirm_api_key_principal(uuid,text)",
-                            "aap_identity_v1.read_actor_context(uuid,text)",
+                            "yoao_identity_v1.authentication_policy()",
+                            "yoao_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
+                            "yoao_identity_v1.read_api_key_candidates(text,uuid,integer)",
+                            "yoao_identity_v1.confirm_api_key_principal(uuid,text)",
+                            "yoao_identity_v1.read_actor_context(uuid,text)",
                         ],
                     )
                     if allowed is not True:

@@ -24,7 +24,7 @@ from .task_workflow_contract import TaskWorkflowState
 
 ANNOTATION_MAINTENANCE_PROTOCOL = "aap-labeling-annotation-maintenance/v1"
 ANNOTATION_MAINTENANCE_FUNCTION = (
-    "aap_labeling_v1.annotation_maintenance_command(jsonb)"
+    "yoao_labeling_v1.annotation_maintenance_command(jsonb)"
 )
 
 

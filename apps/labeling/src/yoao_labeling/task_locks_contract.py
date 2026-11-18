@@ -22,7 +22,7 @@ from yoao_preannotation_results.contract import CanonicalUUID, UtcDateTime
 
 TASK_LOCKS_PROTOCOL = "aap-labeling-task-locks/v1"
 TASK_LOCKS_DATA_SCHEMA = "aap-labeling-task-locks-data/v1"
-TASK_LOCKS_FUNCTION = "aap_labeling_v1.task_edit_lock_command(jsonb)"
+TASK_LOCKS_FUNCTION = "yoao_labeling_v1.task_edit_lock_command(jsonb)"
 TASK_LOCK_SCOPE_PREFIX = "task-edit-lock:"
 
 
@@ -405,7 +405,7 @@ def task_locks_schema() -> dict[str, Any]:
             "fixed_targets": [
                 "public.task_locks",
                 "public.tasks",
-                "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
+                "yoao_identity_v1.lock_accounts_share(uuid[],boolean)",
             ],
             "caller_transaction_required": True,
             "same_transaction_advisory_lock": True,

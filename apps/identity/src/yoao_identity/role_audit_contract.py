@@ -11,7 +11,7 @@ from pydantic import Field, StrictBool, StrictStr, TypeAdapter, field_validator
 from .contract import ClosedModel
 
 ROLE_AUDIT_PROTOCOL = "aap-identity-role-audit/v1"
-ROLE_AUDIT_SCHEMA = "aap_identity_audit_v1"
+ROLE_AUDIT_SCHEMA = "yoao_identity_audit_v1"
 ROLE_AUDIT_VIEWS = (
     "account_roles",
     "invitation_facts",

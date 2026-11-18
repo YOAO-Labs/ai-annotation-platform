@@ -29,7 +29,7 @@ class GroupPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_groups_v1.execute_group_command($1::jsonb)",
+                "SELECT yoao_identity_groups_v1.execute_group_command($1::jsonb)",
                 encoded,
             )
             return json.loads(raw) if isinstance(raw, str) else raw
@@ -98,14 +98,14 @@ class GroupPostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_groups_v1.group_policy()"
+                    "SELECT yoao_identity_groups_v1.group_policy()"
                 )
                 granted = await connection.fetch(
                     """
                     SELECT p.proname, oidvectortypes(p.proargtypes) AS args
                     FROM pg_proc AS p
                     JOIN pg_namespace AS n ON n.oid = p.pronamespace
-                    WHERE n.nspname = 'aap_identity_groups_v1'
+                    WHERE n.nspname = 'yoao_identity_groups_v1'
                       AND has_function_privilege(current_user, p.oid, 'EXECUTE')
                     ORDER BY p.proname, args
                     """

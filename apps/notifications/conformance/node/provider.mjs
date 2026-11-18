@@ -65,7 +65,7 @@ async function verifyOwnerCommand() {
 
   async function command(request) {
     const result = await client.query(
-      "SELECT aap_notifications_v1.preference_command($1::jsonb) AS reply",
+      "SELECT yoao_notifications_v1.preference_command($1::jsonb) AS reply",
       [JSON.stringify(request)],
     );
     return result.rows[0].reply;

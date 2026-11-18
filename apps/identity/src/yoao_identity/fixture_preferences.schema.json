@@ -25,11 +25,11 @@
   "additionalProperties": false,
   "x-native-capabilities": {
     "protocol": "aap-identity-fixture-preferences/v1",
-    "postgres_schema": "aap_identity_v1",
+    "postgres_schema": "yoao_identity_v1",
     "functions": [
       {
         "name": "replace_fixture_preferences",
-        "signature": "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
+        "signature": "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)",
         "arguments": [
           {
             "name": "p_user_id",

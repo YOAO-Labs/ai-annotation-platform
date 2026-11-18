@@ -63,7 +63,7 @@
   "$id": "aap-notifications-read-relations/v1",
   "$comment": "The fixed read-only projection publishes Notification row facts. Consumers retain their existing authorization, filtering, counts, ordering, pagination and borrowed transaction semantics.",
   "x-postgresql-relations": {
-    "aap_notifications_v1.notification_facts": {
+    "yoao_notifications_v1.notification_facts": {
       "columns": [
         "id",
         "user_id",

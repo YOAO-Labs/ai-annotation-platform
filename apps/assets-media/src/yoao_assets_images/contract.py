@@ -775,8 +775,7 @@ class NativePyramidReadPermit(Value):
         if (
             self.pyramid.native_output.output_id != self.output_id
             or self.pyramid.native_output.storage_ref != self.storage_ref
-            or self.pyramid.native_output.url_expiry_seconds
-            != self.url_expiry_seconds
+            or self.pyramid.native_output.url_expiry_seconds != self.url_expiry_seconds
             or self.pyramid.native_output.fixture_owned != self.fixture_owned
         ):
             raise ValueError("read permit escaped its native output reference")
@@ -2264,9 +2263,9 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             or len(result.items) > request.page_size
         ):
             raise ValueError("retirement page escaped its prepared scope")
-    if isinstance(
-        request, CompleteNativePyramidRetirementPageRequest
-    ) and isinstance(result, NativePyramidRetirementAck):
+    if isinstance(request, CompleteNativePyramidRetirementPageRequest) and isinstance(
+        result, NativePyramidRetirementAck
+    ):
         if result.output_id != request.output_id:
             raise ValueError("retirement ack substituted another output")
         if request.outcome == "members_absent":
@@ -2349,7 +2348,7 @@ def contract_document() -> dict[str, Any]:
         },
         "x-native": {
             name: {
-                "signature": "aap_assets_v1."
+                "signature": "yoao_assets_v1."
                 + name
                 + "("
                 + ",".join(operation.sql_types)

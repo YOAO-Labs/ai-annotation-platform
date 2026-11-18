@@ -35,8 +35,8 @@ ROUTING_DATA_PROTOCOL = "aap-inference-routing-data/v1"
 ROUTING_REQUEST_MAX_BYTES = 1024 * 1024
 ROUTING_REPLY_MAX_BYTES = 1024 * 1024
 ROUTING_NATIVE_FUNCTIONS = (
-    "aap_inference_routing_v1.routing_policy()",
-    "aap_inference_routing_v1.routing_step(text,text)",
+    "yoao_inference_routing_v1.routing_policy()",
+    "yoao_inference_routing_v1.routing_step(text,text)",
 )
 ROUTING_NATIVE_ACTIONS = (
     "command_status",

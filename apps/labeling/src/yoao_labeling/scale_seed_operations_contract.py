@@ -9,7 +9,7 @@ LABELING_SCALE_SEED_PROTOCOL = "aap-labeling-scale-seed/v1"
 
 _FUNCTIONS = (
     {
-        "signature": "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+        "signature": "yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
         "owner_domain": "Labeling",
         "arguments": [
             {"name": "p_marker", "postgres_type": "text"},
@@ -24,7 +24,7 @@ _FUNCTIONS = (
         ),
     },
     {
-        "signature": "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+        "signature": "yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
         "owner_domain": "Labeling",
         "arguments": [
             {"name": "p_marker", "postgres_type": "text"},
@@ -40,7 +40,7 @@ _FUNCTIONS = (
         ),
     },
     {
-        "signature": "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+        "signature": "yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
         "owner_domain": "Labeling",
         "arguments": [
             {"name": "p_marker", "postgres_type": "text"},
@@ -55,7 +55,7 @@ _FUNCTIONS = (
         ),
     },
     {
-        "signature": "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+        "signature": "yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
         "owner_domain": "Labeling",
         "arguments": [
             {"name": "p_marker", "postgres_type": "text"},
@@ -73,12 +73,12 @@ _FUNCTIONS = (
 
 _RELATIONS = (
     {
-        "relation": "aap_labeling_v1.batch_rows",
+        "relation": "yoao_labeling_v1.batch_rows",
         "owner_domain": "Labeling",
         "columns": ["id", "project_id", "display_id"],
     },
     {
-        "relation": "aap_assets_v1.scale_seed_dataset_item_facts",
+        "relation": "yoao_assets_v1.scale_seed_dataset_item_facts",
         "owner_domain": "Assets",
         "columns": ["id", "dataset_id", "file_name"],
     },

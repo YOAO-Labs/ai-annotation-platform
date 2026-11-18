@@ -18,7 +18,7 @@ from pydantic import (
 )
 
 SCREENSHOT_OPERATIONS_PROTOCOL = "aap-labeling-screenshot-operations/v2"
-SCREENSHOT_OPERATIONS_FUNCTION = "aap_labeling_v1.screenshot_operations_command(jsonb)"
+SCREENSHOT_OPERATIONS_FUNCTION = "yoao_labeling_v1.screenshot_operations_command(jsonb)"
 
 
 class _Closed(BaseModel):

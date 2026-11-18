@@ -267,7 +267,7 @@ export async function verifyQueryCommand() {
   await client.connect();
   try {
     const result = await client.query(
-      "SELECT aap_audit_v1.query_events($1::pg_catalog.jsonb) AS reply",
+      "SELECT yoao_audit_v1.query_events($1::pg_catalog.jsonb) AS reply",
       [JSON.stringify(request())],
     );
     assertQueryReply(result.rows[0].reply, "list", 2);
@@ -277,11 +277,11 @@ export async function verifyQueryCommand() {
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("SELECT id FROM aap_identity_v1.account_profiles LIMIT 1"),
+      client.query("SELECT id FROM yoao_identity_v1.account_profiles LIMIT 1"),
       (error) => error.code === "42501",
     );
     await assert.rejects(
-      client.query("SELECT aap_audit_v1.append_events($1::pg_catalog.jsonb)", [
+      client.query("SELECT yoao_audit_v1.append_events($1::pg_catalog.jsonb)", [
         JSON.stringify({ schema: "aap-audit-append/v1", events: [] }),
       ]),
       (error) => error.code === "42501",

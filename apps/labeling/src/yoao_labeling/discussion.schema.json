@@ -1378,11 +1378,11 @@
   "required": ["schema", "ok", "request", "data"],
   "title": "_DiscussionReply",
   "type": "object",
-  "x-postgresql-functions": ["aap_labeling_v1.discussion_command(jsonb)"],
+  "x-postgresql-functions": ["yoao_labeling_v1.discussion_command(jsonb)"],
   "x-postgresql-relations": [
-    "aap_labeling_v1.annotation_comment_facts",
-    "aap_labeling_v1.annotation_feedback_facts",
-    "aap_labeling_v1.task_event_facts",
+    "yoao_labeling_v1.annotation_comment_facts",
+    "yoao_labeling_v1.annotation_feedback_facts",
+    "yoao_labeling_v1.task_event_facts",
     "public.v_annotation_feedback_unified"
   ]
 }

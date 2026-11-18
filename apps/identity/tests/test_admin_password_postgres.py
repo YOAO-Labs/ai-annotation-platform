@@ -46,12 +46,12 @@ class Connection:
         self.queries.append(query)
         return [
             {
-                "nspname": "aap_identity_admin_passwords_v1",
+                "nspname": "yoao_identity_admin_passwords_v1",
                 "proname": "admin_password_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_admin_passwords_v1",
+                "nspname": "yoao_identity_admin_passwords_v1",
                 "proname": "execute_admin_password_command",
                 "args": "jsonb",
             },
@@ -79,7 +79,7 @@ async def test_transaction_calls_only_the_versioned_owner_function():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_admin_passwords_v1.execute_admin_password_command($1::jsonb)"
+        "yoao_identity_admin_passwords_v1.execute_admin_password_command($1::jsonb)"
         in connection.queries[0]
     )
 
@@ -87,8 +87,8 @@ async def test_transaction_calls_only_the_versioned_owner_function():
 @pytest.mark.asyncio
 async def test_readiness_requires_exact_functions_and_no_table_capabilities():
     expected = {
-        "aap_identity_admin_passwords_v1.admin_password_policy()",
-        "aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
+        "yoao_identity_admin_passwords_v1.admin_password_policy()",
+        "yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
     }
     connection = Connection()
     await AdminPasswordPostgresData._assert_capabilities(connection, expected)
@@ -116,8 +116,8 @@ async def test_readiness_requires_exact_functions_and_no_table_capabilities():
 @pytest.mark.asyncio
 async def test_readiness_rejects_direct_relations_sequences_and_foreign_schema():
     expected = {
-        "aap_identity_admin_passwords_v1.admin_password_policy()",
-        "aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
+        "yoao_identity_admin_passwords_v1.admin_password_policy()",
+        "yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
     }
     for connection in (
         Connection(relation_access=True),

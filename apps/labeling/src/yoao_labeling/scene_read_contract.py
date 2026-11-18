@@ -21,7 +21,7 @@ from pydantic import (
 
 
 SCENE_READ_PROTOCOL = "aap-labeling-scene-read/v1"
-SCENE_READ_FUNCTION = "aap_labeling_v1.scene_read_query(jsonb)"
+SCENE_READ_FUNCTION = "yoao_labeling_v1.scene_read_query(jsonb)"
 
 
 class _Closed(BaseModel):
@@ -411,7 +411,7 @@ def scene_read_schema() -> dict[str, object]:
             "owner": "labeling",
             "security_definer": True,
             "caller_transaction_required": True,
-            "dependencies": ["aap_assets_v1.spatial_item_references"],
+            "dependencies": ["yoao_assets_v1.spatial_item_references"],
             "actions": [
                 "resolve_primary_link",
                 "resolve_task_frames",
@@ -434,7 +434,7 @@ def scene_read_schema() -> dict[str, object]:
                 "public.annotations",
                 "public.scene_tracks",
                 "public.scene_track_intervals",
-                "aap_assets_v1.spatial_item_references",
+                "yoao_assets_v1.spatial_item_references",
             ],
             "table_access": {
                 "public.tasks": {
@@ -490,7 +490,7 @@ def scene_read_schema() -> dict[str, object]:
                         "version",
                     ]
                 },
-                "aap_assets_v1.spatial_item_references": {
+                "yoao_assets_v1.spatial_item_references": {
                     "select": ["item_id", "scene_id", "frame_index", "scene_name"]
                 },
             },

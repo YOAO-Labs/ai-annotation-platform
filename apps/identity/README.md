@@ -51,7 +51,7 @@ scoped bearer is accepted only by `/v1/identity/authenticate` and
 continue to require the general token. Provide
 `IDENTITY_ACTOR_STATUS_DATABASE_URL` or its `_FILE` variant to enable the
 second-handshake status read. It uses a dedicated LOGIN with only
-`aap_identity_v1.read_actor_facts(uuid)` and has no fallback to the admission
+`yoao_identity_v1.read_actor_facts(uuid)` and has no fallback to the admission
 database URL. Without that source, `/v1/identity/actor-status` returns 503.
 
 API-key management may use `IDENTITY_KEY_DATABASE_URL` or its `_FILE` variant,
@@ -202,7 +202,7 @@ an active target. Out-of-scope targets stay indistinguishable from missing users
 Preview and apply preserve partial per-item outcomes; a requested missing group
 is a top-level 404 on apply but a per-item failure in preview.
 
-The `identity_group_client` LOGIN can call only `group_policy()` and
+The `yoao_identity_group_client` LOGIN can call only `group_policy()` and
 `execute_group_command(jsonb)`. It has no direct Group, User, Project or
 ProjectMember table rights. Workspace returns the currently managed user IDs
 through its scope capability; Identity does not infer scope from project tables.
@@ -220,7 +220,7 @@ and group-assignment events; there is no generic Audit-table grant.
 
 The earlier group slice exposed only the private
 `resolve_invitation_group(uuid,text)` helper to the legacy acceptance workflow;
-the helper remains private to Identity and is not granted to `identity_group_client`.
+the helper remains private to Identity and is not granted to `yoao_identity_group_client`.
 The full invitation contract below now owns resolve/register/accept and its
 multi-owner transaction. Group search and remaining admin/lifecycle work stay
 outside the invitation slice. The optional API/runtime
@@ -342,7 +342,7 @@ after the owner has selected, counted and audited the export. Successful
 public operations keep the same allowed link/token response fields; receipts
 never store a second plaintext proof or generated JWT.
 
-`identity_invitation_client` can execute only `invitation_policy()`,
+`yoao_identity_invitation_client` can execute only `invitation_policy()`,
 `prepare_invitation_command(jsonb)` and `apply_invitation_command(jsonb)`.
 Workspace owns the project and membership locks, Labeling owns the active-batch
 summary, Settings provides a bounded invitation policy snapshot, Audit receives
@@ -360,7 +360,7 @@ the sender may deliver later; SMTP rejection retires only that send intent. An
 explicit resend/new-link operation is required to rotate a token.
 
 Invitation SMTP is isolated from the Identity producer in the versioned
-`aap-identity-mail-v2` protocol. `identity_mail_v2_client` can execute exactly
+`aap-identity-mail-v2` protocol. `yoao_identity_mail_v2_client` can execute exactly
 `mail_policy()`, `claim_mail(jsonb)`, `renew_mail(jsonb)` and
 `finish_mail(jsonb)`; the v2 worker handles invitation plus the two recovery
 purposes, while the original v1 worker and grants remain valid and recovery-only.
@@ -416,7 +416,7 @@ through its existing API process.
 
 Identity writes the two fixed deactivation events through the Notifications
 owner in the same database transaction. Delivery uses the separate
-`notification_publish_client`; the existing
+`yoao_notification_publish_client`; the existing
 `python -m yoao_identity_runtime.notification_worker` entry remains as a
 compatibility wrapper around the Notifications publisher. The publisher
 requires only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and
@@ -514,7 +514,7 @@ The recovery LOGIN has exactly `recovery_policy`, `prepare_recovery_command`,
 `renew_mail` and `finish_mail`. A third MAIL_SETTINGS LOGIN can call only
 `mail_delivery_policy` in Settings. These function roles do not receive direct
 table access. Identity's code owner can call only
-`aap_settings_v1.identity_recovery_policy(jsonb)` for open-registration and
+`yoao_settings_v1.identity_recovery_policy(jsonb)` for open-registration and
 frontend-URL policy; it takes a Settings SHARE lock to fence registration. The
 MAIL_SETTINGS function reads exactly SMTP host, port, user, password and sender
 in one snapshot, with DB values overriding environment fallbacks;
@@ -583,7 +583,7 @@ changes also invalidate a noneditable wheel.
 
 ## Accepted API-key final authority
 
-`aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])` confirms current owner,
+`yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])` confirms current owner,
 revocation, expiry and required scopes for already accepted work holding only a
 key ID. It is not credential authentication. The caller first retains its
 account/project authority locks, then this capability waits on the key's SHARE

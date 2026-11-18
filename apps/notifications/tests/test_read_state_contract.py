@@ -192,7 +192,7 @@ async def test_postgres_binding_preserves_flush_modes_and_does_not_commit():
     assert result.updated is True
     assert normal.flushes == 1
     statement, parameters = normal.calls[0]
-    assert "aap_notifications_v1.read_state_command" in statement
+    assert "yoao_notifications_v1.read_state_command" in statement
     assert "FROM public.notifications" not in statement
     assert json.loads(parameters["request"]) == {
         "schema": "aap-notification-read-state/v1",

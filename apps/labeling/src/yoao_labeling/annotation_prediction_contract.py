@@ -21,7 +21,7 @@ from pydantic import (
 from .annotation_write_contract import _json_bytes
 
 ANNOTATION_PREDICTION_PROTOCOL = "aap-labeling-annotation-prediction/v1"
-ANNOTATION_PREDICTION_FUNCTION = "aap_labeling_v1.annotation_prediction_command(jsonb)"
+ANNOTATION_PREDICTION_FUNCTION = "yoao_labeling_v1.annotation_prediction_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, TypeAdapter
 
 JOBS_FIXTURE_CLEANUP_PROTOCOL = "aap-jobs-fixture-cleanup/v1"
-JOBS_FIXTURE_CLEANUP_FUNCTION = "aap_jobs_v1.delete_fixture_project_jobs"
+JOBS_FIXTURE_CLEANUP_FUNCTION = "yoao_jobs_v1.delete_fixture_project_jobs"
 
 
 class FixtureProjectCleanupRequest(BaseModel):
@@ -39,7 +39,7 @@ def jobs_fixture_cleanup_schema():
         "x-security": {
             "database": "actual database name must end in _test or _e2e",
             "owner": "Jobs definer; PUBLIC execute revoked",
-            "guard": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+            "guard": "yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])",
             "search_path": "pg_catalog,pg_temp",
         },
         "x-errors": {
@@ -100,43 +100,43 @@ def jobs_fixture_guard_schema():
             "FixtureCleanupCount": TypeAdapter(FixtureCleanupCount).json_schema(),
         },
         "x-postgresql-functions": {
-            "aap_jobs_v1.guard_fixture_project_jobs": {
+            "yoao_jobs_v1.guard_fixture_project_jobs": {
                 "arguments": "uuid[]",
                 "returns": "void",
                 "volatility": "volatile",
                 "parallel": "unsafe",
             },
-            "aap_jobs_v1.fixture_dataset_job_scope": {
+            "yoao_jobs_v1.fixture_dataset_job_scope": {
                 "arguments": "uuid, text, jsonb, uuid, uuid",
                 "returns": "jsonb",
                 "volatility": "immutable",
                 "parallel": "unsafe",
             },
-            "aap_jobs_v1.fixture_job_dataset_scope": {
+            "yoao_jobs_v1.fixture_job_dataset_scope": {
                 "arguments": "uuid, text, jsonb, uuid, uuid",
                 "returns": "jsonb",
                 "volatility": "volatile",
                 "parallel": "unsafe",
             },
-            "aap_jobs_v1.guard_fixture_dataset_jobs": {
+            "yoao_jobs_v1.guard_fixture_dataset_jobs": {
                 "arguments": "uuid[]",
                 "returns": "void",
                 "volatility": "volatile",
                 "parallel": "unsafe",
             },
-            "aap_assets_v1.fixture_task_dataset_scope": {
+            "yoao_assets_v1.fixture_task_dataset_scope": {
                 "arguments": "uuid, jsonb",
                 "returns": "uuid[]",
                 "volatility": "stable",
                 "parallel": "unsafe",
             },
-            "aap_jobs_v1.create_filter_fixture_jobs": {
+            "yoao_jobs_v1.create_filter_fixture_jobs": {
                 "arguments": "uuid, uuid, uuid, uuid, uuid, uuid, text, text",
                 "returns": "bigint",
                 "volatility": "volatile",
                 "parallel": "unsafe",
             },
-            "aap_jobs_v1.delete_fixture_presentation_jobs": {
+            "yoao_jobs_v1.delete_fixture_presentation_jobs": {
                 "arguments": "uuid, uuid, uuid[]",
                 "returns": "bigint",
                 "volatility": "volatile",
@@ -154,7 +154,7 @@ def jobs_fixture_guard_schema():
         "x-security": {
             "database": "actual database name must end in _test or _e2e",
             "owner": "Jobs definer; PUBLIC execute revoked",
-            "guard": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+            "guard": "yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])",
             "search_path": "pg_catalog,pg_temp",
         },
         "x-errors": {

@@ -32,31 +32,31 @@ from .contract import (
 
 PENDING_SQL = """
 SELECT operation_id, asset_id, bucket, prefix, created_at
-FROM aap_assets_v1.pending_storage_deletions_v2(
+FROM yoao_assets_v1.pending_storage_deletions_v2(
     $1::text, $2::timestamptz, $3::uuid, $4::uuid, $5::integer
 )
 """
 COMPLETE_SQL = """
-SELECT aap_assets_v1.complete_storage_deletion($1::uuid, $2::uuid)
+SELECT yoao_assets_v1.complete_storage_deletion($1::uuid, $2::uuid)
 """
 CLAIM_IMAGE_GARBAGE_SQL = """
-SELECT aap_assets_v1.claim_image_garbage($1::uuid, $2::integer, $3::integer)
+SELECT yoao_assets_v1.claim_image_garbage($1::uuid, $2::integer, $3::integer)
 """
 COMPLETE_IMAGE_GARBAGE_SQL = """
-SELECT aap_assets_v1.complete_image_garbage($1::uuid, $2::uuid)
+SELECT yoao_assets_v1.complete_image_garbage($1::uuid, $2::uuid)
 """
 CLAIM_NATIVE_RETIREMENT_SQL = """
-SELECT aap_assets_v1.claim_native_pyramid_retirement(
+SELECT yoao_assets_v1.claim_native_pyramid_retirement(
     $1::uuid, $2::integer
 )
 """
 PREPARE_NATIVE_RETIREMENT_PAGE_SQL = """
-SELECT aap_assets_v1.prepare_native_pyramid_retirement_page(
+SELECT yoao_assets_v1.prepare_native_pyramid_retirement_page(
     $1::uuid, $2::uuid, $3::integer
 )
 """
 COMPLETE_NATIVE_RETIREMENT_PAGE_SQL = """
-SELECT aap_assets_v1.complete_native_pyramid_retirement_page(
+SELECT yoao_assets_v1.complete_native_pyramid_retirement_page(
     $1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb
 )
 """
@@ -70,37 +70,37 @@ WITH target_login AS (
 allowed_functions AS (
     SELECT
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'
+            'yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'
         )::oid AS pending_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.complete_storage_deletion(uuid,uuid)'
+            'yoao_assets_v1.complete_storage_deletion(uuid,uuid)'
         )::oid AS complete_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'
+            'yoao_assets_v1.claim_image_garbage(uuid,integer,integer)'
         )::oid AS claim_image_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.complete_image_garbage(uuid,uuid)'
+            'yoao_assets_v1.complete_image_garbage(uuid,uuid)'
         )::oid AS complete_image_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'
+            'yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'
         )::oid AS claim_inputs_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'
+            'yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)'
         )::oid AS complete_inputs_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'
+            'yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'
         )::oid AS claim_video_inputs_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'
+            'yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'
         )::oid AS complete_video_inputs_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'
+            'yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)'
         )::oid AS claim_native_retirement_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'
+            'yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'
         )::oid AS prepare_native_retirement_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'
+            'yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'
         )::oid AS complete_native_retirement_oid
 )
 SELECT
@@ -123,15 +123,15 @@ SELECT
         WHERE membership.member = login_role.oid
     )
     AND COALESCE(
-        pg_catalog.has_schema_privilege(current_user, 'aap_assets_v1', 'USAGE'),
+        pg_catalog.has_schema_privilege(current_user, 'yoao_assets_v1', 'USAGE'),
         false
     )
-    AND NOT pg_catalog.has_schema_privilege(current_user, 'aap_assets_v1', 'CREATE')
+    AND NOT pg_catalog.has_schema_privilege(current_user, 'yoao_assets_v1', 'CREATE')
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND ns.nspname <> 'aap_assets_v1'
+          AND ns.nspname <> 'yoao_assets_v1'
           AND (
               pg_catalog.has_schema_privilege(current_user, ns.oid, 'USAGE')
               OR pg_catalog.has_schema_privilege(current_user, ns.oid, 'CREATE')
@@ -510,9 +510,7 @@ def _decode_reply(payload, result_type, *, label: str, scope=None):
                 code="invalid_response",
             )
         code = reply.error.code
-        raise DataContractError(
-            f"Assets rejected {label}: {code[:64]}", code=code[:64]
-        )
+        raise DataContractError(f"Assets rejected {label}: {code[:64]}", code=code[:64])
     try:
         result = result_type.model_validate(reply.data)
         if scope is not None:

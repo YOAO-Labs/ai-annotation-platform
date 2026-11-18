@@ -1157,84 +1157,84 @@
       "request": "ClaimInputRequest",
       "result": "ClaimedInput",
       "role": "worker",
-      "signature": "aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)"
+      "signature": "yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)"
     },
     "claim_accepted_input_garbage": {
       "arguments": ["worker_id", "lease_seconds", "page_size"],
       "request": "ClaimInputGarbageRequest",
       "result": "InputGarbageBatch",
       "role": "cleanup",
-      "signature": "aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)"
+      "signature": "yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)"
     },
     "complete_accepted_input_garbage": {
       "arguments": ["garbage_id", "lease_token"],
       "request": "CompleteInputGarbageRequest",
       "result": "InputGarbageAck",
       "role": "cleanup",
-      "signature": "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)"
+      "signature": "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)"
     },
     "fail_accepted_image_input": {
       "arguments": ["input_id", "generation", "lease_token", "error_code"],
       "request": "FailInputRequest",
       "result": "InputRecord",
       "role": "worker",
-      "signature": "aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)"
+      "signature": "yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)"
     },
     "find_accepted_image_input": {
       "arguments": ["job_id", "task_id", "actor_id"],
       "request": "FindInputRequest",
       "result": "FoundInput",
       "role": "control",
-      "signature": "aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.find_accepted_image_input(uuid,uuid,uuid)"
     },
     "finish_accepted_image_input": {
       "arguments": ["input_id", "generation", "lease_token", "blob"],
       "request": "FinishInputRequest",
       "result": "InputRecord",
       "role": "worker",
-      "signature": "aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)"
+      "signature": "yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)"
     },
     "heartbeat_accepted_image_input": {
       "arguments": ["input_id", "generation", "lease_token", "lease_seconds"],
       "request": "HeartbeatInputRequest",
       "result": "InputLease",
       "role": "worker",
-      "signature": "aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)"
+      "signature": "yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)"
     },
     "lock_accepted_image_input": {
       "arguments": ["input_id", "task_id", "project_id"],
       "request": "LockInputRequest",
       "result": "InputRecord",
       "role": "labeling",
-      "signature": "aap_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)"
     },
     "read_accepted_image_input": {
       "arguments": ["input_id", "job_id", "task_id"],
       "request": "InputRequest",
       "result": "InputRecord",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.read_accepted_image_input(uuid,uuid,uuid)"
     },
     "read_accepted_image_input_work": {
       "arguments": ["input_id", "job_id", "task_id"],
       "request": "InputRequest",
       "result": "InputWork",
       "role": "control",
-      "signature": "aap_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)"
+      "signature": "yoao_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)"
     },
     "reserve_accepted_image_input": {
       "arguments": ["job_id", "task_id", "actor_id", "source_snapshot", "object_identity"],
       "request": "ReserveInputRequest",
       "result": "InputRecord",
       "role": "control",
-      "signature": "aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)"
+      "signature": "yoao_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)"
     },
     "sweep_accepted_image_inputs": {
       "arguments": ["page_size"],
       "request": "SweepInputsRequest",
       "result": "InputSweepResult",
       "role": "system",
-      "signature": "aap_assets_v1.sweep_accepted_image_inputs(integer)"
+      "signature": "yoao_assets_v1.sweep_accepted_image_inputs(integer)"
     }
   }
 }

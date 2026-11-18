@@ -209,7 +209,7 @@
     }
   ],
   "x-postgresql-relations": {
-    "aap_audit_v1.audit_events": {
+    "yoao_audit_v1.audit_events": {
       "columns": [
         "id",
         "actor_id",

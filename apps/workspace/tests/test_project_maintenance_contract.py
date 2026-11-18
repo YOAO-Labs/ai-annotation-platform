@@ -155,11 +155,11 @@ def test_project_maintenance_schema_freezes_function_signatures_and_boundaries()
     functions = descriptor["functions"]
 
     assert descriptor["protocol"] == PROTOCOL
-    assert descriptor["postgres_schema"] == "aap_workspace_v1"
+    assert descriptor["postgres_schema"] == "yoao_workspace_v1"
     assert [function["signature"] for function in functions] == [
-        "aap_workspace_v1.read_import_project(text)",
-        "aap_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)",
-        "aap_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)",
+        "yoao_workspace_v1.read_import_project(text)",
+        "yoao_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)",
+        "yoao_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)",
     ]
     assert [
         [argument["name"] for argument in function["arguments"]]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -18,6 +19,13 @@ from yoao_workspace.e2e_fixture_contract import (
     decode_fixture_project_id,
     e2e_fixture_schema,
 )
+
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
 
 
 def _project_id() -> uuid.UUID:
@@ -169,15 +177,21 @@ def test_checked_in_schemas_match_the_closed_fixture_contract():
         / "api/alembic/sql/0309_workspace_e2e_fixtures.schema.json"
     )
 
-    assert json.loads(workspace_schema.read_text(encoding="utf-8")) == expected
-    assert json.loads(migration_schema.read_text(encoding="utf-8")) == expected
+    assert (
+        _current_names(json.loads(workspace_schema.read_text(encoding="utf-8")))
+        == expected
+    )
+    assert (
+        _current_names(json.loads(migration_schema.read_text(encoding="utf-8")))
+        == expected
+    )
     assert [
         function["signature"]
         for function in expected["x-native-capabilities"]["functions"]
     ] == [
-        "aap_workspace_fixture_v1.create_project(jsonb)",
-        "aap_workspace_fixture_v1.create_templates(jsonb)",
-        "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
-        "aap_workspace_fixture_v1.delete_projects(uuid[])",
-        "aap_workspace_fixture_v1.delete_templates(boolean, text[])",
+        "yoao_workspace_fixture_v1.create_project(jsonb)",
+        "yoao_workspace_fixture_v1.create_templates(jsonb)",
+        "yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+        "yoao_workspace_fixture_v1.delete_projects(uuid[])",
+        "yoao_workspace_fixture_v1.delete_templates(boolean, text[])",
     ]

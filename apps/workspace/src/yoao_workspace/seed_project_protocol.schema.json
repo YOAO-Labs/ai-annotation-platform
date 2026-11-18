@@ -69,11 +69,11 @@
   "$id": "aap-workspace-seed-project/v1",
   "x-native-capabilities": {
     "protocol": "aap-workspace-seed-project/v1",
-    "postgres_schema": "aap_workspace_v1",
+    "postgres_schema": "yoao_workspace_v1",
     "functions": [
       {
         "name": "create_point_cloud_seed_project",
-        "signature": "aap_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)",
+        "signature": "yoao_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)",
         "arguments": [
           {
             "name": "p_project_id",
@@ -126,7 +126,7 @@
       },
       {
         "name": "write_nuscenes_seed_defaults",
-        "signature": "aap_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)",
+        "signature": "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)",
         "arguments": [
           {
             "name": "p_project_id",

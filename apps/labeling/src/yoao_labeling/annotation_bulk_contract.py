@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 ANNOTATION_BULK_PROTOCOL = "aap-labeling-annotation-bulk/v1"
-ANNOTATION_BULK_FUNCTION = "aap_labeling_v1.annotation_bulk_command(jsonb)"
+ANNOTATION_BULK_FUNCTION = "yoao_labeling_v1.annotation_bulk_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

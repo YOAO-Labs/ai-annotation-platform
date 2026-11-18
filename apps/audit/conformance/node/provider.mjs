@@ -127,7 +127,7 @@ export async function verifyOwnerCommand() {
       request_id: null,
     };
     const request = { schema: protocol, events: [event] };
-    const result = await client.query("SELECT aap_audit_v1.append_events($1::jsonb) AS reply", [
+    const result = await client.query("SELECT yoao_audit_v1.append_events($1::jsonb) AS reply", [
       JSON.stringify(request),
     ]);
     const reply = result.rows[0].reply;

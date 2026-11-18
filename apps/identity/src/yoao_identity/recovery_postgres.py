@@ -37,7 +37,7 @@ class RecoveryPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_recovery_v1.prepare_recovery_command($1::jsonb)",
+                "SELECT yoao_identity_recovery_v1.prepare_recovery_command($1::jsonb)",
                 encoded,
             )
             value = json.loads(raw) if isinstance(raw, str) else raw
@@ -57,7 +57,7 @@ class RecoveryPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_recovery_v1.apply_recovery_command($1::jsonb)",
+                "SELECT yoao_identity_recovery_v1.apply_recovery_command($1::jsonb)",
                 encoded,
             )
             value = json.loads(raw) if isinstance(raw, str) else raw
@@ -125,13 +125,13 @@ class RecoveryPostgresData:
             connection = await self._connect(asyncpg)
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_recovery_v1.recovery_policy()"
+                    "SELECT yoao_identity_recovery_v1.recovery_policy()"
                 )
                 required = [
-                    "aap_identity_recovery_v1.recovery_policy()",
-                    "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
-                    "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
-                    "aap_identity_recovery_v1.read_registration_status(jsonb)",
+                    "yoao_identity_recovery_v1.recovery_policy()",
+                    "yoao_identity_recovery_v1.prepare_recovery_command(jsonb)",
+                    "yoao_identity_recovery_v1.apply_recovery_command(jsonb)",
+                    "yoao_identity_recovery_v1.read_registration_status(jsonb)",
                 ]
                 allowed = await connection.fetchval(
                     "SELECT bool_and(has_function_privilege(current_user, capability, 'EXECUTE')) "
@@ -182,7 +182,7 @@ class RecoveryPostgresData:
                     allow_nan=False,
                 )
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_recovery_v1."
+                    "SELECT yoao_identity_recovery_v1."
                     "read_registration_status($1::jsonb)",
                     encoded,
                 )

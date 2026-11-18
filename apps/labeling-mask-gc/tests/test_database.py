@@ -80,7 +80,7 @@ async def test_native_call_uses_one_committed_transaction_and_allowlisted_sql():
     assert connection.commits == 1
     assert connection.rollbacks == 0
     native_sql = connection.statements[1][0]
-    assert native_sql == "SELECT aap_labeling_v1.read_mask_gc_progress($1::jsonb)"
+    assert native_sql == "SELECT yoao_labeling_v1.read_mask_gc_progress($1::jsonb)"
 
 
 @pytest.mark.asyncio
@@ -102,7 +102,7 @@ async def test_inspection_uses_the_cleanup_native_operation_without_writes():
     assert result.referenced == 3
     assert pool.connection.commits == 1
     assert pool.connection.statements[1][0] == (
-        "SELECT aap_labeling_v1.inspect_mask_gc_page($1::jsonb)"
+        "SELECT yoao_labeling_v1.inspect_mask_gc_page($1::jsonb)"
     )
 
 

@@ -21,7 +21,7 @@ SELECT current_user = session_user
       AND has_schema_privilege(current_user, n.oid, 'CREATE'))
   AND NOT EXISTS (
     SELECT 1 FROM pg_namespace n
-    WHERE n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema','public','aap_assets_v1')
+    WHERE n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema','public','yoao_assets_v1')
       AND has_schema_privilege(current_user, n.oid, 'USAGE'))
   AND NOT EXISTS (
     SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace
@@ -60,7 +60,7 @@ def _expected_signatures(role: str) -> tuple[str, ...]:
     else:
         return ()
     return tuple(
-        f"aap_assets_v1.{name}({', '.join(operation.sql_types)})"
+        f"yoao_assets_v1.{name}({', '.join(operation.sql_types)})"
         for operations, wanted in operation_sets
         for name, operation in operations.items()
         if operation.role in wanted

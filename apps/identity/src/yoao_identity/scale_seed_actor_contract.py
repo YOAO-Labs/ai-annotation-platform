@@ -12,7 +12,7 @@ from .actor_contract import _json_bytes
 from .contract import ClosedModel, IdentityUnavailable
 
 SCALE_SEED_ACTOR_PROTOCOL = "aap-identity-scale-seed-actors/v1"
-IDENTITY_SCHEMA = "aap_identity_v1"
+IDENTITY_SCHEMA = "yoao_identity_v1"
 ScaleSeedActorKind = Literal["super_admin", "annotator"]
 
 
@@ -48,7 +48,7 @@ class _NativeFunction:
 _NATIVE_FUNCTIONS = (
     _NativeFunction(
         name="read_scale_seed_super_admin",
-        signature="aap_identity_v1.read_scale_seed_super_admin()",
+        signature="yoao_identity_v1.read_scale_seed_super_admin()",
         argument_name=None,
         argument_type=None,
         argument_schema=None,
@@ -62,7 +62,7 @@ _NATIVE_FUNCTIONS = (
     ),
     _NativeFunction(
         name="read_scale_seed_annotator",
-        signature="aap_identity_v1.read_scale_seed_annotator(uuid[])",
+        signature="yoao_identity_v1.read_scale_seed_annotator(uuid[])",
         argument_name="p_candidate_ids",
         argument_type="uuid[]",
         argument_schema={

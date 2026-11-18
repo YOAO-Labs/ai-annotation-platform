@@ -12,7 +12,7 @@ from .actor_contract import _json_bytes
 from .contract import ClosedModel, IdentityFailure, IdentityUnavailable
 
 SEED_PERSONA_PROTOCOL = "aap-identity-seed-persona/v1"
-IDENTITY_SCHEMA = "aap_identity_v1"
+IDENTITY_SCHEMA = "yoao_identity_v1"
 SeedPersonaRole: TypeAlias = Literal[
     "super_admin", "project_admin", "employee", "viewer"
 ]

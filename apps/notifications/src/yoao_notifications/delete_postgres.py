@@ -34,7 +34,7 @@ class NotificationDeletePostgresData:
             await self.session.flush()
         return await self.session.scalar(
             text(
-                f"SELECT aap_notifications_v1.{self._function}("
+                f"SELECT yoao_notifications_v1.{self._function}("
                 "CAST(:request AS pg_catalog.jsonb))"
             ),
             {"request": request.model_dump_json(by_alias=True)},

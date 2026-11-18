@@ -61,7 +61,7 @@ def prepare_native_call(
             ).decode("utf-8")
         parameters.append(value)
     return (
-        f"SELECT aap_assets_v1.{name}({', '.join(placeholders)})",
+        f"SELECT yoao_assets_v1.{name}({', '.join(placeholders)})",
         tuple(parameters),
     )
 

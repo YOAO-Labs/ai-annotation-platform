@@ -29,7 +29,7 @@ class PresencePostgresData:
             )
             allowed = await connection.fetchval(
                 "SELECT has_function_privilege(current_user, "
-                "'aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)', "
+                "'yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)', "
                 "'EXECUTE')"
             )
             if allowed is not True:
@@ -71,7 +71,7 @@ class PresencePostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline($1::timestamptz)",
+                    "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline($1::timestamptz)",
                     cutoff,
                 )
                 if type(raw) is not int:

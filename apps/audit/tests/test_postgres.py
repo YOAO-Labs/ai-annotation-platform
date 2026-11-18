@@ -68,7 +68,7 @@ async def test_postgres_binding_leaves_flush_and_commit_order_to_caller():
         assert session.flushes == 0
         assert session.commits == 0
         statement, parameters = session.calls[0]
-        assert "aap_audit_v1.append_events" in statement
+        assert "yoao_audit_v1.append_events" in statement
         assert json.loads(parameters["request"])["events"][0]["detail_json"] is None
         assert reply.data.events[0].id == "42"
 

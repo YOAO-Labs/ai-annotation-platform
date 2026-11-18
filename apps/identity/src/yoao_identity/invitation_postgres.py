@@ -36,7 +36,7 @@ class InvitationPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_invitations_v1.prepare_invitation_command("
+                "SELECT yoao_identity_invitations_v1.prepare_invitation_command("
                 "$1::jsonb)",
                 encoded,
             )
@@ -59,7 +59,7 @@ class InvitationPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_invitations_v1.apply_invitation_command("
+                "SELECT yoao_identity_invitations_v1.apply_invitation_command("
                 "$1::jsonb)",
                 encoded,
             )
@@ -252,14 +252,14 @@ class InvitationPostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_invitations_v1.invitation_policy()"
+                    "SELECT yoao_identity_invitations_v1.invitation_policy()"
                 )
                 await self._assert_capabilities(
                     connection,
                     {
-                        "aap_identity_invitations_v1.invitation_policy()",
-                        "aap_identity_invitations_v1.prepare_invitation_command(jsonb)",
-                        "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
+                        "yoao_identity_invitations_v1.invitation_policy()",
+                        "yoao_identity_invitations_v1.prepare_invitation_command(jsonb)",
+                        "yoao_identity_invitations_v1.apply_invitation_command(jsonb)",
                     },
                 )
                 value = raw.encode("utf-8") if isinstance(raw, str) else raw

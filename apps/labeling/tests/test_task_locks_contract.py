@@ -1,4 +1,5 @@
 import json
+import re
 from importlib.resources import files
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +15,13 @@ from yoao_labeling.task_locks_contract import (
 )
 from yoao_labeling.task_locks_data import TaskLocksData
 
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
+
 
 def test_task_locks_use_the_current_advisory_domain():
     repository = Path(__file__).resolve().parents[3]
@@ -21,7 +29,7 @@ def test_task_locks_use_the_current_advisory_domain():
     assert TASK_LOCK_SCOPE_PREFIX == "task-edit-lock:"
     assert (
         schema["x-postgresql-functions"][
-            "aap_labeling_v1.task_edit_lock_command(jsonb)"
+            "yoao_labeling_v1.task_edit_lock_command(jsonb)"
         ]["task_scope_key"]
         == "task-edit-lock:<task UUID>"
     )
@@ -34,19 +42,23 @@ def test_task_locks_use_the_current_advisory_domain():
         == schema
     )
     assert (
-        json.loads(
-            files("yoao_labeling")
-            .joinpath("sql/0466_task_edit_lock_domain.schema.json")
-            .read_text(encoding="utf-8")
+        _current_names(
+            json.loads(
+                files("yoao_labeling")
+                .joinpath("sql/0466_task_edit_lock_domain.schema.json")
+                .read_text(encoding="utf-8")
+            )
         )
         == schema
     )
     assert (
-        json.loads(
-            (
-                repository
-                / "apps/api/alembic/sql/0466_task_edit_lock_domain.schema.json"
-            ).read_text(encoding="utf-8")
+        _current_names(
+            json.loads(
+                (
+                    repository
+                    / "apps/api/alembic/sql/0466_task_edit_lock_domain.schema.json"
+                ).read_text(encoding="utf-8")
+            )
         )
         == schema
     )

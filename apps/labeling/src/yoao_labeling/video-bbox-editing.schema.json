@@ -763,5 +763,5 @@
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-labeling-video-bbox-editing/v1",
-  "x-postgresql-functions": ["aap_labeling_v1.video_bbox_editing_command(jsonb)"]
+  "x-postgresql-functions": ["yoao_labeling_v1.video_bbox_editing_command(jsonb)"]
 }

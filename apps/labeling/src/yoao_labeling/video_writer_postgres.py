@@ -16,7 +16,7 @@ from .video_writer_contract import (
     video_writer_data_arguments_bytes,
 )
 
-_SCHEMA = "aap_labeling_v1"
+_SCHEMA = "yoao_labeling_v1"
 _STEP_SQL = f"SELECT {_SCHEMA}.video_writer_step($1::text,$2::text)"
 _FUNCTIONS = {("video_writer_step", "text, text")}
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
@@ -65,7 +65,7 @@ class VideoWriterPostgresTransaction:
                     connection,
                     schema=_SCHEMA,
                     functions=_FUNCTIONS,
-                    role="labeling_video_writer_client",
+                    role="yoao_labeling_video_writer_client",
                 )
             except FunctionRoleUnavailable:
                 raise VideoWriterUnavailable() from None

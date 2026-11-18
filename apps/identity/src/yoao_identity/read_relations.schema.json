@@ -82,7 +82,7 @@
   "$id": "aap-identity-read-relations/v1",
   "$comment": "Fixed read-only owner relations, not authorization decisions. Trusted consumers retain their existing scope predicates, joins, ordering and transaction snapshot. No credential, generation or lifecycle fields are published.",
   "x-postgresql-relations": {
-    "aap_identity_v1.account_profiles": {
+    "yoao_identity_v1.account_profiles": {
       "columns": ["id", "name", "email", "role", "is_active", "status", "avatar_ref"],
       "row": {
         "$ref": "#/$defs/AccountProfile"
@@ -91,7 +91,7 @@
       "read_only": true,
       "security_barrier": true
     },
-    "aap_identity_v1.invitation_audit_targets": {
+    "yoao_identity_v1.invitation_audit_targets": {
       "columns": ["id", "project_id"],
       "row": {
         "$ref": "#/$defs/InvitationAuditTarget"

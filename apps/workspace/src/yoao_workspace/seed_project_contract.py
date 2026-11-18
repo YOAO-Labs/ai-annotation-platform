@@ -22,7 +22,7 @@ from yoao_workspace_contract.wire import ClosedModel, _json_bytes
 from .project_maintenance_contract import ProjectMaintenanceUnavailable
 
 PROTOCOL = "aap-workspace-seed-project/v1"
-NATIVE_SCHEMA = "aap_workspace_v1"
+NATIVE_SCHEMA = "yoao_workspace_v1"
 
 
 class _SeedProjectModel(ClosedModel):

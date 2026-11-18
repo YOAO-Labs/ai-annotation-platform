@@ -1113,7 +1113,7 @@
   "x-native-operations": {
     "admit_prediction_retry": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "AdmitPredictionRetryRequest",
       "result": "AdmitPredictionRetryResult",
       "role": "writer",
@@ -1121,7 +1121,7 @@
     },
     "claim_prediction_retry_deliveries": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "ClaimPredictionRetryDeliveriesRequest",
       "result": "ClaimPredictionRetryDeliveriesResult",
       "role": "executor",
@@ -1129,7 +1129,7 @@
     },
     "finish_prediction_retry_delivery": {
       "arguments": ["payload"],
-      "namespace": "aap_jobs_v1",
+      "namespace": "yoao_jobs_v1",
       "request": "FinishPredictionRetryDeliveryRequest",
       "result": "FinishPredictionRetryDeliveryResult",
       "role": "executor",
@@ -1137,7 +1137,7 @@
     },
     "finish_prediction_retry_failure": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "FinishPredictionRetryFailureRequest",
       "result": "FinishPredictionRetryFailureResult",
       "role": "writer",
@@ -1145,7 +1145,7 @@
     },
     "finish_prediction_retry_write": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "FinishPredictionRetryWriteRequest",
       "result": "FinishPredictionRetryWriteResult",
       "role": "writer",
@@ -1153,7 +1153,7 @@
     },
     "read_prediction_retry": {
       "arguments": ["payload"],
-      "namespace": "aap_labeling_v1",
+      "namespace": "yoao_labeling_v1",
       "request": "ReadPredictionRetryRequest",
       "result": "ReadPredictionRetryResult",
       "role": "executor",

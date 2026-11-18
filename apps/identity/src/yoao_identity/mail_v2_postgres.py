@@ -23,10 +23,10 @@ from .mail_v2_contract import (
 )
 
 _MAIL_V2_CAPABILITIES = {
-    "aap_identity_mail_v2.mail_policy()",
-    "aap_identity_mail_v2.claim_mail(jsonb)",
-    "aap_identity_mail_v2.renew_mail(jsonb)",
-    "aap_identity_mail_v2.finish_mail(jsonb)",
+    "yoao_identity_mail_v2.mail_policy()",
+    "yoao_identity_mail_v2.claim_mail(jsonb)",
+    "yoao_identity_mail_v2.renew_mail(jsonb)",
+    "yoao_identity_mail_v2.finish_mail(jsonb)",
 }
 
 
@@ -85,7 +85,7 @@ class MailV2PostgresData:
             connection = await self._open()
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    f"SELECT aap_identity_mail_v2.{function}($1::jsonb)",
+                    f"SELECT yoao_identity_mail_v2.{function}($1::jsonb)",
                     native_mail_v2_command_json(request),
                 )
                 result = decode(self._json_value(raw))
@@ -223,7 +223,7 @@ class MailV2PostgresData:
             connection = await self._open()
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_mail_v2.mail_policy()"
+                    "SELECT yoao_identity_mail_v2.mail_policy()"
                 )
                 policy = decode_mail_v2_policy(self._json_value(raw))
                 if policy.policy != MAIL_V2_POLICY:

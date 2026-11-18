@@ -20,7 +20,7 @@ from pydantic import (
 from .annotation_write_contract import _json_bytes
 
 MASK_REVISION_PROTOCOL = "aap-labeling-mask-revisions/v1"
-MASK_REVISION_FUNCTION = "aap_labeling_v1.mask_revision_command(jsonb)"
+MASK_REVISION_FUNCTION = "yoao_labeling_v1.mask_revision_command(jsonb)"
 
 
 class _ClosedModel(BaseModel):

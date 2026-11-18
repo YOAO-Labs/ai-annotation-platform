@@ -824,37 +824,37 @@
   ],
   "x-native": {
     "create_operator_image_dataset": {
-      "signature": "aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
+      "signature": "yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
       "arguments": ["operation_id", "created_by", "name", "description"],
       "request": "CreateOperatorImageDatasetRequest",
       "result": "OperatorDatasetMutation"
     },
     "ensure_operator_nuscenes_dataset": {
-      "signature": "aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)",
+      "signature": "yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "owner_id", "spec"],
       "request": "EnsureOperatorNuScenesDatasetRequest",
       "result": "OperatorDatasetMutation"
     },
     "append_operator_items": {
-      "signature": "aap_assets_v1.append_operator_items(uuid,uuid,jsonb)",
+      "signature": "yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "dataset_id", "entries"],
       "request": "AppendOperatorItemsRequest",
       "result": "OperatorItemsMutation"
     },
     "patch_operator_items": {
-      "signature": "aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)",
+      "signature": "yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb)",
       "arguments": ["operation_id", "dataset_id", "entries"],
       "request": "PatchOperatorItemsRequest",
       "result": "OperatorItemsMutation"
     },
     "recount_operator_items": {
-      "signature": "aap_assets_v1.recount_operator_items(uuid,uuid)",
+      "signature": "yoao_assets_v1.recount_operator_items(uuid,uuid)",
       "arguments": ["operation_id", "dataset_id"],
       "request": "RecountOperatorItemsRequest",
       "result": "OperatorCountResult"
     },
     "read_operator_items": {
-      "signature": "aap_assets_v1.read_operator_items(uuid,uuid,integer)",
+      "signature": "yoao_assets_v1.read_operator_items(uuid,uuid,integer)",
       "arguments": ["dataset_id", "after_item_id", "page_size"],
       "request": "ReadOperatorItemsRequest",
       "result": "OperatorItemsPage"

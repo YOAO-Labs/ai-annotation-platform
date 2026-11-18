@@ -13,11 +13,12 @@ const frozenSchemaPath = path.resolve(
   "../../../api/alembic/sql/0327_jobs_lifecycle.schema.json",
 );
 const frozenSqlPath = path.resolve(here, "../../../api/alembic/sql/0327_jobs_lifecycle.sql");
-const creationRelation = "aap_jobs_v1.async_job_creation";
+const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
+const creationRelation = "yoao_jobs_v1.async_job_creation";
 const helperSignatures = [
-  "aap_jobs_v1._jobs_lifecycle_has_keys(jsonb, text[])",
-  "aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb)",
-  "aap_jobs_v1._jobs_lifecycle_integer(jsonb)",
+  "yoao_jobs_v1._jobs_lifecycle_has_keys(jsonb, text[])",
+  "yoao_jobs_v1._jobs_lifecycle_is_truthy(jsonb)",
+  "yoao_jobs_v1._jobs_lifecycle_integer(jsonb)",
 ];
 const rowTypeOids = {
   id: 2950,
@@ -54,14 +55,14 @@ const rowTypeNames = {
   updated_at: "timestamp with time zone",
 };
 const functionArguments = {
-  "aap_jobs_v1.read_job": "uuid",
-  "aap_jobs_v1.jobs_by_execution_id": "text",
-  "aap_jobs_v1.insert_video_summary": "uuid, text, uuid, uuid, jsonb, text",
-  "aap_jobs_v1.apply_lifecycle": "uuid, jsonb",
-  "aap_jobs_v1.mark_dispatch_failed": "uuid, timestamp with time zone, text",
-  "aap_jobs_v1.cancel_batch_predict_jobs": "uuid, timestamp with time zone",
-  "aap_jobs_v1.delete_batch_predict_jobs": "uuid",
-  "aap_jobs_v1.delete_terminal_jobs_before": "timestamp with time zone, text[]",
+  "yoao_jobs_v1.read_job": "uuid",
+  "yoao_jobs_v1.jobs_by_execution_id": "text",
+  "yoao_jobs_v1.insert_video_summary": "uuid, text, uuid, uuid, jsonb, text",
+  "yoao_jobs_v1.apply_lifecycle": "uuid, jsonb",
+  "yoao_jobs_v1.mark_dispatch_failed": "uuid, timestamp with time zone, text",
+  "yoao_jobs_v1.cancel_batch_predict_jobs": "uuid, timestamp with time zone",
+  "yoao_jobs_v1.delete_batch_predict_jobs": "uuid",
+  "yoao_jobs_v1.delete_terminal_jobs_before": "timestamp with time zone, text[]",
 };
 const functionRowTypes = {
   ...rowTypeNames,
@@ -70,18 +71,18 @@ const functionRowTypes = {
   celery_task_id: "character varying",
 };
 const functionReturns = {
-  "aap_jobs_v1.read_job": `TABLE(${Object.entries(functionRowTypes)
+  "yoao_jobs_v1.read_job": `TABLE(${Object.entries(functionRowTypes)
     .map(([name, type]) => `${name} ${type}`)
     .join(", ")})`,
-  "aap_jobs_v1.jobs_by_execution_id": `TABLE(${Object.entries(functionRowTypes)
+  "yoao_jobs_v1.jobs_by_execution_id": `TABLE(${Object.entries(functionRowTypes)
     .map(([name, type]) => `${name} ${type}`)
     .join(", ")})`,
-  "aap_jobs_v1.insert_video_summary": "boolean",
-  "aap_jobs_v1.apply_lifecycle": "TABLE(applied boolean, updated_at timestamp with time zone)",
-  "aap_jobs_v1.mark_dispatch_failed": "boolean",
-  "aap_jobs_v1.cancel_batch_predict_jobs": "uuid[]",
-  "aap_jobs_v1.delete_batch_predict_jobs": "uuid[]",
-  "aap_jobs_v1.delete_terminal_jobs_before": "uuid[]",
+  "yoao_jobs_v1.insert_video_summary": "boolean",
+  "yoao_jobs_v1.apply_lifecycle": "TABLE(applied boolean, updated_at timestamp with time zone)",
+  "yoao_jobs_v1.mark_dispatch_failed": "boolean",
+  "yoao_jobs_v1.cancel_batch_predict_jobs": "uuid[]",
+  "yoao_jobs_v1.delete_batch_predict_jobs": "uuid[]",
+  "yoao_jobs_v1.delete_terminal_jobs_before": "uuid[]",
 };
 
 let phase = "startup";
@@ -119,7 +120,7 @@ async function loadContract({ requireFrozen = false } = {}) {
   const hasFrozenSchema = typeof frozenSchemaResult.value === "string";
   const hasFrozenSql = typeof frozenSqlResult.value === "string";
   if (hasFrozenSchema && hasFrozenSql) {
-    assert.deepEqual(JSON.parse(frozenSchemaResult.value), schema);
+    assert.deepEqual(JSON.parse(currentNames(frozenSchemaResult.value)), schema);
     assert.equal(frozenSqlResult.value, sql);
   } else {
     assert.equal(
@@ -140,19 +141,20 @@ async function loadContract({ requireFrozen = false } = {}) {
   assert.deepEqual(
     Object.keys(schema["x-postgresql-functions"]).sort(),
     [
-      "aap_jobs_v1.apply_lifecycle",
-      "aap_jobs_v1.cancel_batch_predict_jobs",
-      "aap_jobs_v1.delete_batch_predict_jobs",
-      "aap_jobs_v1.delete_terminal_jobs_before",
-      "aap_jobs_v1.insert_video_summary",
-      "aap_jobs_v1.jobs_by_execution_id",
-      "aap_jobs_v1.mark_dispatch_failed",
-      "aap_jobs_v1.read_job",
+      "yoao_jobs_v1.apply_lifecycle",
+      "yoao_jobs_v1.cancel_batch_predict_jobs",
+      "yoao_jobs_v1.delete_batch_predict_jobs",
+      "yoao_jobs_v1.delete_terminal_jobs_before",
+      "yoao_jobs_v1.insert_video_summary",
+      "yoao_jobs_v1.jobs_by_execution_id",
+      "yoao_jobs_v1.mark_dispatch_failed",
+      "yoao_jobs_v1.read_job",
     ].sort(),
   );
   assert.deepEqual(Object.keys(rowTypeOids).sort(), [...rowFields(schema)].sort());
   for (const [name, fn] of Object.entries(schema["x-postgresql-functions"])) {
-    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const legacyName = name.replace("yoao_", "aap_");
+    const escapedName = legacyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(sql, new RegExp(`CREATE FUNCTION\\s+${escapedName}\\s*\\(`, "i"));
     assert.equal(normalizeSql(fn.arguments), normalizeSql(functionArguments[name]));
     assert.equal(normalizeSql(fn.returns), normalizeSql(functionReturns[name]));
@@ -192,7 +194,7 @@ function parseOwnedConnectionString() {
     "URL host must be loopback",
   );
   requireThat(
-    decodeURIComponent(url.username) === "jobs_lifecycle_client",
+    decodeURIComponent(url.username) === "yoao_jobs_lifecycle_client",
     "URL must use the scoped LOGIN",
   );
   const databaseName = decodeURIComponent(url.pathname.replace(/^\//, ""));
@@ -273,8 +275,8 @@ async function verifyLifecycle() {
       "SELECT current_user AS current_role, session_user AS login_role",
     );
     assert.deepEqual(identity.rows[0], {
-      current_role: "jobs_lifecycle_client",
-      login_role: "jobs_lifecycle_client",
+      current_role: "yoao_jobs_lifecycle_client",
+      login_role: "yoao_jobs_lifecycle_client",
     });
     const role = await client.query(
       "SELECT r.rolcanlogin, r.rolinherit, r.rolsuper, r.rolcreatedb, r.rolcreaterole, " +
@@ -304,7 +306,7 @@ async function verifyLifecycle() {
         "pg_catalog.acldefault('f',p.proowner))) a " +
         "WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute " +
         "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname='aap_jobs_v1' ORDER BY p.proname",
+        "WHERE n.nspname='yoao_jobs_v1' ORDER BY p.proname",
     );
     const expectedFunctions = Object.entries(schema["x-postgresql-functions"]);
     const bySignature = new Map(
@@ -363,7 +365,7 @@ async function verifyLifecycle() {
     );
     for (const relation of viewAndRelations.rows) {
       const isCreationView =
-        relation.nspname === "aap_jobs_v1" && relation.relname === "async_job_creation";
+        relation.nspname === "yoao_jobs_v1" && relation.relname === "async_job_creation";
       assert.deepEqual(
         [
           relation.can_select,
@@ -383,7 +385,7 @@ async function verifyLifecycle() {
     }
     assert.ok(
       viewAndRelations.rows.some(
-        (row) => row.nspname === "aap_jobs_v1" && row.relname === "async_job_creation",
+        (row) => row.nspname === "yoao_jobs_v1" && row.relname === "async_job_creation",
       ),
     );
     const schemas = await client.query(
@@ -398,7 +400,7 @@ async function verifyLifecycle() {
         .filter((row) => row.can_use)
         .map((row) => row.nspname)
         .sort(),
-      ["aap_jobs_v1", "public"],
+      ["yoao_jobs_v1", "public"],
     );
     assert.ok(schemas.rows.every((row) => !row.can_create));
     const unsafeRights = await client.query(
@@ -434,8 +436,8 @@ async function verifyLifecycle() {
 
     phase = "fixed native row ABI";
     const nativeFunctions = [
-      ["aap_jobs_v1.read_job", "uuid"],
-      ["aap_jobs_v1.jobs_by_execution_id", "text"],
+      ["yoao_jobs_v1.read_job", "uuid"],
+      ["yoao_jobs_v1.jobs_by_execution_id", "text"],
     ];
     for (const [name, argType] of nativeFunctions) {
       const result = await client.query(`SELECT * FROM ${name}($1::pg_catalog.${argType})`, [
@@ -451,7 +453,7 @@ async function verifyLifecycle() {
 
     const startedAt = new Date().toISOString();
     const running = await client.query(
-      "SELECT * FROM aap_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
+      "SELECT * FROM yoao_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
       [
         jobId,
         makeEnvelope(
@@ -507,13 +509,13 @@ async function verifyLifecycle() {
       .replaceAll(JSON.stringify(placeholder("result")), rawResult);
     phase = "JSONB projection and precision";
     const progress = await client.query(
-      "SELECT * FROM aap_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
+      "SELECT * FROM yoao_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
       [jobId, progressEnvelope],
     );
     assert.equal(progress.rows[0]?.applied, true);
     const completedAt = new Date().toISOString();
     const completion = await client.query(
-      "SELECT * FROM aap_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
+      "SELECT * FROM yoao_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
       [
         jobId,
         makeEnvelope(
@@ -531,7 +533,7 @@ async function verifyLifecycle() {
       ],
     );
     assert.equal(completion.rows[0]?.applied, true);
-    const read = await client.query("SELECT * FROM aap_jobs_v1.read_job($1::pg_catalog.uuid)", [
+    const read = await client.query("SELECT * FROM yoao_jobs_v1.read_job($1::pg_catalog.uuid)", [
       jobId,
     ]);
     assertNativeRow(read, rowFields(schema));
@@ -545,7 +547,7 @@ async function verifyLifecycle() {
     assertJsonPreserved(row.result, resultMarker);
 
     const byExecution = await client.query(
-      "SELECT * FROM aap_jobs_v1.jobs_by_execution_id($1::pg_catalog.text)",
+      "SELECT * FROM yoao_jobs_v1.jobs_by_execution_id($1::pg_catalog.text)",
       [executionId],
     );
     assertNativeRow(byExecution, rowFields(schema));
@@ -556,13 +558,13 @@ async function verifyLifecycle() {
     phase = "denied legacy and private writes";
     await expectSqlState(
       client,
-      "SELECT * FROM aap_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
+      "SELECT * FROM yoao_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
       [jobId, makeEnvelope([], ["status"], { legacy_changes: { status: "failed" } })],
       "42501",
     );
     await expectSqlState(
       client,
-      "SELECT * FROM aap_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
+      "SELECT * FROM yoao_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
       [
         jobId,
         makeEnvelope([], ["updated_at"], {
@@ -574,7 +576,7 @@ async function verifyLifecycle() {
     );
     await expectSqlState(
       client,
-      "SELECT * FROM aap_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
+      "SELECT * FROM yoao_jobs_v1.apply_lifecycle($1::pg_catalog.uuid,$2::pg_catalog.jsonb)",
       [jobId, makeEnvelope([], [], { unexpected: true })],
       "22023",
     );
@@ -587,7 +589,7 @@ async function verifyLifecycle() {
     );
     await expectSqlState(
       client,
-      "SELECT aap_jobs_v1._jobs_lifecycle_has_keys('{}'::pg_catalog.jsonb,ARRAY[]::pg_catalog.text[])",
+      "SELECT yoao_jobs_v1._jobs_lifecycle_has_keys('{}'::pg_catalog.jsonb,ARRAY[]::pg_catalog.text[])",
       [],
       "42501",
     );
@@ -608,7 +610,7 @@ async function verifyLifecycle() {
       `${JSON.stringify({
         case: "jobs-lifecycle-node-consumer",
         status: "passed",
-        login: "jobs_lifecycle_client",
+        login: "yoao_jobs_lifecycle_client",
         functionCapabilities: expectedFunctions.length,
         rowColumns: rowFields(schema).length,
         rawJsonb: "precision-unicode-null-false",

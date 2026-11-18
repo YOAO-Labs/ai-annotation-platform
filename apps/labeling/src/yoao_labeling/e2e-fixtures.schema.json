@@ -1695,7 +1695,7 @@
     "propertyName": "operation"
   },
   "x-postgresql-functions": {
-    "aap_labeling_v1.e2e_fixture_command": {
+    "yoao_labeling_v1.e2e_fixture_command": {
       "arguments": "jsonb",
       "request": "oneOf",
       "returns": "jsonb",
@@ -1703,7 +1703,7 @@
       "volatility": "volatile",
       "parallel": "unsafe"
     },
-    "aap_labeling_v1.prepare_filtering_rendering": {
+    "yoao_labeling_v1.prepare_filtering_rendering": {
       "arguments": "jsonb",
       "request": {
         "$ref": "#/$defs/PrepareFilteringRendering"

@@ -17,7 +17,7 @@ from yoao_preannotation_results.video_execution import (
 )
 from yoao_preannotation_results import contract as c
 
-_SCHEMA = "aap_jobs_v1"
+_SCHEMA = "yoao_jobs_v1"
 _FUNCTION = "video_execution_step"
 _STEP_SQL = f"SELECT {_SCHEMA}.{_FUNCTION}($1::text,$2::text)"
 _TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"
@@ -54,7 +54,7 @@ class VideoExecutionPostgresData:
                     (_FUNCTION, "text, text"),
                     ("video_execution_checkpoint_step", "text, text"),
                 },
-                role="video_execution_client",
+                role="yoao_video_execution_client",
             )
             raw = await connection.fetchval(_STEP_SQL, "policy", "{}")
             if type(raw) is str:

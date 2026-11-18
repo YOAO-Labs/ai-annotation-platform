@@ -27,11 +27,11 @@ HEALTH_OBSERVATION_NATIVE_POLICY_SCHEMA = "aap-inference-health-observation-nati
 HEALTH_OBSERVATION_SUBJECT_PROTOCOL = "aap-inference-health-observation-subject/v1"
 HEALTH_OBSERVATION_EVIDENCE_PROTOCOL = "aap-inference-health-observation-evidence/v1"
 HEALTH_OBSERVATION_NATIVE_FUNCTIONS = (
-    "aap_inference_health_observation_v1.health_observation_policy()",
-    "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
-    "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
-    "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
-    "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)",
+    "yoao_inference_health_observation_v1.health_observation_policy()",
+    "yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+    "yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+    "yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+    "yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)",
 )
 
 _NATIVE_POLICY_KEYS = frozenset(

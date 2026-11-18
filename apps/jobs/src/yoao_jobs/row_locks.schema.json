@@ -161,19 +161,19 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.read_job_for_update": {
+    "yoao_jobs_v1.read_job_for_update": {
       "arguments": "uuid",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
       "lock": "FOR UPDATE",
       "volatility": "volatile"
     },
-    "aap_jobs_v1.read_job_for_share_nowait": {
+    "yoao_jobs_v1.read_job_for_share_nowait": {
       "arguments": "uuid",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
       "lock": "FOR SHARE NOWAIT",
       "volatility": "volatile"
     },
-    "aap_jobs_v1.read_job_for_update_nowait": {
+    "yoao_jobs_v1.read_job_for_update_nowait": {
       "arguments": "uuid",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
       "lock": "FOR UPDATE NOWAIT",

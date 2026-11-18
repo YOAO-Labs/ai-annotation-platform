@@ -1167,7 +1167,7 @@
     }
   ],
   "x-postgresql-functions": {
-    "aap_labeling_v1.scene_read_query(jsonb)": {
+    "yoao_labeling_v1.scene_read_query(jsonb)": {
       "actions": [
         "resolve_primary_link",
         "resolve_task_frames",
@@ -1186,21 +1186,21 @@
       ],
       "argument_types": ["jsonb"],
       "caller_transaction_required": true,
-      "dependencies": ["aap_assets_v1.spatial_item_references"],
+      "dependencies": ["yoao_assets_v1.spatial_item_references"],
       "fixed_targets": [
         "public.tasks",
         "public.task_dataset_item_links",
         "public.annotations",
         "public.scene_tracks",
         "public.scene_track_intervals",
-        "aap_assets_v1.spatial_item_references"
+        "yoao_assets_v1.spatial_item_references"
       ],
       "owner": "labeling",
       "returns": "jsonb",
       "security_definer": true,
       "sequences": [],
       "table_access": {
-        "aap_assets_v1.spatial_item_references": {
+        "yoao_assets_v1.spatial_item_references": {
           "select": ["item_id", "scene_id", "frame_index", "scene_name"]
         },
         "public.annotations": {

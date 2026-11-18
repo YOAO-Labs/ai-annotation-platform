@@ -147,9 +147,9 @@ async def test_unlink_uses_exact_function_gate_and_borrowed_transaction(monkeypa
     assert calls == [
         (
             connection,
-            "aap_workspace_v1",
+            "yoao_workspace_v1",
             _DATASET_UNLINK_FUNCTIONS,
-            "workspace_dataset_unlink_client",
+            "yoao_workspace_dataset_unlink_client",
             True,
         )
     ]
@@ -201,9 +201,9 @@ async def test_preview_uses_existing_volatile_function_in_active_transaction(
     assert calls == [
         (
             connection,
-            "aap_workspace_v1",
+            "yoao_workspace_v1",
             _DATASET_UNLINK_FUNCTIONS,
-            "workspace_dataset_unlink_client",
+            "yoao_workspace_dataset_unlink_client",
             True,
         )
     ]

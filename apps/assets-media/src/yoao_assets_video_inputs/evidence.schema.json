@@ -839,7 +839,7 @@
   "x-prediction-extra-key": "accepted_video_input",
   "x-native": {
     "assets_pin": {
-      "signature": "aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
+      "signature": "yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
       "arguments": ["task_id", "project_id", "evidence", "actor_id"],
       "request": "LockVideoInputPinRequest",
       "result": "VideoInputPinRecord",
@@ -848,21 +848,21 @@
       "private": true
     },
     "attach_annotation_video_input_source": {
-      "signature": "aap_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
+      "signature": "yoao_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
       "arguments": ["annotation_id", "actor_id", "evidence"],
       "request": "AttachAnnotationVideoInputSourceRequest",
       "result": "AttachVideoInputEvidenceAck",
       "role": "labeling"
     },
     "copy_annotation_video_input_sources": {
-      "signature": "aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
+      "signature": "yoao_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
       "arguments": ["source_annotation_id", "target_annotation_id"],
       "request": "CopyAnnotationVideoInputSourcesRequest",
       "result": "CopyVideoInputEvidenceAck",
       "role": "labeling"
     },
     "accepted_video_input_referenced": {
-      "signature": "aap_labeling_v1.accepted_video_input_referenced(uuid)",
+      "signature": "yoao_labeling_v1.accepted_video_input_referenced(uuid)",
       "arguments": ["input_id"],
       "request": "VideoInputReferenceRequest",
       "result": "VideoInputReference",

@@ -531,41 +531,41 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.read_job": {
+    "yoao_jobs_v1.read_job": {
       "arguments": "uuid",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)"
     },
-    "aap_jobs_v1.jobs_by_execution_id": {
+    "yoao_jobs_v1.jobs_by_execution_id": {
       "arguments": "text",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)"
     },
-    "aap_jobs_v1.insert_video_summary": {
+    "yoao_jobs_v1.insert_video_summary": {
       "arguments": "uuid, text, uuid, uuid, jsonb, text",
       "returns": "boolean"
     },
-    "aap_jobs_v1.apply_lifecycle": {
+    "yoao_jobs_v1.apply_lifecycle": {
       "arguments": "uuid, jsonb",
       "returns": "TABLE(applied boolean, updated_at timestamp with time zone)"
     },
-    "aap_jobs_v1.mark_dispatch_failed": {
+    "yoao_jobs_v1.mark_dispatch_failed": {
       "arguments": "uuid, timestamp with time zone, text",
       "returns": "boolean"
     },
-    "aap_jobs_v1.cancel_batch_predict_jobs": {
+    "yoao_jobs_v1.cancel_batch_predict_jobs": {
       "arguments": "uuid, timestamp with time zone",
       "returns": "uuid[]"
     },
-    "aap_jobs_v1.delete_batch_predict_jobs": {
+    "yoao_jobs_v1.delete_batch_predict_jobs": {
       "arguments": "uuid",
       "returns": "uuid[]"
     },
-    "aap_jobs_v1.delete_terminal_jobs_before": {
+    "yoao_jobs_v1.delete_terminal_jobs_before": {
       "arguments": "timestamp with time zone, text[]",
       "returns": "uuid[]"
     }
   },
   "x-creation-relation": {
-    "name": "aap_jobs_v1.async_job_creation",
+    "name": "yoao_jobs_v1.async_job_creation",
     "auto_updatable": true,
     "columns": [
       "id",

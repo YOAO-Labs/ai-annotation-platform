@@ -13,12 +13,12 @@ from .lifecycle_contract import (
 
 JOBS_ROW_LOCK_PROTOCOL = "aap-jobs-row-locks/v1"
 JOBS_ROW_LOCK_FUNCTIONS = {
-    "update": "aap_jobs_v1.read_job_for_update",
-    "share_nowait": "aap_jobs_v1.read_job_for_share_nowait",
-    "update_nowait": "aap_jobs_v1.read_job_for_update_nowait",
+    "update": "yoao_jobs_v1.read_job_for_update",
+    "share_nowait": "yoao_jobs_v1.read_job_for_share_nowait",
+    "update_nowait": "yoao_jobs_v1.read_job_for_update_nowait",
 }
 JOBS_EXECUTION_SNAPSHOT_PROTOCOL = "aap-jobs-execution-snapshot/v1"
-JOBS_EXECUTION_SNAPSHOT_FUNCTION = "aap_jobs_v1.read_job_execution_snapshot"
+JOBS_EXECUTION_SNAPSHOT_FUNCTION = "yoao_jobs_v1.read_job_execution_snapshot"
 
 
 def jobs_execution_snapshot_schema():

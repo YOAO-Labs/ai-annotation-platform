@@ -115,11 +115,11 @@ def test_schema_records_fixed_signatures_and_same_statement_snapshot_requirement
     schema = scale_seed_actor_schema()
     assert schema["$id"] == SCALE_SEED_ACTOR_PROTOCOL
     capabilities = schema["x-native-capabilities"]
-    assert capabilities["postgres_schema"] == "aap_identity_v1"
+    assert capabilities["postgres_schema"] == "yoao_identity_v1"
     functions = capabilities["functions"]
     assert [function["signature"] for function in functions] == [
-        "aap_identity_v1.read_scale_seed_super_admin()",
-        "aap_identity_v1.read_scale_seed_annotator(uuid[])",
+        "yoao_identity_v1.read_scale_seed_super_admin()",
+        "yoao_identity_v1.read_scale_seed_annotator(uuid[])",
     ]
     assert functions[0]["arguments"] == []
     assert functions[1]["arguments"][0]["name"] == "p_candidate_ids"

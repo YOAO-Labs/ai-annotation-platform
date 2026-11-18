@@ -20,7 +20,7 @@ class NotificationAppendPostgresData:
     async def command(self, request: AppendNotificationRequest) -> Any:
         return await self.session.scalar(
             text(
-                "SELECT aap_notifications_v1.append_notification("
+                "SELECT yoao_notifications_v1.append_notification("
                 "CAST(:request AS jsonb))"
             ),
             {"request": request.model_dump_json(by_alias=True, exclude_none=True)},

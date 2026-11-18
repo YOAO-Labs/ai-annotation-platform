@@ -52,12 +52,12 @@ class Connection:
         self.queries.append(query)
         return [
             {
-                "nspname": "aap_identity_suspensions_v1",
+                "nspname": "yoao_identity_suspensions_v1",
                 "proname": "suspension_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_suspensions_v1",
+                "nspname": "yoao_identity_suspensions_v1",
                 "proname": "execute_suspension_command",
                 "args": "jsonb",
             },
@@ -75,7 +75,7 @@ async def test_transaction_calls_only_versioned_suspension_function():
     assert result == expected
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_suspensions_v1.execute_suspension_command($1::jsonb)"
+        "yoao_identity_suspensions_v1.execute_suspension_command($1::jsonb)"
         in (connection.queries[0])
     )
 
@@ -83,8 +83,8 @@ async def test_transaction_calls_only_versioned_suspension_function():
 @pytest.mark.asyncio
 async def test_readiness_requires_exact_functions_and_no_direct_data_access():
     expected = {
-        "aap_identity_suspensions_v1.suspension_policy()",
-        "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
+        "yoao_identity_suspensions_v1.suspension_policy()",
+        "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
     }
     connection = Connection()
     await SuspensionPostgresData._assert_capabilities(connection, expected)
@@ -100,7 +100,7 @@ async def test_readiness_requires_exact_functions_and_no_direct_data_access():
     extra = Connection(
         extra_functions=[
             {
-                "nspname": "aap_workspace_v1",
+                "nspname": "yoao_workspace_v1",
                 "proname": "lock_identity_suspension_scope",
                 "args": "uuid, uuid, text",
             }
@@ -113,8 +113,8 @@ async def test_readiness_requires_exact_functions_and_no_direct_data_access():
 @pytest.mark.asyncio
 async def test_readiness_rejects_relation_sequence_and_schema_capabilities():
     expected = {
-        "aap_identity_suspensions_v1.suspension_policy()",
-        "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
+        "yoao_identity_suspensions_v1.suspension_policy()",
+        "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
     }
     for connection in (
         Connection(relation_access=True),

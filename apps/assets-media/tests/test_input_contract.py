@@ -73,7 +73,7 @@ def test_native_capability_roles_and_closed_names():
     )
     assert (
         sql
-        == "SELECT aap_assets_v1.claim_accepted_image_input($1::uuid, $2::uuid, $3::integer)"
+        == "SELECT yoao_assets_v1.claim_accepted_image_input($1::uuid, $2::uuid, $3::integer)"
     )
     assert arguments == (request.worker_id, None, 2100)
 

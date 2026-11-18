@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -18,6 +19,13 @@ from yoao_labeling.task_maintenance_contract import (
     task_maintenance_schema,
 )
 
+_LEGACY_NAMESPACE = re.compile(r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)")
+
+
+def _current_names(value):
+    """Compare frozen artifacts through the current module namespace names."""
+    return json.loads(_LEGACY_NAMESPACE.sub("yoao_", json.dumps(value)))
+
 
 def _reply(request, data):
     return {
@@ -32,7 +40,7 @@ def test_task_maintenance_schema_matches_packaged_and_frozen_artifacts():
     schema = task_maintenance_schema()
     assert schema["$id"] == TASK_MAINTENANCE_PROTOCOL
     assert schema["x-postgresql-functions"] == [
-        "aap_labeling_v1.task_maintenance_command(jsonb)"
+        "yoao_labeling_v1.task_maintenance_command(jsonb)"
     ]
     assert (
         json.loads(
@@ -50,7 +58,7 @@ def test_task_maintenance_schema_matches_packaged_and_frozen_artifacts():
             / "apps/api/alembic/sql/0355_labeling_task_maintenance.schema.json"
         ).read_text(encoding="utf-8")
     )
-    assert frozen_schema == schema
+    assert _current_names(frozen_schema) == schema
     assert files("yoao_labeling").joinpath(
         "sql/0355_labeling_task_maintenance.sql"
     ).read_text(encoding="utf-8") == (

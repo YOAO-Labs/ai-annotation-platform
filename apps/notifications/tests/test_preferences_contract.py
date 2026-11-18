@@ -161,7 +161,7 @@ async def test_postgres_binding_flushes_like_orm_reads_without_committing():
     normal = _FakeSession(autoflush=True)
     await NotificationPreferencesPostgresData(normal).command(request)
     assert normal.flushes == 1
-    assert "aap_notifications_v1.preference_command" in normal.calls[0][0]
+    assert "yoao_notifications_v1.preference_command" in normal.calls[0][0]
     assert json.loads(normal.calls[0][1]["request"])["operation"] == "get"
 
     no_autoflush = _FakeSession(autoflush=False)

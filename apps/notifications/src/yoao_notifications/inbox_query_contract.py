@@ -10,15 +10,15 @@ from pydantic import BaseModel, ConfigDict, StrictStr, TypeAdapter
 
 INBOX_QUERY_PROTOCOL = "aap-notifications-inbox-query/v1"
 INBOX_QUERY_FUNCTIONS = {
-    "aap_notifications_v1.inbox_page": (
+    "yoao_notifications_v1.inbox_page": (
         "uuid, text, boolean, integer, integer",
-        "SETOF aap_notifications_v1.notification_facts",
+        "SETOF yoao_notifications_v1.notification_facts",
     ),
-    "aap_notifications_v1.inbox_total_count": (
+    "yoao_notifications_v1.inbox_total_count": (
         "uuid, text",
         "bigint",
     ),
-    "aap_notifications_v1.inbox_unread_count": (
+    "yoao_notifications_v1.inbox_unread_count": (
         "uuid, text",
         "bigint",
     ),
@@ -81,7 +81,7 @@ def notification_inbox_query_schema() -> dict[str, Any]:
                 "inbox_query_client_execute": "three public inbox functions only",
                 "private_helper_execute": False,
             },
-            "x-private-helper": "aap_notifications_v1._visible_inbox_rows(uuid, text)",
+            "x-private-helper": "yoao_notifications_v1._visible_inbox_rows(uuid, text)",
             "x-borrowed-transaction": {
                 "commit": False,
                 "rollback": False,

@@ -20,7 +20,7 @@ from pydantic import (
 
 
 PREDICTION_PARTITIONS_PROTOCOL = "aap-labeling-prediction-partitions/v1"
-PREDICTION_PARTITIONS_FUNCTION = "aap_labeling_v1.prediction_partition_command(jsonb)"
+PREDICTION_PARTITIONS_FUNCTION = "yoao_labeling_v1.prediction_partition_command(jsonb)"
 PredictionPartitionName = Annotated[
     StrictStr,
     StringConstraints(pattern=r"^predictions_y[0-9]{4}m(0[1-9]|1[0-2])$"),

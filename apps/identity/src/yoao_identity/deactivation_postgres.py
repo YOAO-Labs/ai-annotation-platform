@@ -37,7 +37,7 @@ class DeactivationPostgresTransaction:
                 allow_nan=False,
             )
             raw = await self.connection.fetchval(
-                "SELECT aap_identity_deactivation_v1.execute_deactivation_command("
+                "SELECT yoao_identity_deactivation_v1.execute_deactivation_command("
                 "$1::jsonb)",
                 encoded,
             )
@@ -200,13 +200,13 @@ class DeactivationPostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.deactivation_policy()"
+                    "SELECT yoao_identity_deactivation_v1.deactivation_policy()"
                 )
                 await DeactivationPostgresData._assert_capabilities(
                     connection,
                     {
-                        "aap_identity_deactivation_v1.deactivation_policy()",
-                        "aap_identity_deactivation_v1.execute_deactivation_command(jsonb)",
+                        "yoao_identity_deactivation_v1.deactivation_policy()",
+                        "yoao_identity_deactivation_v1.execute_deactivation_command(jsonb)",
                     },
                 )
                 value = json.loads(raw) if isinstance(raw, str) else raw
@@ -266,7 +266,7 @@ class DeactivationDuePostgresData:
                     allow_nan=False,
                 )
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.process_due_deactivations("
+                    "SELECT yoao_identity_deactivation_v1.process_due_deactivations("
                     "$1::jsonb)",
                     encoded,
                 )
@@ -323,13 +323,13 @@ class DeactivationDuePostgresData:
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
-                    "SELECT aap_identity_deactivation_v1.due_policy()"
+                    "SELECT yoao_identity_deactivation_v1.due_policy()"
                 )
                 await DeactivationPostgresData._assert_capabilities(
                     connection,
                     {
-                        "aap_identity_deactivation_v1.due_policy()",
-                        "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
+                        "yoao_identity_deactivation_v1.due_policy()",
+                        "yoao_identity_deactivation_v1.process_due_deactivations(jsonb)",
                     },
                 )
                 value = json.loads(raw) if isinstance(raw, str) else raw

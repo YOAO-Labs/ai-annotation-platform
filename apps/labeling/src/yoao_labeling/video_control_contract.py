@@ -21,9 +21,9 @@ from pydantic import (
 from .annotation_write_contract import _json_bytes
 
 VIDEO_CONTROL_PROTOCOL = "aap-labeling-video-control/v1"
-VIDEO_CONTROL_FUNCTION = "aap_labeling_v1.video_control_command(jsonb)"
+VIDEO_CONTROL_FUNCTION = "yoao_labeling_v1.video_control_command(jsonb)"
 VIDEO_SEGMENT_LIFECYCLE_FUNCTION = (
-    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)"
+    "yoao_labeling_v1.video_segment_lifecycle_command(jsonb)"
 )
 MAX_VIDEO_CONTROL_REQUEST_BYTES = 135_266_304
 

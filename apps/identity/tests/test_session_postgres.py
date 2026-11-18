@@ -114,9 +114,9 @@ async def test_session_policy_requires_exact_three_function_grants(monkeypatch):
     policy = await SessionPostgresData("postgresql://session").session_policy()
     assert policy["issuer"] == "aap-identity/v1"
     assert connection.calls[1][1][0] == [
-        "aap_identity_sessions_v1.session_policy()",
-        "aap_identity_sessions_v1.read_login_candidate(text)",
-        "aap_identity_sessions_v1.execute_session_command(jsonb)",
+        "yoao_identity_sessions_v1.session_policy()",
+        "yoao_identity_sessions_v1.read_login_candidate(text)",
+        "yoao_identity_sessions_v1.execute_session_command(jsonb)",
     ]
     assert connection.committed and connection.closed
 
@@ -153,7 +153,7 @@ async def test_login_candidate_uses_function_only_query_and_validates_item(monke
     )
     assert result["item"]["actor_id"] == str(actor_id)
     assert connection.calls[0][0] == (
-        "SELECT aap_identity_sessions_v1.read_login_candidate($1::text)"
+        "SELECT yoao_identity_sessions_v1.read_login_candidate($1::text)"
     )
     assert connection.calls[0][1] == ("Exact+Tag@example.test",)
     assert connection.closed and connection.committed
@@ -180,7 +180,9 @@ async def test_valid_login_failure_commits_staged_audit_before_manager_raises(
         "error": {"code": "invalid_credentials", "failed_count": 2},
     }
     sql, params, in_transaction = connection.calls[0]
-    assert sql == ("SELECT aap_identity_sessions_v1.execute_session_command($1::jsonb)")
+    assert sql == (
+        "SELECT yoao_identity_sessions_v1.execute_session_command($1::jsonb)"
+    )
     assert json.loads(params[0]) == payload and in_transaction is True
     assert connection.committed and not connection.rolled_back and connection.closed
 

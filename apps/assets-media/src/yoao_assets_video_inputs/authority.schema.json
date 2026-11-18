@@ -407,7 +407,7 @@
       "request": "LockVideoTaskRequest",
       "result": "VideoTaskSource",
       "schema": "aap-labeling-video-input-source/v1",
-      "signature": "aap_labeling_v1.lock_video_input_task_source(uuid,uuid,jsonb)"
+      "signature": "yoao_labeling_v1.lock_video_input_task_source(uuid,uuid,jsonb)"
     },
     "project_video_input_job": {
       "arguments": [
@@ -423,7 +423,7 @@
       "request": "VideoJobRequest",
       "result": "FoundVideoJob",
       "schema": "aap-jobs-video-input-job/v1",
-      "signature": "aap_jobs_v1.project_video_input_job(uuid,uuid,uuid,uuid,jsonb,text,boolean)"
+      "signature": "yoao_jobs_v1.project_video_input_job(uuid,uuid,uuid,uuid,jsonb,text,boolean)"
     },
     "read_video_input_task_source": {
       "arguments": ["task_id", "actor_id"],
@@ -431,7 +431,7 @@
       "request": "ReadVideoTaskRequest",
       "result": "VideoTaskSource",
       "schema": "aap-labeling-video-input-source/v1",
-      "signature": "aap_labeling_v1.read_video_input_task_source(uuid,uuid)"
+      "signature": "yoao_labeling_v1.read_video_input_task_source(uuid,uuid)"
     }
   }
 }

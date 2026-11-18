@@ -15,6 +15,7 @@ const apiSchemaPath = path.resolve(
   here,
   "../../../api/alembic/sql/0324_notifications_inbox_query.schema.json",
 );
+const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
 const columns = [
   "id",
   "user_id",
@@ -34,7 +35,7 @@ async function selfCheck() {
     readFile(apiSchemaPath),
   ]);
   const contract = JSON.parse(contractBytes.toString("utf8"));
-  const apiSchema = JSON.parse(apiSchemaBytes.toString("utf8"));
+  const apiSchema = JSON.parse(currentNames(apiSchemaBytes.toString("utf8")));
   assert.equal(contract.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(contract.$id, "aap-notifications-inbox-query/v1");
   assert.deepEqual(contract["x-row-columns"], columns);
@@ -44,13 +45,13 @@ async function selfCheck() {
   assert.equal(contract["x-trusted-role-snapshot"], "IdentityAccountLockData.read_actor_status");
   assert.equal(
     contract["x-private-helper"],
-    "aap_notifications_v1._visible_inbox_rows(uuid, text)",
+    "yoao_notifications_v1._visible_inbox_rows(uuid, text)",
   );
   assert.match(contract["x-activity-policy"], /No endpoint-wide active-account filter/);
   assert.deepEqual(Object.keys(contract["x-postgresql-functions"]), [
-    "aap_notifications_v1.inbox_page",
-    "aap_notifications_v1.inbox_total_count",
-    "aap_notifications_v1.inbox_unread_count",
+    "yoao_notifications_v1.inbox_page",
+    "yoao_notifications_v1.inbox_total_count",
+    "yoao_notifications_v1.inbox_unread_count",
   ]);
   assert.equal(contract["x-security"].public_execute, false);
   assert.equal(contract["x-security"].private_helper_execute, false);
@@ -104,7 +105,7 @@ async function verifyInboxQueryRole() {
     assert.equal(identity.rows[0].login_role, expectedRole);
 
     const page = await client.query(
-      "SELECT * FROM aap_notifications_v1.inbox_page($1::uuid,$2::text,false,1000,0)",
+      "SELECT * FROM yoao_notifications_v1.inbox_page($1::uuid,$2::text,false,1000,0)",
       [userId, platformRole],
     );
     const probe = page.rows.find((row) => row.id === notificationId);
@@ -116,11 +117,11 @@ async function verifyInboxQueryRole() {
     assert.deepEqual(probe.payload, { read_relation: true });
 
     const totalResult = await client.query(
-      "SELECT aap_notifications_v1.inbox_total_count($1::uuid,$2::text) AS total",
+      "SELECT yoao_notifications_v1.inbox_total_count($1::uuid,$2::text) AS total",
       [userId, platformRole],
     );
     const unreadResult = await client.query(
-      "SELECT aap_notifications_v1.inbox_unread_count($1::uuid,$2::text) AS unread",
+      "SELECT yoao_notifications_v1.inbox_unread_count($1::uuid,$2::text) AS unread",
       [userId, platformRole],
     );
     const total = totalResult.rows[0].total;
@@ -136,12 +137,13 @@ async function verifyInboxQueryRole() {
       await assert.rejects(client.query(statement, parameters), (error) => error.code === "42501");
     }
     await assertDenied(
-      "SELECT * FROM aap_notifications_v1._visible_inbox_rows($1::uuid,$2::text)",
+      "SELECT * FROM yoao_notifications_v1._visible_inbox_rows($1::uuid,$2::text)",
       [userId, platformRole],
     );
-    await assertDenied("SELECT id FROM aap_notifications_v1.notification_facts WHERE id=$1::uuid", [
-      notificationId,
-    ]);
+    await assertDenied(
+      "SELECT id FROM yoao_notifications_v1.notification_facts WHERE id=$1::uuid",
+      [notificationId],
+    );
     await assertDenied("SELECT id FROM public.notifications LIMIT 1");
     await assertDenied(
       "INSERT INTO public.notifications(id,user_id,type,target_type,target_id,payload) " +

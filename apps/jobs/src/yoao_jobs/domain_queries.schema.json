@@ -295,32 +295,32 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.lock_cross_frame_singleflight": {
+    "yoao_jobs_v1.lock_cross_frame_singleflight": {
       "arguments": "uuid, text",
       "returns": "void",
       "volatility": "volatile"
     },
-    "aap_jobs_v1.active_cross_frame_job": {
+    "yoao_jobs_v1.active_cross_frame_job": {
       "arguments": "uuid, text",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
       "volatility": "stable"
     },
-    "aap_jobs_v1.cross_frame_job_page": {
+    "yoao_jobs_v1.cross_frame_job_page": {
       "arguments": "uuid, text, integer",
       "returns": "TABLE(id uuid, kind character varying, project_id uuid, retained_project_id uuid, user_id uuid, status character varying, progress_pct integer, payload jsonb, result jsonb, error_message text, celery_task_id character varying, started_at timestamp with time zone, completed_at timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)",
       "volatility": "stable"
     },
-    "aap_jobs_v1.cross_frame_job_count": {
+    "yoao_jobs_v1.cross_frame_job_count": {
       "arguments": "uuid, text",
       "returns": "bigint",
       "volatility": "stable"
     },
-    "aap_jobs_v1.latest_batch_prediction_times": {
+    "yoao_jobs_v1.latest_batch_prediction_times": {
       "arguments": "uuid[]",
       "returns": "TABLE(project_id uuid, latest_created_at timestamp with time zone)",
       "volatility": "stable"
     },
-    "aap_jobs_v1.frozen_deployment_usage": {
+    "yoao_jobs_v1.frozen_deployment_usage": {
       "arguments": "uuid, uuid, uuid",
       "returns": "TABLE(active_jobs bigint, retryable_failures bigint)",
       "volatility": "stable"

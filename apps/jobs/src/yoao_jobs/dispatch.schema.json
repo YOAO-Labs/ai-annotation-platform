@@ -183,7 +183,7 @@
     }
   },
   "x-postgresql-functions": {
-    "aap_jobs_v1.prepare_dispatch": {
+    "yoao_jobs_v1.prepare_dispatch": {
       "arguments": "p_request jsonb",
       "returns": "jsonb",
       "volatility": "volatile",
@@ -191,7 +191,7 @@
       "security": "definer",
       "search_path": "pg_catalog, pg_temp"
     },
-    "aap_jobs_v1.claim_dispatches": {
+    "yoao_jobs_v1.claim_dispatches": {
       "arguments": "p_request jsonb",
       "returns": "jsonb",
       "volatility": "volatile",
@@ -199,7 +199,7 @@
       "security": "definer",
       "search_path": "pg_catalog, pg_temp"
     },
-    "aap_jobs_v1.finish_dispatch": {
+    "yoao_jobs_v1.finish_dispatch": {
       "arguments": "p_request jsonb",
       "returns": "jsonb",
       "volatility": "volatile",
@@ -207,7 +207,7 @@
       "security": "definer",
       "search_path": "pg_catalog, pg_temp"
     },
-    "aap_jobs_v1.dispatch_status": {
+    "yoao_jobs_v1.dispatch_status": {
       "arguments": "p_intent_id uuid",
       "returns": "jsonb",
       "volatility": "stable",
@@ -217,13 +217,13 @@
     }
   },
   "x-executor-arguments": {
-    "aap_jobs_v1.prepare_dispatch": ["p_request"],
-    "aap_jobs_v1.claim_dispatches": ["p_request"],
-    "aap_jobs_v1.finish_dispatch": ["p_request"],
-    "aap_jobs_v1.dispatch_status": ["intent_id"]
+    "yoao_jobs_v1.prepare_dispatch": ["p_request"],
+    "yoao_jobs_v1.claim_dispatches": ["p_request"],
+    "yoao_jobs_v1.finish_dispatch": ["p_request"],
+    "yoao_jobs_v1.dispatch_status": ["intent_id"]
   },
   "x-private-table": {
-    "name": "aap_jobs_v1.dispatch_intents",
+    "name": "yoao_jobs_v1.dispatch_intents",
     "columns": [
       "intent_id",
       "job_id",
