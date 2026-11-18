@@ -11778,7 +11778,7 @@ SELECT id FROM removed;
             "tests/test_identity_e2e_live.py" in selected_test_paths
             and os.environ.get("AAP_IDENTITY_E2E_FIXTURE_LIVE") == "1"
         )
-        if identity_e2e_live:
+        if identity_e2e_live or identity_recording_live:
 
             def workspace_import_cli_fence():
                 nonlocal phase
@@ -11803,18 +11803,18 @@ SELECT id FROM removed;
                             "consumer_role": "legacy_runtime",
                         },
                     )
-                evidence["identity_e2e_owner_channel"] = {
+                evidence[
+                    "identity_recording_owner_channel"
+                    if identity_recording_live
+                    else "identity_e2e_owner_channel"
+                ] = {
                     "runtime_role": "legacy_runtime",
                     "fixture_transport": "apps/web/e2e/fixtures/seed-request.py",
                     "fixture_role": "owner",
                     "runtime_fixture_grants": False,
                 }
 
-        elif (
-            media_seed_identity_live
-            or identity_seed_selection_live
-            or identity_recording_live
-        ):
+        elif media_seed_identity_live or identity_seed_selection_live:
 
             def workspace_import_cli_fence():
                 nonlocal phase
@@ -11823,9 +11823,7 @@ SELECT id FROM removed;
                     ROOT
                     / "infra/docker"
                     / (
-                        "identity-recording-fixture-grants.sql"
-                        if identity_recording_live
-                        else "identity-scale-seed-grants.sql"
+                        "identity-scale-seed-grants.sql"
                         if identity_seed_selection_live
                         else "identity-seed-operator-grants.sql"
                     )
@@ -11846,7 +11844,7 @@ SELECT id FROM removed;
                             "consumer_role": "legacy_runtime",
                         },
                     )
-                if identity_seed_selection_live or identity_recording_live:
+                if identity_seed_selection_live:
                     profiles = ["workspace-consumer-grants.sql"]
                     for profile in profiles:
                         _psql(
@@ -11866,15 +11864,14 @@ SELECT id FROM removed;
                                 "consumer_role": "legacy_runtime",
                             },
                         )
-                    if identity_seed_selection_live:
-                        _psql(
-                            container_id,
-                            container_name,
-                            container_identity,
-                            username="owner",
-                            password=owner_password,
-                            database=database,
-                            sql="""
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql="""
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.begin_operator_auxiliary(jsonb),
     aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
@@ -11887,20 +11884,14 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
     TO legacy_runtime;
 """,
-                        )
-                    evidence[
-                        "workspace_seed_selection_consumer"
-                        if identity_seed_selection_live
-                        else "workspace_recording_consumer"
-                    ] = {
+                    )
+                    evidence["workspace_seed_selection_consumer"] = {
                         "role": "legacy_runtime",
                         "workspace_private_tables_denied": True,
                         "profiles": profiles,
                     }
                 evidence[
-                    "identity_recording_fixture_operator"
-                    if identity_recording_live
-                    else "identity_seed_selection_operator"
+                    "identity_seed_selection_operator"
                     if identity_seed_selection_live
                     else "media_seed_identity_operator"
                 ] = {
