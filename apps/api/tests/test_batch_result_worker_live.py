@@ -162,9 +162,13 @@ def _delete_owned_queue(sender: Celery, queue: str) -> None:
 
 
 @pytest.mark.parametrize("delivery_kind", ["batch", "retry"])
-@pytest.mark.parametrize("digest_bound_at_admission", [True, False])
+@pytest.mark.parametrize("digest_bound_before_first_delivery", [True, False])
 async def test_prefork_loss_resumes_captured_result_without_second_inference(
-    test_engine, test_db_url, tmp_path, digest_bound_at_admission, delivery_kind
+    test_engine,
+    test_db_url,
+    tmp_path,
+    digest_bound_before_first_delivery,
+    delivery_kind,
 ):
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_results import (
@@ -313,9 +317,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                         retry_count=0,
                         error_type="TIMEOUT",
                         message="original failure",
-                        extra={"retry_pending": True}
-                        if not digest_bound_at_admission
-                        else {},
+                        extra={},
                     )
                 )
             else:
@@ -333,7 +335,7 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                             "scope": {"task_ids": [str(task_id)]},
                             **(
                                 {"preannotation_request_digest": digest}
-                                if digest_bound_at_admission
+                                if digest_bound_before_first_delivery
                                 else {}
                             ),
                         },
@@ -341,24 +343,6 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
                 )
         seeded = True
         retry_scope = None
-        if delivery_kind == "retry" and digest_bound_at_admission:
-            from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
-            from yoao_preannotation_results.retry_contract import (
-                AdmitPredictionRetryRequest,
-            )
-
-            async with legacy_sessions() as db:
-                admitted = await SqlAlchemyPredictionRetryData(db, writer=True).call(
-                    "admit_prediction_retry",
-                    AdmitPredictionRetryRequest(
-                        job_id=job_id,
-                        failed_prediction_id=failed_id,
-                        actor_id=actor_id,
-                        execution_queue=queue,
-                    ),
-                )
-                await db.commit()
-                digest = admitted.attempt.request_digest
         worker_log = worker_log_path.open("wb")
         worker = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -384,11 +368,52 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
         )
         await _wait_for_worker_ready(worker_ready_path, worker, timeout=60)
         if delivery_kind == "retry":
+            from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
+            from yoao_preannotation_results.retry_contract import (
+                AdmitPredictionRetryRequest,
+            )
+
+            if not digest_bound_before_first_delivery:
+                # An unbound message cannot mint its own retry. The same failure
+                # must still recover after normal admission and actual worker loss.
+                unbound = await asyncio.to_thread(
+                    sender.send_task,
+                    "app.workers.predictions_retry.retry_failed_prediction",
+                    args=[str(failed_id), str(actor_id)],
+                    queue=queue,
+                )
+                try:
+                    error = await asyncio.to_thread(
+                        unbound.get, timeout=60, propagate=False
+                    )
+                    assert unbound.state == "FAILURE"
+                    assert isinstance(error, TypeError) and "job_id" in str(error)
+                    assert not _read_json_lines(model_calls_path)
+                    assert not _read_json_lines(claims_path)
+                    async with owner_sessions() as db:
+                        assert await db.get(AsyncJob, job_id) is None
+                        original = await db.get(FailedPrediction, failed_id)
+                        assert original.retry_count == 0 and original.extra == {}
+                finally:
+                    await asyncio.to_thread(unbound.forget)
+
+            async with legacy_sessions() as db:
+                admitted = await SqlAlchemyPredictionRetryData(db, writer=True).call(
+                    "admit_prediction_retry",
+                    AdmitPredictionRetryRequest(
+                        job_id=job_id,
+                        failed_prediction_id=failed_id,
+                        actor_id=actor_id,
+                        execution_queue=queue,
+                    ),
+                )
+                await db.commit()
+                digest = admitted.attempt.request_digest
             delivery = await asyncio.to_thread(
                 sender.send_task,
                 "app.workers.predictions_retry.retry_failed_prediction",
                 args=[str(failed_id), str(actor_id)],
-                kwargs={"job_id": str(job_id)} if digest_bound_at_admission else {},
+                kwargs={"job_id": str(job_id)},
                 queue=queue,
                 task_id=str(job_id),
             )

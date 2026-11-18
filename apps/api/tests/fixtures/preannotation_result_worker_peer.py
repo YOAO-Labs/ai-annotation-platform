@@ -140,10 +140,8 @@ def install() -> None:
                 await asyncio.sleep(0.1)
         return result
 
-    async def fake_model_pipeline(task, stages, *_args, **_kwargs):
-        from sqlalchemy import inspect
-
-        task_id = str(inspect(task).identity[0])
+    async def recorded_pipeline(task_id, stages, *_args, **_kwargs):
+        task_id = str(task_id)
         backend_id = uuid.UUID(str(stages[0]["ml_backend_id"]))
         _append_json(
             "AAP_TEST_BATCH_RESULT_MODEL_CALLS_PATH",
@@ -163,21 +161,8 @@ def install() -> None:
             instance_id=backend_id,
         )
 
-    async def fake_retry_pipeline(task_id, stages, *_args, **_kwargs):
-        backend_id = uuid.UUID(str(stages[0]["ml_backend_id"]))
-        return pipeline_output(
-            [
-                ModelTaskResult(
-                    task_id=str(task_id),
-                    result=(),
-                    score=0.91,
-                    model_version="worker-recovery-fixture",
-                    inference_time_ms=7,
-                    meta={"total_cost": 0.0042},
-                )
-            ],
-            instance_id=backend_id,
-        )
+    async def fake_model_pipeline(task, stages, *args, **kwargs):
+        return await recorded_pipeline(task.id, stages, *args, **kwargs)
 
     original_prediction_retry = retry_failed_prediction.retry
 
@@ -200,7 +185,7 @@ def install() -> None:
     execution._model_execution_port = lambda *_args, **_kwargs: object()
     execution._run_task_pipeline = fake_model_pipeline
     retry._model_execution_port = lambda *_args, **_kwargs: object()
-    retry.execute_task_pipeline = fake_retry_pipeline
+    retry.execute_task_pipeline = recorded_pipeline
 
 
 install()
