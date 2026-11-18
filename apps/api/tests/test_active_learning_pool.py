@@ -27,6 +27,7 @@ from app.services.labeling_active_learning_source_contract import (
 )
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_datasets import bind_training_authority
+from yoao_labeling.task_locks_contract import TASK_LOCK_SCOPE_PREFIX
 from tests.sample_evaluation_fixtures import evaluation as create_evaluation
 from tests.active_learning_fixtures import (
     candidate_ports,
@@ -160,7 +161,7 @@ async def test_candidate_edit_fence_maps_advisory_contention_to_pool_busy(
         task_id = world.tasks[0].id
         await holder.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"aap:task-edit-lock:{task_id}"},
+            {"key": f"{TASK_LOCK_SCOPE_PREFIX}{task_id}"},
         )
         with pytest.raises(CandidateSourceError) as error:
             await candidate_sources.lock_candidate_edits(

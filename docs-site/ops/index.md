@@ -58,3 +58,4 @@ last_reviewed: 2026-10-26
 - [图片金字塔](/ops/runbooks/image-pyramid) — 大图派生、回填、告警和故障码处理
 - [PG 连接池耗尽](/ops/runbooks/postgres-connection-pool-exhausted) — 连接池打满、请求排队或超时
 - [员工项目角色迁移与回滚](/ops/runbooks/project-role-migration) — 0173/0174 协调切换、审计、回滚边界与已签发 URL 限制
+- [任务编辑锁域切换](/ops/runbooks/task-edit-lock-domain) — bo0466 排空旧写者、切换 advisory 域与失败关闭边界

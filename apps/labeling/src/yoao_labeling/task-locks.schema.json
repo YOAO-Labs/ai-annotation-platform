@@ -369,7 +369,7 @@
       ],
       "caller_transaction_required": true,
       "same_transaction_advisory_lock": true,
-      "task_scope_key": "aap:task-edit-lock:<task UUID>",
+      "task_scope_key": "task-edit-lock:<task UUID>",
       "table_access": {
         "public.task_locks": {
           "select": ["id", "task_id", "user_id", "expire_at", "unique_id", "created_at"],

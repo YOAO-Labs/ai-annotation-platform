@@ -313,17 +313,12 @@ class SqlAlchemyLabelingActiveLearningSources(LabelingActiveLearningSources):
     async def lock_candidate_edits(self, request: CandidateEditFence) -> None:
         locks = TaskLockService(self._db)
         for task_id in sorted(request.task_ids):
-            acquired = await self._db.scalar(
-                select(
-                    func.pg_try_advisory_xact_lock(
-                        func.hashtextextended(f"aap:task-edit-lock:{task_id}", 0)
-                    )
-                )
-            )
-            if not acquired:
+            try:
+                await locks._lock_task_scope(task_id, nowait=True)
+            except TaskLockConflictError as exc:
                 raise CandidateSourceError(
                     "pool_busy", "候选编辑锁正在变化，请稍后重新检查"
-                )
+                ) from exc
             try:
                 await locks.assert_write_allowed(task_id, request.actor_id)
             except TaskLockConflictError as exc:

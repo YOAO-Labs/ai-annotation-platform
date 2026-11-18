@@ -46,16 +46,19 @@ current status and limits.
 The closed contracts `aap-labeling-task-locks/v1` and
 `aap-labeling-task-workflow/v1` call
 `aap_labeling_v1.task_edit_lock_command(jsonb)` and
-`aap_labeling_v1.task_workflow_command(jsonb)`. Their packaged SQL and JSON
-schemas match the frozen migration resources. Portable data clients accept a
+`aap_labeling_v1.task_workflow_command(jsonb)`. The current `0466` SQL/schema
+pair matches its frozen migration resource; earlier packaged revision artifacts
+stay byte-identical to their frozen copies. Portable data clients accept a
 callback and do not import the API or SQLAlchemy.
 
-Edit locks retain the existing advisory-lock namespace, account suspension
-fence, takeover rules, lease renewal, expired-lock cleanup, and ordered batch
-final-write check. Lifecycle commands cover submission, skip, withdrawal,
-reopening, review and contributor evidence. They recheck current actor and
-Task/Batch identity; the API retains current Workspace authorization, Audit,
-counter updates, QC and notification ordering.
+Edit locks use the current `task-edit-lock:<task UUID>` advisory domain while
+retaining the account suspension fence, takeover rules, lease renewal,
+expired-lock cleanup, and ordered batch final-write check. The historical
+`aap:task-edit-lock:` key is read only by the fail-closed cutover guards; it is
+never acquired and has no fallback path. Lifecycle commands cover submission,
+skip, withdrawal, reopening, review and contributor evidence. They recheck
+current actor and Task/Batch identity; the API retains current Workspace
+authorization, Audit, counter updates, QC and notification ordering.
 
 Contributor recording first takes a nonblocking transaction advisory lock keyed
 by the exact Batch, retaining same-batch writer exclusion until the caller commits

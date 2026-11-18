@@ -74,9 +74,11 @@ Project Query 配置；部署时同步更新匹配的 Workspace／Labeling 工�
 `aap_labeling_v1.task_workflow_command(jsonb)`；请求／响应 schema 随 Labeling 包分发。
 
 调用方继续核验当前 Workspace 权限，owner 核对当前账号、Task 的项目／批次、状态及
-审核轮次。编辑锁保留原 advisory 命名空间、续租／接管规则和批次完整集合的有序
-NOWAIT 围栏。业务命令只承接对应状态和证据写入，计数、Audit、QC 与通知仍按原顺序
-组合，不新增提交点。
+审核轮次。编辑锁使用当前 `task-edit-lock:<task UUID>` advisory 域，保留续租／接管规则
+和批次完整集合的有序 NOWAIT 围栏。历史 `aap:task-edit-lock:` 键只被切换围栏读取，
+不再获取，也没有回退或双锁路径；切换步骤见
+[任务编辑锁域切换](/ops/runbooks/task-edit-lock-domain)。业务命令只承接对应状态和
+证据写入，计数、Audit、QC 与通知仍按原顺序组合，不新增提交点。
 
 这两项能力使用业务调用方的同一 PostgreSQL 连接与事务。API 适配器根据返回值同步
 ORM 缓存；owner 不提交／回滚，也不把未提交数据和锁转交给独立 HTTP 事务。

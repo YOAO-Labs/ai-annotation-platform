@@ -3735,6 +3735,11 @@ PYTHONPATH=. AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
 日常数据库并把它当作运行切换。批次及标注内容尚未迁移的私有访问仍保留，完整 Labeling
 资格与剩余范围见[运行协议](docs-site/api/guides/labeling-runtime.md#任务编辑锁与生命周期)。
 
+编辑锁的 advisory 域为 `task-edit-lock:<task UUID>`。前向迁移会拒绝仍有可执行写者连接、
+旧域活动锁或不符合旧正文的数据库；运行时函数也会在旧域锁存在时失败关闭。旧
+`aap:task-edit-lock:` 键只用于检测，不作为回退或双锁。协调停机、排序与实际切换命令见
+[任务编辑锁域切换](docs-site/ops/runbooks/task-edit-lock-domain.md)。
+
 ### Labeling 人工标注写入
 
 人工标注、轨迹关联及任务统计使用 `annotation_write_command(jsonb)`、

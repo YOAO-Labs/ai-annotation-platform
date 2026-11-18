@@ -12,6 +12,7 @@ from sqlalchemy.orm import attributes, make_transient_to_detached
 from sqlalchemy.orm.util import identity_key
 
 from yoao_labeling.task_locks_contract import (
+    TASK_LOCK_SCOPE_PREFIX,
     TASK_LOCKS_FUNCTION,
     TaskLockRecord,
     TaskLocksUnavailable,
@@ -79,6 +80,10 @@ class TaskLockService:
             if sqlstate == "55000":
                 raise HTTPException(
                     status_code=503, detail="身份认证服务暂不可用"
+                ) from None
+            if sqlstate == "55006":
+                raise HTTPException(
+                    status_code=503, detail="任务编辑锁域切换未完成，请稍后重试"
                 ) from None
             raise
         except TaskLocksUnavailable:
@@ -162,23 +167,32 @@ class TaskLockService:
     ) -> None:
         """Serialize TaskLock operations with annotation writes in this transaction.
 
-        The owner command owns the plain exclusive form.  Callers that need the
-        non-blocking probe or the shared read form take the same advisory scope
-        directly, so both forms exclude each other on the same key.
+        Exclusive forms go through the owner command so its cutover guard also
+        covers this caller.  The shared read form takes the current key
+        directly; it never acquires the legacy domain and cannot write.
         """
 
-        if not nowait and not shared:
-            await self._execute("lock_scope", task_id=task_id)
+        if not shared:
+            result = await self._execute(
+                "try_final_scope" if nowait else "lock_scope", task_id=task_id
+            )
+            if nowait and not result["available"]:
+                raise TaskLockConflictError("task edit scope is busy")
             return
-        function = (
-            "pg_try_advisory_xact_lock" if nowait else "pg_advisory_xact_lock"
-        ) + ("_shared" if shared else "")
-        result = await self.db.execute(
-            text(f"SELECT {function}(hashtextextended(:key, 0))"),
-            {"key": f"aap:task-edit-lock:{task_id}"},
+        if nowait:
+            result = await self.db.execute(
+                text(
+                    "SELECT pg_try_advisory_xact_lock_shared(hashtextextended(:key, 0))"
+                ),
+                {"key": f"{TASK_LOCK_SCOPE_PREFIX}{task_id}"},
+            )
+            if not result.scalar():
+                raise TaskLockConflictError("task edit scope is busy")
+            return
+        await self.db.execute(
+            text("SELECT pg_advisory_xact_lock_shared(hashtextextended(:key, 0))"),
+            {"key": f"{TASK_LOCK_SCOPE_PREFIX}{task_id}"},
         )
-        if nowait and not result.scalar():
-            raise TaskLockConflictError("task edit scope is busy")
 
     async def acquire(
         self,
