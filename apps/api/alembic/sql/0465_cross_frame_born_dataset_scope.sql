@@ -138,7 +138,7 @@ BEGIN
     );
     IF v_source_frame IS NULL OR v_start_frame IS NULL OR v_end_frame IS NULL
        OR v_start_frame > v_end_frame
-       OR v_end_frame - v_start_frame + 1 > 100 THEN
+       OR v_end_frame::bigint - v_start_frame + 1 > 100 THEN
         RETURN NULL;
     END IF;
     IF v_direction = 'forward' THEN
@@ -173,14 +173,14 @@ BEGIN
     IF NOT FOUND THEN
         RETURN NULL;
     END IF;
-    SELECT link.dataset_item_id INTO v_source_linked
-    FROM public.task_dataset_item_links AS link
+    SELECT (array_agg(link.dataset_item_id))[1] INTO v_source_linked
+    FROM aap_labeling_v1.task_dataset_item_link_rows AS link
     WHERE link.task_id = v_source_task AND link.role = 'primary_lidar'
-    ORDER BY link.id
-    LIMIT 1;
+    HAVING count(*) <= 1;
+    IF NOT FOUND THEN RETURN NULL; END IF;
     v_source_links := ARRAY(
         SELECT DISTINCT link.dataset_item_id
-        FROM public.task_dataset_item_links AS link
+        FROM aap_labeling_v1.task_dataset_item_link_rows AS link
         WHERE link.task_id = v_source_task
         ORDER BY link.dataset_item_id
     );
@@ -362,14 +362,14 @@ BEGIN
         IF NOT FOUND THEN
             RETURN NULL;
         END IF;
-        SELECT link.dataset_item_id INTO v_target_linked
-        FROM public.task_dataset_item_links AS link
+        SELECT (array_agg(link.dataset_item_id))[1] INTO v_target_linked
+        FROM aap_labeling_v1.task_dataset_item_link_rows AS link
         WHERE link.task_id = v_target_task AND link.role = 'primary_lidar'
-        ORDER BY link.id
-        LIMIT 1;
+        HAVING count(*) <= 1;
+        IF NOT FOUND THEN RETURN NULL; END IF;
         v_target_links := ARRAY(
             SELECT DISTINCT link.dataset_item_id
-            FROM public.task_dataset_item_links AS link
+            FROM aap_labeling_v1.task_dataset_item_link_rows AS link
             WHERE link.task_id = v_target_task
             ORDER BY link.dataset_item_id
         );
@@ -453,7 +453,8 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
-    IF p_job_id IS NULL OR p_project_id IS NULL OR p_actor_id IS NULL THEN
+    IF p_job_id IS NULL OR p_project_id IS NULL OR p_actor_id IS NULL
+       OR aap_jobs_v1.cross_frame_birth_identity_matches(p_job_id,p_project_id,p_actor_id,p_payload) IS NOT TRUE THEN
         RETURN NULL;
     END IF;
     RETURN aap_assets_v1._cross_frame_dataset_scope(
@@ -488,14 +489,12 @@ BEGIN
     IF p_job_id IS NULL THEN
         RETURN false;
     END IF;
-    SELECT birth.project_id, birth.actor_id, birth.dataset_ids
-    INTO v_birth
-    FROM aap_jobs_v1.cross_frame_job_birth(p_job_id) AS birth;
+    SELECT birth.matches, birth.dataset_ids INTO v_birth
+    FROM aap_jobs_v1.cross_frame_job_birth(p_job_id,p_project_id,p_actor_id,p_payload) AS birth;
     IF NOT FOUND THEN
         RETURN true;
     END IF;
-    IF v_birth.project_id IS DISTINCT FROM p_project_id
-       OR v_birth.actor_id IS DISTINCT FROM p_actor_id THEN
+    IF NOT v_birth.matches THEN
         RETURN false;
     END IF;
     v_born := ARRAY(
@@ -530,16 +529,13 @@ BEGIN
         ORDER BY ids.id
     );
     IF pg_catalog.cardinality(v_task_ids) > 0 THEN
-        PERFORM task.id
-        FROM public.tasks AS task
-        WHERE task.id = ANY(v_task_ids)
-        ORDER BY task.id
-        FOR SHARE;
-        PERFORM link.id
-        FROM public.task_dataset_item_links AS link
-        WHERE link.task_id = ANY(v_task_ids)
-        ORDER BY link.task_id, link.id
-        FOR SHARE;
+        FOREACH v_scene IN ARRAY v_task_ids LOOP
+            -- FOR UPDATE, not SHARE: new FK links must not appear between the
+            -- final derivation and the frame write. Never wait on a second worker.
+            PERFORM 1 FROM aap_labeling_v1.lock_task_for_core_read(v_scene,'update',true,p_project_id);
+            IF NOT FOUND THEN RETURN false; END IF;
+            PERFORM 1 FROM aap_labeling_v1.lock_task_dataset_item_links_for_core_read(v_scene,false,NULL,NULL);
+        END LOOP;
         PERFORM item.id
         FROM public.dataset_items AS item
         WHERE item.id IN (
@@ -549,7 +545,7 @@ BEGIN
               AND source_task.dataset_item_id IS NOT NULL
             UNION
             SELECT linked.dataset_item_id
-            FROM public.task_dataset_item_links AS linked
+            FROM aap_labeling_v1.task_dataset_item_link_rows AS linked
             WHERE linked.task_id = ANY(v_task_ids)
         )
         ORDER BY item.id

@@ -148,6 +148,8 @@ GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(u
     aap_jobs_v1.video_execution_step(text,text),
     aap_jobs_v1.video_execution_checkpoint_step(text,text) TO :"application_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.is_fixture_original_source(text,text)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_owner_exists(text,uuid)

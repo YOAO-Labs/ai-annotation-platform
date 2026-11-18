@@ -58,10 +58,10 @@ contention returns `55P03`, and an unretired video or unproved Jobs row returns
 `23514`. The guard borrows the caller transaction and preserves original
 constraints and DELETE triggers.
 
-The typed dataset classifier receives Job ID, kind, payload, project ID and actor ID. Its packaged signature is `fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)`; unknown scope remains a cleanup blocker. The database suffix is an additional environment restriction, not authority to grant private fixture capabilities to the ordinary runtime.
+`fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)` uses the Job ID, kind, payload, project and actor. A new retry can prove scope only from its own admission and frozen input. A new cross-frame Job includes the source Scene and every ready target's Dataset; the worker rechecks that scope before writing. Neither current Task mappings nor terminal status can certify a historical Job. Unproved scope blocks cleanup, and deleting a bound Job does not certify physical settlement.
 
 The current migration-bound contract is
-`apps/api/alembic/sql/0443_fixture_jobs.schema.json`, matching the installed
+`apps/api/alembic/sql/0465_fixture_jobs.schema.json`, matching the installed
 `yoao_jobs/fixture_guard.schema.json`. Native acceptance checks every declared
 function's arguments, result, volatility and parallel safety against PostgreSQL.
 Historical SQL stays unchanged; reclaim classification advances through

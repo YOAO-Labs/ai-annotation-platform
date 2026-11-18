@@ -29,7 +29,9 @@ from tests.factory import create_project, create_user
 pytestmark = [pytest.mark.asyncio]
 
 ADMIT = text("SELECT aap_labeling_v1.admit_prediction_retry(CAST(:payload AS jsonb))")
-SET_CONSTRAINTS = text("SET CONSTRAINTS aap_retry_born_dataset_scope_guard IMMEDIATE")
+SET_CONSTRAINTS = text(
+    "SET CONSTRAINTS aap_jobs_v1.aap_retry_born_dataset_scope_guard IMMEDIATE"
+)
 SCOPE = text(
     "SELECT aap_jobs_v1.fixture_job_dataset_scope("
     "id,kind,payload,project_id,user_id) "
@@ -361,7 +363,7 @@ async def test_itemless_text_retry_is_dataset_independent_and_ignores_metadata(
         ),
         {
             "extra": json.dumps(
-                {"cancel_requested": True, "display": {"label": "retry progress"}}
+                {"cancel_requested": True, "task_display_id": "retry progress"}
             ),
             "id": job,
         },
@@ -553,7 +555,7 @@ async def test_historical_attempt_without_same_transaction_birth_is_not_adopted(
                 "INSERT INTO public.async_jobs "
                 "(id,kind,project_id,user_id,status,progress_pct,payload,result) "
                 "VALUES (:id,'prediction_retry',:project,:actor,'pending',0,"
-                "CAST(:payload AS jsonb),CAST('{}'::jsonb))"
+                "CAST(:payload AS jsonb),'{}'::jsonb)"
             ),
             {
                 "id": historical_job,
@@ -569,10 +571,10 @@ async def test_historical_attempt_without_same_transaction_birth_is_not_adopted(
                 ),
             },
         )
-        with pytest.raises(DBAPIError) as not_current:
-            async with db_session.begin_nested():
-                await _force_guard(db_session)
-        assert _sqlstate(not_current.value) == "23514"
+        await _force_guard(db_session)
+        assert await _receipt(db_session, historical_job) is None
+        assert await _scope(db_session, historical_job) == {"kind": "unknown"}
+        await _assert_blocked(db_session, [world.dataset.id])
         await savepoint.rollback()
 
 

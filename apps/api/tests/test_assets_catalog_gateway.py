@@ -797,6 +797,8 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         _start_media_runtime,
         _stop_media_runtime,
     )
+    from tests.test_retry_born_dataset_scope import _admit, _world
+    from tests.test_workspace_cross_frame_worker_live import _seed_member_job
     from tests.test_workspace_worker_assembly_live import (
         _delete_owned_queue,
         _wait_broker_ack,
@@ -881,6 +883,27 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                 {"task": uuid.UUID(world["task_ids"][0])},
             )
         assert dataset_id is not None
+        # Two ordinary Jobs share the database with both fixture runs. Neither
+        # may be treated as settled or removed by retirement of the backfill.
+        neighbors = async_sessionmaker(test_engine, expire_on_commit=False)
+        cross_frame = await _seed_member_job(neighbors, label="backfill-neighbor")
+        async with neighbors.begin() as db:
+            retry = await _world(db)
+            retry_id = await _admit(db, retry)
+            scope_query = text(
+                "SELECT j.id,b.dataset_ids FROM public.async_jobs j "
+                "JOIN aap_jobs_v1.fixture_worker_job_datasets b ON b.job_id=j.id "
+                "WHERE j.id=ANY(:ids) AND j.status='pending' ORDER BY j.id"
+            )
+            neighbor_ids = {"ids": [cross_frame["job_id"], retry_id]}
+            original_scopes = dict((await db.execute(scope_query, neighbor_ids)).all())
+            assert original_scopes[retry_id] == [retry.dataset.id]
+            cross_dataset = await db.scalar(
+                text("SELECT dataset_id FROM public.scenes WHERE id=:scene"),
+                {"scene": cross_frame["scene_id"]},
+            )
+            assert original_scopes[cross_frame["job_id"]] == [cross_dataset]
+            assert dataset_id not in {retry.dataset.id, cross_dataset}
         seed_payload = {**run.payload(), "dataset_id": str(dataset_id)}
         before = await owner.post(
             "/api/v1/__test/seed/backfill-image", json=seed_payload
@@ -1278,6 +1301,9 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             )
         cleaned_neighbor = await _cleanup_owned(owner, neighbor)
         assert cleaned_neighbor.status_code == 200, cleaned_neighbor.text
+        async with test_engine.connect() as db:
+            surviving = dict((await db.execute(scope_query, neighbor_ids)).all())
+            assert surviving == original_scopes
         await suite.finish()
         await owner.retire_native_suite()
         await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)

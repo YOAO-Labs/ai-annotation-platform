@@ -4384,6 +4384,24 @@ ALTER TABLE aap_jobs_v1.prediction_mask_producers OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.prediction_mask_producer_objects OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.fixture_prediction_job_births OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.fixture_prediction_job_datasets OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.fixture_worker_job_datasets OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.unsettled_worker_job_deletions OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.retain_unsettled_worker_deletion() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb) TO :"assets_owner";
+ALTER FUNCTION aap_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb) TO :"assets_owner";
+ALTER FUNCTION aap_jobs_v1.worker_job_scope_digest(text,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_worker_job_dataset_receipt() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.record_worker_job_dataset_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_worker_job_scope_change() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.retry_born_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_retry_born_dataset_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.bind_prediction_retry_attempt_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_prediction_retry_attempt_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_retry_born_authority() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.retry_authority_snapshot_matches(uuid,jsonb,uuid) OWNER TO :"jobs_owner";
+GRANT SELECT (digest) ON public.prediction_execution_snapshots TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.fixture_prediction_dispatch_tombstones OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.bind_prediction_mask_object(uuid,uuid) OWNER TO :"jobs_owner";
@@ -4411,6 +4429,18 @@ ALTER FUNCTION aap_assets_v1.require_fixture_operator_manifest() OWNER TO :"asse
 ALTER FUNCTION aap_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[]) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._cross_frame_scope_uuid(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._cross_frame_scope_int(jsonb) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb),
+    aap_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb)
+    TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)
     TO :"jobs_owner";
 ALTER FUNCTION aap_assets_v1.fixture_original_readers_empty(uuid) OWNER TO :"assets_owner";

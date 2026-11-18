@@ -87,7 +87,7 @@ def _copy(payload: dict) -> dict:
 
 async def _dataset(db, owner_id, suffix: str) -> Dataset:
     dataset = Dataset(
-        display_id=f"DS-CF-{suffix}-{uuid.uuid4().hex[:6]}",
+        display_id=f"DS-CF-{uuid.uuid4().hex[:12]}",
         name=f"cross-frame-{suffix}-{uuid.uuid4().hex[:6]}",
         data_type="point_cloud",
         created_by=owner_id,
@@ -99,7 +99,7 @@ async def _dataset(db, owner_id, suffix: str) -> Dataset:
 
 async def _scene(db, dataset: Dataset, suffix: str) -> Scene:
     scene = Scene(
-        display_id=f"SCN-CF-{suffix}-{uuid.uuid4().hex[:6]}",
+        display_id=f"SCN-CF-{uuid.uuid4().hex[:12]}",
         dataset_id=dataset.id,
         name=f"scene-{suffix}-{uuid.uuid4().hex[:6]}",
     )
@@ -309,9 +309,24 @@ async def test_real_producer_birth_binds_exact_dataset_scope(
         await _fence(db_session, job_id, world.project.id, uuid.uuid4(), job.payload)
         is False
     )
+    assert not await _fence(
+        db_session,
+        job_id,
+        world.project.id,
+        user.id,
+        {**job.payload, "source_frame": 9},
+    )
     with pytest.raises(HTTPException) as blocked:
-        await ownership.guard_dataset_jobs(db_session, [world.dataset.id])
+        async with db_session.begin_nested():
+            await ownership.guard_dataset_jobs(db_session, [world.dataset.id])
     assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
+    await db_session.delete(job)
+    await db_session.flush()
+    with pytest.raises(HTTPException) as orphan:
+        async with db_session.begin_nested():
+            await ownership.guard_dataset_jobs(db_session, [world.dataset.id])
+    assert orphan.value.detail["code"] == "fixture_dataset_job_unsettled"
+    await ownership.guard_dataset_jobs(db_session, [uuid.uuid4()])
 
 
 async def test_primary_lidar_and_related_links_stay_in_scope(
@@ -632,13 +647,9 @@ async def test_retry_births_its_own_narrower_scope(
             },
         ]
     )
-    await db_session.execute(
-        text(
-            "UPDATE public.async_jobs SET status='completed', progress_pct=100, "
-            "result=CAST(:result AS jsonb) WHERE id=:id"
-        ),
-        {"id": parent_id, "result": json.dumps(result)},
-    )
+    parent.status = AsyncJobStatus.COMPLETED.value
+    parent.progress_pct = 100
+    parent.result = result
     await db_session.flush()
 
     retry_response = await httpx_client.post(
@@ -822,13 +833,13 @@ async def test_neighbor_born_job_keeps_execution_and_classification(
 
 
 async def test_family_scope_functions_stay_private(db_session):
-    schema_owner = await db_session.scalar(
+    assets_owner = await db_session.scalar(
         text(
-            "SELECT pg_catalog.pg_get_userbyid(nspowner) "
-            "FROM pg_catalog.pg_namespace WHERE nspname='aap_assets_v1'"
+            "SELECT pg_catalog.pg_get_userbyid(proowner) FROM pg_catalog.pg_proc "
+            "WHERE oid='aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)'::regprocedure"
         )
     )
-    assert schema_owner
+    assert assets_owner
     rows = (
         await db_session.execute(
             text(
@@ -851,7 +862,7 @@ async def test_family_scope_functions_stay_private(db_session):
     assert expected <= set(found)
     for signature in expected:
         row = found[signature]
-        assert row["owner"] == schema_owner, signature
+        assert row["owner"] == assets_owner, signature
         if signature in {
             "aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
             "aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",

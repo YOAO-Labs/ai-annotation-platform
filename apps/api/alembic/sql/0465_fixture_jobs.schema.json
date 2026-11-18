@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-fixture-guard/v1",
+  "$defs": {
+    "FixtureProjectCleanupRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": { "format": "uuid", "type": "string" },
+          "title": "Project Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_ids"],
+      "title": "FixtureProjectCleanupRequest",
+      "type": "object"
+    },
+    "FixtureCleanupCount": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.guard_fixture_project_jobs": {
+      "arguments": "uuid[]",
+      "returns": "void",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.fixture_dataset_job_scope": {
+      "arguments": "uuid, text, jsonb, uuid, uuid",
+      "returns": "jsonb",
+      "volatility": "immutable",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.fixture_job_dataset_scope": {
+      "arguments": "uuid, text, jsonb, uuid, uuid",
+      "returns": "jsonb",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.guard_fixture_dataset_jobs": {
+      "arguments": "uuid[]",
+      "returns": "void",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_assets_v1.fixture_task_dataset_scope": {
+      "arguments": "uuid, jsonb",
+      "returns": "uuid[]",
+      "volatility": "stable",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.create_filter_fixture_jobs": {
+      "arguments": "uuid, uuid, uuid, uuid, uuid, uuid, text, text",
+      "returns": "bigint",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.delete_fixture_presentation_jobs": {
+      "arguments": "uuid, uuid, uuid[]",
+      "returns": "bigint",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    },
+    "aap_jobs_v1.delete_fixture_project_jobs": {
+      "arguments": "uuid[]",
+      "returns": "bigint",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; image exports, batch predictions, verified retry admissions and cross-frame Jobs retain their born Dataset sets; unknown scope or matching unsettled work blocks cleanup even after a bound worker Job is deleted; scope alone is not physical retirement",
+  "x-empty-scope": "guard succeeds and deletion returns zero",
+  "x-security": {
+    "database": "actual database name must end in _test or _e2e",
+    "owner": "Jobs definer; PUBLIC execute revoked",
+    "guard": "aap_workspace_fixture_v1.guard_project_cleanup(uuid[])",
+    "search_path": "pg_catalog,pg_temp"
+  },
+  "x-errors": {
+    "0A000": "fixture Dataset cleanup requires READ COMMITTED isolation",
+    "42501": "non-test database or missing capability",
+    "22023": "NULL/null-element scope or malformed Workspace guard",
+    "23514": "video_execution_not_retired, fixture_job_execution_unsettled or fixture_dataset_job_unsettled",
+    "55P03": "project or image export Dataset scope contention"
+  },
+  "x-transactions": {
+    "commit": false,
+    "rollback": false,
+    "isolation": "READ COMMITTED for Dataset cleanup",
+    "locks": "Workspace project/retirement guard retained in caller transaction",
+    "triggers": "original DELETE constraints and triggers retained"
+  }
+}

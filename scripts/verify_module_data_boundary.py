@@ -547,9 +547,44 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
     "aap_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
     "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
-    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0446_fixture_media_dataset_guards.sql",
+    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0465_worker_job_dataset_scope.sql",
     "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
-    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0456_prediction_dataset_scope.sql",
+    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0465_worker_job_dataset_scope.sql",
+    **{
+        signature: "0465_worker_job_dataset_scope.sql"
+        for signature in (
+            "aap_jobs_v1.worker_job_scope_digest(text,jsonb)",
+            "aap_jobs_v1.guard_worker_job_dataset_receipt()",
+            "aap_jobs_v1.record_worker_job_dataset_scope()",
+            "aap_jobs_v1.guard_worker_job_scope_change()",
+            "aap_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb)",
+            "aap_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb)",
+            "aap_jobs_v1.retain_unsettled_worker_deletion()",
+        )
+    },
+    **{
+        signature: "0465_cross_frame_born_dataset_scope.sql"
+        for signature in (
+            "aap_assets_v1._cross_frame_scope_uuid(jsonb)",
+            "aap_assets_v1._cross_frame_scope_int(jsonb)",
+            "aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
+            "aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
+        )
+    },
+    **{
+        signature: "0465_retry_born_dataset_scope.sql"
+        for signature in (
+            "aap_jobs_v1.bind_prediction_retry_attempt_birth()",
+            "aap_jobs_v1.guard_prediction_retry_attempt_scope()",
+            "aap_jobs_v1.guard_retry_born_authority()",
+            "aap_jobs_v1.guard_retry_born_dataset_scope()",
+            "aap_jobs_v1.retry_authority_snapshot_matches(uuid,jsonb,uuid)",
+            "aap_jobs_v1.retry_born_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "aap_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb)",
+            "aap_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb)",
+        )
+    },
     "aap_jobs_v1.record_fixture_prediction_job_birth()": "0456_prediction_dataset_scope.sql",
     "aap_jobs_v1.guard_fixture_prediction_job_datasets()": "0456_prediction_dataset_scope.sql",
     "aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)": "0456_prediction_dataset_scope.sql",
@@ -1478,6 +1513,12 @@ JOBS_SQL_ARTIFACTS = (
     "0447_jobs_fixture_media_publication.sql",
     "0451_jobs_publication_retirement.sql",
 )
+WORKER_JOB_SCOPE_SQL = (
+    "0465_worker_job_dataset_receipts.sql",
+    "0465_retry_born_dataset_scope.sql",
+    "0465_cross_frame_born_dataset_scope.sql",
+    "0465_worker_job_dataset_scope.sql",
+)
 ASSETS_SOURCE_SQL_ARTIFACTS = ("0453_import_original_verification.sql",)
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -1901,6 +1942,7 @@ SQL_ARTIFACTS = (
     "0463_native_pyramid_retirement.sql",
     "0464_native_pyramid_saved_targets.sql",
     "0464_native_storage_capture.sql",
+    *WORKER_JOB_SCOPE_SQL,
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -1912,6 +1954,7 @@ SCHEMA_ARTIFACTS = (
     "0434_prediction_execution_routing.schema.json",
     "0434_prediction_output_ownership.schema.json",
     "0444_fixture_jobs.schema.json",
+    "0465_fixture_jobs.schema.json",
     "0432_labeling_screenshot_operations.schema.json",
     "0419_dataset_ingest_authority.schema.json",
     "0371_assets_owner_main_integration.schema.json",
@@ -2115,6 +2158,8 @@ TEST_FILES = (
     "tests/test_video_frame_service.py",
     "tests/test_video_control_worker_binding.py",
     "tests/test_jobs_fixture_cleanup_binding.py",
+    "tests/test_retry_born_dataset_scope.py",
+    "tests/test_cross_frame_born_dataset_scope.py",
     "tests/test_task_upload_managed_contract.py",
     "tests/test_inference_pool_reference_native.py",
     "tests/test_labeling_video_control_native.py",
@@ -5505,7 +5550,7 @@ def _assert_psql_permission_denied(
 
 
 def _sql_artifact_path(name: str) -> Path:
-    if name in JOBS_SQL_ARTIFACTS:
+    if name in JOBS_SQL_ARTIFACTS or name in WORKER_JOB_SCOPE_SQL:
         directory = ROOT / "apps/jobs/src/yoao_jobs/sql"
     elif name in ASSETS_SOURCE_SQL_ARTIFACTS:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"

@@ -75,6 +75,10 @@ def jobs_fixture_dataset_guard_sql():
             "0443_fixture_dataset_retired_jobs.sql",
             "0444_image_export_dataset_scope.sql",
             "0456_prediction_dataset_scope.sql",
+            "0465_worker_job_dataset_receipts.sql",
+            "0465_retry_born_dataset_scope.sql",
+            "0465_cross_frame_born_dataset_scope.sql",
+            "0465_worker_job_dataset_scope.sql",
         )
     )
 
@@ -145,7 +149,7 @@ def jobs_fixture_guard_schema():
                 "parallel": "unsafe",
             },
         },
-        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; immutable image export bindings retain their exact Dataset sets across Job deletion; born prediction Job bindings freeze the exact Task/Dataset scope at Job birth; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required",
+        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; image exports, batch predictions, verified retry admissions and cross-frame Jobs retain their born Dataset sets; unknown scope or matching unsettled work blocks cleanup even after a bound worker Job is deleted; scope alone is not physical retirement",
         "x-empty-scope": "guard succeeds and deletion returns zero",
         "x-security": {
             "database": "actual database name must end in _test or _e2e",
