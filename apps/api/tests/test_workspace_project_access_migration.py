@@ -1,5 +1,6 @@
 """Replacing the Project query body must retain deployed OID and privilege chains."""
 
+import importlib.util
 import os
 from pathlib import Path
 
@@ -7,8 +8,6 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
 from sqlalchemy import text
-
-from tests.workspace_query_history_helpers import load_query_migration
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -21,20 +20,22 @@ pytestmark = [
 _CLIENT = "yoao_workspace_project_query_client"
 _TEMPLATE_CLIENT = "yoao_workspace_template_query_client"
 _STEP = (
-    "yoao_workspace_project_query_v1.project_query_step("
+    "aap_workspace_project_query_v1.project_query_step("
     "jsonb,text,jsonb,text,text,text[],text[],uuid,text,"
     "timestamptz,timestamptz,bigint,integer)"
 )
 
 
 async def test_access_upgrade_and_downgrade_preserve_oid_owner_and_grant_chain(
-    test_engine, tmp_path
+    test_engine,
 ):
     path = (
         Path(__file__).resolve().parents[1]
         / "alembic/versions/0264_workspace_access_queries.py"
     )
-    migration = load_query_migration(path, tmp_path)
+    spec = importlib.util.spec_from_file_location("access_query_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
 
     def migrate(connection, operation):
         with Operations.context(MigrationContext.configure(connection)):
@@ -54,6 +55,19 @@ async def test_access_upgrade_and_downgrade_preserve_oid_owner_and_grant_chain(
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:
+            # Replay the frozen 0264 migration against the matching historical
+            # schema name. The rename and every migration side effect roll back.
+            if await connection.scalar(
+                text(
+                    "SELECT to_regnamespace('yoao_workspace_project_query_v1') IS NOT NULL"
+                )
+            ):
+                await connection.execute(
+                    text(
+                        "ALTER SCHEMA yoao_workspace_project_query_v1 "
+                        "RENAME TO aap_workspace_project_query_v1"
+                    )
+                )
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION {_STEP} TO {_CLIENT} WITH GRANT OPTION"

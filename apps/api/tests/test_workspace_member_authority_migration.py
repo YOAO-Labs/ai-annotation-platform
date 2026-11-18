@@ -1,5 +1,6 @@
 """Exercise the additive member timestamp fix with already-installed role ACLs."""
 
+import importlib.util
 import os
 from pathlib import Path
 
@@ -7,8 +8,6 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
 from sqlalchemy import text
-
-from tests.workspace_query_history_helpers import load_query_migration
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -24,18 +23,20 @@ _ARGUMENTS = (
 )
 _CLIENT = "yoao_workspace_project_query_client"
 _TEMPLATE_CLIENT = "yoao_workspace_template_query_client"
-_STEP = f"yoao_workspace_project_query_v1.project_query_step({_ARGUMENTS})"
-_IMPL = f"yoao_workspace_project_query_v1._project_query_step_impl({_ARGUMENTS})"
+_STEP = f"aap_workspace_project_query_v1.project_query_step({_ARGUMENTS})"
+_IMPL = f"aap_workspace_project_query_v1._project_query_step_impl({_ARGUMENTS})"
 
 
 async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
-    test_engine, tmp_path
+    test_engine,
 ):
     path = (
         Path(__file__).resolve().parents[1]
         / "alembic/versions/0262_workspace_member_authority_temporals.py"
     )
-    migration = load_query_migration(path, tmp_path)
+    spec = importlib.util.spec_from_file_location("member_temporal_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
 
     def run(connection, operation):
         with Operations.context(MigrationContext.configure(connection)):
@@ -58,6 +59,19 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:
+            # Replay the frozen 0262 migration against the matching historical
+            # schema name. The rename and every migration side effect roll back.
+            if await connection.scalar(
+                text(
+                    "SELECT to_regnamespace('yoao_workspace_project_query_v1') IS NOT NULL"
+                )
+            ):
+                await connection.execute(
+                    text(
+                        "ALTER SCHEMA yoao_workspace_project_query_v1 "
+                        "RENAME TO aap_workspace_project_query_v1"
+                    )
+                )
             # The downgrade is intentionally run after ownership and client grants,
             # exercising the deployed path that a fresh-schema check cannot cover.
             await connection.execute(
