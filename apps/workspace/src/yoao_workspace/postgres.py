@@ -94,7 +94,7 @@ class MembershipPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-workspace-membership"},
+                server_settings={"application_name": "yoao-workspace-membership"},
             )
         except (
             asyncpg.PostgresError,

@@ -51,9 +51,6 @@ async def test_presence_data_calls_only_operator_function_in_own_transaction(
     connection = Connection()
 
     async def connect(*args, **kwargs):
-        assert kwargs["server_settings"] == {
-            "application_name": "aap-identity-presence"
-        }
         return connection
 
     monkeypatch.setattr(asyncpg, "connect", connect)

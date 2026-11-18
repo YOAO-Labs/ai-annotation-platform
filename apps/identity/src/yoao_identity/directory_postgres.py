@@ -57,7 +57,7 @@ class DirectoryPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-directory"},
+                server_settings={"application_name": "yoao-identity-directory"},
             )
             async with connection.transaction():
                 yield DirectoryPostgresTransaction(connection)
@@ -284,7 +284,7 @@ class DirectoryPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-directory"},
+                server_settings={"application_name": "yoao-identity-directory"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

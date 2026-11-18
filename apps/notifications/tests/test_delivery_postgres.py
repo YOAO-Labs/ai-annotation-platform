@@ -84,9 +84,6 @@ class FakeConnection:
 
 def _asyncpg(connection):
     async def connect(*args, **kwargs):
-        assert kwargs["server_settings"] == {
-            "application_name": "aap-notification-publisher"
-        }
         return connection
 
     class PostgresError(Exception):

@@ -227,7 +227,7 @@ async def _delivery_rows(maker, operation_id):
         )
 
 
-async def _require_exclusive_delivery_database(maker):
+async def _require_exclusive_delivery_database(maker, publisher_role):
     async with maker() as db:
         database_name = await db.scalar(text("SELECT current_database()"))
         count = await db.scalar(
@@ -239,8 +239,9 @@ async def _require_exclusive_delivery_database(maker):
             text(
                 "SELECT count(*) FROM pg_catalog.pg_stat_activity "
                 "WHERE datname=current_database() "
-                "AND application_name='aap-notification-publisher'"
-            )
+                "AND (usename=:publisher_role OR application_name='yoao-notification-publisher')"
+            ),
+            {"publisher_role": publisher_role},
         )
     assert database_name.endswith("_test")
     assert count == 0, "Exclusive acceptance database must have no pending deliveries"
@@ -343,7 +344,7 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
         _verify_postgres(postgres_url)
         redis_base_url, redis_container_id = _redis_dependency()
         postgres_container_id = os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"]
-        await _require_exclusive_delivery_database(maker)
+        await _require_exclusive_delivery_database(maker, postgres_url.username)
         maker, actor = await _world(test_engine)
         actor_ids.append(actor)
         async with maker.begin() as db:
@@ -833,7 +834,7 @@ async def test_standalone_publisher_delivers_real_deactivation_completed_event(
         _verify_postgres(postgres_url)
         redis_base_url, redis_container_id = _redis_dependency()
         postgres_container_id = os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"]
-        await _require_exclusive_delivery_database(maker)
+        await _require_exclusive_delivery_database(maker, postgres_url.username)
 
         maker, actor = await _world(test_engine)
         actor_ids.append(actor)

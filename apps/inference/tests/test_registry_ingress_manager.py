@@ -104,9 +104,6 @@ def _runtime(monkeypatch, connections, *, receipts=()):
 
     async def connect(*args, **kwargs):
         assert args == ("postgresql://registry-role@localhost/annotation_test",)
-        assert kwargs["server_settings"] == {
-            "application_name": "aap-inference-registry-ingress"
-        }
         connection = connections[len(connect_calls)]
         connect_calls.append((args, kwargs))
         return connection

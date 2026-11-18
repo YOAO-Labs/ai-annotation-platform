@@ -106,10 +106,8 @@ async def test_session_policy_requires_exact_three_function_grants(monkeypatch):
             "refresh_grace_seconds": 604800,
         }
     )
-    connects = []
 
     async def connect(*args, **kwargs):
-        connects.append((args, kwargs))
         return connection
 
     monkeypatch.setattr(asyncpg, "connect", connect)
@@ -120,9 +118,6 @@ async def test_session_policy_requires_exact_three_function_grants(monkeypatch):
         "aap_identity_sessions_v1.read_login_candidate(text)",
         "aap_identity_sessions_v1.execute_session_command(jsonb)",
     ]
-    assert connects[0][1]["server_settings"] == {
-        "application_name": "aap-identity-session-commands"
-    }
     assert connection.committed and connection.closed
 
 

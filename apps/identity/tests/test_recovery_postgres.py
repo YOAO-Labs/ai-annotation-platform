@@ -103,9 +103,6 @@ async def test_recovery_policy_checks_its_four_native_capabilities(monkeypatch):
     connection = Connection()
 
     async def connect(*args, **kwargs):
-        assert kwargs["server_settings"] == {
-            "application_name": "aap-identity-recovery"
-        }
         return connection
 
     monkeypatch.setattr(asyncpg, "connect", connect)

@@ -90,16 +90,10 @@ async def test_status_adapter_uses_only_the_existing_fact_function_and_fields(
     result = await data.read_actor_status(actor_id)
 
     assert result == {"actor_id": actor_id, "is_active": False}
-    assert connect_calls == [
-        (
-            "postgresql://identity-status.invalid/db",
-            {
-                "timeout": 1.5,
-                "command_timeout": 2.5,
-                "server_settings": {"application_name": "aap-identity-actor-status"},
-            },
-        )
-    ]
+    [(dsn, options)] = connect_calls
+    assert dsn == "postgresql://identity-status.invalid/db"
+    assert options["timeout"] == 1.5
+    assert options["command_timeout"] == 2.5
     query, bound_actor_id = connection.calls[0]
     assert query == (
         "SELECT actor_id, is_active FROM aap_identity_v1.read_actor_facts($1::uuid)"

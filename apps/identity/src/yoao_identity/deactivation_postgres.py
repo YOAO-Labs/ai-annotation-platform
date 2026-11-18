@@ -66,7 +66,7 @@ class DeactivationPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-self-deactivation"},
+                server_settings={"application_name": "yoao-identity-self-deactivation"},
             )
             async with connection.transaction():
                 yield DeactivationPostgresTransaction(connection)
@@ -196,7 +196,7 @@ class DeactivationPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-self-deactivation"},
+                server_settings={"application_name": "yoao-identity-self-deactivation"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(
@@ -255,7 +255,7 @@ class DeactivationDuePostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-deactivation-due"},
+                server_settings={"application_name": "yoao-identity-deactivation-due"},
             )
             async with connection.transaction():
                 command = native_deactivation_due_command(request)
@@ -319,7 +319,7 @@ class DeactivationDuePostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-deactivation-due"},
+                server_settings={"application_name": "yoao-identity-deactivation-due"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

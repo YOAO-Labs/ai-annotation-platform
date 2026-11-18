@@ -163,7 +163,7 @@ class VideoWriterPostgresProvider:
                 self._dsn,
                 timeout=self._connect_timeout,
                 command_timeout=self._command_timeout,
-                server_settings={"application_name": "aap-labeling-video-writer"},
+                server_settings={"application_name": "yoao-labeling-video-writer"},
             )
         except (
             asyncpg.PostgresError,

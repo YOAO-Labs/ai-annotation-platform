@@ -27,7 +27,7 @@ async def _invoke(config, operation: str, request):
         max_size=1,
         timeout=5,
         command_timeout=5,
-        server_settings={"application_name": "aap-prediction-retries"},
+        server_settings={"application_name": "yoao-prediction-retries"},
     )
     try:
         database = AsyncpgPredictionRetryDatabase(pool)

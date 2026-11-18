@@ -60,7 +60,7 @@ class PlatformRolePostgresData:
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
                 server_settings={
-                    "application_name": "aap-identity-platform-role-commands"
+                    "application_name": "yoao-identity-platform-role-commands"
                 },
             )
             async with connection.transaction():
@@ -289,7 +289,7 @@ class PlatformRolePostgresData:
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
                 server_settings={
-                    "application_name": "aap-identity-platform-role-commands"
+                    "application_name": "yoao-identity-platform-role-commands"
                 },
             )
             async with connection.transaction():

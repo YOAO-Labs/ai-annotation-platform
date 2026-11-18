@@ -183,7 +183,7 @@ class AsyncpgImageDatabase:
             max_size=1,
             timeout=5,
             command_timeout=30,
-            server_settings={"application_name": "aap-assets-images-worker"},
+            server_settings={"application_name": "yoao-assets-images-worker"},
         )
         return cls(pool, allowed_roles=allowed_roles)
 

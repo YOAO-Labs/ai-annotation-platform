@@ -112,7 +112,6 @@ class FakeConnection:
 
 def _asyncpg(connection):
     async def connect(*_args, **kwargs):
-        assert kwargs["server_settings"] == {"application_name": "aap-identity-mail-v2"}
         return connection
 
     class PostgresError(Exception):

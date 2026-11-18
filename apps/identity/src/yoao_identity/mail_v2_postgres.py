@@ -58,7 +58,7 @@ class MailV2PostgresData:
             self.dsn,
             timeout=self.connect_timeout,
             command_timeout=self.command_timeout,
-            server_settings={"application_name": "aap-identity-mail-v2"},
+            server_settings={"application_name": "yoao-identity-mail-v2"},
         )
 
     async def _close(self, connection) -> None:

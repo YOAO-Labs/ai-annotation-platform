@@ -90,7 +90,7 @@ def create_app(settings=None):
                 timeout=5,
                 command_timeout=10,
                 init=configure_notification_jsonb_codec,
-                server_settings={"application_name": "aap-notification-socket"},
+                server_settings={"application_name": "yoao-notification-socket"},
             )
             async with postgres_pool.acquire() as connection:
                 login = await connection.fetchval("SELECT session_user")

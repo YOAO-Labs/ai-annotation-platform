@@ -95,7 +95,7 @@ class OffboardingPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-offboarding"},
+                server_settings={"application_name": "yoao-identity-offboarding"},
             )
             async with connection.transaction():
                 yield OffboardingPostgresTransaction(connection)
@@ -322,7 +322,7 @@ class OffboardingPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-offboarding"},
+                server_settings={"application_name": "yoao-identity-offboarding"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

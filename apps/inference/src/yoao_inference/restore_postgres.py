@@ -75,7 +75,7 @@ class VideoRestorePostgresProvider:
                 self.dsn,
                 timeout=self.connect_timeout_seconds,
                 command_timeout=self.command_timeout_seconds,
-                server_settings={"application_name": "aap-video-restore-operator"},
+                server_settings={"application_name": "yoao-video-restore-operator"},
             )
             transaction = connection.transaction(readonly=False)
             await transaction.start()

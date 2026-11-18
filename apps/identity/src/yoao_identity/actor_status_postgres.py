@@ -28,7 +28,7 @@ class ActorStatusPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-actor-status"},
+                server_settings={"application_name": "yoao-identity-actor-status"},
             )
             async with connection.transaction(readonly=True):
                 row = await connection.fetchrow(

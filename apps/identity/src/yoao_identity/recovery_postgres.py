@@ -81,7 +81,7 @@ class RecoveryPostgresData:
             self.dsn,
             timeout=self.connect_timeout,
             command_timeout=self.command_timeout,
-            server_settings={"application_name": "aap-identity-recovery"},
+            server_settings={"application_name": "yoao-identity-recovery"},
         )
 
     @asynccontextmanager

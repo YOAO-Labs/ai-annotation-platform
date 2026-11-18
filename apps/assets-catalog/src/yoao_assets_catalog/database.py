@@ -375,7 +375,7 @@ class CatalogDatabase:
             timeout=config.pool_timeout_seconds,
             command_timeout=config.sql_timeout_seconds,
             init=_init_connection,
-            server_settings={"application_name": "aap-assets-catalog"},
+            server_settings={"application_name": "yoao-assets-catalog"},
         )
         database = cls(
             pool,

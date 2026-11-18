@@ -47,7 +47,7 @@ class MailPostgresData:
             self.dsn,
             timeout=self.connect_timeout,
             command_timeout=self.command_timeout,
-            server_settings={"application_name": "aap-identity-credential-mail"},
+            server_settings={"application_name": "yoao-identity-credential-mail"},
         )
 
     async def _close(self, connection) -> None:
@@ -262,7 +262,7 @@ class MailSettingsPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-mail-settings"},
+                server_settings={"application_name": "yoao-identity-mail-settings"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

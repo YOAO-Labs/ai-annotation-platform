@@ -63,7 +63,7 @@ async def _wait_mail_lock(maker):
         async with maker() as db:
             blocked = await db.scalar(
                 text(
-                    "SELECT count(*) FROM pg_stat_activity WHERE application_name='aap-identity-credential-mail' AND wait_event_type='Lock'"
+                    "SELECT count(*) FROM pg_stat_activity WHERE application_name='yoao-identity-credential-mail' AND wait_event_type='Lock'"
                 )
             )
         if blocked:

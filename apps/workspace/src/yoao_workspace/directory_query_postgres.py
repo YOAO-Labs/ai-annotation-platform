@@ -58,7 +58,7 @@ class DirectoryQueryPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-workspace-directory-query"},
+                server_settings={"application_name": "yoao-workspace-directory-query"},
             )
         except (
             asyncpg.PostgresError,

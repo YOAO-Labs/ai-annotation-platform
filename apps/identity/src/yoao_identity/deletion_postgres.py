@@ -57,7 +57,7 @@ class DeletionPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-deletions"},
+                server_settings={"application_name": "yoao-identity-deletions"},
             )
             async with connection.transaction():
                 yield DeletionPostgresTransaction(connection)
@@ -284,7 +284,7 @@ class DeletionPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-deletions"},
+                server_settings={"application_name": "yoao-identity-deletions"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

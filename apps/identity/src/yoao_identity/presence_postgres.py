@@ -25,7 +25,7 @@ class PresencePostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-presence"},
+                server_settings={"application_name": "yoao-identity-presence"},
             )
             allowed = await connection.fetchval(
                 "SELECT has_function_privilege(current_user, "
@@ -67,7 +67,7 @@ class PresencePostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-presence"},
+                server_settings={"application_name": "yoao-identity-presence"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

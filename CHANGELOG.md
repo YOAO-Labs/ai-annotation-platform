@@ -40,6 +40,7 @@
 
 ### Changed
 
+- PostgreSQL 中模块连接的显示名统一使用 `yoao-` 前缀。按旧 `aap-` 名称过滤的看板和告警需要更新；不需要迁移数据库或更换凭据。
 - API 密钥管理和 GPU 回收分别改用 `yoao_identity_key_client`、`yoao_inference_gpu_collector_client`。升级需停旧准入、排空连接并更新部署凭据。用户无需重新签发 API key；已有密钥操作回执、GPU 围栏和回收凭证仍然有效。
 - 用户资料补全和项目类别用量查询改用 `yoao_identity_briefs_client` 与 `yoao_labeling_class_query_client`。升级须停旧接入、排空连接并更新受限凭据；项目成员角色、类别计数和属性的读取规则不变。
 - 项目、模板和成员目录查询改用三个 `yoao_workspace_*_query_client` 只读账号。升级前须停旧接入并排空现有连接，再更新专用 DSN；公开 API、查询可见范围和排序不变。项目删除和数据集解绑保留原有历史记录与事务边界。

@@ -50,7 +50,7 @@ class NotificationDeliveryPostgresData:
             self.dsn,
             timeout=self.connect_timeout,
             command_timeout=self.command_timeout,
-            server_settings={"application_name": "aap-notification-publisher"},
+            server_settings={"application_name": "yoao-notification-publisher"},
         )
 
     async def _close(self, connection) -> None:

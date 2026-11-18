@@ -904,7 +904,7 @@ async def test_owner_exit_during_write_rolls_back_and_retry_after_restart_succee
                 async with maker() as observer:
                     sleeping = await observer.scalar(
                         text(
-                            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND application_name='aap-workspace-membership' AND wait_event='PgSleep')"
+                            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND application_name='yoao-workspace-membership' AND wait_event='PgSleep')"
                         )
                     )
                 if sleeping:
@@ -926,7 +926,7 @@ async def test_owner_exit_during_write_rolls_back_and_retry_after_restart_succee
             async with maker() as observer:
                 connected = await observer.scalar(
                     text(
-                        "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND application_name='aap-workspace-membership'"
+                        "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND application_name='yoao-workspace-membership'"
                     )
                 )
             if connected == 0:

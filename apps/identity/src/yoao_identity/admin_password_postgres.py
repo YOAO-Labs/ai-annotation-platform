@@ -60,7 +60,7 @@ class AdminPasswordPostgresData:
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
                 server_settings={
-                    "application_name": "aap-identity-admin-password-reset"
+                    "application_name": "yoao-identity-admin-password-reset"
                 },
             )
             async with connection.transaction():
@@ -289,7 +289,7 @@ class AdminPasswordPostgresData:
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
                 server_settings={
-                    "application_name": "aap-identity-admin-password-reset"
+                    "application_name": "yoao-identity-admin-password-reset"
                 },
             )
             async with connection.transaction():

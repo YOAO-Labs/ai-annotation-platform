@@ -88,7 +88,9 @@ class RoutingRuntime:
         except ValueError:
             raise ValueError("Invalid Inference routing runtime settings") from None
         if not self.expected_login:
-            raise ValueError("Inference routing database URL requires an explicit LOGIN")
+            raise ValueError(
+                "Inference routing database URL requires an explicit LOGIN"
+            )
         self.dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
         self.connect_timeout_seconds = float(connect_timeout_seconds)
         self.command_timeout_seconds = float(command_timeout_seconds)
@@ -342,7 +344,7 @@ class RoutingRuntime:
                 user=self.expected_login,
                 timeout=self.connect_timeout_seconds,
                 command_timeout=self.command_timeout_seconds,
-                server_settings={"application_name": "aap-inference-routing"},
+                server_settings={"application_name": "yoao-inference-routing"},
             )
             transaction = connection.transaction(readonly=False)
             await transaction.start()

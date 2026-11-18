@@ -82,7 +82,7 @@ class RegistryEnvSyncManager:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-inference-registry-ingress"},
+                server_settings={"application_name": "yoao-inference-registry-ingress"},
             )
         except Exception:
             raise RegistryEnvSyncUnavailable() from None

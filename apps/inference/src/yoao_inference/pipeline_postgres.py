@@ -291,7 +291,7 @@ class PipelinePostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-inference-pipelines"},
+                server_settings={"application_name": "yoao-inference-pipelines"},
             )
             await verify_function_only_role(
                 connection,

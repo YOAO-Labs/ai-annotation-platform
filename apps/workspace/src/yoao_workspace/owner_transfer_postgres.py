@@ -93,7 +93,7 @@ class OwnerTransferPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-workspace-owner-transfer"},
+                server_settings={"application_name": "yoao-workspace-owner-transfer"},
             )
         except (
             asyncpg.PostgresError,

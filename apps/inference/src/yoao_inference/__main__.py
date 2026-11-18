@@ -155,13 +155,13 @@ async def _gpu_runtime(
         stack.push_async_callback(pool.close)
         return pool
 
-    authority_pool = await pool_for("INFERENCE_GPU_DATABASE_URL", "aap-inference-gpu")
+    authority_pool = await pool_for("INFERENCE_GPU_DATABASE_URL", "yoao-inference-gpu")
     data = GPUAuthorityPoolData(authority_pool, expected_role=gpu_authority_role)
     endpoint_source = GPUOwnedBackendEndpointSource(
         {
             purpose: await pool_for(
                 f"INFERENCE_GPU_ENDPOINT_{purpose.upper()}_DATABASE_URL",
-                f"aap-inference-gpu-endpoint-{purpose}",
+                f"yoao-inference-gpu-endpoint-{purpose}",
             )
             for purpose in ("health_observation", "gpu_control")
         }

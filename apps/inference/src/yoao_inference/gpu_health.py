@@ -82,7 +82,7 @@ class PersistedGPUHealthRefresher:
                 self._dsn,
                 timeout=self._connect_timeout,
                 command_timeout=self._command_timeout,
-                server_settings={"application_name": "aap-inference-gpu-health"},
+                server_settings={"application_name": "yoao-inference-gpu-health"},
             )
             transaction = connection.transaction(readonly=False)
             await transaction.start()

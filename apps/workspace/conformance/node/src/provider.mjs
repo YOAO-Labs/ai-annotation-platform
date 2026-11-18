@@ -113,7 +113,7 @@ async function connected(config) {
     connectionString: config.dsn,
     connectionTimeoutMillis: 5000,
     statement_timeout: 30000,
-    application_name: "aap-workspace-owner-transfer",
+    application_name: "yoao-workspace-owner-transfer",
   });
   await client.connect();
   return client;

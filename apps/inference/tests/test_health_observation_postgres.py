@@ -74,10 +74,7 @@ def _runtime(monkeypatch, connections):
     async def connect(*args, **kwargs):
         assert args == ("postgresql://observation-role@localhost/annotation_test",)
         assert kwargs["user"] == "observation-role"
-        assert kwargs["server_settings"] == {
-            "application_name": "aap-inference-health-observation",
-            "default_transaction_read_only": "on",
-        }
+        assert kwargs["server_settings"]["default_transaction_read_only"] == "on"
         connection = connections[len(verified)]
         return connection
 

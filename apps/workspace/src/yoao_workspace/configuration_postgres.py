@@ -136,7 +136,7 @@ class ConfigurationPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-workspace-configuration"},
+                server_settings={"application_name": "yoao-workspace-configuration"},
             )
         except (
             asyncpg.PostgresError,

@@ -64,7 +64,7 @@ class TemplateQueryPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-workspace-template-query"},
+                server_settings={"application_name": "yoao-workspace-template-query"},
             )
         except (
             asyncpg.PostgresError,

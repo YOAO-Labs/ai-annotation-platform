@@ -89,7 +89,7 @@ class InvitationPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-invitations"},
+                server_settings={"application_name": "yoao-identity-invitations"},
             )
             async with connection.transaction():
                 yield InvitationPostgresTransaction(connection)
@@ -248,7 +248,7 @@ class InvitationPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-invitations"},
+                server_settings={"application_name": "yoao-identity-invitations"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

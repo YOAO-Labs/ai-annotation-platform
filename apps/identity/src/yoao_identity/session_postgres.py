@@ -36,7 +36,7 @@ class SessionPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-session-commands"},
+                server_settings={"application_name": "yoao-identity-session-commands"},
             )
             async with connection.transaction():
                 if function == "session_policy":

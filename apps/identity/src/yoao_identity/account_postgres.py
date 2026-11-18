@@ -86,7 +86,7 @@ class AccountPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-account-commands"},
+                server_settings={"application_name": "yoao-identity-account-commands"},
             )
             async with connection.transaction():
                 yield AccountPostgresTransaction(connection)
@@ -123,7 +123,7 @@ class AccountPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-account-commands"},
+                server_settings={"application_name": "yoao-identity-account-commands"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

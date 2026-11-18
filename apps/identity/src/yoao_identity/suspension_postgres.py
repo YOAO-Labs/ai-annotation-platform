@@ -57,7 +57,7 @@ class SuspensionPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-suspensions"},
+                server_settings={"application_name": "yoao-identity-suspensions"},
             )
             async with connection.transaction():
                 yield SuspensionPostgresTransaction(connection)
@@ -284,7 +284,7 @@ class SuspensionPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-suspensions"},
+                server_settings={"application_name": "yoao-identity-suspensions"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

@@ -57,7 +57,7 @@ class GroupPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-group-commands"},
+                server_settings={"application_name": "yoao-identity-group-commands"},
             )
             async with connection.transaction():
                 yield GroupPostgresTransaction(connection)
@@ -94,7 +94,7 @@ class GroupPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-group-commands"},
+                server_settings={"application_name": "yoao-identity-group-commands"},
             )
             async with connection.transaction():
                 raw = await connection.fetchval(

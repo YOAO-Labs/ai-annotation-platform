@@ -88,7 +88,7 @@ class ProjectQueryPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-workspace-project-query"},
+                server_settings={"application_name": "yoao-workspace-project-query"},
             )
         except (
             asyncpg.PostgresError,

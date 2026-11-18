@@ -127,7 +127,7 @@ class AsyncpgMediaDatabase:
             max_size=1,
             timeout=5,
             command_timeout=10,
-            server_settings={"application_name": "aap-assets-media-worker"},
+            server_settings={"application_name": "yoao-assets-media-worker"},
         )
         return cls(pool, allowed_roles=allowed_roles)
 
@@ -142,7 +142,11 @@ class AsyncpgMediaDatabase:
             raise PermissionError("media operation is outside this SQL login scope")
         statement, parameters = prepare_native_call(name, request)
         async with self._pool.acquire() as connection:
-            from .fixture_native_outputs import claim_admission, scan_admission, source_admission
+            from .fixture_native_outputs import (
+                claim_admission,
+                scan_admission,
+                source_admission,
+            )
 
             if name == "begin_media_original_worker":
                 scope = source_admission(connection, "media", request)

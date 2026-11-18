@@ -389,7 +389,7 @@ async def run_worker(config: CleanupConfig) -> None:
             max_size=1,
             timeout=5,
             command_timeout=10,
-            server_settings={"application_name": "aap-assets-cleanup"},
+            server_settings={"application_name": "yoao-assets-cleanup"},
         )
         data = StorageDeletionData(pool)
         storage = S3PrefixDeleter(config)

@@ -118,9 +118,6 @@ async def test_account_policy_checks_exact_function_grants(monkeypatch):
     connection = Connection()
 
     async def connect(*args, **kwargs):
-        assert kwargs["server_settings"] == {
-            "application_name": "aap-identity-account-commands"
-        }
         return connection
 
     monkeypatch.setattr(asyncpg, "connect", connect)

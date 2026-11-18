@@ -125,7 +125,7 @@ class BackendEndpointPostgresData:
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
                 server_settings={
-                    "application_name": "aap-inference-backend-endpoint",
+                    "application_name": "yoao-inference-backend-endpoint",
                     "default_transaction_read_only": "on",
                 },
             )

@@ -62,7 +62,7 @@ async def _serve(config, *, once: bool) -> None:
         max_size=2,
         timeout=5,
         command_timeout=5,
-        server_settings={"application_name": "aap-labeling-mask-gc"},
+        server_settings={"application_name": "yoao-labeling-mask-gc"},
     )
     data = AsyncpgMaskGcData(pool, timeout_seconds=5)
     storage = MaskGcClient(config.content_url, config.content_token)

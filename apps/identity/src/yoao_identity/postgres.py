@@ -27,7 +27,7 @@ class PostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-admission"},
+                server_settings={"application_name": "yoao-identity-admission"},
             )
             transaction = (
                 connection.transaction(readonly=True)

@@ -51,7 +51,7 @@ async def run_operation(
             command_timeout=DATABASE_COMMAND_TIMEOUT_SECONDS,
             server_settings={
                 "statement_timeout": str(DATABASE_COMMAND_TIMEOUT_SECONDS * 1000),
-                "application_name": "aap-audit-maintenance",
+                "application_name": "yoao-audit-maintenance",
             },
         )
         async with connection.transaction():
