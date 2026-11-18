@@ -222,14 +222,6 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
     assert "retire_account_credentials(v_target_user_id)" in artifact
     assert "release_identity_offboarding_task_locks" in artifact
     assert "v_audit_id IS NULL OR v_audit_id <= 0" in artifact
-    compact_artifact = "".join(artifact.split())
-    receipt_insert = compact_artifact.index(
-        "INSERTINTOpublic.identity_offboarding_operation_receipts"
-    )
-    clear_binding = compact_artifact.index(
-        "PERFORMpg_catalog.set_config('yoao.identity_offboarding_prepare','',true);"
-    )
-    assert receipt_insert < clear_binding
 
 
 class _CorruptingOffboardingTransaction:

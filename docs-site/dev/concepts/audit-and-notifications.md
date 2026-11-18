@@ -137,7 +137,7 @@ HTTP 事件沿现有上下文保留不超过36字符的安全 request_id，不�
 ### `AuditService.log()`
 
 `AuditService.log()` 与 `log_many()` 保留面向 API 的调用签名，并通过
-`aap_audit_v1.append_events(jsonb)` 提交调用方快照。它们不会提交事务：追加函数、
+`yoao_audit_v1.append_events(jsonb)` 提交调用方快照。它们不会提交事务：追加函数、
 相关业务写入、ORM identity 恢复与调用方显式 flush 都留在同一事务中。追加合同允许
 开放的 action 字符串，并将 `detail_json` 中的 Python `None` 表示为 JSON null，
 与现有 JSONB 映射一致。
@@ -215,7 +215,7 @@ HTTP 事件沿现有上下文保留不超过36字符的安全 request_id，不�
 
 ### 审计查询与权限边界
 
-`aap_audit_v1.audit_events` 是 Audit owner 持有的 security-barrier 视图，保留 14 个原生字段及 INET 类型。物理行键为 `(id, created_at)`，全局查询合同允许同 ID、不同时间的合法记录；兼容 ORM 仍保持原有仅按 ID 的身份映射。公开关系只表达事实，受限服务 LOGIN 可以 SELECT，但不能据此绕过 API 的用户范围条件。领域消费者借用原事务并保留 autoflush；Learning 暂缓消费者仍保留父表 SELECT；普通运行写入、序列和分区所有权由 Audit owner 持有，尚未因此宣称全模块运行验收完成。
+`yoao_audit_v1.audit_events` 是 Audit owner 持有的 security-barrier 视图，保留 14 个原生字段及 INET 类型。物理行键为 `(id, created_at)`，全局查询合同允许同 ID、不同时间的合法记录；兼容 ORM 仍保持原有仅按 ID 的身份映射。公开关系只表达事实，受限服务 LOGIN 可以 SELECT，但不能据此绕过 API 的用户范围条件。领域消费者借用原事务并保留 autoflush；Learning 暂缓消费者仍保留父表 SELECT；普通运行写入、序列和分区所有权由 Audit owner 持有，尚未因此宣称全模块运行验收完成。
 
 HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于角色的管理范围隔离：
 
@@ -269,7 +269,7 @@ API 在原借用 Session 中读取通知、Jobs 范围和四组授权事实，�
 ### 已读状态命令
 
 `POST /api/v1/notifications/{id}/read` 与 `POST /api/v1/notifications/mark-all-read` 经
-`yoao_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`。
+`yoao_notifications.read_state` 调用 `yoao_notifications_v1.read_state_command(jsonb)`。
 API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读行，并使用 API
 传入的单次 UTC `read_at` 时间戳。单条操作返回原有 boolean 结果；批量操作返回原有
 更新数量。Owner 回执继续验证更新 ID；API 在返回后复用当前锁定 SQLAlchemy 的批量 evaluate 缓存规则，保留脏值、过期字段、谓词次序和保存点回滚登记。旧 ORM 语句仅在本地编译用于缓存同步，不执行第二次 UPDATE／SELECT；事务仍由调用方提交。升级 SQLAlchemy 前须重验这层兼容绑定。
@@ -283,7 +283,7 @@ API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读
 ### 删除通知命令
 
 `DELETE /api/v1/notifications/{notification_id}` 与 `POST /api/v1/notifications/clear-read`
-经 `yoao_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。API
+经 `yoao_notifications.delete` 调用 `yoao_notifications_v1.delete_command(jsonb)`。API
 始终从当前认证主体取得 `user_id`；0318 安装该 capability。Owner 单条删除按 ID 和用户同时限定，清空只删除该用户
 `read_at` 非空的行，并返回原有 boolean／count。SQLAlchemy binding 借用同一 `AsyncSession`、
 遵循 `autoflush`／`no_autoflush`，不提交、不返回全量删除 ID。API 在 owner 命令后按原
@@ -373,9 +373,9 @@ ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及�
 
 ### 自助注销的 durable delivery
 
-`user.deactivation_requested` 与 `user.deactivation_completed` 由 Identity 生命周期事务通过 `aap_notifications_v1.create_identity_deactivation_notifications(uuid,text,jsonb,uuid[])` 交给 Notifications owner。该 capability 只创建两种固定业务事件及其 `notification_delivery_outbox` 行，并按 operation、recipient、type 去重；通知删除通过外键级联抑制尚未领取的投递。不会建立另一个通知队列或把 payload 拼到 API 响应中。
+`user.deactivation_requested` 与 `user.deactivation_completed` 由 Identity 生命周期事务通过 `yoao_notifications_v1.create_identity_deactivation_notifications(uuid,text,jsonb,uuid[])` 交给 Notifications owner。该 capability 只创建两种固定业务事件及其 `notification_delivery_outbox` 行，并按 operation、recipient、type 去重；通知删除通过外键级联抑制尚未领取的投递。不会建立另一个通知队列或把 payload 拼到 API 响应中。
 
-独立 `notification_publish_client` LOGIN 仅有 `identity_delivery_policy()`、`claim_identity_deliveries(jsonb)` 和 `finish_identity_delivery(jsonb)` 三项能力，不能查询或更新 Notification 表，也不持 Identity/AUTH/mail 凭据。领取 transaction 提交后才向 Redis `notify:{user_id}` 发消息；只有 Redis 接受以后才能确认 lease。锁等待后的时间由数据库检查，旧 worker lease 不能确认新领取。Redis 未确认或 publisher 崩溃时允许下一次 claim 重试；消息使用同一 Notification id，投递是 at-least-once 而非 exactly-once。
+独立 `yoao_notification_publish_client` LOGIN 仅有 `identity_delivery_policy()`、`claim_identity_deliveries(jsonb)` 和 `finish_identity_delivery(jsonb)` 三项能力，不能查询或更新 Notification 表，也不持 Identity/AUTH/mail 凭据。领取 transaction 提交后才向 Redis `notify:{user_id}` 发消息；只有 Redis 接受以后才能确认 lease。锁等待后的时间由数据库检查，旧 worker lease 不能确认新领取。Redis 未确认或 publisher 崩溃时允许下一次 claim 重试；消息使用同一 Notification id，投递是 at-least-once 而非 exactly-once。
 
 独立命令 `yoao-notifications-publisher` 或 `python -m yoao_notifications.delivery_worker` 由 Notifications 包持有，使用原 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。`apps/notifications/Dockerfile` 定义独立、锁定、非 editable 的运行工件；Identity 原导入路径和 `python -m yoao_identity_runtime.notification_worker` 保留兼容转发，现有 Identity Compose 仍使用该入口。主 API/Celery 的每 10 秒 relay 直接复用 Notifications executor；owner 内部故障在 API 外层仍翻译成既有 Identity 错误。两种执行路径共享 lease 和同一 durable outbox，不改变至少一次投递、取消或确认顺序。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
@@ -556,16 +556,16 @@ WS 握手时会校验 JWT，然后订阅：
 
 ## 常见修改落点
 
-| 你想改什么       | 先看哪里                                                                                                        |
-| ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| 新增业务动作审计 | `services/audit.py` + 对应 route                                                                                |
-| 让某动作可通知   | `services/notification.py` + 对应 route                                                                         |
-| 通知偏好开关     | `api/v1/notifications.py` + `yoao_notifications.preferences` + `aap_notifications_v1.preference_command(jsonb)` |
-| 标记通知已读     | `services/notification.py` + `yoao_notifications.read_state` + `aap_notifications_v1.read_state_command(jsonb)` |
-| 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点                                                         |
-| 作业终态领域账本 | 各领域 `reconcile_job_terminal` + `application/job_terminal.py` 绑定                                            |
-| 审计查询 / 导出  | `api/v1/audit_logs.py`                                                                                          |
-| 批次审计聚合视图 | `api/v1/batches.py:list_batch_audit_logs`                                                                       |
+| 你想改什么       | 先看哪里                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 新增业务动作审计 | `services/audit.py` + 对应 route                                                                                 |
+| 让某动作可通知   | `services/notification.py` + 对应 route                                                                          |
+| 通知偏好开关     | `api/v1/notifications.py` + `yoao_notifications.preferences` + `yoao_notifications_v1.preference_command(jsonb)` |
+| 标记通知已读     | `services/notification.py` + `yoao_notifications.read_state` + `yoao_notifications_v1.read_state_command(jsonb)` |
+| 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点                                                          |
+| 作业终态领域账本 | 各领域 `reconcile_job_terminal` + `application/job_terminal.py` 绑定                                             |
+| 审计查询 / 导出  | `api/v1/audit_logs.py`                                                                                           |
+| 批次审计聚合视图 | `api/v1/batches.py:list_batch_audit_logs`                                                                        |
 
 ## 常见误解
 

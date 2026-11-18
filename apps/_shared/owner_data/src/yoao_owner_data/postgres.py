@@ -41,7 +41,7 @@ async def verify_function_only_role(
                 """)
     if {row["signature"] for row in rows} != expected:
         raise FunctionRoleUnavailable()
-    role = role or schema.removeprefix("aap_").removesuffix("_v1") + "_client"
+    role = role or schema.removesuffix("_v1") + "_client"
     denied = await connection.fetchval(
         """
                 SELECT current_user <> $1

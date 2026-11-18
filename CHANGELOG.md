@@ -40,6 +40,7 @@
 
 ### Changed
 
+- Native 数据库模块的现行 schema、专用连接账号和事务设置统一到 `yoao` 命名。已有部署需在维护窗口同步迁移数据库、凭据配置和服务；历史回执仍可重放，私表权限不变。见 [Native 数据库协调切换](DEV.md#native-数据库协调切换)。
 - PostgreSQL 中模块连接的显示名统一使用 `yoao-` 前缀。按旧 `aap-` 名称过滤的看板和告警需要更新；不需要迁移数据库或更换凭据。
 - API 密钥管理和 GPU 回收分别改用 `yoao_identity_key_client`、`yoao_inference_gpu_collector_client`。升级需停旧准入、排空连接并更新部署凭据。用户无需重新签发 API key；已有密钥操作回执、GPU 围栏和回收凭证仍然有效。
 - 用户资料补全和项目类别用量查询改用 `yoao_identity_briefs_client` 与 `yoao_labeling_class_query_client`。升级须停旧接入、排空连接并更新受限凭据；项目成员角色、类别计数和属性的读取规则不变。

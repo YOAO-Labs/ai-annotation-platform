@@ -56,6 +56,7 @@ async def test_workspace_configuration_client_has_only_the_policy_and_step_rpcs(
         assert [row["signature"] for row in rows] == [
             "yoao_workspace_configuration_v1.configuration_policy()",
             "yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])",
+            "yoao_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)",
         ]
         policy = await connection.fetchval(
             "SELECT yoao_workspace_configuration_v1.configuration_policy()"

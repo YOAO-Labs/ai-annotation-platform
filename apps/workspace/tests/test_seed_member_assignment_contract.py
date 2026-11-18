@@ -178,4 +178,16 @@ def test_public_and_frozen_migration_schemas_match_contract_descriptor():
 
     expected = seed_member_assignment_schema()
     assert json.loads(public_schema_path.read_text(encoding="utf-8")) == expected
-    assert json.loads(migration_schema_path.read_text(encoding="utf-8")) == expected
+    historical = json.loads(migration_schema_path.read_text(encoding="utf-8"))
+    native = historical["x-native-capabilities"]
+    (function,) = native["functions"]
+    assert native["postgres_schema"] == "aap_workspace_v1"
+    assert (
+        function["signature"]
+        == "aap_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)"
+    )
+    native["postgres_schema"] = "yoao_workspace_v1"
+    function["signature"] = (
+        "yoao_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)"
+    )
+    assert historical == expected

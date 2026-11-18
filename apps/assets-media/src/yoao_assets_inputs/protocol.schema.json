@@ -225,6 +225,42 @@
       "title": "FinishInputRequest",
       "type": "object"
     },
+    "FinishOriginalReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_id": {
+          "format": "uuid",
+          "title": "Creation Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["creation_id", "operation_id"],
+      "title": "FinishOriginalReadRequest",
+      "type": "object"
+    },
+    "FinishedOriginalRead": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_id": {
+          "format": "uuid",
+          "title": "Creation Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["creation_id", "operation_id"],
+      "title": "FinishedOriginalRead",
+      "type": "object"
+    },
     "FoundInput": {
       "additionalProperties": false,
       "properties": {
@@ -685,6 +721,30 @@
       "title": "InputLease",
       "type": "object"
     },
+    "InputLeaseRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "input_id": {
+          "format": "uuid",
+          "title": "Input Id",
+          "type": "string"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        }
+      },
+      "required": ["input_id", "generation", "lease_token"],
+      "title": "InputLeaseRequest",
+      "type": "object"
+    },
     "InputRecord": {
       "additionalProperties": false,
       "properties": {
@@ -1035,6 +1095,182 @@
       "title": "ObjectIdentity",
       "type": "object"
     },
+    "OriginalRead": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_storage_identities": {
+          "default": [],
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Blocked Storage Identities",
+          "type": "array"
+        },
+        "bucket": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bucket"
+        },
+        "creation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Creation Id"
+        },
+        "endpoint_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint Url"
+        },
+        "etag": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Etag"
+        },
+        "location_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "object_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        },
+        "ownership": {
+          "enum": ["ordinary", "fixture"],
+          "title": "Ownership",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "source_storage_identity": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Storage Identity"
+        },
+        "storage_identity": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Identity"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": ["ownership", "object_key"],
+      "title": "OriginalRead",
+      "type": "object"
+    },
     "ReserveInputRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1152,6 +1388,13 @@
     "request_bytes": 65536
   },
   "x-native": {
+    "begin_accepted_image_original": {
+      "arguments": ["input_id", "generation", "lease_token"],
+      "request": "InputLeaseRequest",
+      "result": "OriginalRead",
+      "role": "worker",
+      "signature": "yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)"
+    },
     "claim_accepted_image_input": {
       "arguments": ["worker_id", "input_id", "lease_seconds"],
       "request": "ClaimInputRequest",
@@ -1193,6 +1436,13 @@
       "result": "InputRecord",
       "role": "worker",
       "signature": "yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)"
+    },
+    "finish_accepted_image_original": {
+      "arguments": ["creation_id", "operation_id"],
+      "request": "FinishOriginalReadRequest",
+      "result": "FinishedOriginalRead",
+      "role": "worker",
+      "signature": "yoao_assets_v1.finish_accepted_image_original(uuid,uuid)"
     },
     "heartbeat_accepted_image_input": {
       "arguments": ["input_id", "generation", "lease_token", "lease_seconds"],

@@ -2703,6 +2703,13 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 已有库切换密钥管理和 GPU 调用能力时，先停止旧 Identity key、GPU collector 和共享 API／worker 的准入，结清在途操作与预备事务，记录目标库原连接上限。将 `identity_key_client`、`inference_gpu_collector_client` 置为 `NOLOGIN` 并排空连接；其他仍持有这些能力的普通 LOGIN 须停用，或在迁移维护窗口把**目标库**的连接上限设为 `0` 并由维护连接执行迁移。不要改共享应用账号名或终止未知会话。迁移后用新专用 LOGIN 安装授权、更新 DSN，部署匹配的 Identity／Inference 工件并验证就绪，再恢复原上限和准入。沿用原 Identity 签发密钥，不轮换已发 API key；GPU 回收仍需准确的物理证明和回执。
 
+#### Native 数据库协调切换
+
+1. 以 [`0474_owner_namespaces.json`](apps/api/alembic/sql/0474_owner_namespaces.json) 核实该库实际存在的 schema、专用账号及三项事务设置。保存数据库备份、角色和授权、当前登录状态、凭据及原连接上限。不要把清单当作创建角色的脚本；未绑定账号、其他库、共享应用账号和代码 owner 不属于此次改名对象。
+2. 停止 API、worker、中继、插件及独立模块的新准入，结清在途写入、租约与物理工作；不要把取消或超时当作完成。先在独立事务中将有授权的目标库设为 `CONNECTION LIMIT 0`，将其已绑定的旧专用账号设为 `NOLOGIN`。由有维护权限的连接确认目标库没有其他客户端和预备事务。连接上限不能阻止超级用户；维护窗口也必须关闭其他管理员和迁移入口。
+3. 由能修改清单内角色、schema 和函数的迁移账号执行 `alembic upgrade head`。此路径限定于已验证的 PostgreSQL 16 目录。若有目标名冲突、跨库角色、额外依赖、持久事务设置或目录摘要不符，保持围栏，定位准确对象；不要放宽校验、覆盖同名对象或盲目终止会话。逻辑恢复后同样执行原检查，不用降级模拟恢复。
+4. 围栏内更新各模块的 DSN、授权脚本和匹配工件；如需重装授权，只对原部署选择的角色配置执行。PostgreSQL 会在角色改名时清除依赖旧用户名的 MD5 密码；用受控凭据更新流程设置新凭据，不轮换用户签名密钥。仅恢复原先获准登录的角色及目标库原连接上限，再依次放行消费者并验证就绪、受限读取和回执重放。复制到新谱系的路由权限仍须隔离，不通过修改来源记录强行启用。
+
 核心会话使用同一运行时的 `POST /v1/identity/sessions/execute`。会话 LOGIN 安装命令如下，参数与其他函数专用角色采用同一初始化要求：
 
 ```bash
