@@ -5,22 +5,22 @@
 --   -f infra/docker/inference-pool-reference-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.inference_owner', :'inference_owner', true);
-SELECT set_config('aap.pool_reference_role', :'pool_reference_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.inference_owner', :'inference_owner', true);
+SELECT set_config('yoao.pool_reference_role', :'pool_reference_role', true);
 
 DO $guard$
 DECLARE
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.inference_owner'));
+                    WHERE rolname=current_setting('yoao.inference_owner'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
-                          WHERE rolname=current_setting('aap.pool_reference_role'));
+                          WHERE rolname=current_setting('yoao.pool_reference_role'));
     v_function oid;
     v_signature text;
 BEGIN
-    IF current_database()<>current_setting('aap.expected_database')
-       OR current_user<>current_setting('aap.migration_role') THEN
+    IF current_database()<>current_setting('yoao.expected_database')
+       OR current_user<>current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF v_owner IS NULL OR v_client IS NULL
@@ -78,7 +78,7 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"pool_reference_role";
 DO $revoke$
 DECLARE
     v_schema record;
-    v_role pg_catalog.name := current_setting('aap.pool_reference_role');
+    v_role pg_catalog.name := current_setting('yoao.pool_reference_role');
 BEGIN
     FOR v_schema IN
         SELECT namespace.nspname
@@ -108,7 +108,7 @@ GRANT EXECUTE ON FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid)
 DO $verify$
 DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
-                          WHERE rolname=current_setting('aap.pool_reference_role'));
+                          WHERE rolname=current_setting('yoao.pool_reference_role'));
     v_allowed oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_inference_v1.ai_mask_pool_reference_row(uuid)')
     ];

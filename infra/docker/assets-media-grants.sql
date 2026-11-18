@@ -7,24 +7,24 @@
 --   -f infra/docker/assets-media-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.assets_owner', :'assets_owner', true);
-SELECT set_config('aap.asset_media_control_role', :'asset_media_control_role', true);
-SELECT set_config('aap.asset_media_worker_role', :'asset_media_worker_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.assets_owner', :'assets_owner', true);
+SELECT set_config('yoao.asset_media_control_role', :'asset_media_control_role', true);
+SELECT set_config('yoao.asset_media_worker_role', :'asset_media_worker_role', true);
 
 DO $$
 DECLARE
     role_name text;
     role_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.assets_owner'),
-        current_setting('aap.asset_media_control_role'),
-        current_setting('aap.asset_media_worker_role')
+        current_setting('yoao.assets_owner'),
+        current_setting('yoao.asset_media_control_role'),
+        current_setting('yoao.asset_media_worker_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT count(DISTINCT name) FROM unnest(role_names) AS name) <> 3 THEN
@@ -57,14 +57,14 @@ BEGIN
     END LOOP;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.assets_owner') AND role.rolcanlogin
+        WHERE role.rolname = current_setting('yoao.assets_owner') AND role.rolcanlogin
     ) OR NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.asset_media_control_role')
+        WHERE role.rolname = current_setting('yoao.asset_media_control_role')
           AND role.rolcanlogin
     ) OR NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.asset_media_worker_role')
+        WHERE role.rolname = current_setting('yoao.asset_media_worker_role')
           AND role.rolcanlogin
     ) THEN
         RAISE EXCEPTION 'Assets owner must be NOLOGIN and media roles must LOGIN';
@@ -88,8 +88,8 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public
 DO $$
 DECLARE
     namespace record;
-    control_role text := current_setting('aap.asset_media_control_role');
-    worker_role text := current_setting('aap.asset_media_worker_role');
+    control_role text := current_setting('yoao.asset_media_control_role');
+    worker_role text := current_setting('yoao.asset_media_worker_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname
@@ -230,11 +230,11 @@ DO $$
 DECLARE
     control_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.asset_media_control_role')
+        WHERE role.rolname = current_setting('yoao.asset_media_control_role')
     );
     worker_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.asset_media_worker_role')
+        WHERE role.rolname = current_setting('yoao.asset_media_worker_role')
     );
     control_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)')::oid,

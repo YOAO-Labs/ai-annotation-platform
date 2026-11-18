@@ -772,3 +772,11 @@ LibreYOLO 候选在仓外按哈希锁安装，CPython 3.11 下原生模型与适
 仓外按锁安装两个实际发行包。Node 经 Identity 服务对照历史资料样本与大批量输入；Labeling 进程重启前后在恢复库上两次返回相同的非空计数，无凭据请求均为 401。函数级权限、额外权限拒绝、借用事务与恢复结果合计 18 个不同 pytest 用例最终通过，无跳过；包含修正验收 DSN 的驱动类型后复验的三个用例，并非单次全绿。原始分次 JUnit、函数体及结果摘要、制品见 `t1-gate/n5/forward-0472/`。当前 PostgreSQL 实测剩 **39 个旧 namespace、1,797 个函数**，不含明确保留的历史工件；没有切换日常或生产实例。
 
 **N6 仍按真实依赖执行。** export 的新分配入口是 `export_storage_target.managed_prefix`；普通 ZIP 与 LiDAR 媒体分别由 `ExportOutput`、`ExportMediaBundle` 的持久约束登记。读者和回收者分别沿 `export_storage` 的保存引用及删除证明、`export_media_storage` 的保存前缀及准确清单操作，不能只改分配常量。工作树则依次由 `worktree_env` 校验身份并派生 topology、`worktree_runtime` 持环境锁、`worktree_resources` 核验所有权并精确销毁。这两个采用项保持在 J1 之后；此次未改分配前缀、资源标签、环境变量或引用哨兵，也没有把代码盘点记作 J1／J2 通过。
+
+### 16.10 N5：授权安装器的事务参数
+
+92 个部署授权脚本及工作树授权改用 `yoao.*` 传递事务内的安装参数。迁移了 110 个不同的设置名，包括 module-data 按 owner 查表再读取的七处；`psql -v` 入参、数据库角色、已安装的 ACL、历史迁移和签名协议不改。此项无需 Alembic 迁移，也不减少 §16.9 的 39 个待迁 namespace。
+
+以 `465ecfeb97` 的脚本作独立对照，在 PostgreSQL 16 的同一迁移 head 上分别从干净副本安装。92 个脚本覆盖 103 组实参（含 Inference owner 的 12 种配置），每次安装后都对照实际数据库目录；103 个检查点逐项相同，最终覆盖 5,175 条定义及权限记录。两版均拒绝全部 103 次错误目标库请求，拒绝前后目录不变。另用第三个副本预设冲突的新旧会话值：每组安装都忽略旧值，提交后恢复原会话值，最终权限与基线一致。
+
+旧、新工作树各自实际运行 `LocalResources.grant_runtime()`；受限账号可以调用认证策略，但不能读取 `public.users` 表或任意列，双方 5,151 条目录记录相同。两个原生 Labeling ACL 用例均通过、无跳过；首次收集缺少 TrackEval，按仓库锁定的 submodule 提交补齐后运行，两个 JUnit 分开保留。证据在 `t1-gate/n5/grant-transaction-settings/`。临时数据库容器、凭据和源码副本已删除；未重授权日常或生产实例，也未重跑 8K 或将此结果计入 J1。

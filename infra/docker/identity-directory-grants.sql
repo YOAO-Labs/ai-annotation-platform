@@ -7,27 +7,27 @@
 --   -f infra/docker/identity-directory-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.identity_directory_role', :'identity_directory_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.identity_directory_role', :'identity_directory_role', true);
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.identity_directory_role');
+    role_name text := current_setting('yoao.identity_directory_role');
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.workspace_owner'),
-        current_setting('aap.labeling_owner'),
-        current_setting('aap.audit_owner'),
-        current_setting('aap.identity_directory_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.workspace_owner'),
+        current_setting('yoao.labeling_owner'),
+        current_setting('yoao.audit_owner'),
+        current_setting('yoao.identity_directory_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF role_name <> 'identity_directory_client'
@@ -62,23 +62,23 @@ DO $$
 DECLARE
     identity_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_owner')
+        WHERE role.rolname = current_setting('yoao.identity_owner')
     );
     workspace_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.workspace_owner')
+        WHERE role.rolname = current_setting('yoao.workspace_owner')
     );
     labeling_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.labeling_owner')
+        WHERE role.rolname = current_setting('yoao.labeling_owner')
     );
     audit_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.audit_owner')
+        WHERE role.rolname = current_setting('yoao.audit_owner')
     );
     directory_role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_directory_role')
+        WHERE role.rolname = current_setting('yoao.identity_directory_role')
     );
 BEGIN
     IF identity_oid IS NULL OR workspace_oid IS NULL OR labeling_oid IS NULL
@@ -181,7 +181,7 @@ GRANT CONNECT ON DATABASE :"expected_database"
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.identity_directory_role');
+    role_name text := current_setting('yoao.identity_directory_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname FROM pg_catalog.pg_namespace AS ns
@@ -206,7 +206,7 @@ DO $$
 DECLARE
     role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_directory_role')
+        WHERE role.rolname = current_setting('yoao.identity_directory_role')
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[

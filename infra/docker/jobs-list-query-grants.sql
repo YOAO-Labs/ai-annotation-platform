@@ -6,24 +6,24 @@
 --   -f infra/docker/jobs-list-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.list_client', :'list_client', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.jobs_owner', :'jobs_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.list_client', :'list_client', true);
 
 DO $guard$
 DECLARE
     v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles
-                   WHERE rolname=current_setting('aap.jobs_owner'));
+                   WHERE rolname=current_setting('yoao.jobs_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
-                  WHERE rolname=current_setting('aap.api_role'));
+                  WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
-                     WHERE rolname=current_setting('aap.list_client'));
+                     WHERE rolname=current_setting('yoao.list_client'));
     v_function record;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF v_jobs IS NULL OR v_api IS NULL OR v_client IS NULL
@@ -113,7 +113,7 @@ BEGIN
                 v_columns,
                 v_relation.nspname,
                 v_relation.relname,
-                current_setting('aap.list_client')
+                current_setting('yoao.list_client')
             );
         END IF;
     END LOOP;
@@ -136,11 +136,11 @@ GRANT EXECUTE ON FUNCTION
 DO $verify$
 DECLARE
     v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles
-                   WHERE rolname=current_setting('aap.jobs_owner'));
+                   WHERE rolname=current_setting('yoao.jobs_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
-                  WHERE rolname=current_setting('aap.api_role'));
+                  WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
-                     WHERE rolname=current_setting('aap.list_client'));
+                     WHERE rolname=current_setting('yoao.list_client'));
     v_allowed oid[] := ARRAY[
         'aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)'::regprocedure::oid,
         'aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)'::regprocedure::oid

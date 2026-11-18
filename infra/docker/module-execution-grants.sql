@@ -7,12 +7,12 @@
 --   -f infra/docker/module-execution-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
-SELECT set_config('aap.export_owner', :'export_owner', true);
-SELECT set_config('aap.jobs_publication_role', :'jobs_publication_role', true);
-SELECT set_config('aap.export_execution_role', :'export_execution_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.jobs_owner', :'jobs_owner', true);
+SELECT set_config('yoao.export_owner', :'export_owner', true);
+SELECT set_config('yoao.jobs_publication_role', :'jobs_publication_role', true);
+SELECT set_config('yoao.export_execution_role', :'export_execution_role', true);
 
 DO $grants$
 DECLARE
@@ -24,20 +24,20 @@ DECLARE
     client_oid oid;
     owner_oid oid;
     names text[] := ARRAY[
-        current_setting('aap.jobs_owner'),
-        current_setting('aap.export_owner'),
-        current_setting('aap.jobs_publication_role'),
-        current_setting('aap.export_execution_role')
+        current_setting('yoao.jobs_owner'),
+        current_setting('yoao.export_owner'),
+        current_setting('yoao.jobs_publication_role'),
+        current_setting('yoao.export_execution_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR current_user = ANY(names)
        OR (SELECT count(DISTINCT name) FROM unnest(names) AS name) <> 4 THEN
         RAISE EXCEPTION 'Unexpected execution grant database or overlapping roles';
     END IF;
     FOR profile IN SELECT * FROM (VALUES
-        (current_setting('aap.jobs_publication_role'), current_setting('aap.jobs_owner'),
+        (current_setting('yoao.jobs_publication_role'), current_setting('yoao.jobs_owner'),
          'aap_jobs_v1', ARRAY[
             'aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)',
             'aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)',
@@ -48,7 +48,7 @@ BEGIN
             'aap_jobs_v1.begin_fixture_media_publication(uuid,uuid)',
             'aap_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)'
          ]::text[]),
-        (current_setting('aap.export_execution_role'), current_setting('aap.export_owner'),
+        (current_setting('yoao.export_execution_role'), current_setting('yoao.export_owner'),
          'aap_export_v1', ARRAY[
             'aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer)',
             'aap_export_v1.enter_execution_io(uuid,uuid)',

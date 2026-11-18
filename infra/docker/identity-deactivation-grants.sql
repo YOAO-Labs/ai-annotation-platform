@@ -10,16 +10,16 @@
 --   -f infra/docker/identity-deactivation-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
-SELECT set_config('aap.identity_deactivation_role', :'identity_deactivation_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.notifications_owner', :'notifications_owner', true);
+SELECT set_config('yoao.identity_deactivation_role', :'identity_deactivation_role', true);
 SELECT set_config(
-    'aap.identity_deactivation_operator_role', :'identity_deactivation_operator_role', true
+    'yoao.identity_deactivation_operator_role', :'identity_deactivation_operator_role', true
 );
-SELECT set_config('aap.notification_publish_role', :'notification_publish_role', true);
+SELECT set_config('yoao.notification_publish_role', :'notification_publish_role', true);
 
 DO $$
 DECLARE
@@ -30,27 +30,27 @@ DECLARE
     notifications_oid oid;
     migration_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.audit_owner'),
-        current_setting('aap.notifications_owner'),
-        current_setting('aap.identity_deactivation_role'),
-        current_setting('aap.identity_deactivation_operator_role'),
-        current_setting('aap.notification_publish_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.audit_owner'),
+        current_setting('yoao.notifications_owner'),
+        current_setting('yoao.identity_deactivation_role'),
+        current_setting('yoao.identity_deactivation_operator_role'),
+        current_setting('yoao.notification_publish_role')
     ];
-    expected_database text := current_setting('aap.expected_database');
+    expected_database text := current_setting('yoao.expected_database');
 BEGIN
     IF current_database() <> expected_database
-       OR current_user <> current_setting('aap.migration_role') THEN
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF (SELECT pg_catalog.count(DISTINCT name)
         FROM pg_catalog.unnest(role_names) AS expanded(name)) <> 6
-       OR current_setting('aap.migration_role') = ANY(role_names) THEN
+       OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, owners and deactivation clients must be distinct';
     END IF;
-    IF current_setting('aap.identity_deactivation_role') <> 'identity_deactivation_client'
-       OR current_setting('aap.identity_deactivation_operator_role') <> 'identity_deactivation_operator'
-       OR current_setting('aap.notification_publish_role') <> 'notification_publish_client' THEN
+    IF current_setting('yoao.identity_deactivation_role') <> 'identity_deactivation_client'
+       OR current_setting('yoao.identity_deactivation_operator_role') <> 'identity_deactivation_operator'
+       OR current_setting('yoao.notification_publish_role') <> 'notification_publish_client' THEN
         RAISE EXCEPTION 'Unexpected deactivation client role name';
     END IF;
 
@@ -74,15 +74,15 @@ BEGIN
     END LOOP;
 
     SELECT role.oid INTO identity_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_owner');
+    WHERE role.rolname = current_setting('yoao.identity_owner');
     SELECT role.oid INTO audit_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.audit_owner');
+    WHERE role.rolname = current_setting('yoao.audit_owner');
     SELECT role.oid INTO notifications_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.notifications_owner');
+    WHERE role.rolname = current_setting('yoao.notifications_owner');
     SELECT role.oid INTO migration_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.migration_role');
+    WHERE role.rolname = current_setting('yoao.migration_role');
     SELECT role.oid INTO role_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_deactivation_role');
+    WHERE role.rolname = current_setting('yoao.identity_deactivation_role');
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.oid IN (identity_oid, audit_oid, notifications_oid)
@@ -90,9 +90,9 @@ BEGIN
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname IN (
-            current_setting('aap.identity_deactivation_role'),
-            current_setting('aap.identity_deactivation_operator_role'),
-            current_setting('aap.notification_publish_role')
+            current_setting('yoao.identity_deactivation_role'),
+            current_setting('yoao.identity_deactivation_operator_role'),
+            current_setting('yoao.notification_publish_role')
         ) AND (NOT role.rolcanlogin OR role.rolinherit)
     ) THEN
         RAISE EXCEPTION 'Owners must be NOLOGIN and deactivation clients LOGIN NOINHERIT';
@@ -197,9 +197,9 @@ DECLARE
     role_name text;
 BEGIN
     FOREACH role_name IN ARRAY ARRAY[
-        current_setting('aap.identity_deactivation_role'),
-        current_setting('aap.identity_deactivation_operator_role'),
-        current_setting('aap.notification_publish_role')
+        current_setting('yoao.identity_deactivation_role'),
+        current_setting('yoao.identity_deactivation_operator_role'),
+        current_setting('yoao.notification_publish_role')
     ] LOOP
         FOR namespace IN
             SELECT ns.nspname
@@ -244,17 +244,17 @@ DECLARE
     expected_functions text[];
 BEGIN
     FOREACH role_name IN ARRAY ARRAY[
-        current_setting('aap.identity_deactivation_role'),
-        current_setting('aap.identity_deactivation_operator_role'),
-        current_setting('aap.notification_publish_role')
+        current_setting('yoao.identity_deactivation_role'),
+        current_setting('yoao.identity_deactivation_operator_role'),
+        current_setting('yoao.notification_publish_role')
     ] LOOP
-        IF role_name = current_setting('aap.identity_deactivation_role') THEN
+        IF role_name = current_setting('yoao.identity_deactivation_role') THEN
             allowed_schema := 'aap_identity_deactivation_v1';
             allowed_functions := ARRAY[
                 'aap_identity_deactivation_v1.deactivation_policy()',
                 'aap_identity_deactivation_v1.execute_deactivation_command(jsonb)'
             ];
-        ELSIF role_name = current_setting('aap.identity_deactivation_operator_role') THEN
+        ELSIF role_name = current_setting('yoao.identity_deactivation_operator_role') THEN
             allowed_schema := 'aap_identity_deactivation_v1';
             allowed_functions := ARRAY[
                 'aap_identity_deactivation_v1.due_policy()',

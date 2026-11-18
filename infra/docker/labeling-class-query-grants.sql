@@ -5,9 +5,9 @@
 --   -f infra/docker/labeling-class-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
 SELECT set_config(
     'yoao.labeling_class_query_role', :'labeling_class_query_role', true
 );
@@ -16,12 +16,12 @@ DO $$
 DECLARE
     client_name text := current_setting('yoao.labeling_class_query_role');
     role_names text[] := ARRAY[
-        current_setting('aap.labeling_owner'),
+        current_setting('yoao.labeling_owner'),
         current_setting('yoao.labeling_class_query_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF client_name <> 'yoao_labeling_class_query_client'
@@ -65,7 +65,7 @@ DECLARE
     labeling_oid oid := (
         SELECT role.oid
         FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.labeling_owner')
+        WHERE role.rolname = current_setting('yoao.labeling_owner')
     );
     policy_oid oid := pg_catalog.to_regprocedure(
         'yoao_labeling_class_query_v1.class_query_policy()'

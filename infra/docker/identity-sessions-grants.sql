@@ -6,10 +6,10 @@
 --   -f infra/docker/identity-sessions-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.identity_session_role', :'identity_session_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.identity_session_role', :'identity_session_role', true);
 
 DO $$
 DECLARE
@@ -18,20 +18,20 @@ DECLARE
     owner_oid oid;
     migration_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.identity_session_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.identity_session_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT pg_catalog.count(DISTINCT name)
         FROM pg_catalog.unnest(role_names) AS expanded(name)) <> 2
-       OR current_setting('aap.migration_role') = ANY(role_names) THEN
+       OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity owner and session client must be distinct';
     END IF;
-    IF current_setting('aap.identity_session_role') <> 'identity_session_client' THEN
+    IF current_setting('yoao.identity_session_role') <> 'identity_session_client' THEN
         RAISE EXCEPTION 'Identity sessions must use the identity_session_client LOGIN';
     END IF;
 
@@ -63,20 +63,20 @@ BEGIN
 
     SELECT role.oid INTO owner_oid
     FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_owner');
+    WHERE role.rolname = current_setting('yoao.identity_owner');
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.oid = owner_oid AND (role.rolcanlogin OR role.rolinherit)
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_session_role')
+        WHERE role.rolname = current_setting('yoao.identity_session_role')
           AND (NOT role.rolcanlogin OR role.rolinherit)
     ) THEN
         RAISE EXCEPTION 'Identity owner must be NOLOGIN and session client LOGIN NOINHERIT';
     END IF;
     SELECT role.oid INTO migration_oid
     FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.migration_role');
+    WHERE role.rolname = current_setting('yoao.migration_role');
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Missing migration role';
     END IF;
@@ -111,7 +111,7 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"identity_session_role";
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.identity_session_role');
+    role_name text := current_setting('yoao.identity_session_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname
@@ -137,7 +137,7 @@ GRANT EXECUTE ON FUNCTION
 -- Fail closed unless the LOGIN can reach only its three public capabilities.
 DO $$
 DECLARE
-    role_name text := current_setting('aap.identity_session_role');
+    role_name text := current_setting('yoao.identity_session_role');
     role_oid oid;
     allowed_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_identity_sessions_v1.session_policy()')::oid,

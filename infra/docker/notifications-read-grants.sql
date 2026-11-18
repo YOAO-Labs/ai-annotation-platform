@@ -6,15 +6,15 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.notifications_owner', :'notifications_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
 
 DO $guard$
 DECLARE
-    v_owner name := current_setting('aap.notifications_owner');
-    v_api name := current_setting('aap.api_role');
+    v_owner name := current_setting('yoao.notifications_owner');
+    v_api name := current_setting('yoao.api_role');
     v_owner_oid oid;
     v_api_oid oid;
     v_relation_oid oid := pg_catalog.to_regclass(
@@ -22,8 +22,8 @@ DECLARE
     )::oid;
     v_columns text[];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_owner <> 'notifications_code'
        OR v_api = v_owner
        OR v_api = current_user
@@ -94,7 +94,7 @@ GRANT SELECT ON aap_notifications_v1.notification_facts TO :"api_role";
 DO $verify$
 DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
-                  WHERE rolname = current_setting('aap.api_role'));
+                  WHERE rolname = current_setting('yoao.api_role'));
     v_facts oid := 'aap_notifications_v1.notification_facts'::pg_catalog.regclass;
 BEGIN
     IF pg_catalog.has_table_privilege(

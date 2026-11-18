@@ -4,15 +4,15 @@
 --      -v consumer_role=... -f identity-consumer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.identity_consumer_role', :'consumer_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.identity_consumer_role', :'consumer_role', true);
 
 DO $guard$
 DECLARE
-    v_consumer name := current_setting('aap.identity_consumer_role');
-    v_identity name := current_setting('aap.identity_owner');
+    v_consumer name := current_setting('yoao.identity_consumer_role');
+    v_identity name := current_setting('yoao.identity_owner');
     v_allowed oid[] := ARRAY[
         'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
         'aap_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
@@ -25,8 +25,8 @@ DECLARE
     ];
     v_relation record;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_identity=current_user
        OR v_consumer IN (current_user, v_identity)
        OR pg_catalog.pg_has_role(v_consumer, current_user, 'MEMBER')
@@ -83,7 +83,7 @@ $guard$;
 -- Remove both table and column grants; NOINHERIT alone cannot close direct ACLs.
 DO $revoke$
 DECLARE
-    v_consumer name := current_setting('aap.identity_consumer_role');
+    v_consumer name := current_setting('yoao.identity_consumer_role');
     v_schema record;
     v_relation record;
     v_columns text;
@@ -141,7 +141,7 @@ GRANT EXECUTE ON FUNCTION
 
 DO $verify$
 DECLARE
-    v_consumer name := current_setting('aap.identity_consumer_role');
+    v_consumer name := current_setting('yoao.identity_consumer_role');
     v_allowed oid[] := ARRAY[
         'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
         'aap_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,

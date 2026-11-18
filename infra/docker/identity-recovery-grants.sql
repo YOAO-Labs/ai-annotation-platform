@@ -9,14 +9,14 @@
 --   -f infra/docker/identity-recovery-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.settings_owner', :'settings_owner', true);
-SELECT set_config('aap.identity_recovery_role', :'identity_recovery_role', true);
-SELECT set_config('aap.identity_mail_role', :'identity_mail_role', true);
-SELECT set_config('aap.identity_mail_settings_role', :'identity_mail_settings_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.settings_owner', :'settings_owner', true);
+SELECT set_config('yoao.identity_recovery_role', :'identity_recovery_role', true);
+SELECT set_config('yoao.identity_mail_role', :'identity_mail_role', true);
+SELECT set_config('yoao.identity_mail_settings_role', :'identity_mail_settings_role', true);
 
 DO $$
 DECLARE
@@ -39,31 +39,31 @@ DECLARE
         'aap_settings_v1.mail_delivery_policy(jsonb)'
     )::oid;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.audit_owner'),
-        current_setting('aap.settings_owner'),
-        current_setting('aap.identity_recovery_role'),
-        current_setting('aap.identity_mail_role'),
-        current_setting('aap.identity_mail_settings_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.audit_owner'),
+        current_setting('yoao.settings_owner'),
+        current_setting('yoao.identity_recovery_role'),
+        current_setting('yoao.identity_mail_role'),
+        current_setting('yoao.identity_mail_settings_role')
     ];
     client_roles text[] := ARRAY[
-        current_setting('aap.identity_recovery_role'),
-        current_setting('aap.identity_mail_role'),
-        current_setting('aap.identity_mail_settings_role')
+        current_setting('yoao.identity_recovery_role'),
+        current_setting('yoao.identity_mail_role'),
+        current_setting('yoao.identity_mail_settings_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT pg_catalog.count(DISTINCT name)
         FROM pg_catalog.unnest(role_names) AS expanded(name)) <> 6
-       OR current_setting('aap.migration_role') = ANY(role_names) THEN
+       OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity, Audit, Settings and client roles must be distinct';
     END IF;
-    IF current_setting('aap.identity_recovery_role') <> 'identity_recovery_client'
-       OR current_setting('aap.identity_mail_role') <> 'identity_mail_client'
-       OR current_setting('aap.identity_mail_settings_role') <> 'identity_mail_settings_client' THEN
+    IF current_setting('yoao.identity_recovery_role') <> 'identity_recovery_client'
+       OR current_setting('yoao.identity_mail_role') <> 'identity_mail_client'
+       OR current_setting('yoao.identity_mail_settings_role') <> 'identity_mail_settings_client' THEN
         RAISE EXCEPTION 'Recovery and credential mail must use their fixed LOGIN roles';
     END IF;
 
@@ -91,13 +91,13 @@ BEGIN
     END LOOP;
 
     SELECT role.oid INTO migration_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.migration_role');
+    WHERE role.rolname = current_setting('yoao.migration_role');
     SELECT role.oid INTO owner_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_owner');
+    WHERE role.rolname = current_setting('yoao.identity_owner');
     SELECT role.oid INTO audit_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.audit_owner');
+    WHERE role.rolname = current_setting('yoao.audit_owner');
     SELECT role.oid INTO settings_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.settings_owner');
+    WHERE role.rolname = current_setting('yoao.settings_owner');
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Missing Identity, Audit or Settings code owner';
     END IF;
@@ -151,7 +151,7 @@ BEGIN
         mail_settings_function,
         'EXECUTE'
     ) OR pg_catalog.has_function_privilege(
-        current_setting('aap.identity_mail_settings_role'),
+        current_setting('yoao.identity_mail_settings_role'),
         recovery_settings_function,
         'EXECUTE'
     ) THEN
@@ -168,9 +168,9 @@ DECLARE
     namespace record;
     role_name text;
     client_roles text[] := ARRAY[
-        current_setting('aap.identity_recovery_role'),
-        current_setting('aap.identity_mail_role'),
-        current_setting('aap.identity_mail_settings_role')
+        current_setting('yoao.identity_recovery_role'),
+        current_setting('yoao.identity_mail_role'),
+        current_setting('yoao.identity_mail_settings_role')
     ];
 BEGIN
     FOR namespace IN
@@ -222,7 +222,7 @@ BEGIN
         SELECT role_name, allowed_schema, allowed_functions
         FROM (VALUES
             (
-                current_setting('aap.identity_recovery_role'),
+                current_setting('yoao.identity_recovery_role'),
                 'aap_identity_recovery_v1'::text,
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_recovery_v1.recovery_policy()')::oid,
@@ -232,7 +232,7 @@ BEGIN
                 ]::oid[]
             ),
             (
-                current_setting('aap.identity_mail_role'),
+                current_setting('yoao.identity_mail_role'),
                 'aap_identity_recovery_v1'::text,
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_recovery_v1.mail_policy()')::oid,
@@ -242,7 +242,7 @@ BEGIN
                 ]::oid[]
             ),
             (
-                current_setting('aap.identity_mail_settings_role'),
+                current_setting('yoao.identity_mail_settings_role'),
                 'aap_settings_v1'::text,
                 ARRAY[pg_catalog.to_regprocedure('aap_settings_v1.mail_delivery_policy(jsonb)')::oid]::oid[]
             )

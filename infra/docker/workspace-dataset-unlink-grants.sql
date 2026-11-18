@@ -5,23 +5,23 @@
 --   -f infra/docker/workspace-dataset-unlink-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
 SELECT set_config(
-    'aap.workspace_dataset_unlink_role', :'workspace_dataset_unlink_role', true
+    'yoao.workspace_dataset_unlink_role', :'workspace_dataset_unlink_role', true
 );
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.workspace_dataset_unlink_role');
+    role_name text := current_setting('yoao.workspace_dataset_unlink_role');
     role_names text[] := ARRAY[
-        current_setting('aap.workspace_owner'),
-        current_setting('aap.workspace_dataset_unlink_role')
+        current_setting('yoao.workspace_owner'),
+        current_setting('yoao.workspace_dataset_unlink_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF role_name <> 'workspace_dataset_unlink_client'
@@ -56,7 +56,7 @@ DO $$
 DECLARE
     owner_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.workspace_owner')
+        WHERE role.rolname = current_setting('yoao.workspace_owner')
     );
 BEGIN
     IF EXISTS (
@@ -102,7 +102,7 @@ GRANT CONNECT ON DATABASE :"expected_database"
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.workspace_dataset_unlink_role');
+    role_name text := current_setting('yoao.workspace_dataset_unlink_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname FROM pg_catalog.pg_namespace AS ns
@@ -139,7 +139,7 @@ DO $$
 DECLARE
     role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.workspace_dataset_unlink_role')
+        WHERE role.rolname = current_setting('yoao.workspace_dataset_unlink_role')
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[

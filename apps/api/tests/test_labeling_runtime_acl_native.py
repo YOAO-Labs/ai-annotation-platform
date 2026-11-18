@@ -65,8 +65,8 @@ async def test_labeling_acl_removes_columns_partitions_sequences_and_defaults(
                         await connection.exec_driver_sql(statement)
                 await connection.execute(
                     text(
-                        "SELECT set_config('aap.application_role',:role,true), "
-                        "set_config('aap.expected_database',current_database(),true)"
+                        "SELECT set_config('yoao.application_role',:role,true), "
+                        "set_config('yoao.expected_database',current_database(),true)"
                     ),
                     {"role": ROLE},
                 )
@@ -144,8 +144,8 @@ async def test_labeling_acl_rejects_inherited_storage_access(test_engine):
                 )
                 await connection.execute(
                     text(
-                        "SELECT set_config('aap.application_role',:role,true), "
-                        "set_config('aap.expected_database',current_database(),true)"
+                        "SELECT set_config('yoao.application_role',:role,true), "
+                        "set_config('yoao.expected_database',current_database(),true)"
                     ),
                     {"role": ROLE},
                 )

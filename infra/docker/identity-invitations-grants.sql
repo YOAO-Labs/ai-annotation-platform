@@ -9,37 +9,37 @@
 --   -f infra/docker/identity-invitations-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.settings_owner', :'settings_owner', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.identity_invitation_role', :'identity_invitation_role', true);
-SELECT set_config('aap.identity_mail_v2_role', :'identity_mail_v2_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.settings_owner', :'settings_owner', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.identity_invitation_role', :'identity_invitation_role', true);
+SELECT set_config('yoao.identity_mail_v2_role', :'identity_mail_v2_role', true);
 
 DO $$
 DECLARE
     role_name text;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_invitation_role'),
-        current_setting('aap.identity_mail_v2_role')
+        current_setting('yoao.identity_invitation_role'),
+        current_setting('yoao.identity_mail_v2_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF current_setting('aap.identity_invitation_role') <> 'identity_invitation_client'
-       OR current_setting('aap.identity_mail_v2_role') <> 'identity_mail_v2_client'
+    IF current_setting('yoao.identity_invitation_role') <> 'identity_invitation_client'
+       OR current_setting('yoao.identity_mail_v2_role') <> 'identity_mail_v2_client'
        OR (SELECT count(DISTINCT candidate.name) FROM unnest(role_names) AS candidate(name)) <> 2
        OR EXISTS (
            SELECT 1 FROM unnest(role_names) AS candidate(name)
            WHERE candidate.name = ANY(ARRAY[
-               current_setting('aap.identity_owner'), current_setting('aap.workspace_owner'),
-               current_setting('aap.labeling_owner'), current_setting('aap.settings_owner'),
-               current_setting('aap.audit_owner'), current_setting('aap.migration_role')
+               current_setting('yoao.identity_owner'), current_setting('yoao.workspace_owner'),
+               current_setting('yoao.labeling_owner'), current_setting('yoao.settings_owner'),
+               current_setting('yoao.audit_owner'), current_setting('yoao.migration_role')
            ])
        ) THEN
         RAISE EXCEPTION 'Unexpected Identity invitation role names';
@@ -67,15 +67,15 @@ END $$;
 DO $$
 DECLARE
     identity_oid oid := (SELECT oid FROM pg_catalog.pg_roles
-                         WHERE rolname = current_setting('aap.identity_owner'));
+                         WHERE rolname = current_setting('yoao.identity_owner'));
     workspace_oid oid := (SELECT oid FROM pg_catalog.pg_roles
-                          WHERE rolname = current_setting('aap.workspace_owner'));
+                          WHERE rolname = current_setting('yoao.workspace_owner'));
     labeling_oid oid := (SELECT oid FROM pg_catalog.pg_roles
-                         WHERE rolname = current_setting('aap.labeling_owner'));
+                         WHERE rolname = current_setting('yoao.labeling_owner'));
     settings_oid oid := (SELECT oid FROM pg_catalog.pg_roles
-                         WHERE rolname = current_setting('aap.settings_owner'));
+                         WHERE rolname = current_setting('yoao.settings_owner'));
     audit_oid oid := (SELECT oid FROM pg_catalog.pg_roles
-                      WHERE rolname = current_setting('aap.audit_owner'));
+                      WHERE rolname = current_setting('yoao.audit_owner'));
 BEGIN
     IF identity_oid IS NULL OR workspace_oid IS NULL OR labeling_oid IS NULL
        OR settings_oid IS NULL OR audit_oid IS NULL THEN
@@ -183,8 +183,8 @@ DECLARE
     role_name text;
 BEGIN
     FOREACH role_name IN ARRAY ARRAY[
-        current_setting('aap.identity_invitation_role'),
-        current_setting('aap.identity_mail_v2_role')
+        current_setting('yoao.identity_invitation_role'),
+        current_setting('yoao.identity_mail_v2_role')
     ] LOOP
         FOR namespace IN
             SELECT ns.nspname FROM pg_catalog.pg_namespace AS ns
@@ -223,11 +223,11 @@ DECLARE
     expected_functions text[];
 BEGIN
     FOREACH role_name IN ARRAY ARRAY[
-        current_setting('aap.identity_invitation_role'),
-        current_setting('aap.identity_mail_v2_role')
+        current_setting('yoao.identity_invitation_role'),
+        current_setting('yoao.identity_mail_v2_role')
     ] LOOP
         role_oid := (SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname=role_name);
-        IF role_name = current_setting('aap.identity_invitation_role') THEN
+        IF role_name = current_setting('yoao.identity_invitation_role') THEN
             allowed_schema := 'aap_identity_invitations_v1';
             expected_functions := ARRAY[
                 'aap_identity_invitations_v1.apply_invitation_command(jsonb)',

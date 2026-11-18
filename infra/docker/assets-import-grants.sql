@@ -4,27 +4,27 @@
 --   -f infra/docker/assets-import-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.assets_owner', :'assets_owner', true);
-SELECT set_config('aap.asset_import_role', :'asset_import_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.assets_owner', :'assets_owner', true);
+SELECT set_config('yoao.asset_import_role', :'asset_import_role', true);
 
 DO $$
 DECLARE
     role_name text;
     role_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.assets_owner'),
-        current_setting('aap.asset_import_role')
+        current_setting('yoao.assets_owner'),
+        current_setting('yoao.asset_import_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF current_setting('aap.migration_role') = current_setting('aap.assets_owner')
-       OR current_setting('aap.migration_role') = current_setting('aap.asset_import_role')
-       OR current_setting('aap.assets_owner') = current_setting('aap.asset_import_role') THEN
+    IF current_setting('yoao.migration_role') = current_setting('yoao.assets_owner')
+       OR current_setting('yoao.migration_role') = current_setting('yoao.asset_import_role')
+       OR current_setting('yoao.assets_owner') = current_setting('yoao.asset_import_role') THEN
         RAISE EXCEPTION 'Migration, Assets owner and import LOGIN must be distinct';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
@@ -54,11 +54,11 @@ BEGIN
     END LOOP;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.assets_owner')
+        WHERE role.rolname = current_setting('yoao.assets_owner')
           AND role.rolcanlogin
     ) OR NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.asset_import_role')
+        WHERE role.rolname = current_setting('yoao.asset_import_role')
           AND role.rolcanlogin
     ) THEN
         RAISE EXCEPTION 'Assets owner must be NOLOGIN and import role must LOGIN';
@@ -77,7 +77,7 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM :"asset_import_role";
 DO $$
 DECLARE
     namespace record;
-    import_role text := current_setting('aap.asset_import_role');
+    import_role text := current_setting('yoao.asset_import_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname
@@ -128,7 +128,7 @@ DO $$
 DECLARE
     role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.asset_import_role')
+        WHERE role.rolname = current_setting('yoao.asset_import_role')
     );
     allowed_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.resume_import_original_verification(jsonb)')::oid,

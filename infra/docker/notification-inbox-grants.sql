@@ -6,21 +6,21 @@
 --   -f infra/docker/notification-inbox-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.query_client', :'query_client', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.notifications_owner', :'notifications_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.query_client', :'query_client', true);
 
 DO $guard$
 DECLARE
-    v_owner oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.notifications_owner'));
-    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
-    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.query_client'));
+    v_owner oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.notifications_owner'));
+    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
+    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.query_client'));
     v_function record;
 BEGIN
-    IF current_database()<>current_setting('aap.expected_database')
-       OR current_user<>current_setting('aap.migration_role') THEN
+    IF current_database()<>current_setting('yoao.expected_database')
+       OR current_user<>current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF v_owner IS NULL OR v_api IS NULL OR v_client IS NULL
@@ -98,7 +98,7 @@ BEGIN
         IF v_columns IS NOT NULL THEN
             EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
                 v_columns, v_relation.nspname, v_relation.relname,
-                current_setting('aap.query_client'));
+                current_setting('yoao.query_client'));
         END IF;
     END LOOP;
 END;
@@ -129,9 +129,9 @@ GRANT EXECUTE ON FUNCTION
 
 DO $verify$
 DECLARE
-    v_owner oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.notifications_owner'));
-    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
-    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.query_client'));
+    v_owner oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.notifications_owner'));
+    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
+    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.query_client'));
     v_allowed oid[] := ARRAY[
         'aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)'::regprocedure::oid,
         'aap_notifications_v1.inbox_total_count_scoped(uuid,text)'::regprocedure::oid,

@@ -6,27 +6,27 @@
 --   -f infra/docker/inference-pipelines-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.inference_owner', :'inference_owner', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.inference_owner', :'inference_owner', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
 SELECT set_config(
-    'aap.inference_pipelines_role', :'inference_pipelines_role', true
+    'yoao.inference_pipelines_role', :'inference_pipelines_role', true
 );
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.inference_pipelines_role');
+    role_name text := current_setting('yoao.inference_pipelines_role');
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.inference_owner'),
-        current_setting('aap.workspace_owner'),
-        current_setting('aap.inference_pipelines_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.inference_owner'),
+        current_setting('yoao.workspace_owner'),
+        current_setting('yoao.inference_pipelines_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF role_name <> 'inference_pipelines_client'
@@ -61,7 +61,7 @@ DO $$
 DECLARE
     inference_oid oid := (
         SELECT oid FROM pg_catalog.pg_roles
-        WHERE rolname = current_setting('aap.inference_owner')
+        WHERE rolname = current_setting('yoao.inference_owner')
     );
     policy_oid oid := pg_catalog.to_regprocedure(
         'aap_inference_pipelines_v1.pipeline_policy()'
@@ -92,11 +92,11 @@ BEGIN
     FOR dependency IN
         SELECT * FROM (VALUES
             ('aap_workspace_v1.project_access_step(uuid,uuid,text)',
-             current_setting('aap.workspace_owner')),
+             current_setting('yoao.workspace_owner')),
             ('yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)',
-             current_setting('aap.workspace_owner')),
+             current_setting('yoao.workspace_owner')),
             ('aap_identity_v1.workspace_template_query_org_ids(uuid)',
-             current_setting('aap.identity_owner'))
+             current_setting('yoao.identity_owner'))
         ) AS required(signature, owner_name)
     LOOP
         dependency_oid := pg_catalog.to_regprocedure(dependency.signature)::oid;
@@ -135,7 +135,7 @@ GRANT CONNECT ON DATABASE :"expected_database"
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.inference_pipelines_role');
+    role_name text := current_setting('yoao.inference_pipelines_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname FROM pg_catalog.pg_namespace AS ns
@@ -172,7 +172,7 @@ DO $$
 DECLARE
     role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.inference_pipelines_role')
+        WHERE role.rolname = current_setting('yoao.inference_pipelines_role')
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[

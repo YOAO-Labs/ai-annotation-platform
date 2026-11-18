@@ -8,24 +8,24 @@
 --   -f infra/docker/jobs-dispatch-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.dispatch_relay_role', :'dispatch_relay_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.jobs_owner', :'jobs_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.dispatch_relay_role', :'dispatch_relay_role', true);
 
 DO $guard$
 DECLARE
     v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles
-                   WHERE rolname=current_setting('aap.jobs_owner'));
+                   WHERE rolname=current_setting('yoao.jobs_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
-                  WHERE rolname=current_setting('aap.api_role'));
+                  WHERE rolname=current_setting('yoao.api_role'));
     v_relay oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.dispatch_relay_role'));
+                    WHERE rolname=current_setting('yoao.dispatch_relay_role'));
     v_function record;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF v_jobs IS NULL OR v_api IS NULL OR v_relay IS NULL
@@ -133,9 +133,9 @@ GRANT EXECUTE ON FUNCTION
 DO $verify$
 DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
-                  WHERE rolname=current_setting('aap.api_role'));
+                  WHERE rolname=current_setting('yoao.api_role'));
     v_relay oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.dispatch_relay_role'));
+                    WHERE rolname=current_setting('yoao.dispatch_relay_role'));
     v_api_allowed oid[] := ARRAY[
         'aap_jobs_v1.prepare_dispatch(jsonb)'::regprocedure::oid,
         'aap_jobs_v1.prepare_media_delivery(jsonb)'::regprocedure::oid,

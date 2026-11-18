@@ -5,10 +5,10 @@
 --   -f infra/docker/labeling-mask-gc-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.mask_gc_role', :'mask_gc_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.mask_gc_role', :'mask_gc_role', true);
 
 DO $$
 DECLARE
@@ -16,15 +16,15 @@ DECLARE
     v_owner oid;
 BEGIN
     SELECT oid INTO v_gc FROM pg_catalog.pg_roles
-    WHERE rolname = current_setting('aap.mask_gc_role')
+    WHERE rolname = current_setting('yoao.mask_gc_role')
       AND rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
     SELECT oid INTO v_owner FROM pg_catalog.pg_roles
-    WHERE rolname = current_setting('aap.labeling_owner')
+    WHERE rolname = current_setting('yoao.labeling_owner')
       AND NOT rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_gc IS NULL OR v_owner IS NULL OR v_gc = v_owner
        OR pg_catalog.pg_has_role(v_gc, v_owner, 'MEMBER') THEN
         RAISE EXCEPTION 'Unexpected database, caller or Labeling GC roles';
@@ -56,7 +56,7 @@ GRANT EXECUTE ON FUNCTION
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.mask_gc_role');
+    role_name text := current_setting('yoao.mask_gc_role');
     v_callable integer;
 BEGIN
     IF has_schema_privilege(role_name, 'public', 'CREATE')

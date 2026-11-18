@@ -6,15 +6,15 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.audit_consumer', :'consumer_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.audit_consumer', :'consumer_role', true);
 
 DO $preflight$
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
 END
@@ -49,9 +49,9 @@ EXISTS (
 
 DO $install$
 DECLARE
-    v_migration name := current_setting('aap.migration_role');
-    v_workspace name := current_setting('aap.workspace_owner');
-    v_consumer name := current_setting('aap.audit_consumer');
+    v_migration name := current_setting('yoao.migration_role');
+    v_workspace name := current_setting('yoao.workspace_owner');
+    v_consumer name := current_setting('yoao.audit_consumer');
     v_migration_oid oid;
     v_workspace_oid oid;
     v_consumer_oid oid;

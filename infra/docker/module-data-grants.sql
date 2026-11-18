@@ -14,53 +14,53 @@
 --   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.assets_owner', :'assets_owner', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
-SELECT set_config('aap.learning_owner', :'learning_owner', true);
-SELECT set_config('aap.inference_owner', :'inference_owner', true);
-SELECT set_config('aap.insights_owner', :'insights_owner', true);
-SELECT set_config('aap.diagnostics_owner', :'diagnostics_owner', true);
-SELECT set_config('aap.export_owner', :'export_owner', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.settings_owner', :'settings_owner', true);
-SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
-SELECT set_config('aap.workflow_role', :'workflow_role', true);
-SELECT set_config('aap.asset_cleanup_role', :'asset_cleanup_role', true);
-SELECT set_config('aap.mask_gc_role', :'mask_gc_role', true);
-SELECT set_config('aap.inference_registry_ingress_role', :'inference_registry_ingress_role', true);
-SELECT set_config('aap.inference_routing_role', :'inference_routing_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.assets_owner', :'assets_owner', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.jobs_owner', :'jobs_owner', true);
+SELECT set_config('yoao.learning_owner', :'learning_owner', true);
+SELECT set_config('yoao.inference_owner', :'inference_owner', true);
+SELECT set_config('yoao.insights_owner', :'insights_owner', true);
+SELECT set_config('yoao.diagnostics_owner', :'diagnostics_owner', true);
+SELECT set_config('yoao.export_owner', :'export_owner', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.settings_owner', :'settings_owner', true);
+SELECT set_config('yoao.notifications_owner', :'notifications_owner', true);
+SELECT set_config('yoao.workflow_role', :'workflow_role', true);
+SELECT set_config('yoao.asset_cleanup_role', :'asset_cleanup_role', true);
+SELECT set_config('yoao.mask_gc_role', :'mask_gc_role', true);
+SELECT set_config('yoao.inference_registry_ingress_role', :'inference_registry_ingress_role', true);
+SELECT set_config('yoao.inference_routing_role', :'inference_routing_role', true);
 
 DO $$
 DECLARE
     role_name text;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.workspace_owner'),
-        current_setting('aap.assets_owner'),
-        current_setting('aap.labeling_owner'),
-        current_setting('aap.jobs_owner'),
-        current_setting('aap.learning_owner'),
-        current_setting('aap.inference_owner'),
-        current_setting('aap.insights_owner'),
-        current_setting('aap.diagnostics_owner'),
-        current_setting('aap.export_owner'),
-        current_setting('aap.audit_owner'),
-        current_setting('aap.settings_owner'),
-        current_setting('aap.notifications_owner'),
-        current_setting('aap.workflow_role'),
-        current_setting('aap.asset_cleanup_role'),
-        current_setting('aap.mask_gc_role'),
-        current_setting('aap.inference_registry_ingress_role'),
-        current_setting('aap.inference_routing_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.workspace_owner'),
+        current_setting('yoao.assets_owner'),
+        current_setting('yoao.labeling_owner'),
+        current_setting('yoao.jobs_owner'),
+        current_setting('yoao.learning_owner'),
+        current_setting('yoao.inference_owner'),
+        current_setting('yoao.insights_owner'),
+        current_setting('yoao.diagnostics_owner'),
+        current_setting('yoao.export_owner'),
+        current_setting('yoao.audit_owner'),
+        current_setting('yoao.settings_owner'),
+        current_setting('yoao.notifications_owner'),
+        current_setting('yoao.workflow_role'),
+        current_setting('yoao.asset_cleanup_role'),
+        current_setting('yoao.mask_gc_role'),
+        current_setting('yoao.inference_registry_ingress_role'),
+        current_setting('yoao.inference_routing_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 18 THEN
@@ -71,11 +71,11 @@ BEGIN
             SELECT FROM pg_roles WHERE rolname = role_name
               AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
               AND rolcanlogin = (role_name IN (
-                  current_setting('aap.workflow_role'),
-                  current_setting('aap.asset_cleanup_role'),
-                  current_setting('aap.mask_gc_role'),
-                  current_setting('aap.inference_registry_ingress_role'),
-                  current_setting('aap.inference_routing_role')
+                  current_setting('yoao.workflow_role'),
+                  current_setting('yoao.asset_cleanup_role'),
+                  current_setting('yoao.mask_gc_role'),
+                  current_setting('yoao.inference_registry_ingress_role'),
+                  current_setting('yoao.inference_routing_role')
               ))
         ) OR pg_has_role(role_name, current_user, 'MEMBER') THEN
             RAISE EXCEPTION 'Unsafe or missing module role: %', role_name;
@@ -93,7 +93,7 @@ BEGIN
         SELECT FROM pg_auth_members AS membership
         WHERE membership.roleid = (
             SELECT oid FROM pg_roles
-            WHERE rolname = current_setting('aap.asset_cleanup_role')
+            WHERE rolname = current_setting('yoao.asset_cleanup_role')
         )
     ) THEN
         RAISE EXCEPTION 'The Assets cleanup role must not have inheriting members';
@@ -102,7 +102,7 @@ BEGIN
         SELECT FROM pg_auth_members AS membership
         WHERE membership.roleid = (
             SELECT oid FROM pg_roles
-            WHERE rolname = current_setting('aap.mask_gc_role')
+            WHERE rolname = current_setting('yoao.mask_gc_role')
         )
     ) THEN
         RAISE EXCEPTION 'The Labeling Mask GC role must not have inheriting members';
@@ -562,41 +562,41 @@ DECLARE
 BEGIN
     FOR denied IN
         SELECT * FROM (VALUES
-            (current_setting('aap.assets_owner'), 'public.users'),
-            (current_setting('aap.assets_owner'), 'public.system_settings'),
-            (current_setting('aap.assets_owner'), 'public.notifications'),
-            (current_setting('aap.assets_owner'), 'public.notification_preferences'),
-            (current_setting('aap.jobs_owner'), 'public.users'),
-            (current_setting('aap.jobs_owner'), 'public.notifications'),
-            (current_setting('aap.jobs_owner'), 'public.system_settings'),
-            (current_setting('aap.notifications_owner'), 'public.users'),
-            (current_setting('aap.notifications_owner'), 'public.async_jobs'),
-            (current_setting('aap.notifications_owner'), 'public.datasets'),
-            (current_setting('aap.settings_owner'), 'public.users'),
-            (current_setting('aap.settings_owner'), 'public.async_jobs'),
-            (current_setting('aap.identity_owner'), 'public.projects'),
-            (current_setting('aap.identity_owner'), 'public.project_members'),
-            (current_setting('aap.identity_owner'), 'public.tasks'),
-            (current_setting('aap.identity_owner'), 'public.task_batches'),
-            (current_setting('aap.assets_owner'), 'public.projects'),
-            (current_setting('aap.assets_owner'), 'public.project_members'),
-            (current_setting('aap.assets_owner'), 'public.tasks'),
-            (current_setting('aap.assets_owner'), 'public.task_batches'),
-            (current_setting('aap.assets_owner'), 'public.task_dataset_item_links'),
-            (current_setting('aap.assets_owner'), 'public.annotations'),
-            (current_setting('aap.assets_owner'), 'public.video_tracker_jobs'),
-            (current_setting('aap.assets_owner'), 'public.video_tracker_input_scopes'),
-            (current_setting('aap.assets_owner'), 'public.annotation_video_tracker_input_sources'),
-            (current_setting('aap.labeling_owner'), 'public.users'),
-            (current_setting('aap.labeling_owner'), 'public.project_members'),
-            (current_setting('aap.labeling_owner'), 'public.datasets'),
-            (current_setting('aap.labeling_owner'), 'public.dataset_items'),
-            (current_setting('aap.labeling_owner'), 'public.project_datasets'),
-            (current_setting('aap.workspace_owner'), 'public.users'),
-            (current_setting('aap.workspace_owner'), 'public.datasets'),
-            (current_setting('aap.workspace_owner'), 'public.dataset_items'),
-            (current_setting('aap.workspace_owner'), 'public.project_datasets'),
-            (current_setting('aap.workspace_owner'), 'public.tasks')
+            (current_setting('yoao.assets_owner'), 'public.users'),
+            (current_setting('yoao.assets_owner'), 'public.system_settings'),
+            (current_setting('yoao.assets_owner'), 'public.notifications'),
+            (current_setting('yoao.assets_owner'), 'public.notification_preferences'),
+            (current_setting('yoao.jobs_owner'), 'public.users'),
+            (current_setting('yoao.jobs_owner'), 'public.notifications'),
+            (current_setting('yoao.jobs_owner'), 'public.system_settings'),
+            (current_setting('yoao.notifications_owner'), 'public.users'),
+            (current_setting('yoao.notifications_owner'), 'public.async_jobs'),
+            (current_setting('yoao.notifications_owner'), 'public.datasets'),
+            (current_setting('yoao.settings_owner'), 'public.users'),
+            (current_setting('yoao.settings_owner'), 'public.async_jobs'),
+            (current_setting('yoao.identity_owner'), 'public.projects'),
+            (current_setting('yoao.identity_owner'), 'public.project_members'),
+            (current_setting('yoao.identity_owner'), 'public.tasks'),
+            (current_setting('yoao.identity_owner'), 'public.task_batches'),
+            (current_setting('yoao.assets_owner'), 'public.projects'),
+            (current_setting('yoao.assets_owner'), 'public.project_members'),
+            (current_setting('yoao.assets_owner'), 'public.tasks'),
+            (current_setting('yoao.assets_owner'), 'public.task_batches'),
+            (current_setting('yoao.assets_owner'), 'public.task_dataset_item_links'),
+            (current_setting('yoao.assets_owner'), 'public.annotations'),
+            (current_setting('yoao.assets_owner'), 'public.video_tracker_jobs'),
+            (current_setting('yoao.assets_owner'), 'public.video_tracker_input_scopes'),
+            (current_setting('yoao.assets_owner'), 'public.annotation_video_tracker_input_sources'),
+            (current_setting('yoao.labeling_owner'), 'public.users'),
+            (current_setting('yoao.labeling_owner'), 'public.project_members'),
+            (current_setting('yoao.labeling_owner'), 'public.datasets'),
+            (current_setting('yoao.labeling_owner'), 'public.dataset_items'),
+            (current_setting('yoao.labeling_owner'), 'public.project_datasets'),
+            (current_setting('yoao.workspace_owner'), 'public.users'),
+            (current_setting('yoao.workspace_owner'), 'public.datasets'),
+            (current_setting('yoao.workspace_owner'), 'public.dataset_items'),
+            (current_setting('yoao.workspace_owner'), 'public.project_datasets'),
+            (current_setting('yoao.workspace_owner'), 'public.tasks')
         ) AS relation_scope(role_name, relation_name)
     LOOP
         IF has_table_privilege(
@@ -757,14 +757,14 @@ DO $labeling_prediction_storage_owner$
 DECLARE
     v_partition record;
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.labeling_owner'));
+                    WHERE rolname=current_setting('yoao.labeling_owner'));
 BEGIN
     FOR v_partition IN
         SELECT relid FROM pg_catalog.pg_partition_tree('public.predictions')
     LOOP
         EXECUTE pg_catalog.format('ALTER TABLE %s OWNER TO %I',
             v_partition.relid::pg_catalog.regclass,
-            current_setting('aap.labeling_owner'));
+            current_setting('yoao.labeling_owner'));
     END LOOP;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_partition_tree('public.predictions') AS partition
@@ -2514,7 +2514,7 @@ BEGIN
         EXECUTE pg_catalog.format(
             'ALTER FUNCTION %s OWNER TO %I',
             implementation,
-            current_setting('aap.workspace_owner')
+            current_setting('yoao.workspace_owner')
         );
     END IF;
 END $$;
@@ -2773,7 +2773,7 @@ ALTER FUNCTION aap_assets_v1.capture_native_pyramid_retirement_io(uuid, uuid, uu
 DO $$
 DECLARE
     target record;
-    owner_name text := current_setting('aap.assets_owner');
+    owner_name text := current_setting('yoao.assets_owner');
 BEGIN
     FOR target IN
         SELECT proc.oid::regprocedure AS signature
@@ -2860,7 +2860,7 @@ ALTER VIEW aap_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
 DO $$
 DECLARE
     target record;
-    owner_name text := current_setting('aap.labeling_owner');
+    owner_name text := current_setting('yoao.labeling_owner');
 BEGIN
     FOR target IN
         SELECT proc.oid::regprocedure AS signature
@@ -2879,7 +2879,7 @@ END $$;
 DO $$
 DECLARE
     target record;
-    owner_name text := current_setting('aap.labeling_owner');
+    owner_name text := current_setting('yoao.labeling_owner');
 BEGIN
     FOR target IN
         SELECT proc.oid::regprocedure AS signature
@@ -3252,7 +3252,7 @@ DECLARE
     v_sequence text;
     v_sequence_owner oid;
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.audit_owner'));
+                    WHERE rolname=current_setting('yoao.audit_owner'));
 BEGIN
     v_sequence := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
     IF v_sequence IS NULL OR v_owner IS NULL THEN
@@ -3263,14 +3263,14 @@ BEGIN
     LOOP
         EXECUTE pg_catalog.format('ALTER TABLE %s OWNER TO %I',
             v_partition.relid::pg_catalog.regclass,
-            current_setting('aap.audit_owner'));
+            current_setting('yoao.audit_owner'));
     END LOOP;
     SELECT relation.relowner INTO v_sequence_owner
     FROM pg_catalog.pg_class AS relation
     WHERE relation.oid=v_sequence::pg_catalog.regclass;
     IF v_sequence_owner IS DISTINCT FROM v_owner THEN
         EXECUTE pg_catalog.format('ALTER SEQUENCE %s OWNER TO %I',
-            v_sequence, current_setting('aap.audit_owner'));
+            v_sequence, current_setting('yoao.audit_owner'));
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
@@ -3364,13 +3364,13 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace
         JOIN (VALUES
-            ('aap_assets_v1','aap.assets_owner'),
-            ('aap_labeling_v1','aap.labeling_owner'),
-            ('aap_workspace_v1','aap.workspace_owner'),
-            ('aap_jobs_v1','aap.jobs_owner'),
-            ('aap_audit_v1','aap.audit_owner'),
-            ('aap_settings_v1','aap.settings_owner'),
-            ('aap_notifications_v1','aap.notifications_owner')
+            ('aap_assets_v1','yoao.assets_owner'),
+            ('aap_labeling_v1','yoao.labeling_owner'),
+            ('aap_workspace_v1','yoao.workspace_owner'),
+            ('aap_jobs_v1','yoao.jobs_owner'),
+            ('aap_audit_v1','yoao.audit_owner'),
+            ('aap_settings_v1','yoao.settings_owner'),
+            ('aap_notifications_v1','yoao.notifications_owner')
         ) AS scopes(schema_name,owner_key) ON scopes.schema_name=ns.nspname
         WHERE proc.prokind='f'
           AND (proc.proname LIKE '%dataset_import%'
@@ -3525,229 +3525,229 @@ BEGIN
         'public.project_pipelines', 'public.project_task_views',
         'public.bug_reports', 'public.export_artifacts', 'public.async_jobs'
     ] LOOP
-        IF has_any_column_privilege(current_setting('aap.workflow_role'), target, 'SELECT,INSERT,UPDATE,REFERENCES')
-           OR has_table_privilege(current_setting('aap.workflow_role'), target, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+        IF has_any_column_privilege(current_setting('yoao.workflow_role'), target, 'SELECT,INSERT,UPDATE,REFERENCES')
+           OR has_table_privilege(current_setting('yoao.workflow_role'), target, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
             RAISE EXCEPTION 'Caller has direct privileges on %; use a clean dedicated role', target;
         END IF;
-        IF has_any_column_privilege(current_setting('aap.asset_cleanup_role'), target, 'SELECT,INSERT,UPDATE,REFERENCES')
-           OR has_table_privilege(current_setting('aap.asset_cleanup_role'), target, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+        IF has_any_column_privilege(current_setting('yoao.asset_cleanup_role'), target, 'SELECT,INSERT,UPDATE,REFERENCES')
+           OR has_table_privilege(current_setting('yoao.asset_cleanup_role'), target, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
             RAISE EXCEPTION 'Asset cleanup role has direct privileges on %; use a clean dedicated role', target;
         END IF;
     END LOOP;
 
-    IF has_database_privilege(current_setting('aap.workflow_role'), current_database(), 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'public', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_identity_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_workspace_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_assets_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_labeling_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_jobs_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_learning_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_inference_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'yoao_insights_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'yoao_diagnostics_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_export_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_audit_v1', 'CREATE') THEN
+    IF has_database_privilege(current_setting('yoao.workflow_role'), current_database(), 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'public', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_identity_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_workspace_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_assets_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_labeling_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_jobs_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_learning_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_inference_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_insights_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_diagnostics_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_export_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Caller must not hold schema or database CREATE privileges';
     END IF;
 
-    IF has_database_privilege(current_setting('aap.asset_cleanup_role'), current_database(), 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'public', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_identity_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_workspace_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_assets_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_labeling_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_jobs_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_learning_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_inference_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_insights_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_diagnostics_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_export_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_audit_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_identity_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_workspace_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_labeling_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_jobs_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_learning_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_inference_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_insights_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_diagnostics_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_export_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_audit_v1', 'USAGE') THEN
+    IF has_database_privilege(current_setting('yoao.asset_cleanup_role'), current_database(), 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'public', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_identity_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_workspace_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_assets_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_labeling_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_jobs_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_learning_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_inference_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_insights_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_diagnostics_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_export_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_audit_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_identity_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_workspace_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_labeling_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_jobs_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_learning_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_inference_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_insights_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_diagnostics_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_export_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_audit_v1', 'USAGE') THEN
         RAISE EXCEPTION 'Asset cleanup role must be confined to the Assets schema';
     END IF;
 
-    IF has_function_privilege(current_setting('aap.workflow_role'),
+    IF has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.lock_task_creation_job(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1._task_creation_job_failure(text,text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must not execute Jobs-internal capabilities';
     END IF;
 
-    IF has_function_privilege(current_setting('aap.workflow_role'),
+    IF has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_identity_v1.lock_active_actor(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_workspace_v1.lock_project_reference(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.lock_dataset_reference(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.lock_current_association(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.lock_append_sources(uuid,uuid[])', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.lock_task_creation_items(uuid,uuid[])', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_identity_v1.lock_audit_actor(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_workspace_v1._project_delete_failure(text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.delete_project_owned_records(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.project_task_references(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.delete_project_owned_records(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.detach_project_references(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.retain_async_job_project_scope()', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_learning_v1.lock_project_deletion(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_learning_v1.guard_project_deletion(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_learning_v1.delete_project_owned_records(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_inference_v1.clear_project_ml_backend_pool(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_inference_v1.clear_project_pipelines(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'yoao_insights_v1.clear_project_task_views(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'yoao_diagnostics_v1.detach_project_references(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_export_v1.clear_project_export_artifacts(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_audit_v1.record_project_deletion(uuid,uuid,uuid,text,text,bigint,bigint,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must use only the public project deletion capability';
     END IF;
 
-    IF has_function_privilege(current_setting('aap.workflow_role'),
+    IF has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_audit_v1.valid_request_context(jsonb)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_audit_v1.record_dataset_unlink(uuid,uuid,uuid,uuid,bigint,bigint,uuid[],jsonb)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_workspace_v1._dataset_unlink_failure(text,text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.dataset_item_references(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.dataset_scene_references(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'yoao_diagnostics_v1.detach_dataset_task_references(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_learning_v1.guard_dataset_item_deletion(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_learning_v1.guard_dataset_unlink(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1._dataset_unlink_task_snapshot(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.dataset_task_references(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.lock_dataset_unlink_scope(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.guard_dataset_unlink(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.preview_dataset_unlink(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.delete_dataset_tasks(uuid,uuid)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must use the Workspace dataset-unlink capability';
     END IF;
 
-    IF has_function_privilege(current_setting('aap.workflow_role'),
+    IF has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._accept_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._finish_dataset_upload(uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._dataset_upload_failure(text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._dataset_upload_success(jsonb)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._dataset_upload_actor(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._dataset_upload_facts(public.dataset_upload_intents)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._delete_dataset_source(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._delete_dataset_source_records(uuid,uuid,uuid,text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._source_delete_failure(text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1._queue_pyramid_deletions(uuid,uuid[],text)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.dataset_association_references(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.guard_dataset_source_deletion(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_jobs_v1.task_creation_execution_active(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_learning_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_labeling_v1.detach_deleted_dataset_attribution(uuid)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.workflow_role'),
+       OR has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_audit_v1.record_dataset_source_deletion(uuid,uuid,uuid,uuid,bigint,bigint,bigint,bigint,bigint,bigint,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Workflow caller must use the public Assets source/upload capabilities';
     END IF;
 
-    IF NOT has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_assets_v1', 'USAGE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+    IF NOT has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_assets_v1', 'USAGE')
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
-       OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_function_privilege(current_setting('yoao.asset_cleanup_role'),
         'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR EXISTS (
            SELECT 1
            FROM pg_catalog.pg_proc AS proc
            WHERE proc.pronamespace = 'aap_assets_v1'::pg_catalog.regnamespace
              AND pg_catalog.has_function_privilege(
-                 current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
+                 current_setting('yoao.asset_cleanup_role'), proc.oid, 'EXECUTE'
              )
              AND proc.oid NOT IN (
                  'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
@@ -3772,37 +3772,37 @@ BEGIN
                   OR pg_catalog.left(namespace.nspname, 5) = 'yoao_')
              AND pg_catalog.right(namespace.nspname, 3) = '_v1'
              AND pg_catalog.has_function_privilege(
-                 current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
+                 current_setting('yoao.asset_cleanup_role'), proc.oid, 'EXECUTE'
              )
        ) THEN
         RAISE EXCEPTION 'Asset cleanup role must execute only its outbox functions';
     END IF;
 
-    IF NOT has_function_privilege(current_setting('aap.workflow_role'),
+    IF NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing the public project deletion capability';
     END IF;
-    IF NOT has_function_privilege(current_setting('aap.workflow_role'),
+    IF NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing the public dataset-unlink capabilities';
     END IF;
-    IF NOT has_function_privilege(current_setting('aap.workflow_role'),
+    IF NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.discard_dataset_upload(uuid,uuid,uuid,text)', 'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.workflow_role'),
+       OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
         'aap_assets_v1.lock_scene_source_references(uuid[])', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing a public Assets source or upload capability';
     END IF;
@@ -3837,8 +3837,8 @@ BEGIN
               OR proc.proname LIKE '%prediction_retry%')
     LOOP
         owner_name := CASE target.nspname
-            WHEN 'aap_jobs_v1' THEN current_setting('aap.jobs_owner')
-            ELSE current_setting('aap.labeling_owner') END;
+            WHEN 'aap_jobs_v1' THEN current_setting('yoao.jobs_owner')
+            ELSE current_setting('yoao.labeling_owner') END;
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name);
     END LOOP;
 END $$;
@@ -3946,7 +3946,7 @@ BEGIN
                OR pg_catalog.left(function.proname,14) = '_video_writer_')
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
-            capability, current_setting('aap.labeling_owner'));
+            capability, current_setting('yoao.labeling_owner'));
     END LOOP;
 END
 $video_writer_owners$;
@@ -3974,7 +3974,7 @@ BEGIN
           AND pg_catalog.left(function.proname,15) = '_video_restore_'
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
-            capability, current_setting('aap.jobs_owner'));
+            capability, current_setting('yoao.jobs_owner'));
     END LOOP;
 END
 $video_restore_jobs_owners$;
@@ -4004,7 +4004,7 @@ BEGIN
                OR pg_catalog.left(function.proname,15) = '_video_restore_')
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
-            capability, current_setting('aap.inference_owner'));
+            capability, current_setting('yoao.inference_owner'));
     END LOOP;
 END
 $video_restore_owners$;
@@ -4142,7 +4142,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.ml_backend_registry,
 DO $inference_owner$
 DECLARE
     v_function record;
-    v_owner name := current_setting('aap.inference_owner');
+    v_owner name := current_setting('yoao.inference_owner');
 BEGIN
     FOR v_function IN
         SELECT p.oid::pg_catalog.regprocedure AS signature
@@ -4901,7 +4901,7 @@ BEGIN
         SELECT pg_catalog.pg_has_role(SESSION_USER, relation.relowner, 'MEMBER')
         FROM pg_catalog.pg_class AS relation
         WHERE relation.oid=pg_catalog.to_regclass('public.fixture_export_zip_retirements')
-          AND relation.relowner=current_setting('aap.export_owner')::pg_catalog.regrole
+          AND relation.relowner=current_setting('yoao.export_owner')::pg_catalog.regrole
     ), false) THEN
         RAISE EXCEPTION 'Migration session is not a member of the actual fixture owner';
     END IF;

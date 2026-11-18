@@ -7,49 +7,49 @@
 -- Identity, Audit, and Notifications writes use owner capabilities; other legacy access remains.
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.application_role', :'application_role', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.asset_cleanup_role', :'asset_cleanup_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.application_role', :'application_role', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.asset_cleanup_role', :'asset_cleanup_role', true);
 
 DO $$
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database') THEN
+    IF current_database() <> current_setting('yoao.expected_database') THEN
         RAISE EXCEPTION 'Unexpected database; refusing to change application grants';
     END IF;
-    IF current_user <> current_setting('aap.migration_role') THEN
+    IF current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Run this script as the migration owner';
     END IF;
-    IF current_setting('aap.application_role') = current_user
-       OR pg_has_role(current_setting('aap.application_role'), current_user, 'MEMBER') THEN
+    IF current_setting('yoao.application_role') = current_user
+       OR pg_has_role(current_setting('yoao.application_role'), current_user, 'MEMBER') THEN
         RAISE EXCEPTION 'The runtime role must not inherit the migration owner';
     END IF;
-    IF current_setting('aap.asset_cleanup_role') IN (
-           current_setting('aap.application_role'), current_user
+    IF current_setting('yoao.asset_cleanup_role') IN (
+           current_setting('yoao.application_role'), current_user
        )
-       OR pg_has_role(current_setting('aap.asset_cleanup_role'), current_user, 'MEMBER')
+       OR pg_has_role(current_setting('yoao.asset_cleanup_role'), current_user, 'MEMBER')
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_auth_members AS member
            WHERE member.member = (
                SELECT candidate.oid FROM pg_catalog.pg_roles AS candidate
-               WHERE candidate.rolname = current_setting('aap.asset_cleanup_role')
+               WHERE candidate.rolname = current_setting('yoao.asset_cleanup_role')
            ) OR member.roleid = (
                SELECT candidate.oid FROM pg_catalog.pg_roles AS candidate
-               WHERE candidate.rolname = current_setting('aap.asset_cleanup_role')
+               WHERE candidate.rolname = current_setting('yoao.asset_cleanup_role')
            )
        ) THEN
         RAISE EXCEPTION 'The Assets cleanup role must be distinct and have no role memberships';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_roles
-        WHERE rolname = current_setting('aap.application_role')
+        WHERE rolname = current_setting('yoao.application_role')
           AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
     ) THEN
         RAISE EXCEPTION 'The runtime role must not hold cluster administration privileges';
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles
-        WHERE rolname = current_setting('aap.asset_cleanup_role')
+        WHERE rolname = current_setting('yoao.asset_cleanup_role')
           AND rolcanlogin
           AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
     ) THEN
@@ -319,7 +319,7 @@ REVOKE ALL (
 ) ON TABLE aap_jobs_v1.dispatch_intents FROM :"application_role", PUBLIC;
 DO $jobs_dispatch_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
 BEGIN
     IF pg_catalog.has_table_privilege(
         v_runtime, 'aap_jobs_v1.dispatch_intents',
@@ -335,7 +335,7 @@ END
 $jobs_dispatch_acl$;
 DO $jobs_creation_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_columns text;
 BEGIN
     IF EXISTS (
@@ -368,7 +368,7 @@ END
 $jobs_creation_acl$;
 DO $jobs_delete_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
 BEGIN
     EXECUTE format('REVOKE DELETE ON TABLE public.async_jobs FROM %I, PUBLIC',
                    v_runtime);
@@ -379,7 +379,7 @@ END
 $jobs_delete_acl$;
 DO $jobs_update_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_columns text;
 BEGIN
     IF EXISTS (
@@ -492,7 +492,7 @@ REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv()
     FROM :"application_role", PUBLIC;
 DO $audit_storage_acl$
 DECLARE
-    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_runtime pg_catalog.name := current_setting('yoao.application_role');
     v_partition record;
     v_columns text;
     v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
@@ -532,7 +532,7 @@ END;
 $audit_storage_acl$;
 DO $notification_private_acl$
 DECLARE
-    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_runtime pg_catalog.name := current_setting('yoao.application_role');
     v_relation pg_catalog.regclass;
 BEGIN
     FOREACH v_relation IN ARRAY ARRAY[
@@ -586,7 +586,7 @@ END;
 $notification_private_acl$;
 DO $audit_read_acl$
 DECLARE
-    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_runtime pg_catalog.name := current_setting('yoao.application_role');
     v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
 BEGIN
     IF NOT pg_catalog.has_table_privilege(v_runtime, 'public.audit_logs', 'SELECT')
@@ -633,7 +633,7 @@ END;
 $audit_read_acl$;
 DO $jobs_scope_acl$
 DECLARE
-    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_runtime pg_catalog.name := current_setting('yoao.application_role');
 BEGIN
     IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts', 'SELECT')
        OR pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts',
@@ -853,7 +853,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     TO :"application_role";
 DO $image_export_scope_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_class
@@ -1046,7 +1046,7 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
 DO $$
 BEGIN
     EXECUTE format('ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I',
-                   current_setting('aap.application_role'));
+                   current_setting('yoao.application_role'));
 END $$;
 
 REVOKE INSERT, UPDATE, DELETE ON TABLE public.alembic_version FROM :"application_role";
@@ -1055,9 +1055,9 @@ REVOKE DELETE ON TABLE public.gpu_backend_memberships, public.gpu_backend_fences
 
 DO $$
 BEGIN
-    IF has_table_privilege(current_setting('aap.application_role'),
+    IF has_table_privilege(current_setting('yoao.application_role'),
                            'public.gpu_backend_memberships', 'DELETE')
-       OR has_table_privilege(current_setting('aap.application_role'),
+       OR has_table_privilege(current_setting('yoao.application_role'),
                               'public.gpu_backend_fences', 'DELETE') THEN
         RAISE EXCEPTION 'The runtime role still has effective GPU tombstone DELETE privileges';
     END IF;
@@ -1066,7 +1066,7 @@ END $$;
 -- Keep fixed operational capabilities; fence Workspace storage in embedded runtimes.
 DO $workspace_private_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_runtime_oid oid;
     v_relations oid[];
     v_owners oid[];
@@ -1083,7 +1083,7 @@ BEGIN
     SELECT oid INTO v_runtime_oid FROM pg_catalog.pg_roles
     WHERE rolname=v_runtime AND rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
-    IF current_database() <> current_setting('aap.expected_database')
+    IF current_database() <> current_setting('yoao.expected_database')
        OR v_runtime_oid IS NULL OR v_runtime=current_user THEN
         RAISE EXCEPTION 'Invalid embedded Workspace runtime ownership';
     END IF;
@@ -1233,57 +1233,57 @@ BEGIN
         WHERE namespace.nspname = 'public'
           AND catalog.relkind IN ('r', 'p', 'v', 'm', 'f')
     LOOP
-        IF has_any_column_privilege(current_setting('aap.asset_cleanup_role'),
+        IF has_any_column_privilege(current_setting('yoao.asset_cleanup_role'),
                                     relation, 'SELECT,INSERT,UPDATE,REFERENCES')
-           OR has_table_privilege(current_setting('aap.asset_cleanup_role'),
+           OR has_table_privilege(current_setting('yoao.asset_cleanup_role'),
                                   relation,
                                   'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
             RAISE EXCEPTION 'The Assets cleanup role has direct table access';
         END IF;
     END LOOP;
 
-    IF NOT has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+    IF NOT has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                 'aap_assets_v1', 'USAGE')
-       OR has_database_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_database_privilege(current_setting('yoao.asset_cleanup_role'),
                                  current_database(), 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'public', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_assets_v1', 'CREATE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
                                      'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)',
                                      'EXECUTE')
-       OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
                                      'aap_assets_v1.complete_storage_deletion(uuid,uuid)',
                                      'EXECUTE')
-       OR has_function_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_function_privilege(current_setting('yoao.asset_cleanup_role'),
                                  'aap_assets_v1.pending_storage_deletions(uuid,integer)',
                                  'EXECUTE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_identity_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_workspace_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_labeling_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_jobs_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_learning_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_inference_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'yoao_insights_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'yoao_diagnostics_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_export_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'),
                                'aap_audit_v1', 'USAGE') THEN
         RAISE EXCEPTION 'The Assets cleanup role has access outside Assets';
     END IF;
 
     IF (SELECT count(*) FROM unnest(cleanup_functions) AS function(oid)
-        WHERE has_function_privilege(current_setting('aap.asset_cleanup_role'),function.oid,'EXECUTE')) <> 11 THEN
+        WHERE has_function_privilege(current_setting('yoao.asset_cleanup_role'),function.oid,'EXECUTE')) <> 11 THEN
         RAISE EXCEPTION 'The Assets cleanup role is missing an approved cleanup function';
     END IF;
 
@@ -1297,7 +1297,7 @@ BEGIN
           AND pg_catalog.right(namespace.nspname, 3) = '_v1'
           AND NOT proc.oid = ANY(cleanup_functions)
           AND pg_catalog.has_function_privilege(
-              current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
+              current_setting('yoao.asset_cleanup_role'), proc.oid, 'EXECUTE'
           )
     ) THEN
         RAISE EXCEPTION 'The Assets cleanup role can execute outside its eleven cleanup functions';
@@ -1306,11 +1306,11 @@ END $$;
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_relation record;
     v_columns text;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
+    IF current_database() <> current_setting('yoao.expected_database')
        OR v_runtime=current_user
        OR pg_catalog.pg_has_role(v_runtime,current_user,'MEMBER')
        OR EXISTS (
@@ -1360,7 +1360,7 @@ END;
 $identity_private_acl$;
 DO $labeling_private_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_runtime_oid oid;
     v_tables text[] := ARRAY[
         'ai_mask_accept_decisions', 'annotation_comments',
@@ -1390,7 +1390,7 @@ BEGIN
     SELECT oid INTO v_runtime_oid FROM pg_catalog.pg_roles
     WHERE rolname=v_runtime AND rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
-    IF current_database() <> current_setting('aap.expected_database')
+    IF current_database() <> current_setting('yoao.expected_database')
        OR v_runtime_oid IS NULL OR v_runtime=current_user THEN
         RAISE EXCEPTION 'Invalid embedded Labeling runtime ownership';
     END IF;
@@ -1511,7 +1511,7 @@ END;
 $labeling_private_acl$;
 DO $inference_private_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_runtime_oid oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_runtime);
     v_relation record;
     v_columns text;
@@ -1580,7 +1580,7 @@ DECLARE
         'aap_inference_gpu_caller_v1.gpu_caller_step(text,text)'
     ];
 BEGIN
-    IF current_database()<>current_setting('aap.expected_database')
+    IF current_database()<>current_setting('yoao.expected_database')
        OR v_runtime_oid IS NULL OR v_runtime=current_user
        OR EXISTS (SELECT FROM pg_catalog.pg_roles WHERE oid=v_runtime_oid
                   AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)) THEN

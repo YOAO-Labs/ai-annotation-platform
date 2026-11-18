@@ -200,7 +200,7 @@ JOBS_DISPATCH_RUNTIME_CAPABILITIES = (
 _JOBS_DISPATCH_RUNTIME_ACL = """
 DO $jobs_dispatch_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_columns text;
 BEGIN
     EXECUTE format(
@@ -237,7 +237,7 @@ $jobs_dispatch_acl$;
 _JOBS_CREATION_RUNTIME_ACL = """
 DO $jobs_creation_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_columns text;
 BEGIN
     IF EXISTS (
@@ -272,7 +272,7 @@ $jobs_creation_acl$;
 _JOBS_DELETE_RUNTIME_ACL = """
 DO $jobs_delete_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
 BEGIN
     EXECUTE format('REVOKE DELETE ON TABLE public.async_jobs FROM %I, PUBLIC',
                    v_runtime);
@@ -285,7 +285,7 @@ $jobs_delete_acl$;
 _JOBS_UPDATE_RUNTIME_ACL = """
 DO $jobs_update_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_columns text;
 BEGIN
     IF EXISTS (
@@ -314,7 +314,7 @@ $jobs_update_acl$;
 _IMAGE_EXPORT_SCOPE_RUNTIME_ACL = """
 DO $image_export_scope_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_columns text;
 BEGIN
     IF EXISTS (
@@ -354,11 +354,11 @@ _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_relation record;
     v_columns text;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
+    IF current_database() <> current_setting('yoao.expected_database')
        OR v_runtime=current_user
        OR pg_catalog.pg_has_role(v_runtime,current_user,'MEMBER')
        OR EXISTS (
@@ -410,12 +410,12 @@ $identity_private_acl$;
 _AUDIT_PRIVATE_RUNTIME_ACL = """
 DO $audit_private_acl$
 DECLARE
-    v_runtime name := current_setting('aap.application_role');
+    v_runtime name := current_setting('yoao.application_role');
     v_partition record;
     v_columns text;
     v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database') THEN
+    IF current_database() <> current_setting('yoao.expected_database') THEN
         RAISE EXCEPTION 'Unexpected database while fencing Audit storage';
     END IF;
     IF EXISTS (
@@ -2058,8 +2058,8 @@ class LocalResources:
                     await connection.exec_driver_sql(sql)
                 await connection.execute(
                     text(
-                        "SELECT set_config('aap.application_role', :role, true), "
-                        "set_config('aap.expected_database', :database, true)"
+                        "SELECT set_config('yoao.application_role', :role, true), "
+                        "set_config('yoao.expected_database', :database, true)"
                     ),
                     {"role": runtime.username, "database": self.resources["database"]},
                 )

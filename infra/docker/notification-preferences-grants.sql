@@ -6,17 +6,17 @@
 --   -f infra/docker/notification-preferences-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.preference_role', :'preference_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.notifications_owner', :'notifications_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.preference_role', :'preference_role', true);
 
 DO $guard$
 DECLARE
-    v_owner name := current_setting('aap.notifications_owner');
-    v_api name := current_setting('aap.api_role');
-    v_client name := current_setting('aap.preference_role');
+    v_owner name := current_setting('yoao.notifications_owner');
+    v_api name := current_setting('yoao.api_role');
+    v_client name := current_setting('yoao.preference_role');
     v_owner_oid oid;
     v_api_oid oid;
     v_client_oid oid;
@@ -24,8 +24,8 @@ DECLARE
         'aap_notifications_v1.preference_command(jsonb)'
     )::oid;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_owner <> 'notifications_code'
        OR v_client <> 'notification_preferences_client'
        OR v_owner = v_api OR v_owner = v_client OR v_api = v_client THEN
@@ -113,9 +113,9 @@ GRANT EXECUTE ON FUNCTION aap_notifications_v1.preference_command(jsonb)
 DO $verify$
 DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
-                     WHERE rolname = current_setting('aap.preference_role'));
+                     WHERE rolname = current_setting('yoao.preference_role'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
-                  WHERE rolname = current_setting('aap.api_role'));
+                  WHERE rolname = current_setting('yoao.api_role'));
     v_allowed oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.preference_command(jsonb)'
     )::oid;

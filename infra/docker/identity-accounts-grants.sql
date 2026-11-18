@@ -8,11 +8,11 @@
 --   -f infra/docker/identity-accounts-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.identity_account_role', :'identity_account_role', true);
-SELECT set_config('aap.identity_presence_role', :'identity_presence_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.identity_account_role', :'identity_account_role', true);
+SELECT set_config('yoao.identity_presence_role', :'identity_presence_role', true);
 
 DO $$
 DECLARE
@@ -21,22 +21,22 @@ DECLARE
     owner_oid oid;
     migration_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.identity_account_role'),
-        current_setting('aap.identity_presence_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.identity_account_role'),
+        current_setting('yoao.identity_presence_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT pg_catalog.count(DISTINCT name)
         FROM pg_catalog.unnest(role_names) AS expanded(name)) <> 3
-       OR current_setting('aap.migration_role') = ANY(role_names) THEN
+       OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity owner, account and presence roles must be distinct';
     END IF;
-    IF current_setting('aap.identity_account_role') <> 'identity_account_client'
-       OR current_setting('aap.identity_presence_role') <> 'identity_presence_client' THEN
+    IF current_setting('yoao.identity_account_role') <> 'identity_account_client'
+       OR current_setting('yoao.identity_presence_role') <> 'identity_presence_client' THEN
         RAISE EXCEPTION 'Self-account and presence must use their restricted LOGIN roles';
     END IF;
 
@@ -68,22 +68,22 @@ BEGIN
 
     SELECT role.oid INTO owner_oid
     FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_owner');
+    WHERE role.rolname = current_setting('yoao.identity_owner');
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.oid = owner_oid AND (role.rolcanlogin OR role.rolinherit)
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = ANY(ARRAY[
-            current_setting('aap.identity_account_role'),
-            current_setting('aap.identity_presence_role')
+            current_setting('yoao.identity_account_role'),
+            current_setting('yoao.identity_presence_role')
         ]) AND (NOT role.rolcanlogin OR role.rolinherit)
     ) THEN
         RAISE EXCEPTION 'Identity owner must be NOLOGIN and clients LOGIN NOINHERIT';
     END IF;
     SELECT role.oid INTO migration_oid
     FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.migration_role');
+    WHERE role.rolname = current_setting('yoao.migration_role');
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Missing migration role';
     END IF;
@@ -126,8 +126,8 @@ DECLARE
     namespace record;
     role_name text;
     client_roles text[] := ARRAY[
-        current_setting('aap.identity_account_role'),
-        current_setting('aap.identity_presence_role')
+        current_setting('yoao.identity_account_role'),
+        current_setting('yoao.identity_presence_role')
     ];
 BEGIN
     FOR namespace IN
@@ -174,7 +174,7 @@ BEGIN
         SELECT role_name, allowed_functions
         FROM (VALUES
             (
-                current_setting('aap.identity_account_role'),
+                current_setting('yoao.identity_account_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_accounts_v1.account_policy()')::oid,
                     pg_catalog.to_regprocedure('aap_identity_accounts_v1.prepare_account_command(jsonb)')::oid,
@@ -182,7 +182,7 @@ BEGIN
                 ]::oid[]
             ),
             (
-                current_setting('aap.identity_presence_role'),
+                current_setting('yoao.identity_presence_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure(
                         'aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)'

@@ -8,23 +8,23 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.assets_owner', :'assets_owner', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.scale_seed_operator', :'consumer_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.assets_owner', :'assets_owner', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.scale_seed_operator', :'consumer_role', true);
 
 DO $profile$
 DECLARE
-    v_consumer name := current_setting('aap.scale_seed_operator');
-    v_workspace name := current_setting('aap.workspace_owner');
-    v_assets name := current_setting('aap.assets_owner');
-    v_labeling name := current_setting('aap.labeling_owner');
+    v_consumer name := current_setting('yoao.scale_seed_operator');
+    v_workspace name := current_setting('yoao.workspace_owner');
+    v_assets name := current_setting('yoao.assets_owner');
+    v_labeling name := current_setting('yoao.labeling_owner');
     v_signature text;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
  THEN
         RAISE EXCEPTION 'Unexpected database or migration owner for scale seed grants';
     END IF;

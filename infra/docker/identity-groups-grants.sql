@@ -7,12 +7,12 @@
 --   -f infra/docker/identity-groups-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.identity_group_role', :'identity_group_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.identity_group_role', :'identity_group_role', true);
 
 DO $$
 DECLARE
@@ -25,22 +25,22 @@ DECLARE
     workspace_function_oid oid;
     audit_function_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.workspace_owner'),
-        current_setting('aap.audit_owner'),
-        current_setting('aap.identity_group_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.workspace_owner'),
+        current_setting('yoao.audit_owner'),
+        current_setting('yoao.identity_group_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT pg_catalog.count(DISTINCT name)
         FROM pg_catalog.unnest(role_names) AS expanded(name)) <> 4
-       OR current_setting('aap.migration_role') = ANY(role_names) THEN
+       OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, owners and group client must be distinct';
     END IF;
-    IF current_setting('aap.identity_group_role') <> 'identity_group_client' THEN
+    IF current_setting('yoao.identity_group_role') <> 'identity_group_client' THEN
         RAISE EXCEPTION 'Identity groups must use identity_group_client';
     END IF;
 
@@ -64,15 +64,15 @@ BEGIN
     END LOOP;
 
     SELECT role.oid INTO identity_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_owner');
+    WHERE role.rolname = current_setting('yoao.identity_owner');
     SELECT role.oid INTO workspace_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.workspace_owner');
+    WHERE role.rolname = current_setting('yoao.workspace_owner');
     SELECT role.oid INTO audit_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.audit_owner');
+    WHERE role.rolname = current_setting('yoao.audit_owner');
     SELECT role.oid INTO migration_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.migration_role');
+    WHERE role.rolname = current_setting('yoao.migration_role');
     SELECT role.oid INTO role_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_group_role');
+    WHERE role.rolname = current_setting('yoao.identity_group_role');
     workspace_function_oid := pg_catalog.to_regprocedure(
         'aap_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)'
     )::oid;
@@ -131,7 +131,7 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"identity_group_role";
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.identity_group_role');
+    role_name text := current_setting('yoao.identity_group_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname
@@ -164,7 +164,7 @@ DECLARE
     actual_functions oid[];
 BEGIN
     SELECT role.oid INTO role_oid FROM pg_catalog.pg_roles AS role
-    WHERE role.rolname = current_setting('aap.identity_group_role');
+    WHERE role.rolname = current_setting('yoao.identity_group_role');
     IF pg_catalog.array_position(allowed_functions, NULL::oid) IS NOT NULL THEN
         RAISE EXCEPTION 'Identity group entrypoint is missing';
     END IF;

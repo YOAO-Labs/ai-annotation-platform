@@ -10,33 +10,33 @@
 --   -f infra/docker/identity-auth-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.identity_auth_role', :'identity_auth_role', true);
-SELECT set_config('aap.identity_command_role', :'identity_command_role', true);
-SELECT set_config('aap.identity_fence_role', :'identity_fence_role', true);
-SELECT set_config('aap.identity_operator_role', :'identity_operator_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.identity_auth_role', :'identity_auth_role', true);
+SELECT set_config('yoao.identity_command_role', :'identity_command_role', true);
+SELECT set_config('yoao.identity_fence_role', :'identity_fence_role', true);
+SELECT set_config('yoao.identity_operator_role', :'identity_operator_role', true);
 
 DO $$
 DECLARE
     role_name text;
     role_oid oid;
     role_names text[] := ARRAY[
-        current_setting('aap.identity_owner'),
-        current_setting('aap.identity_auth_role'),
-        current_setting('aap.identity_command_role'),
-        current_setting('aap.identity_fence_role'),
-        current_setting('aap.identity_operator_role')
+        current_setting('yoao.identity_owner'),
+        current_setting('yoao.identity_auth_role'),
+        current_setting('yoao.identity_command_role'),
+        current_setting('yoao.identity_fence_role'),
+        current_setting('yoao.identity_operator_role')
     ];
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT pg_catalog.count(DISTINCT name)
         FROM pg_catalog.unnest(role_names) AS expanded(name)) <> 5
-       OR current_setting('aap.migration_role') = ANY(role_names) THEN
+       OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity owner and client roles must be distinct';
     END IF;
 
@@ -68,15 +68,15 @@ BEGIN
 
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_owner')
+        WHERE role.rolname = current_setting('yoao.identity_owner')
           AND (role.rolcanlogin OR role.rolinherit)
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = ANY(ARRAY[
-            current_setting('aap.identity_auth_role'),
-            current_setting('aap.identity_command_role'),
-            current_setting('aap.identity_fence_role'),
-            current_setting('aap.identity_operator_role')
+            current_setting('yoao.identity_auth_role'),
+            current_setting('yoao.identity_command_role'),
+            current_setting('yoao.identity_fence_role'),
+            current_setting('yoao.identity_operator_role')
         ]) AND (NOT role.rolcanlogin OR role.rolinherit)
     ) THEN
         RAISE EXCEPTION 'Identity owner must be NOLOGIN and clients LOGIN NOINHERIT';
@@ -94,10 +94,10 @@ DECLARE
     namespace record;
     role_name text;
     client_roles text[] := ARRAY[
-        current_setting('aap.identity_auth_role'),
-        current_setting('aap.identity_command_role'),
-        current_setting('aap.identity_fence_role'),
-        current_setting('aap.identity_operator_role')
+        current_setting('yoao.identity_auth_role'),
+        current_setting('yoao.identity_command_role'),
+        current_setting('yoao.identity_fence_role'),
+        current_setting('yoao.identity_operator_role')
     ];
 BEGIN
     FOR namespace IN
@@ -159,7 +159,7 @@ BEGIN
         SELECT role_name, allowed_functions
         FROM (VALUES
             (
-                current_setting('aap.identity_auth_role'),
+                current_setting('yoao.identity_auth_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_v1.authentication_policy()')::oid,
                     pg_catalog.to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)')::oid,
@@ -169,7 +169,7 @@ BEGIN
                 ]::oid[]
             ),
             (
-                current_setting('aap.identity_command_role'),
+                current_setting('yoao.identity_command_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_v1.get_credential_generation(uuid)')::oid,
                     pg_catalog.to_regprocedure('aap_identity_v1.advance_credential_generation(uuid)')::oid,
@@ -179,13 +179,13 @@ BEGIN
                 ]::oid[]
             ),
             (
-                current_setting('aap.identity_fence_role'),
+                current_setting('yoao.identity_fence_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[])')::oid
                 ]::oid[]
             ),
             (
-                current_setting('aap.identity_operator_role'),
+                current_setting('yoao.identity_operator_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_v1.purge_expired_revocations(integer)')::oid
                 ]::oid[]

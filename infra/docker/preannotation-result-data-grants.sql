@@ -7,11 +7,11 @@
 --   -f infra/docker/preannotation-result-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.result_role', :'result_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.jobs_owner', :'jobs_owner', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.result_role', :'result_role', true);
 
 DO $$
 DECLARE
@@ -20,19 +20,19 @@ DECLARE
     v_labeling oid;
 BEGIN
     SELECT oid INTO v_client FROM pg_catalog.pg_roles
-    WHERE rolname = current_setting('aap.result_role')
+    WHERE rolname = current_setting('yoao.result_role')
       AND rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
     SELECT oid INTO v_jobs FROM pg_catalog.pg_roles
-    WHERE rolname = current_setting('aap.jobs_owner')
+    WHERE rolname = current_setting('yoao.jobs_owner')
       AND NOT rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
     SELECT oid INTO v_labeling FROM pg_catalog.pg_roles
-    WHERE rolname = current_setting('aap.labeling_owner')
+    WHERE rolname = current_setting('yoao.labeling_owner')
       AND NOT rolcanlogin
       AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_client IS NULL OR v_jobs IS NULL OR v_labeling IS NULL
        OR v_client IN (v_jobs, v_labeling)
        OR pg_catalog.pg_has_role(v_client, v_jobs, 'MEMBER')
@@ -76,7 +76,7 @@ GRANT EXECUTE ON FUNCTION
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.result_role');
+    role_name text := current_setting('yoao.result_role');
     v_callable integer;
 BEGIN
     IF has_schema_privilege(role_name, 'public', 'CREATE')

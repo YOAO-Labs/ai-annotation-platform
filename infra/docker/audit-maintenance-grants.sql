@@ -5,23 +5,23 @@
 --   -f infra/docker/audit-maintenance-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.maintenance_role', :'maintenance_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.maintenance_role', :'maintenance_role', true);
 
 DO $guard$
 DECLARE
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.audit_owner'));
+                    WHERE rolname=current_setting('yoao.audit_owner'));
     v_maintenance oid := (SELECT oid FROM pg_catalog.pg_roles
-                          WHERE rolname=current_setting('aap.maintenance_role'));
+                          WHERE rolname=current_setting('yoao.maintenance_role'));
     v_function oid := pg_catalog.to_regprocedure(
         'aap_audit_v1.maintenance_command(jsonb)'
     );
 BEGIN
-    IF current_database()<>current_setting('aap.expected_database')
-       OR current_user<>current_setting('aap.migration_role') THEN
+    IF current_database()<>current_setting('yoao.expected_database')
+       OR current_user<>current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF v_owner IS NULL OR v_maintenance IS NULL
@@ -78,7 +78,7 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"maintenance_role";
 DO $revoke$
 DECLARE
     v_schema record;
-    v_role pg_catalog.name := current_setting('aap.maintenance_role');
+    v_role pg_catalog.name := current_setting('yoao.maintenance_role');
 BEGIN
     FOR v_schema IN
         SELECT namespace.nspname
@@ -108,9 +108,9 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb)
 DO $verify$
 DECLARE
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.audit_owner'));
+                    WHERE rolname=current_setting('yoao.audit_owner'));
     v_maintenance oid := (SELECT oid FROM pg_catalog.pg_roles
-                          WHERE rolname=current_setting('aap.maintenance_role'));
+                          WHERE rolname=current_setting('yoao.maintenance_role'));
     v_allowed oid := pg_catalog.to_regprocedure(
         'aap_audit_v1.maintenance_command(jsonb)'
     );

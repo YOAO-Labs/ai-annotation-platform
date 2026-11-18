@@ -6,21 +6,21 @@
 --   -f infra/docker/jobs-notification-scope-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.jobs_owner', :'jobs_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.read_client', :'read_client', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.jobs_owner', :'jobs_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.read_client', :'read_client', true);
 
 DO $guard$
 DECLARE
-    v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.jobs_owner'));
-    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
-    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.read_client'));
+    v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.jobs_owner'));
+    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
+    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.read_client'));
     v_relation oid := pg_catalog.to_regclass('aap_jobs_v1.notification_scope_facts')::oid;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF v_jobs IS NULL OR v_api IS NULL OR v_client IS NULL OR v_relation IS NULL
@@ -78,7 +78,7 @@ BEGIN
         IF v_columns IS NOT NULL THEN
             EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
                 v_columns, v_relation.nspname, v_relation.relname,
-                current_setting('aap.read_client'));
+                current_setting('yoao.read_client'));
         END IF;
     END LOOP;
 END;
@@ -93,8 +93,8 @@ GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO :"read_client", :"api_ro
 
 DO $verify$
 DECLARE
-    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
-    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.read_client'));
+    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
+    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.read_client'));
     v_relation oid := 'aap_jobs_v1.notification_scope_facts'::regclass;
 BEGIN
     IF NOT pg_catalog.has_table_privilege(v_client, v_relation, 'SELECT')

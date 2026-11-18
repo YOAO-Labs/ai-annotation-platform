@@ -5,19 +5,19 @@
 --   -v profile=execution -f infra/docker/inference-owner-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.inference_owner', :'inference_owner', true);
-SELECT set_config('aap.inference_client', :'client_role', true);
-SELECT set_config('aap.inference_profile', :'profile', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.inference_owner', :'inference_owner', true);
+SELECT set_config('yoao.inference_client', :'client_role', true);
+SELECT set_config('yoao.inference_profile', :'profile', true);
 
 DO $profile$
 DECLARE
-    v_role name := current_setting('aap.inference_client');
+    v_role name := current_setting('yoao.inference_client');
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_role);
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.inference_owner'));
-    v_profile text := current_setting('aap.inference_profile');
+                    WHERE rolname=current_setting('yoao.inference_owner'));
+    v_profile text := current_setting('yoao.inference_profile');
     v_schema text := 'aap_inference_backend_endpoint_v1';
     v_signatures text[];
     v_allowed oid[];
@@ -26,8 +26,8 @@ DECLARE
     v_namespace record;
     v_relation record;
 BEGIN
-    IF current_database()<>current_setting('aap.expected_database')
-       OR current_user<>current_setting('aap.migration_role') THEN
+    IF current_database()<>current_setting('yoao.expected_database')
+       OR current_user<>current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected Inference database or migration role';
     END IF;
     IF v_owner IS NULL OR v_client IS NULL OR v_owner=v_client

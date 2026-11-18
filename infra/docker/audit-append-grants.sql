@@ -6,22 +6,22 @@
 --   -f infra/docker/audit-append-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.append_client', :'append_client', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.append_client', :'append_client', true);
 
 DO $$
 DECLARE
-    owner_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('aap.audit_owner'));
-    api_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('aap.api_role'));
-    client_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('aap.append_client'));
+    owner_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.audit_owner'));
+    api_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.api_role'));
+    client_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.append_client'));
     append_function oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
     audit_sequence oid := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id')::regclass::oid;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF owner_oid IS NULL OR api_oid IS NULL OR client_oid IS NULL
@@ -118,7 +118,7 @@ BEGIN
         SELECT FROM pg_catalog.pg_default_acl AS defaults
         CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
         WHERE defaults.defaclrole = (
-            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.audit_owner')
+            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('yoao.audit_owner')
         )
           AND defaults.defaclnamespace IN (0, 'public'::regnamespace)
           AND defaults.defaclobjtype = 'r'
@@ -134,7 +134,7 @@ BEGIN
         SELECT FROM pg_catalog.pg_default_acl AS defaults
         CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
         WHERE defaults.defaclrole = (
-            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('aap.audit_owner')
+            SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_setting('yoao.audit_owner')
         )
           AND defaults.defaclnamespace IN (0, 'public'::regnamespace)
           AND defaults.defaclobjtype = 'S'
@@ -159,7 +159,7 @@ BEGIN
       AND attnum > 0 AND NOT attisdropped;
     EXECUTE pg_catalog.format(
         'REVOKE INSERT (%1$s) ON TABLE public.audit_logs FROM %I',
-        v_columns, current_setting('aap.api_role')
+        v_columns, current_setting('yoao.api_role')
     );
     FOR v_partition IN
         SELECT relation.oid, namespace.nspname, relation.relname
@@ -170,7 +170,7 @@ BEGIN
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE INSERT ON TABLE %I.%I FROM %I',
-            v_partition.nspname, v_partition.relname, current_setting('aap.api_role')
+            v_partition.nspname, v_partition.relname, current_setting('yoao.api_role')
         );
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname), ',' ORDER BY attnum)
         INTO v_columns
@@ -179,13 +179,13 @@ BEGIN
         EXECUTE pg_catalog.format(
             'REVOKE INSERT (%s) ON TABLE %I.%I FROM %I',
             v_columns, v_partition.nspname, v_partition.relname,
-            current_setting('aap.api_role')
+            current_setting('yoao.api_role')
         );
     END LOOP;
     EXECUTE pg_catalog.format(
         'REVOKE USAGE, UPDATE ON SEQUENCE %s FROM %I',
         pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id'),
-        current_setting('aap.api_role')
+        current_setting('yoao.api_role')
     );
 END $$;
 REVOKE ALL ON SCHEMA aap_audit_v1 FROM :"append_client";
@@ -196,7 +196,7 @@ BEGIN
     EXECUTE format(
         'REVOKE ALL ON SEQUENCE %s FROM %I',
         pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id'),
-        current_setting('aap.append_client')
+        current_setting('yoao.append_client')
     );
 END $$;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"append_client";
@@ -207,8 +207,8 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb) TO :"api_role";
 
 DO $$
 DECLARE
-    api_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('aap.api_role'));
-    client_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('aap.append_client'));
+    api_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.api_role'));
+    client_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.append_client'));
     append_function oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
     audit_sequence oid := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id')::regclass::oid;
 BEGIN

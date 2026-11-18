@@ -5,15 +5,15 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.workspace_consumer_role', :'consumer_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.workspace_owner', :'workspace_owner', true);
+SELECT set_config('yoao.workspace_consumer_role', :'consumer_role', true);
 
 DO $profile$
 DECLARE
-    v_consumer name := current_setting('aap.workspace_consumer_role');
-    v_workspace name := current_setting('aap.workspace_owner');
+    v_consumer name := current_setting('yoao.workspace_consumer_role');
+    v_workspace name := current_setting('yoao.workspace_owner');
     v_allowed oid[] := ARRAY[
         'aap_workspace_configuration_v1.configuration_policy()'::regprocedure::oid,
         'aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])'::regprocedure::oid,
@@ -53,8 +53,8 @@ DECLARE
     v_function record;
     v_columns text;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_workspace=current_user
        OR v_consumer IN (current_user, v_workspace)
        OR pg_has_role(v_consumer,current_user,'MEMBER')

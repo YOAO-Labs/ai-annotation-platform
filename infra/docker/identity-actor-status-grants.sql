@@ -7,23 +7,23 @@
 --   -f infra/docker/identity-actor-status-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.status_role', :'status_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.status_role', :'status_role', true);
 
 DO $guard$
 DECLARE
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
-                    WHERE rolname=current_setting('aap.identity_owner'));
+                    WHERE rolname=current_setting('yoao.identity_owner'));
     v_status oid := (SELECT oid FROM pg_catalog.pg_roles
-                     WHERE rolname=current_setting('aap.status_role'));
+                     WHERE rolname=current_setting('yoao.status_role'));
     v_function oid := pg_catalog.to_regprocedure(
         'aap_identity_v1.read_actor_facts(uuid)'
     );
 BEGIN
-    IF current_database()<>current_setting('aap.expected_database')
-       OR current_user<>current_setting('aap.migration_role') THEN
+    IF current_database()<>current_setting('yoao.expected_database')
+       OR current_user<>current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration role';
     END IF;
     IF v_owner IS NULL OR v_status IS NULL
@@ -69,7 +69,7 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"status_role";
 DO $revoke$
 DECLARE
     v_schema record;
-    v_role name := current_setting('aap.status_role');
+    v_role name := current_setting('yoao.status_role');
 BEGIN
     FOR v_schema IN
         SELECT namespace.nspname
@@ -97,7 +97,7 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
 DO $verify$
 DECLARE
     v_status oid := (SELECT oid FROM pg_catalog.pg_roles
-                     WHERE rolname=current_setting('aap.status_role'));
+                     WHERE rolname=current_setting('yoao.status_role'));
     v_allowed oid := pg_catalog.to_regprocedure(
         'aap_identity_v1.read_actor_facts(uuid)'
     );

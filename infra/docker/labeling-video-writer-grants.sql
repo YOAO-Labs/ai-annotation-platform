@@ -5,18 +5,18 @@
 --   -f infra/docker/labeling-video-writer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
-SELECT set_config('aap.labeling_video_writer_role', :'labeling_video_writer_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.labeling_owner', :'labeling_owner', true);
+SELECT set_config('yoao.labeling_video_writer_role', :'labeling_video_writer_role', true);
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.labeling_video_writer_role');
-    owner_name text := current_setting('aap.labeling_owner');
+    role_name text := current_setting('yoao.labeling_video_writer_role');
+    owner_name text := current_setting('yoao.labeling_owner');
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF role_name <> 'labeling_video_writer_client' OR owner_name <> 'labeling_code'
@@ -49,7 +49,7 @@ DO $$
 DECLARE
     owner_oid oid := (
         SELECT oid FROM pg_catalog.pg_roles
-        WHERE rolname = current_setting('aap.labeling_owner')
+        WHERE rolname = current_setting('yoao.labeling_owner')
     );
     function_oid oid;
     signature text;
@@ -88,7 +88,7 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"labeling_video_writer_role";
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.labeling_video_writer_role');
+    role_name text := current_setting('yoao.labeling_video_writer_role');
 BEGIN
     FOR namespace IN SELECT ns.nspname FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname NOT IN ('pg_catalog','information_schema')
@@ -108,7 +108,7 @@ DO $$
 DECLARE
     role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.labeling_video_writer_role')
+        WHERE role.rolname = current_setting('yoao.labeling_video_writer_role')
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[

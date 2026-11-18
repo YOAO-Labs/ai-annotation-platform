@@ -6,23 +6,23 @@
 --   -f infra/docker/audit-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.audit_owner', :'audit_owner', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.api_role', :'api_role', true);
-SELECT set_config('aap.query_client', :'query_client', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.audit_owner', :'audit_owner', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.api_role', :'api_role', true);
+SELECT set_config('yoao.query_client', :'query_client', true);
 
 DO $guard$
 DECLARE
-    v_audit oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.audit_owner'));
-    v_identity oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.identity_owner'));
-    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
-    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.query_client'));
+    v_audit oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.audit_owner'));
+    v_identity oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.identity_owner'));
+    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
+    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.query_client'));
     v_query oid := pg_catalog.to_regprocedure('aap_audit_v1.query_events(pg_catalog.jsonb)')::oid;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role') THEN
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF v_audit IS NULL OR v_identity IS NULL OR v_api IS NULL OR v_client IS NULL
@@ -67,7 +67,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"query_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"query_client";
 DO $revoke$
 DECLARE
-    v_role name := current_setting('aap.query_client');
+    v_role name := current_setting('yoao.query_client');
     v_relation record;
     v_columns text;
 BEGIN
@@ -101,9 +101,9 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.query_events(pg_catalog.jsonb) TO :"api_r
 
 DO $verify$
 DECLARE
-    v_audit oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.audit_owner'));
-    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
-    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.query_client'));
+    v_audit oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.audit_owner'));
+    v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
+    v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.query_client'));
     v_query oid := pg_catalog.to_regprocedure('aap_audit_v1.query_events(pg_catalog.jsonb)')::oid;
     v_append oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
 BEGIN

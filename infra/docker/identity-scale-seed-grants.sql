@@ -5,19 +5,19 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
-SELECT set_config('aap.expected_database', :'expected_database', true);
-SELECT set_config('aap.migration_role', :'migration_role', true);
-SELECT set_config('aap.identity_owner', :'identity_owner', true);
-SELECT set_config('aap.seed_operator', :'consumer_role', true);
+SELECT set_config('yoao.expected_database', :'expected_database', true);
+SELECT set_config('yoao.migration_role', :'migration_role', true);
+SELECT set_config('yoao.identity_owner', :'identity_owner', true);
+SELECT set_config('yoao.seed_operator', :'consumer_role', true);
 
 DO $profile$
 DECLARE
-    v_consumer name := current_setting('aap.seed_operator');
-    v_identity name := current_setting('aap.identity_owner');
+    v_consumer name := current_setting('yoao.seed_operator');
+    v_identity name := current_setting('yoao.identity_owner');
     v_signature text;
 BEGIN
-    IF current_database() <> current_setting('aap.expected_database')
-       OR current_user <> current_setting('aap.migration_role')
+    IF current_database() <> current_setting('yoao.expected_database')
+       OR current_user <> current_setting('yoao.migration_role')
        OR v_consumer IN (current_user, v_identity, 'identity_api_consumer')
        OR pg_has_role(v_consumer, v_identity, 'MEMBER')
        OR pg_has_role(v_consumer, current_user, 'MEMBER') THEN
@@ -31,7 +31,7 @@ BEGIN
         WHERE member=(SELECT oid FROM pg_roles WHERE rolname=v_consumer)
            OR (roleid=(SELECT oid FROM pg_roles WHERE rolname=v_consumer)
                AND member<>(SELECT oid FROM pg_roles
-                            WHERE rolname=current_setting('aap.migration_role')))
+                            WHERE rolname=current_setting('yoao.migration_role')))
     ) OR NOT EXISTS (
         SELECT 1 FROM pg_roles WHERE rolname=v_identity AND NOT rolcanlogin
           AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
