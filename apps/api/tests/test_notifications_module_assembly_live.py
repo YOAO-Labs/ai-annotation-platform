@@ -105,6 +105,40 @@ async def _assert_no_published(pubsub, *, timeout=0.5):
         assert not (message and message.get("type") == "message")
 
 
+# The socket owner emits this transport control frame every 30 seconds; the SDK
+# and web clients ignore it, so it is not a notification delivery.
+_HEARTBEAT_FRAME = {"type": "ping"}
+
+
+async def _next_socket_delivery(socket, *, timeout=8):
+    """Read the next business frame, skipping the documented heartbeat."""
+
+    async with asyncio.timeout(timeout):
+        while True:
+            frame = json.loads(await socket.recv())
+            if frame == _HEARTBEAT_FRAME:
+                continue
+            return frame
+
+
+async def _assert_no_socket_delivery(socket, *, timeout=0.5):
+    """Fail on any business frame; tolerate only the exact heartbeat frame."""
+
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            return
+        try:
+            raw = await asyncio.wait_for(socket.recv(), remaining)
+        except TimeoutError:
+            return
+        frame = json.loads(raw)
+        assert frame == _HEARTBEAT_FRAME, (
+            f"unexpected notification delivery frame: {frame!r}"
+        )
+
+
 async def _publish_from_node_consumer(
     stack, api_container_id, token, request, *, expected_published
 ):
@@ -544,9 +578,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                             expected_published=True,
                         )
                         observer_event = await _next_published(owner_subscriber)
-                        socket_event = json.loads(
-                            await asyncio.wait_for(socket.recv(), 5)
-                        )
+                        socket_event = await _next_socket_delivery(socket)
                         assert positive_result["published"] is True
                         assert observer_event == node_sync
                         assert socket_event == node_sync
@@ -583,8 +615,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         )
                         assert denied_result["published"] is False
                         await _assert_no_published(owner_subscriber)
-                        with pytest.raises(TimeoutError):
-                            await asyncio.wait_for(socket.recv(), 0.5)
+                        await _assert_no_socket_delivery(socket, timeout=0.5)
 
                         preferences = await _request(
                             api, "GET", "/api/v1/notification-preferences"
@@ -604,9 +635,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert preference_sync == notification_sync_message(
                             reason="preferences"
                         )
-                        assert json.loads(await asyncio.wait_for(socket.recv(), 5)) == (
-                            preference_sync
-                        )
+                        assert await _next_socket_delivery(socket) == preference_sync
 
                         async with seed.begin() as db:
                             task = await create_task(db, project_id=project.id)
@@ -624,9 +653,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                             headers=owner_headers,
                         )
                         first_event = await _next_published(owner_subscriber)
-                        first_frame = json.loads(
-                            await asyncio.wait_for(socket.recv(), 5)
-                        )
+                        first_frame = await _next_socket_delivery(socket)
                         assert first_event == first_frame
                         assert first_event["type"] == "feedback.reply_created"
                         assert first_event["payload"]["reply_id"] == str(first_reply_id)
@@ -644,9 +671,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         )
                         read_sync = await _next_published(owner_subscriber)
                         assert read_sync == notification_sync_message(reason="read")
-                        assert json.loads(await asyncio.wait_for(socket.recv(), 5)) == (
-                            read_sync
-                        )
+                        assert await _next_socket_delivery(socket) == read_sync
                         listed = await _request(
                             api, "GET", "/api/v1/notifications?limit=100"
                         )
@@ -667,9 +692,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert deleted_event["payload"]["reply_id"] == str(
                             deleted_reply_id
                         )
-                        assert json.loads(await asyncio.wait_for(socket.recv(), 5)) == (
-                            deleted_event
-                        )
+                        assert await _next_socket_delivery(socket) == deleted_event
                         deleted_notice = await _listed_reply(api, deleted_reply_id)
                         deleted_notice_id = uuid.UUID(deleted_notice["id"])
                         await _request(
@@ -681,9 +704,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert deleted_sync == notification_sync_message(
                             reason="deleted"
                         )
-                        assert json.loads(await asyncio.wait_for(socket.recv(), 5)) == (
-                            deleted_sync
-                        )
+                        assert await _next_socket_delivery(socket) == deleted_sync
 
                         async with seed.begin() as db:
                             await db.execute(
@@ -717,8 +738,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 == denied_notice_id
                             )
                         await _assert_no_published(owner_subscriber, timeout=0.6)
-                        with pytest.raises(TimeoutError):
-                            await asyncio.wait_for(socket.recv(), 0.6)
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
 
                         async with seed.begin() as db:
                             await create_membership(
@@ -739,9 +759,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert leased_event["payload"]["reply_id"] == str(
                             leased_reply_id
                         )
-                        assert json.loads(await asyncio.wait_for(socket.recv(), 5)) == (
-                            leased_event
-                        )
+                        assert await _next_socket_delivery(socket) == leased_event
                         leased_notice = await _listed_reply(api, leased_reply_id)
                         leased_notice_id = uuid.UUID(leased_notice["id"])
                         delivery = await _claim_notification_import_delivery(
@@ -787,8 +805,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert outbox_count == 0
                         await stack.start_service("identity-notification-publisher")
                         await _assert_no_published(owner_subscriber, timeout=0.6)
-                        with pytest.raises(TimeoutError):
-                            await asyncio.wait_for(socket.recv(), 0.6)
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
 
                         commit_job_id = uuid.uuid4()
                         rollback_job_id = uuid.uuid4()
@@ -808,9 +825,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                             stack, commit_job_id, commit=True, delay=0.20
                         )
                         terminal_event = await _next_published(owner_subscriber)
-                        terminal_frame = json.loads(
-                            await asyncio.wait_for(socket.recv(), 5)
-                        )
+                        terminal_frame = await _next_socket_delivery(socket)
                         assert terminal_event == terminal_frame
                         assert terminal_event["type"] == "job.completed"
                         assert terminal_event["target_id"] == str(commit_job_id)
@@ -827,8 +842,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         rollback_event = await _next_published(owner_subscriber)
                         assert rollback_event["type"] == "job.completed"
                         assert rollback_event["target_id"] == str(rollback_job_id)
-                        with pytest.raises(TimeoutError):
-                            await asyncio.wait_for(socket.recv(), 0.3)
+                        await _assert_no_socket_delivery(socket, timeout=0.3)
                         async with seed() as db:
                             assert (
                                 await db.scalar(
@@ -1100,10 +1114,8 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                         new_event = await _next_published(
                                             owner_subscriber
                                         )
-                                        new_frame = json.loads(
-                                            await asyncio.wait_for(
-                                                restored_socket.recv(), 5
-                                            )
+                                        new_frame = await _next_socket_delivery(
+                                            restored_socket
                                         )
                                         assert new_event == new_frame
                                         assert new_event["type"] == (
