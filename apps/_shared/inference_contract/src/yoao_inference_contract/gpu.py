@@ -14,7 +14,7 @@ GPU_AUTHORITY_REQUEST_MAX_BYTES = 1024 * 1024
 GPU_AUTHORITY_REPLY_MAX_BYTES = 4 * 1024 * 1024
 GPU_AUTHORITY_NATIVE_SCHEMA = "aap_inference_gpu_v1"
 GPU_AUTHORITY_SCHEMA = GPU_AUTHORITY_NATIVE_SCHEMA
-GPU_COLLECTOR_SCHEMA = "aap_inference_gpu_collector_v1"
+GPU_COLLECTOR_SCHEMA = "yoao_inference_gpu_collector_v1"
 GPU_COLLECTOR_REQUEST_MAX_BYTES = 1024 * 1024
 GPU_COLLECTOR_REPLY_MAX_BYTES = 4 * 1024 * 1024
 
@@ -79,10 +79,10 @@ GPU_AUTHORITY_NATIVE_ACTIONS = (
 )
 
 GPU_CALLER_DATA_PROTOCOL = "aap-inference-gpu-caller-native/v1"
-GPU_CALLER_NATIVE_SCHEMA = "aap_inference_gpu_caller_v1"
+GPU_CALLER_NATIVE_SCHEMA = "yoao_inference_gpu_caller_v1"
 GPU_CALLER_NATIVE_FUNCTIONS = (
-    "aap_inference_gpu_caller_v1.gpu_caller_policy()",
-    "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)",
+    "yoao_inference_gpu_caller_v1.gpu_caller_policy()",
+    "yoao_inference_gpu_caller_v1.gpu_caller_step(text,text)",
 )
 GPU_CALLER_NATIVE_ACTIONS = (
     "fence_advance",
@@ -104,10 +104,10 @@ GPU_CALLER_REQUEST_MAX_BYTES = GPU_AUTHORITY_REQUEST_MAX_BYTES
 GPU_CALLER_REPLY_MAX_BYTES = GPU_AUTHORITY_REPLY_MAX_BYTES
 
 GPU_COLLECTOR_DATA_PROTOCOL = "aap-inference-gpu-collector-native/v1"
-GPU_COLLECTOR_NATIVE_SCHEMA = "aap_inference_gpu_collector_v1"
+GPU_COLLECTOR_NATIVE_SCHEMA = GPU_COLLECTOR_SCHEMA
 GPU_COLLECTOR_NATIVE_FUNCTIONS = (
-    "aap_inference_gpu_collector_v1.gpu_collector_policy()",
-    "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)",
+    "yoao_inference_gpu_collector_v1.gpu_collector_policy()",
+    "yoao_inference_gpu_collector_v1.gpu_collector_step(text,text)",
 )
 GPU_COLLECTOR_NATIVE_ACTIONS = ("collect_tombstone",)
 

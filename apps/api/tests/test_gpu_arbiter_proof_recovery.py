@@ -212,15 +212,15 @@ async def gpu_collector_database(
     role_url = _gpu_role_url(
         test_engine,
         "AAP_MODULE_DATA_INFERENCE_GPU_COLLECTOR_URL",
-        "inference_gpu_collector_client",
+        "yoao_inference_gpu_collector_client",
     )
     pool = await asyncpg.create_pool(dsn=role_url, min_size=1, max_size=4)
     try:
         async with pool.acquire() as connection:
             collector_role = await connection.fetchval("SELECT current_user")
-            assert collector_role == "inference_gpu_collector_client"
+            assert collector_role == "yoao_inference_gpu_collector_client"
             assert await connection.fetchval("SELECT session_user") == (
-                "inference_gpu_collector_client"
+                "yoao_inference_gpu_collector_client"
             )
         application_role, collector_role = validate_gpu_collector_role_boundary(
             "inference_gpu_authority_client",

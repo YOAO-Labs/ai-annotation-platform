@@ -76,7 +76,7 @@ BEGIN
         v_signatures := ARRAY[v_schema||'.gpu_authority_policy()',
                               v_schema||'.gpu_authority_step(text,text)'];
     ELSIF v_profile='gpu_collector' THEN
-        v_schema := 'aap_inference_gpu_collector_v1';
+        v_schema := 'yoao_inference_gpu_collector_v1';
         v_signatures := ARRAY[v_schema||'.gpu_collector_policy()',
                               v_schema||'.gpu_collector_step(text,text)'];
     ELSE

@@ -38,7 +38,7 @@ API／普通 worker 的模型执行、后端控制、健康观察、Workspace �
 - GPU 自有捕获／打开：`gpu_health_observation`、`gpu_control`；仅持有 policy、capture 和该用途的 opener。
 - 聚合统计：`backend_stats`；仅在 owner 内捕获统计分组和端点，公开结果不含 auth 分组键。
 - GPU 私有权威：`gpu_authority`；policy／step 两函数，与普通 caller 的有限 GPU 管理能力分离。生产 owner 明确选择 `inference_gpu_authority_client`；独立工作树夹具使用自身的专用 LOGIN，不接管共享角色。
-- GPU 回收：`gpu_collector`，使用 `inference_gpu_collector_client`；单独 policy／step，两函数 LOGIN 与权威账号不同。
+- GPU 回收：`gpu_collector`，使用 `yoao_inference_gpu_collector_client`；单独 policy／step，两函数 LOGIN 与权威账号不同。
 
 授权脚本要求显式数据库名、迁移角色、Inference owner、client role 和 profile；拒绝超级权限、继承／成员旁路、表／序列访问、对象所有权和无关函数执行。不可把一组专用 LOGIN 合并成宽权限账号来通过 readiness。
 

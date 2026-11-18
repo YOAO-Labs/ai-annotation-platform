@@ -72,9 +72,9 @@ _AUTHORITY_POLICY_SQL = "SELECT aap_inference_gpu_v1.gpu_authority_policy()"
 _AUTHORITY_STEP_SQL = (
     "SELECT aap_inference_gpu_v1.gpu_authority_step($1::text,$2::text)"
 )
-_COLLECTOR_POLICY_SQL = "SELECT aap_inference_gpu_collector_v1.gpu_collector_policy()"
+_COLLECTOR_POLICY_SQL = "SELECT yoao_inference_gpu_collector_v1.gpu_collector_policy()"
 _COLLECTOR_STEP_SQL = (
-    "SELECT aap_inference_gpu_collector_v1.gpu_collector_step($1::text,$2::text)"
+    "SELECT yoao_inference_gpu_collector_v1.gpu_collector_step($1::text,$2::text)"
 )
 _TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
@@ -86,9 +86,9 @@ _COLLECTOR_FUNCTIONS = {
     ("gpu_collector_policy", ""),
     ("gpu_collector_step", "text, text"),
 }
-_CALLER_POLICY_SQL = "SELECT aap_inference_gpu_caller_v1.gpu_caller_policy()"
+_CALLER_POLICY_SQL = "SELECT yoao_inference_gpu_caller_v1.gpu_caller_policy()"
 _CALLER_STEP_SQL = (
-    "SELECT aap_inference_gpu_caller_v1.gpu_caller_step($1::text,$2::text)"
+    "SELECT yoao_inference_gpu_caller_v1.gpu_caller_step($1::text,$2::text)"
 )
 
 

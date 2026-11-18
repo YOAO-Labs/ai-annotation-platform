@@ -964,7 +964,7 @@ async def test_owner_lifecycle_preserves_fence_and_requires_settled_terminal(
             assert membership.state == "retiring"
             collection = await db.scalar(
                 text(
-                    "SELECT aap_inference_gpu_collector_v1.gpu_collector_step('collect_tombstone',:arguments)"
+                    "SELECT yoao_inference_gpu_collector_v1.gpu_collector_step('collect_tombstone',:arguments)"
                 ),
                 {
                     "arguments": json.dumps(

@@ -44,10 +44,10 @@
     ]
   },
   "caller_native": {
-    "schema": "aap_inference_gpu_caller_v1",
+    "schema": "yoao_inference_gpu_caller_v1",
     "protocol": "aap-inference-gpu-caller-native/v1",
-    "policy_function": "aap_inference_gpu_caller_v1.gpu_caller_policy()",
-    "step_function": "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)",
+    "policy_function": "yoao_inference_gpu_caller_v1.gpu_caller_policy()",
+    "step_function": "yoao_inference_gpu_caller_v1.gpu_caller_step(text,text)",
     "actions": [
       "fence_advance",
       "fence_token_expiry",
@@ -174,9 +174,9 @@
     }
   },
   "collector_native": {
-    "schema": "aap_inference_gpu_collector_v1",
-    "policy_function": "aap_inference_gpu_collector_v1.gpu_collector_policy()",
-    "step_function": "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)",
+    "schema": "yoao_inference_gpu_collector_v1",
+    "policy_function": "yoao_inference_gpu_collector_v1.gpu_collector_policy()",
+    "step_function": "yoao_inference_gpu_collector_v1.gpu_collector_step(text,text)",
     "actions": ["collect_tombstone"]
   }
 }

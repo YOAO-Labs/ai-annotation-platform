@@ -306,7 +306,7 @@ async def test_gpu_prepared_cancellation_requires_untouched_durable_fence(
     )
     collection = await db_session.scalar(
         text(
-            "SELECT aap_inference_gpu_collector_v1.gpu_collector_step('collect_tombstone',:arguments)"
+            "SELECT yoao_inference_gpu_collector_v1.gpu_collector_step('collect_tombstone',:arguments)"
         ),
         {
             "arguments": json.dumps(
