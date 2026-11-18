@@ -54,7 +54,7 @@ class LabelingClassQueryPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-labeling-class-query"},
+                server_settings={"application_name": "yoao-labeling-class-query"},
             )
         except (
             asyncpg.PostgresError,

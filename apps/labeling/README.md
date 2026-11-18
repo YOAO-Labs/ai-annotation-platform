@@ -28,9 +28,9 @@ extra fields, booleans and nonpositive integers; map order and JSON whitespace a
 not part of the contract. Late attribute decoding failure remains an internal500,
 including the frozen legacy large-integer case, without returning partial counts.
 
-Run `uv run --project apps/labeling --extra runtime python -m aap_labeling` with
-`LABELING_CLASS_QUERY_DATABASE_URL(_FILE)` and
-`LABELING_CLASS_QUERY_CONTROL_TOKEN(_FILE)`. It listens on port8178 by default.
+Run `uv run --project apps/labeling --extra runtime python -m yoao_labeling` with
+`LABELING_CLASS_QUERY_DATABASE_URL(_FILE)` for `yoao_labeling_class_query_client`
+and `LABELING_CLASS_QUERY_CONTROL_TOKEN(_FILE)`. It listens on port 8178 by default.
 The private route is `POST /v1/labeling/class-queries/execute`; `/ready` verifies
 the policy and the exact three-function credential. The standalone Compose file
 uses two read-only secret files and binds only localhost.

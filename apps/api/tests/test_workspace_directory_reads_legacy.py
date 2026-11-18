@@ -150,7 +150,13 @@ def _normalise(value, aliases: dict[str, str], *, key: str | None = None):
 
 def _sql_phase(statement: str) -> str:
     compact = " ".join(statement.casefold().split())
-    if "aap_identity_briefs_v1.execute_briefs_command" in compact:
+    if any(
+        signature in compact
+        for signature in (
+            "aap_identity_briefs_v1.execute_briefs_command",
+            "yoao_identity_briefs_v1.execute_briefs_command",
+        )
+    ):
         return "identity_briefs_command"
     if "from project_members" in compact and "join users" in compact:
         return "mention_project_members"

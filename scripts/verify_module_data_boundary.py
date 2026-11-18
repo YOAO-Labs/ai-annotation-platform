@@ -136,10 +136,12 @@ NOTIFICATION_INBOX_FUNCTIONS = (
 NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
-# Only these qualified schema identities and their audited callers changed in bo0470/0471.
+# Qualified owner identities and their audited callers may move; historical SQL may not.
 # Frozen SQL and signed wire identities remain unchanged.
 FROZEN_OWNER_NAMESPACES = {
     "yoao_diagnostics_v1": "aap_diagnostics_v1",
+    "yoao_identity_briefs_v1": "aap_identity_briefs_v1",
+    "yoao_labeling_class_query_v1": "aap_labeling_class_query_v1",
     "yoao_insights_v1": "aap_insights_v1",
     "yoao_workspace_directory_query_v1": "aap_workspace_directory_query_v1",
     "yoao_workspace_project_query_v1": "aap_workspace_project_query_v1",
@@ -157,6 +159,13 @@ NAMESPACE_BODY_CALLERS = {
     "aap_workspace_v1.unlink_dataset",
 }
 FUNCTION_BODY_ARTIFACTS = {
+    "yoao_identity_briefs_v1._failure()": "0249_identity_briefs.sql",
+    "yoao_identity_briefs_v1._has_exact_keys(jsonb,text[])": "0249_identity_briefs.sql",
+    "yoao_identity_briefs_v1.briefs_policy()": "0249_identity_briefs.sql",
+    "yoao_identity_briefs_v1.execute_briefs_command(jsonb)": "0249_identity_briefs.sql",
+    "yoao_labeling_class_query_v1.attribute_rows(uuid)": "0266_labeling_class_query.sql",
+    "yoao_labeling_class_query_v1.class_counts(uuid)": "0266_labeling_class_query.sql",
+    "yoao_labeling_class_query_v1.class_query_policy()": "0266_labeling_class_query.sql",
     "aap_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])": "0271_inference_pipelines.sql",
     "yoao_workspace_directory_query_v1._has_exact_keys(jsonb,text[])": "0263_workspace_directory_queries.sql",
     "yoao_workspace_directory_query_v1.directory_query_policy()": "0263_workspace_directory_queries.sql",
@@ -1479,7 +1488,7 @@ IDENTITY_CLIENT_ROLES = {
     "DELETION": "identity_deletion_client",
     "OFFBOARDING": "identity_offboarding_client",
     "DIRECTORY": "identity_directory_client",
-    "BRIEFS": "identity_briefs_client",
+    "BRIEFS": "yoao_identity_briefs_client",
     "PROVISIONING": "identity_provisioning_client",
     "WORKSPACE_MEMBERSHIP": "yoao_workspace_membership_client",
     "WORKSPACE_OWNER_TRANSFER": "yoao_workspace_owner_transfer_client",
@@ -1490,7 +1499,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_TEMPLATE_QUERY": "yoao_workspace_template_query_client",
     "WORKSPACE_PROJECT_QUERY": "yoao_workspace_project_query_client",
     "WORKSPACE_DIRECTORY_QUERY": "yoao_workspace_directory_query_client",
-    "LABELING_CLASS_QUERY": "labeling_class_query_client",
+    "LABELING_CLASS_QUERY": "yoao_labeling_class_query_client",
     "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
     "LABELING_TASK_CONTROL": "labeling_task_control_client",
     "LABELING_ANNOTATION_WRITE": "labeling_annotation_write_client",
@@ -1996,6 +2005,7 @@ SQL_ARTIFACTS = (
     "0469_routing_admission_header.sql",
     "0470_diagnostics_insights_namespace.sql",
     "0471_workspace_query_namespace.sql",
+    "0472_briefs_class_query_namespaces.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -6652,8 +6662,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
         "SELECT aap_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
         "SELECT aap_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
-        "SELECT aap_identity_briefs_v1.briefs_policy();\n"
-        "SELECT aap_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_briefs_v1.briefs_policy();\n"
+        "SELECT yoao_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
         "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.due_policy();\n"
@@ -6928,6 +6938,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_deletions_v1') IS NULL "
             "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
+            "AND to_regnamespace('yoao_identity_briefs_v1') IS NULL "
+            "AND to_regnamespace('aap_labeling_class_query_v1') IS NULL "
+            "AND to_regnamespace('yoao_labeling_class_query_v1') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.delete_command(pg_catalog.jsonb)') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.append_job_terminal_notification(jsonb)') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.read_notification(uuid)') IS NULL "
@@ -11221,7 +11234,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
-                "identity_briefs_role": "identity_briefs_client",
+                "identity_briefs_role": "yoao_identity_briefs_client",
             },
         )
         phase = "install-identity-provisioning-grants"
@@ -11508,7 +11521,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "labeling_class_query_role": "labeling_class_query_client",
+                "labeling_class_query_role": "yoao_labeling_class_query_client",
             },
         )
         resource_environment = backend.environment()

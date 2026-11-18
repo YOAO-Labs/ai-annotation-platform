@@ -9,15 +9,15 @@ SELECT set_config('aap.expected_database', :'expected_database', true);
 SELECT set_config('aap.migration_role', :'migration_role', true);
 SELECT set_config('aap.labeling_owner', :'labeling_owner', true);
 SELECT set_config(
-    'aap.labeling_class_query_role', :'labeling_class_query_role', true
+    'yoao.labeling_class_query_role', :'labeling_class_query_role', true
 );
 
 DO $$
 DECLARE
-    client_name text := current_setting('aap.labeling_class_query_role');
+    client_name text := current_setting('yoao.labeling_class_query_role');
     role_names text[] := ARRAY[
         current_setting('aap.labeling_owner'),
-        current_setting('aap.labeling_class_query_role')
+        current_setting('yoao.labeling_class_query_role')
     ];
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
@@ -166,7 +166,7 @@ GRANT CONNECT ON DATABASE :"expected_database"
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.labeling_class_query_role');
+    role_name text := current_setting('yoao.labeling_class_query_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname
@@ -206,7 +206,7 @@ DECLARE
     role_oid oid := (
         SELECT role.oid
         FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.labeling_class_query_role')
+        WHERE role.rolname = current_setting('yoao.labeling_class_query_role')
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[

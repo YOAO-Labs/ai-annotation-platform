@@ -259,8 +259,9 @@ and asks Workspace for project membership roles through a narrow helper when a
 project overlay is requested. Missing users are omitted; users without a
 project membership fall back to their global role. `avatar_initial` keeps the
 existing Python Unicode and whitespace behavior. The optional
-`IDENTITY_BRIEFS_DATABASE_URL(_FILE)` selects its exact two-function,
-read-only LOGIN; the owner also preserves the caller transaction when embedded.
+`IDENTITY_BRIEFS_DATABASE_URL(_FILE)` selects `yoao_identity_briefs_client`,
+the read-only LOGIN for the two published functions in `yoao_identity_briefs_v1`.
+When embedded, the owner preserves the caller's transaction.
 The closed wire and native DTOs are `briefs_protocol.schema.json` and
 `native_briefs_protocol.schema.json`.
 

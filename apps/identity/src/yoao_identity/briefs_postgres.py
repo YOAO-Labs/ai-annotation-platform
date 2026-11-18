@@ -68,7 +68,7 @@ class BriefsPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-briefs"},
+                server_settings={"application_name": "yoao-identity-briefs"},
             )
             async with connection.transaction(readonly=True):
                 yield BriefsPostgresTransaction(connection)
@@ -295,7 +295,7 @@ class BriefsPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-briefs"},
+                server_settings={"application_name": "yoao-identity-briefs"},
             )
             async with connection.transaction(readonly=True):
                 raw = await connection.fetchval(

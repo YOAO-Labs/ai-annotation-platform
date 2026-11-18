@@ -10,15 +10,15 @@ SELECT set_config('aap.expected_database', :'expected_database', true);
 SELECT set_config('aap.migration_role', :'migration_role', true);
 SELECT set_config('aap.identity_owner', :'identity_owner', true);
 SELECT set_config('aap.workspace_owner', :'workspace_owner', true);
-SELECT set_config('aap.identity_briefs_role', :'identity_briefs_role', true);
+SELECT set_config('yoao.identity_briefs_role', :'identity_briefs_role', true);
 
 DO $$
 DECLARE
-    role_name text := current_setting('aap.identity_briefs_role');
+    role_name text := current_setting('yoao.identity_briefs_role');
     role_names text[] := ARRAY[
         current_setting('aap.identity_owner'),
         current_setting('aap.workspace_owner'),
-        current_setting('aap.identity_briefs_role')
+        current_setting('yoao.identity_briefs_role')
     ];
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
@@ -65,7 +65,7 @@ DECLARE
     );
     briefs_role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_briefs_role')
+        WHERE role.rolname = current_setting('yoao.identity_briefs_role')
     );
 BEGIN
     IF identity_oid IS NULL OR workspace_oid IS NULL OR briefs_role_oid IS NULL THEN
@@ -103,7 +103,7 @@ GRANT CONNECT ON DATABASE :"expected_database"
 DO $$
 DECLARE
     namespace record;
-    role_name text := current_setting('aap.identity_briefs_role');
+    role_name text := current_setting('yoao.identity_briefs_role');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname FROM pg_catalog.pg_namespace AS ns
@@ -140,7 +140,7 @@ DO $$
 DECLARE
     role_oid oid := (
         SELECT role.oid FROM pg_catalog.pg_roles AS role
-        WHERE role.rolname = current_setting('aap.identity_briefs_role')
+        WHERE role.rolname = current_setting('yoao.identity_briefs_role')
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
