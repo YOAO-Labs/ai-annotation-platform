@@ -22,9 +22,9 @@ from yoao_inference.backend_transport import (
 
 
 _HEALTH_CHALLENGE = "c3" * 32
-_GPU_GENERATION_HEADER = "X-AAP-GPU-Generation"
-_GPU_ADMISSION_TOKEN_HEADER = "X-AAP-GPU-Admission-Token"
-_GPU_HEALTH_CHALLENGE_HEADER = "X-AAP-GPU-Health-Challenge"
+_GPU_GENERATION_HEADER = "X-YOAO-GPU-Generation"
+_GPU_ADMISSION_TOKEN_HEADER = "X-YOAO-GPU-Admission-Token"
+_GPU_HEALTH_CHALLENGE_HEADER = "X-YOAO-GPU-Health-Challenge"
 
 
 @dataclass
@@ -122,7 +122,7 @@ class _BackendRequestHandler(BaseHTTPRequestHandler):
             observation, context = self._observe()
             if observation["method"] == "GET" and observation["path"] == "/health":
                 headers = observation["headers"]
-                query = observation["query"].get("aap_gpu_health_challenge", [])
+                query = observation["query"].get("yoao_gpu_health_challenge", [])
                 challenge = headers.get(_GPU_HEALTH_CHALLENGE_HEADER.lower())
                 response_headers = {}
                 if challenge == _HEALTH_CHALLENGE and query == [_HEALTH_CHALLENGE]:
@@ -263,7 +263,7 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
             "host": {"name": "synthetic-backend"},
             "pool_topology": {"engines": {"cap": 3}},
             "ort_session_counts": {"engines": 2},
-            "_aap_gpu_health_challenge_echo": _HEALTH_CHALLENGE,
+            "_yoao_gpu_health_challenge_echo": _HEALTH_CHALLENGE,
         }
         setup = await transport.setup()
         assert setup == {"capabilities": {"model_ids": ["sam3"]}}
@@ -319,9 +319,9 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
             failed_warmup,
         ) = observations
         assert challenge_request["query"] == {
-            "aap_gpu_health_challenge": [_HEALTH_CHALLENGE]
+            "yoao_gpu_health_challenge": [_HEALTH_CHALLENGE]
         }
-        assert challenge_request["headers"]["x-aap-gpu-health-challenge"] == (
+        assert challenge_request["headers"]["x-yoao-gpu-health-challenge"] == (
             _HEALTH_CHALLENGE
         )
         assert challenge_request["headers"]["cache-control"] == "no-cache"
@@ -329,8 +329,8 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
         assert predict_request["headers"]["authorization"] == (
             "Bearer synthetic-only-token"
         )
-        assert predict_request["headers"]["x-aap-gpu-generation"] == "23"
-        assert predict_request["headers"]["x-aap-gpu-admission-token"] == (
+        assert predict_request["headers"]["x-yoao-gpu-generation"] == "23"
+        assert predict_request["headers"]["x-yoao-gpu-admission-token"] == (
             "loopback-signed-grant"
         )
         assert predict_request["body"] == {
@@ -342,8 +342,8 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
         assert failed_warmup["headers"]["authorization"] == (
             "Bearer synthetic-only-token"
         )
-        assert failed_warmup["headers"]["x-aap-gpu-generation"] == "23"
-        assert failed_warmup["headers"]["x-aap-gpu-admission-token"] == (
+        assert failed_warmup["headers"]["x-yoao-gpu-generation"] == "23"
+        assert failed_warmup["headers"]["x-yoao-gpu-admission-token"] == (
             "loopback-signed-grant"
         )
 

@@ -529,7 +529,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
             app,
             registry_id=world["registry_id"],
             environ={
-                "AAP_ROUTE_CONTROL_TOKEN": backend_token,
+                "ROUTE_CONTROL_TOKEN": backend_token,
                 "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "0",
             },
         )
@@ -923,7 +923,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
                     },
                 )
             )
-        control_token = control_begin.result.headers["X-AAP-Route-Admission"]
+        control_token = control_begin.result.headers["X-YOAO-Route-Admission"]
         async with httpx.AsyncClient(trust_env=False, timeout=0.1) as backend_client:
             with pytest.raises(httpx.ReadTimeout):
                 await backend_client.post(

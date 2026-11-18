@@ -64,7 +64,7 @@ class FixtureBackendRuntime:
         self.offline_active = 0
         app = FastAPI()
         self.controller = install_backend_routing_controller(
-            app, environ={"AAP_ROUTE_CONTROL_TOKEN": self.token}
+            app, environ={"ROUTE_CONTROL_TOKEN": self.token}
         )
         app.add_middleware(FixtureOfflineFence, runtime=self)
 

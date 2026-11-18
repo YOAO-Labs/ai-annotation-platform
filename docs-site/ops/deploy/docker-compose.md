@@ -553,10 +553,11 @@ ML backend（grounded-sam2-backend / sam3-backend 等）需要 nvidia GPU。本�
 索引映射时才用 `index:N`。
 
 Compose 会把每个 `*_GPU_DEVICE_ID` 同时用于 device reservation 和容器内部
-`AAP_GPU_PHYSICAL_DEVICE_TOKEN`。这个独立 token 是必要的：NVIDIA container runtime 可能把
+`GPU_PHYSICAL_DEVICE_TOKEN`。这个独立 token 是必要的：NVIDIA container runtime 可能把
 PID 1 看到的 `NVIDIA_VISIBLE_DEVICES` 重写为 `void`，而 CUDA 又会把唯一挂载的物理
 卡重编号为逻辑 `cuda:0`。Backend `/health.gpu_info` 优先报告这个 Compose 派生 token，
-避免将宿主卡 1 误报为卡 0。
+避免将宿主卡 1 误报为卡 0。Compose 只注入当前名 `GPU_PHYSICAL_DEVICE_TOKEN`；旧
+`AAP_GPU_PHYSICAL_DEVICE_TOKEN` 不再传递，读取旧名的 backend 制品必须与 Compose 同代更新。
 
 ```dotenv
 GPU_ARBITER_MODE=off
@@ -744,7 +745,7 @@ backend `/health` 返回新增 `gpu_info` / `cache` 子对象，便于运维一�
 
 验收物理卡映射时优先检查 `physical_device_token`。容器 runtime 可能把宿主卡 1 重映射成
 逻辑 `cuda:0`，甚至把 PID 1 的 `NVIDIA_VISIBLE_DEVICES` 重写为 `void`。因此 Backend
-优先报告 Compose 从 device reservation 同源派生的 `AAP_GPU_PHYSICAL_DEVICE_TOKEN`；
+优先报告 Compose 从 device reservation 同源派生的 `GPU_PHYSICAL_DEVICE_TOKEN`；
 只在该 token 未设置时回落 runtime 可见设备配置，不用 logical current device 猜测宿主卡号。完整验收步骤见
 [GPU 显存仲裁验收 Runbook](/ops/runbooks/gpu-arbitration-acceptance)。
 

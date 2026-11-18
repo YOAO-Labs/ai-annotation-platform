@@ -10,7 +10,7 @@ from uuid import UUID
 
 from yoao_protocol_v2.routing import RoutingProtocolError
 
-SCOPE_RETIREMENT_PATH = "/v1/aap-routing/retire-scope"
+SCOPE_RETIREMENT_PATH = "/v1/yoao-routing/retire-scope"
 SCOPE_RETIREMENT_PROTOCOL = "aap-backend-scope-retirement/v1"
 SCOPE_RETIREMENT_REPLY_PROTOCOL = "aap-backend-scope-retirement-reply/v1"
 MAX_SCOPE_RETIREMENT_BYTES = 8192

@@ -404,7 +404,7 @@ class LocalPluginDeployment:
                 )
         env = {
             "AAP_PLUGIN_TOKEN_FILE": f"{data_target}/token",
-            "AAP_ROUTE_CONTROL_TOKEN_FILE": f"{data_target}/token",
+            "ROUTE_CONTROL_TOKEN_FILE": f"{data_target}/token",
             "AAP_PLUGIN_DEVICE": self._binding(config).logical_device,
             "AAP_PLUGIN_REGISTRY_ID": str(result.registry_id),
             **(

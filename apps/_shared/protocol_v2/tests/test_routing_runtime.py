@@ -206,7 +206,7 @@ async def test_managed_restart_rejects_headerless_and_retired_epoch_work():
     assert (await _asgi_call(middleware))[0] == 503
     assert (
         await _asgi_call(
-            middleware, headers=[(b"x-aap-route-admission", old_token.encode())]
+            middleware, headers=[(b"x-yoao-route-admission", old_token.encode())]
         )
     )[0] == 503
     assert restarted.active_requests == 0
@@ -218,9 +218,25 @@ async def test_unmanaged_backend_rejects_managed_admission_instead_of_ignoring_i
     assert (
         await _asgi_call(
             _middleware(controller),
-            headers=[(b"x-aap-route-admission", b"retired-managed-token")],
+            headers=[(b"x-yoao-route-admission", b"retired-managed-token")],
         )
     )[0] == 503
+    assert controller.active_requests == 0
+
+
+@pytest.mark.asyncio
+async def test_bound_backend_does_not_accept_pre_rename_admission_header():
+    controller = BackendRoutingController(
+        registry_id=str(uuid4()), control_token="secret"
+    )
+    _, key = await _bind(controller)
+    token = _claims(controller, key)
+    assert (
+        await _asgi_call(
+            _middleware(controller),
+            headers=[(b"x-aap-route-admission", token.encode("ascii"))],
+        )
+    )[0] == 401
     assert controller.active_requests == 0
 
 
@@ -232,7 +248,7 @@ async def test_bound_admission_rejects_attempt_replay():
     _, key = await _bind(controller)
     middleware = _middleware(controller)
     token = _claims(controller, key)
-    headers = [(b"x-aap-route-admission", token.encode("ascii"))]
+    headers = [(b"x-yoao-route-admission", token.encode("ascii"))]
 
     assert (await _asgi_call(middleware, headers=headers))[0] == 200
     assert (await _asgi_call(middleware, headers=headers))[0] == 401
@@ -265,7 +281,7 @@ async def test_management_admission_holds_exclusive_fence_until_handler_finishes
         _asgi_call(
             middleware,
             path="/unload",
-            headers=[(b"x-aap-route-admission", management.encode("ascii"))],
+            headers=[(b"x-yoao-route-admission", management.encode("ascii"))],
         )
     )
     await started.wait()
@@ -275,7 +291,7 @@ async def test_management_admission_holds_exclusive_fence_until_handler_finishes
     assert (
         await _asgi_call(
             middleware,
-            headers=[(b"x-aap-route-admission", prediction.encode("ascii"))],
+            headers=[(b"x-yoao-route-admission", prediction.encode("ascii"))],
         )
     )[0] == 401
 
@@ -302,7 +318,7 @@ async def test_drain_waits_for_existing_asgi_work_and_rejects_new_admission():
     request = asyncio.create_task(
         _asgi_call(
             middleware,
-            headers=[(b"x-aap-route-admission", token.encode("ascii"))],
+            headers=[(b"x-yoao-route-admission", token.encode("ascii"))],
         )
     )
     await started.wait()
@@ -325,7 +341,7 @@ async def test_drain_waits_for_existing_asgi_work_and_rejects_new_admission():
     assert (
         await _asgi_call(
             middleware,
-            headers=[(b"x-aap-route-admission", next_token.encode("ascii"))],
+            headers=[(b"x-yoao-route-admission", next_token.encode("ascii"))],
         )
     )[0] == 503
 
@@ -480,7 +496,7 @@ async def test_app_installer_is_idempotent_and_fails_closed_on_bad_config():
         app,
         registry_id=str(uuid4()),
         environ={
-            "AAP_ROUTE_CONTROL_TOKEN": "secret",
+            "ROUTE_CONTROL_TOKEN": "secret",
         },
     )
     assert install_backend_routing_controller(app) is controller
@@ -490,8 +506,8 @@ async def test_app_installer_is_idempotent_and_fails_closed_on_bad_config():
         install_backend_routing_controller(
             FastAPI(),
             environ={
-                "AAP_ROUTE_CONTROL_TOKEN": "one",
-                "AAP_ROUTE_CONTROL_TOKEN_FILE": "two",
+                "ROUTE_CONTROL_TOKEN": "one",
+                "ROUTE_CONTROL_TOKEN_FILE": "two",
             },
         )
 
@@ -503,10 +519,49 @@ def test_installer_rejects_legacy_bypass_even_after_restart():
         install_backend_routing_controller(
             FastAPI(),
             environ={
-                "AAP_ROUTE_CONTROL_TOKEN": "secret",
+                "ROUTE_CONTROL_TOKEN": "secret",
                 "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "1",
             },
         )
+
+
+@pytest.mark.parametrize(
+    "environ",
+    (
+        {"AAP_ROUTE_CONTROL_TOKEN": "retired-secret"},
+        {"AAP_ROUTE_CONTROL_TOKEN_FILE": "/run/retired-route-token"},
+        {
+            "ROUTE_CONTROL_TOKEN": "current-secret",
+            "AAP_ROUTE_CONTROL_TOKEN": "retired-secret",
+        },
+    ),
+)
+def test_installer_refuses_value_bearing_pre_rename_token_env(environ):
+    from fastapi import FastAPI
+
+    with pytest.raises(RouteConfigurationError) as raised:
+        install_backend_routing_controller(FastAPI(), environ=environ)
+    message = str(raised.value)
+    assert "unsupported legacy route control environment" in message
+    assert "retired-secret" not in message
+    assert "/run/retired-route-token" not in message
+    for name in environ:
+        if name.startswith("AAP_ROUTE_CONTROL_TOKEN"):
+            assert name in message
+
+
+def test_installer_ignores_blank_pre_rename_token_env():
+    from fastapi import FastAPI
+
+    controller = install_backend_routing_controller(
+        FastAPI(),
+        environ={
+            "ROUTE_CONTROL_TOKEN": "secret",
+            "AAP_ROUTE_CONTROL_TOKEN": "",
+            "AAP_ROUTE_CONTROL_TOKEN_FILE": "",
+        },
+    )
+    assert controller.management_available is True
 
 
 @pytest.mark.asyncio
@@ -515,25 +570,25 @@ def test_installer_rejects_legacy_bypass_even_after_restart():
     [
         (
             [
-                (b"x-aap-gpu-generation", b"7"),
-                (b"x-aap-gpu-admission-token", b"signed-token"),
+                (b"x-yoao-gpu-generation", b"7"),
+                (b"x-yoao-gpu-admission-token", b"signed-token"),
             ],
             True,
         ),
         ([], False),
-        ([(b"x-aap-gpu-generation", b"7")], False),
+        ([(b"x-yoao-gpu-generation", b"7")], False),
         (
             [
-                (b"x-aap-gpu-generation", b"01"),
-                (b"x-aap-gpu-admission-token", b"signed-token"),
+                (b"x-yoao-gpu-generation", b"01"),
+                (b"x-yoao-gpu-admission-token", b"signed-token"),
             ],
             False,
         ),
         (
             [
-                (b"x-aap-gpu-generation", b"7"),
-                (b"x-aap-gpu-admission-token", b"one"),
-                (b"x-aap-gpu-admission-token", b"two"),
+                (b"x-yoao-gpu-generation", b"7"),
+                (b"x-yoao-gpu-admission-token", b"one"),
+                (b"x-yoao-gpu-admission-token", b"two"),
             ],
             False,
         ),
@@ -548,7 +603,7 @@ async def test_gpu_unload_route_requires_managed_headers_before_endpoint_dispatc
     status, _, _ = await _asgi_call(
         BackendRoutingMiddleware(_app_response, controller),
         path="/unload",
-        headers=[(b"x-aap-route-admission", token.encode()), *headers],
+        headers=[(b"x-yoao-route-admission", token.encode()), *headers],
     )
     # The real lifecycle endpoint separately verifies the GPU signature and scope.
     assert status == (200 if accepted else 401)
@@ -563,14 +618,14 @@ async def test_gpu_unload_is_exclusive_and_cannot_authorize_other_paths():
         "POST", "/predict", [_claims(controller, key).encode()]
     )
     headers = [
-        (b"x-aap-gpu-generation", b"7"),
-        (b"x-aap-gpu-admission-token", b"signed-token"),
+        (b"x-yoao-gpu-generation", b"7"),
+        (b"x-yoao-gpu-admission-token", b"signed-token"),
     ]
     token = _claims(controller, key, path="/unload", operation="gpu:unload")
     status, _, _ = await _asgi_call(
         BackendRoutingMiddleware(_app_response, controller),
         path="/unload",
-        headers=[(b"x-aap-route-admission", token.encode()), *headers],
+        headers=[(b"x-yoao-route-admission", token.encode()), *headers],
     )
     assert status == 409
     await controller.finish_request(held)
@@ -578,6 +633,6 @@ async def test_gpu_unload_is_exclusive_and_cannot_authorize_other_paths():
     status, _, _ = await _asgi_call(
         BackendRoutingMiddleware(_app_response, controller),
         path="/predict",
-        headers=[(b"x-aap-route-admission", wrong_path.encode()), *headers],
+        headers=[(b"x-yoao-route-admission", wrong_path.encode()), *headers],
     )
     assert status == 401

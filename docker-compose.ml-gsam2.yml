@@ -8,7 +8,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
+      BACKEND_AUTH_DIR: /run/aap-inference-auth
       SAM_VARIANT: ${SAM_VARIANT:-tiny}
       DINO_VARIANT: ${DINO_VARIANT:-T}
       BOX_THRESHOLD: ${BOX_THRESHOLD:-0.35}
@@ -16,7 +16,7 @@ services:
       HF_HOME: /app/.cache/huggingface
       LOG_LEVEL: ${GSAM2_LOG_LEVEL:-INFO}
       NVIDIA_VISIBLE_DEVICES: ${GSAM2_GPU_DEVICE_ID:-0}
-      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${GSAM2_GPU_DEVICE_ID:-0}
+      GPU_PHYSICAL_DEVICE_TOKEN: ${GSAM2_GPU_DEVICE_ID:-0}
       IDLE_UNLOAD_SECONDS: ${IDLE_UNLOAD_SECONDS:-600}
       IDLE_CHECK_INTERVAL: ${IDLE_CHECK_INTERVAL:-60}
       MODEL_POOL_CAP: ${MODEL_POOL_CAP:-1}

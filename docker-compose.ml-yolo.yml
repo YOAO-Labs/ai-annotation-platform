@@ -10,7 +10,7 @@ services:
     ports:
       - "8003:8003"
     environment:
-      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
+      BACKEND_AUTH_DIR: /run/aap-inference-auth
       YOLO_DEVICE: ${YOLO_DEVICE:-cuda:0}
       YOLO_MODEL_POOL_CAP: ${YOLO_MODEL_POOL_CAP:-2}
       YOLO_MANAGED_MODELS_TOKEN: ${YOLO_MANAGED_MODELS_TOKEN:-}
@@ -24,7 +24,7 @@ services:
       GPU_LIFECYCLE_RESOURCE_ID: ${GPU_LIFECYCLE_RESOURCE_ID:-}
       LOG_LEVEL: ${YOLO_LOG_LEVEL:-INFO}
       NVIDIA_VISIBLE_DEVICES: ${YOLO_GPU_DEVICE_ID:-0}
-      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${YOLO_GPU_DEVICE_ID:-0}
+      GPU_PHYSICAL_DEVICE_TOKEN: ${YOLO_GPU_DEVICE_ID:-0}
     volumes:
       - type: bind
         source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/yolo

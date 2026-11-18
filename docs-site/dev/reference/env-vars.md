@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-16
+last_reviewed: 2026-11-18
 ---
 
 # 环境变量参考
@@ -1045,9 +1045,9 @@ last_reviewed: 2026-11-16
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `AAP_ROUTE_CONTROL_TOKEN` | `—` | — |
-| `AAP_ROUTE_CONTROL_TOKEN_FILE` | `—` | — |
-| `AAP_ROUTE_REGISTRY_ID` | `—` | — |
+| `ROUTE_CONTROL_TOKEN` | `—` | 值／文件恰好选择一项。旧名 AAP_ROUTE_CONTROL_TOKEN(_FILE) 任一非空时后端拒绝启动， 错误只报告旧键名，不输出值；迁移时删除旧键而不是保留双写。 |
+| `ROUTE_CONTROL_TOKEN_FILE` | `—` | — |
+| `AAP_ROUTE_REGISTRY_ID` | `—` | 路由注册表实例身份；与已安装插件制品共用，保留旧名，按独立门迁移。 |
 
 ## Audit 独立维护与归档读取（可选，不改变默认运行拓扑）
 

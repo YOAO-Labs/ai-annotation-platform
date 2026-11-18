@@ -611,7 +611,7 @@ async def test_begin_opens_the_opaque_subject_to_a_digest_before_registering_att
             "begin_attempt": lambda args: _success(
                 attempt_id=args["attempt_id"],
                 scope=active_scope,
-                headers={"X-AAP-Route-Admission": "synthetic-signed-token"},
+                headers={"X-YOAO-Route-Admission": "synthetic-signed-token"},
             ),
         }
     )
@@ -638,7 +638,7 @@ async def test_begin_opens_the_opaque_subject_to_a_digest_before_registering_att
     assert open_call["subject"] == "opaque-v1.synthetic-subject"
     assert begin_call["transport_identity"] == {"identity_sha256": identity_digest}
     assert "transport_subject" not in begin_call
-    assert result.result.headers["X-AAP-Route-Admission"] == "synthetic-signed-token"
+    assert result.result.headers["X-YOAO-Route-Admission"] == "synthetic-signed-token"
     assert "private-scope-capability" not in repr(result)
 
 
@@ -776,7 +776,7 @@ async def test_control_attempts_are_bound_to_the_persistent_control_capability()
             "begin_control_attempt": lambda _args: _success(
                 attempt_id=str(_ATTEMPT_ID),
                 control=control,
-                headers={"X-AAP-Route-Admission": "exclusive-control-token"},
+                headers={"X-YOAO-Route-Admission": "exclusive-control-token"},
             ),
             "settle_control_attempt": lambda _args: _success(
                 attempt={
@@ -828,7 +828,7 @@ async def test_control_attempts_are_bound_to_the_persistent_control_capability()
 
     assert begin_result.result.control.control_id == _CONTROL_ID
     assert (
-        begin_result.result.headers["X-AAP-Route-Admission"]
+        begin_result.result.headers["X-YOAO-Route-Admission"]
         == "exclusive-control-token"
     )
     assert settle_result.result.attempt_id == _ATTEMPT_ID

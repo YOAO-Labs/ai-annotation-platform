@@ -40,10 +40,11 @@ from yoao_protocol_v2.scope_retirement import (
     decode_backend_scope_retirement_command,
 )
 
-_TOKEN_ENV = "AAP_ROUTE_CONTROL_TOKEN"
-_TOKEN_FILE_ENV = "AAP_ROUTE_CONTROL_TOKEN_FILE"
+_TOKEN_ENV = "ROUTE_CONTROL_TOKEN"
+_TOKEN_FILE_ENV = "ROUTE_CONTROL_TOKEN_FILE"
 _LEGACY_ENV = "AAP_ROUTE_ALLOW_LEGACY_EXECUTION"
 _REGISTRY_ENV = "AAP_ROUTE_REGISTRY_ID"
+_RENAMED_ENV = ("AAP_ROUTE_CONTROL_TOKEN", "AAP_ROUTE_CONTROL_TOKEN_FILE")
 _MAX_SECRET_BYTES = 8192
 _REPLAY_SKEW_SECONDS = 30
 _SCOPE_RETIREMENT_SKEW_SECONDS = 30
@@ -1046,6 +1047,16 @@ def _reject_legacy_bypass(environ: Mapping[str, str]) -> None:
         )
 
 
+def _reject_renamed_environment(environ: Mapping[str, str]) -> None:
+    """Refuse value-bearing pre-rename keys instead of silently ignoring them."""
+
+    renamed = [name for name in _RENAMED_ENV if environ.get(name) not in (None, "")]
+    if renamed:
+        raise RouteConfigurationError(
+            "unsupported legacy route control environment: " + ", ".join(renamed)
+        )
+
+
 def install_backend_routing_controller(
     app: FastAPI,
     *,
@@ -1057,6 +1068,7 @@ def install_backend_routing_controller(
     if existing is not None:
         return existing
     source = os.environ if environ is None else environ
+    _reject_renamed_environment(source)
     configured_registry_id = (
         registry_id if registry_id is not None else source.get(_REGISTRY_ENV)
     )

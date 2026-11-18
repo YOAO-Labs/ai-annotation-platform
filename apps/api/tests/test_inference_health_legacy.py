@@ -103,7 +103,7 @@ def _backend(case, trace):
         def do_GET(self):
             route = self.path.split("?", 1)[0]
             trace.append("http:" + route.strip("/"))
-            challenge = self.headers.get("X-AAP-GPU-Health-Challenge")
+            challenge = self.headers.get("X-YOAO-GPU-Health-Challenge")
             if route == "/health":
                 if case == "gpu_legacy_fallback" and challenge:
                     self.send_response(422)
@@ -128,7 +128,7 @@ def _backend(case, trace):
                     ).encode()
                 self.send_response(200)
                 if case == "gpu_echo" and challenge:
-                    self.send_header("X-AAP-GPU-Health-Challenge", challenge)
+                    self.send_header("X-YOAO-GPU-Health-Challenge", challenge)
             else:
                 if case == "cpu_setup_failed":
                     self.send_response(503)

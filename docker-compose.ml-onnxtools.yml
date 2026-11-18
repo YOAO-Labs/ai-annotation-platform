@@ -9,7 +9,7 @@ services:
     ports:
       - "8004:8004"
     environment:
-      AAP_BACKEND_AUTH_DIR: /run/aap-inference-auth
+      BACKEND_AUTH_DIR: /run/aap-inference-auth
       ONNXTOOLS_MODEL_DIR: /app/models
       ONNXTOOLS_DET_MODEL: ${ONNXTOOLS_DET_MODEL:-rtdetr-2024080100.onnx}
       ONNXTOOLS_VA_MODEL: ${ONNXTOOLS_VA_MODEL:-va_260612.onnx}
@@ -21,7 +21,7 @@ services:
       GPU_LIFECYCLE_VERIFY_KEYS_JSON: ${GPU_LIFECYCLE_VERIFY_KEYS_JSON:-}
       LOG_LEVEL: ${ONNXTOOLS_LOG_LEVEL:-INFO}
       NVIDIA_VISIBLE_DEVICES: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
-      AAP_GPU_PHYSICAL_DEVICE_TOKEN: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
+      GPU_PHYSICAL_DEVICE_TOKEN: ${ONNXTOOLS_GPU_DEVICE_ID:-0}
     volumes:
       - type: bind
         source: ${ML_MANAGED_AUTH_DIR:-./data/inference-auth}/onnxtools

@@ -703,7 +703,7 @@ class RoutingBeginResult(_RoutingModel):
 
     @model_validator(mode="after")
     def permitted_admission_header(self) -> RoutingBeginResult:
-        if set(self.headers) not in (set(), {"X-AAP-Route-Admission"}):
+        if set(self.headers) not in (set(), {"X-YOAO-Route-Admission"}):
             raise ValueError("Invalid routing admission headers")
         _validate_header_values(self.headers)
         return self
@@ -716,7 +716,7 @@ class RoutingBeginControlResult(_RoutingModel):
 
     @model_validator(mode="after")
     def permitted_admission_header(self) -> RoutingBeginControlResult:
-        if set(self.headers) not in (set(), {"X-AAP-Route-Admission"}):
+        if set(self.headers) not in (set(), {"X-YOAO-Route-Admission"}):
             raise ValueError("Invalid routing admission headers")
         _validate_header_values(self.headers)
         return self

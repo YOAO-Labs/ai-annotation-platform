@@ -301,7 +301,7 @@ async def test_retirement_fences_one_scope_and_keeps_unrelated_scope_admissible(
         _asgi_call(
             middleware,
             path="/slow",
-            headers=[(b"x-aap-route-admission", token.encode())],
+            headers=[(b"x-yoao-route-admission", token.encode())],
         )
     )
     await started.wait()
@@ -315,7 +315,7 @@ async def test_retirement_fences_one_scope_and_keeps_unrelated_scope_admissible(
         await _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", stale_same_scope_token.encode())],
+            headers=[(b"x-yoao-route-admission", stale_same_scope_token.encode())],
         )
     )[0] == 401
     unrelated_scope = str(uuid4())
@@ -324,7 +324,7 @@ async def test_retirement_fences_one_scope_and_keeps_unrelated_scope_admissible(
         await _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", unrelated_token.encode())],
+            headers=[(b"x-yoao-route-admission", unrelated_token.encode())],
         )
     )[0] == 200
     assert controller.phase == "bound"
@@ -361,7 +361,7 @@ async def test_retirement_counts_registered_future_until_it_finishes():
         _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", token.encode())],
+            headers=[(b"x-yoao-route-admission", token.encode())],
         )
     )
     await started.wait()
@@ -412,7 +412,7 @@ async def test_late_future_registration_uses_the_current_scope_counter():
         await _asgi_call(
             middleware_a,
             path="/predict",
-            headers=[(b"x-aap-route-admission", token_a.encode())],
+            headers=[(b"x-yoao-route-admission", token_a.encode())],
         )
     )[0] == 200
     assert controller.active_requests == 0
@@ -428,7 +428,7 @@ async def test_late_future_registration_uses_the_current_scope_counter():
         _asgi_call(
             middleware_b,
             path="/slow",
-            headers=[(b"x-aap-route-admission", token_b.encode())],
+            headers=[(b"x-yoao-route-admission", token_b.encode())],
         )
     )
     await started_b.wait()
@@ -488,7 +488,7 @@ async def test_late_future_after_retirement_latches_controller_closed():
         await _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", token.encode())],
+            headers=[(b"x-yoao-route-admission", token.encode())],
         )
     )[0] == 200
     command = _retirement_command(controller, scope_id)
@@ -508,7 +508,7 @@ async def test_late_future_after_retirement_latches_controller_closed():
         await _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", other_scope_token.encode())],
+            headers=[(b"x-yoao-route-admission", other_scope_token.encode())],
         )
     )[0] == 503
 
@@ -593,7 +593,7 @@ async def test_late_future_after_epoch_bind_latches_controller_closed():
         await _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", old_token.encode())],
+            headers=[(b"x-yoao-route-admission", old_token.encode())],
         )
     )[0] == 200
 
@@ -636,7 +636,7 @@ async def test_late_future_after_epoch_bind_latches_controller_closed():
         await _asgi_call(
             middleware,
             path="/predict",
-            headers=[(b"x-aap-route-admission", new_epoch_token.encode())],
+            headers=[(b"x-yoao-route-admission", new_epoch_token.encode())],
         )
     )[0] == 503
 

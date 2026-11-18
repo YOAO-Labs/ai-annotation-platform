@@ -30,10 +30,10 @@ from pydantic import (
     model_validator,
 )
 
-GPU_GENERATION_HEADER = "X-AAP-GPU-Generation"
-GPU_ADMISSION_TOKEN_HEADER = "X-AAP-GPU-Admission-Token"
-GPU_HEALTH_CHALLENGE_HEADER = "X-AAP-GPU-Health-Challenge"
-GPU_HEALTH_CHALLENGE_QUERY_PARAM = "aap_gpu_health_challenge"
+GPU_GENERATION_HEADER = "X-YOAO-GPU-Generation"
+GPU_ADMISSION_TOKEN_HEADER = "X-YOAO-GPU-Admission-Token"
+GPU_HEALTH_CHALLENGE_HEADER = "X-YOAO-GPU-Health-Challenge"
+GPU_HEALTH_CHALLENGE_QUERY_PARAM = "yoao_gpu_health_challenge"
 GPU_LIFECYCLE_AUDIENCE = "aap-gpu-lifecycle"
 GPU_ADMISSION_TOKEN_TYPE = "aap-gpu+jwt"
 GPU_ADMISSION_TOKEN_ALGORITHM = "EdDSA"
@@ -178,8 +178,8 @@ class ManagedLifecycleCapabilities(BaseModel):
     unload_endpoint: Literal["/unload"] = "/unload"
     mode_endpoint: Literal["/lifecycle/mode"] = "/lifecycle/mode"
     reset_endpoint: Literal["/lifecycle/reset"] = "/lifecycle/reset"
-    generation_header: Literal["X-AAP-GPU-Generation"] = GPU_GENERATION_HEADER
-    token_header: Literal["X-AAP-GPU-Admission-Token"] = GPU_ADMISSION_TOKEN_HEADER
+    generation_header: Literal["X-YOAO-GPU-Generation"] = GPU_GENERATION_HEADER
+    token_header: Literal["X-YOAO-GPU-Admission-Token"] = GPU_ADMISSION_TOKEN_HEADER
 
 
 def canonical_managed_lifecycle_capabilities(value: object) -> dict[str, object]:

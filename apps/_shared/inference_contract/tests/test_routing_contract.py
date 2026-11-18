@@ -123,7 +123,7 @@ def _body(operation: str) -> dict:
             "capability": _CAPABILITY,
             "attempt_id": uuid.UUID("f4eefed4-9ab4-40bc-8425-dc19e6c76235"),
             "method": "POST",
-            "path": "/v1/aap-routing/control",
+            "path": "/v1/yoao-routing/control",
             "transport_subject": _TRANSPORT_SUBJECT,
         }
     if operation == "settle_control":
@@ -309,7 +309,7 @@ def _result_object(operation: str) -> dict:
                 "phase": "draining",
                 "capability": _CAPABILITY,
             },
-            "headers": {"X-AAP-Route-Admission": "signed-admission-token"},
+            "headers": {"X-YOAO-Route-Admission": "signed-admission-token"},
         }
     raise AssertionError(operation)
 

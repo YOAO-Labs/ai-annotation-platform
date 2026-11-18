@@ -841,9 +841,9 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["X-AAP-Route-Admission"],
+          "required": ["X-YOAO-Route-Admission"],
           "properties": {
-            "X-AAP-Route-Admission": {
+            "X-YOAO-Route-Admission": {
               "type": "string",
               "minLength": 1,
               "maxLength": 16384,

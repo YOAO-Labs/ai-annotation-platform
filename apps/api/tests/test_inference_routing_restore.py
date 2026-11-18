@@ -351,8 +351,8 @@ async def _seed_nonempty_routing_state(
         )
         assert began["status"] == "ok"
         source_header_present = await owner.fetchval(
-            "SELECT pg_catalog.jsonb_typeof($1::jsonb -> 'X-AAP-Route-Admission')="
-            "'string' AND pg_catalog.char_length($1::jsonb ->> 'X-AAP-Route-Admission') > 0",
+            "SELECT pg_catalog.jsonb_typeof($1::jsonb -> 'X-YOAO-Route-Admission')="
+            "'string' AND pg_catalog.char_length($1::jsonb ->> 'X-YOAO-Route-Admission') > 0",
             json.dumps(began["headers"]),
         )
         assert source_header_present is True
@@ -539,9 +539,9 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         )
         begin_has_admission = await owner.fetchval(
             f"""SELECT pg_catalog.jsonb_typeof(
-                           result -> 'headers' -> 'X-AAP-Route-Admission')='string'
+                           result -> 'headers' -> 'X-YOAO-Route-Admission')='string'
                        AND pg_catalog.char_length(
-                           result -> 'headers' ->> 'X-AAP-Route-Admission') > 0
+                           result -> 'headers' ->> 'X-YOAO-Route-Admission') > 0
                 FROM {_SCHEMA}.command_receipts WHERE id=$1""",
             world["begin_command"].request_id,
         )

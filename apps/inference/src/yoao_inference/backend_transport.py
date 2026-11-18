@@ -41,9 +41,9 @@ from .request_tracking import GPU_UNLOAD_ROUTE_EXTENSION, RequestContext, http_c
 # 控制 (默认 4, 匹配现有 celery worker --concurrency=4 不破坏既有行为). 改 extra_params 后需 worker
 # 重启才生效 (每个存活 event loop 按 backend_id 缓存; 见 docs-site/dev/concepts/ai-models.md).
 _DEFAULT_MAX_CONCURRENCY = 4
-GPU_HEALTH_CHALLENGE_HEADER = "X-AAP-GPU-Health-Challenge"
-GPU_HEALTH_CHALLENGE_QUERY_PARAM = "aap_gpu_health_challenge"
-GPU_HEALTH_CHALLENGE_ECHO_MARKER = "_aap_gpu_health_challenge_echo"
+GPU_HEALTH_CHALLENGE_HEADER = "X-YOAO-GPU-Health-Challenge"
+GPU_HEALTH_CHALLENGE_QUERY_PARAM = "yoao_gpu_health_challenge"
+GPU_HEALTH_CHALLENGE_ECHO_MARKER = "_yoao_gpu_health_challenge_echo"
 _GPU_HEALTH_CHALLENGE_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SEMAPHORE_CACHE_ATTR = "_aap_ml_backend_semaphores"
 _MANAGED_EVALUATION_RECEIPT_PATH = re.compile(

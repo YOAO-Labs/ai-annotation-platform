@@ -15,7 +15,7 @@ last_reviewed: 2026-10-19
 
 旧部署首次接入需要升级 API 和启用的 Backend 镜像，并应用 Compose 的凭据挂载。API 启动会先创建或复用 `ML_MANAGED_AUTH_DIR` 下各服务的私有文件，再尝试同步环境注册项；服务暂未升级导致握手失败时，本地文件会保留，API 仍可启动。不能把旧镜像仅重启一次就当作已接入认证。
 
-API 对凭据父目录可写，每个服务只读挂载自己的子目录到 `AAP_BACKEND_AUTH_DIR`，worker 无需读取这些文件。非 root API 与凭据目录的归属应一致；相对目录按当前 checkout 解析，各部署和工作树分别使用自己的目录。目录与 Token 不要烘焙进镜像或复制到 Git。
+API 对凭据父目录可写，每个服务只读挂载自己的子目录并用 `BACKEND_AUTH_DIR` 指向该挂载，worker 无需读取这些文件。旧名 `AAP_BACKEND_AUTH_DIR` 不再注入；读取旧名的 backend 制品必须与 Compose 同代更新。非 root API 与凭据目录的归属应一致；相对目录按当前 checkout 解析，各部署和工作树分别使用自己的目录。目录与 Token 不要烘焙进镜像或复制到 Git。
 
 完成镜像和挂载升级后，超管在「设置 → 系统设置 → ML 服务认证与维护」初始化并同步认证，再执行实例健康检查。已有手动 Token 保留；YOLO 的 `YOLO_MANAGED_MODELS_TOKEN` 优先于通用手动值与文件默认值，保留手动模式时平台也应填写同一凭据。项目启用和候选模型加载仍需分别完成。
 

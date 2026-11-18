@@ -30,7 +30,7 @@ class Stream(httpx.AsyncByteStream):
 
 def context(trace, *, fail_settlement=False):
     class Grant:
-        headers = {"X-AAP-Route-Admission": "admitted"}
+        headers = {"X-YOAO-Route-Admission": "admitted"}
 
         async def response(self, status):
             trace.append(("response", status))
@@ -56,7 +56,7 @@ async def test_consumed_response_settles_after_body_before_context_close():
     trace = []
 
     async def handler(request):
-        assert request.headers["X-AAP-Route-Admission"] == "admitted"
+        assert request.headers["X-YOAO-Route-Admission"] == "admitted"
         trace.append("send")
         return httpx.Response(503, stream=Stream(trace))
 

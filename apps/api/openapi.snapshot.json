@@ -26685,8 +26685,8 @@
             "type": "boolean"
           },
           "generation_header": {
-            "const": "X-AAP-GPU-Generation",
-            "default": "X-AAP-GPU-Generation",
+            "const": "X-YOAO-GPU-Generation",
+            "default": "X-YOAO-GPU-Generation",
             "title": "Generation Header",
             "type": "string"
           },
@@ -26709,8 +26709,8 @@
             "type": "string"
           },
           "token_header": {
-            "const": "X-AAP-GPU-Admission-Token",
-            "default": "X-AAP-GPU-Admission-Token",
+            "const": "X-YOAO-GPU-Admission-Token",
+            "default": "X-YOAO-GPU-Admission-Token",
             "title": "Token Header",
             "type": "string"
           },

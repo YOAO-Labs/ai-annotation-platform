@@ -77,11 +77,11 @@ base URL 由超级管理员在「模型市场 → 注册管理」录入；项目
 
 绑定了 `gpu_resource_id` 的 backend 在平台周期探活、以及 cold 派发收到完整 HTTP 响应后的立即探活中，会收到同一个随机 challenge：
 
-- Header：`X-AAP-GPU-Health-Challenge`
-- Query：`aap_gpu_health_challenge`
+- Header：`X-YOAO-GPU-Health-Challenge`
+- Query：`yoao_gpu_health_challenge`
 - 值：固定 64 位小写十六进制字符串
 
-平台同时发送 header、query 和 `Cache-Control: no-cache`。backend 只有在 header 与 query 各出现一次、值完全一致且格式合法时，才在响应 header 中精确回显 `X-AAP-GPU-Health-Challenge`，并发送 `Cache-Control: no-store`。challenge 缺失、重复、非法或不一致时，`/health` 仍保持原有响应语义，但不得回显。旧 backend 或中间代理不支持该契约时，HTTP 200 仍表示已连接，只是不能形成 GPU 仲裁证明。若严格的旧 backend 因未知 query 返回 400/422，平台只重试一次不带 challenge 与缓存指令的普通 `/health`；该兼容响应即使携带同名 header 也永远不能升级为证明，原有 Authorization 仍会保留。
+平台同时发送 header、query 和 `Cache-Control: no-cache`。backend 只有在 header 与 query 各出现一次、值完全一致且格式合法时，才在响应 header 中精确回显 `X-YOAO-GPU-Health-Challenge`，并发送 `Cache-Control: no-store`。challenge 缺失、重复、非法或不一致时，`/health` 仍保持原有响应语义，但不得回显。旧 backend 或中间代理不支持该契约时，HTTP 200 仍表示已连接，只是不能形成 GPU 仲裁证明。若严格的旧 backend 因未知 query 返回 400/422，平台只重试一次不带 challenge 与缓存指令的普通 `/health`；该兼容响应即使携带同名 header 也永远不能升级为证明，原有 Authorization 仍会保留。
 
 平台只接受唯一且精确的响应 header 回显；backend JSON body 不能自行声明回显成功。命中后，健康服务使用 PostgreSQL `clock_timestamp()` 分别记录网络请求开始前的 `probe_started_at` 和响应完整返回后的 `observed_at`，并把 challenge、backend/resource 身份及 membership epoch/state 一并写入 `health_meta.gpu_arbiter_probe`。写回前会依次锁定注册表行和 exact membership 行并重新核对 epoch/state，使成员状态不能插入最终复核与写回之间；端点或成员配置在探测期间发生变化时丢弃响应。数据库返回无时区时间或 `observed_at < probe_started_at` 时同样 fail-closed。
 
@@ -126,8 +126,8 @@ GPU backend 应在 `/health` 顶层返回 `compute`：
     "unload_endpoint": "/unload",
     "mode_endpoint": "/lifecycle/mode",
     "reset_endpoint": "/lifecycle/reset",
-    "generation_header": "X-AAP-GPU-Generation",
-    "token_header": "X-AAP-GPU-Admission-Token"
+    "generation_header": "X-YOAO-GPU-Generation",
+    "token_header": "X-YOAO-GPU-Admission-Token"
   }
 }
 ```
@@ -192,12 +192,13 @@ GPU backend 应在 `/health` 顶层返回 `compute`：
 受管 workload 与状态转换使用独立请求头，不复用 `Authorization`：
 
 ```text
-X-AAP-GPU-Generation: 42
-X-AAP-GPU-Admission-Token: <compact EdDSA JWS>
+X-YOAO-GPU-Generation: 42
+X-YOAO-GPU-Admission-Token: <compact EdDSA JWS>
 ```
 
 - **Ed25519 / EdDSA 签名机制**：token 固定为 compact JWS（`alg=EdDSA`、`typ=aap-gpu+jwt`、携带 `kid`，`aud=aap-gpu-lifecycle`）。平台 signer 通过 `GPU_LIFECYCLE_SIGNING_KEYS_FILE` 延迟读取只读私钥 JSON 并由 `GPU_LIFECYCLE_ACTIVE_SIGNING_KID` 选择当前 key；五个 GPU backend 从 `GPU_LIFECYCLE_VERIFY_KEYS_JSON` 读取公钥 keyring。
-- **Header 完备性门禁**：`/health` 与 `/setup` 始终免 token。legacy gate 下无受管 header 的请求保持兼容但标记为 `unmanaged`；一旦出现任一受管 header，则两个 header 必须同时唯一出现并通过完整校验，部分或重复 header 一律 fail-closed。`/lifecycle/mode` 与 `/lifecycle/reset` 仅接受唯一 `X-AAP-GPU-Admission-Token` 并拒绝 generation header。
+- **Header 完备性门禁**：`/health` 与 `/setup` 始终免 token。legacy gate 下无受管 header 的请求保持兼容但标记为 `unmanaged`；一旦出现任一受管 header，则两个 header 必须同时唯一出现并通过完整校验，部分或重复 header 一律 fail-closed。`/lifecycle/mode` 与 `/lifecycle/reset` 仅接受唯一 `X-YOAO-GPU-Admission-Token` 并拒绝 generation header。
+- **当前命名与切换门**：受管 header、`/health` challenge query 与路由控制路径使用 YOAO 命名；旧 `X-AAP-GPU-*`、`aap_gpu_health_challenge`、`/v1/aap-routing/*` 不再被识别，也不存在双名回退。切换要求平台与每个在运行的 provider 使用匹配制品并完成物理排空；签名／声明身份 `typ=aap-gpu+jwt`、`aud=aap-gpu-lifecycle`、`ml-route` 与路由命令哈希输入不随 header 文本改名。
 - **Membership Promotion 与两级锁**：desired mode 为 `enforce` 的周期修复遵循“逐卡物理资源锁 → 全局短 promotion barrier”加锁顺序（数据库 trigger 对两级锁均 fail-fast）。在锁域内重验 connected claim、membership epoch/state、能力哈希、新鲜 challenge proof 及无别名冲突（拒绝相同 canonical endpoint 或相同 `boot_id`）后，平台在同一短事务内先把 Redis 卡级 ready 降为 `not_ready`，再推进 active runtime epoch、control epoch 与 token expiry high-water。
 - **控制端点调用顺序**：
   1. 平台先通过 `/lifecycle/mode`（body 为 `gate + control_epoch`）建立门控模式；legacy unmanaged 驻留进入 enforce 前，必须先用更大 `control_epoch` 调用 `/lifecycle/reset` 完成全池清理。
@@ -1700,7 +1701,8 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 
 ### 后端执行范围的定向退役
 
-受管后端通过 `POST /v1/aap-routing/retire-scope` 接收定向退役，沿用管理 bearer。
+受管后端通过 `POST /v1/yoao-routing/retire-scope` 接收定向退役，沿用管理 bearer。
+旧 `/v1/aap-routing/retire-scope` 不再监听；平台与 backend 必须同代切换，不能只升级一侧。
 请求 schema 为 `aap-backend-scope-retirement/v1`，精确包含退役 ID、registry ID、scope ID、
 authority epoch、backend incarnation、challenge 与 `fence_until`。UUID 必须是规范小写，
 challenge 为64位小写十六进制；不接受重复或额外字段，消息上限8192字节。

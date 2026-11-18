@@ -39,7 +39,7 @@ effective `enforce`。证明刷新不会修改 claim、fence、rollout mode 或 
   backend/resource/boot/control identity。
 - `nvidia-smi --query-gpu=index,uuid,memory.used,memory.total` 可用。
 - 每个 Backend 的 `/health.gpu_info` 必须给出物理身份。Compose 从同一
-  `*_GPU_DEVICE_ID` 派生的 `AAP_GPU_PHYSICAL_DEVICE_TOKEN` 优先于可被 runtime 重写的
+  `*_GPU_DEVICE_ID` 派生的 `GPU_PHYSICAL_DEVICE_TOKEN` 优先于可被 runtime 重写的
   `NVIDIA_VISIBLE_DEVICES` 及逻辑 `CUDA_VISIBLE_DEVICES`；完整 GPU UUID 对应 `device_uuid`，
   物理索引对应 `physical_device_token=index:N` 与 `device_index=N`。本卡级 runner 只关闭完整
   GPU 的单卡/多卡门禁；共享 helper 可以报告 `mig_uuid`，但 MIG 实例不能用本流程代替专项验收。

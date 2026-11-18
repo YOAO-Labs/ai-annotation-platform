@@ -71,7 +71,7 @@ async def test_backend_retirement_uses_private_bearer_and_exact_selected_endpoin
     async def handle(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         assert request.method == "POST"
-        assert request.url.path == "/base/v1/aap-routing/retire-scope"
+        assert request.url.path == "/base/v1/yoao-routing/retire-scope"
         assert request.headers["authorization"] == "Bearer private-management-token"
         command = json.loads(await request.aread())
         assert command["schema"] == "aap-backend-scope-retirement/v1"

@@ -182,7 +182,7 @@ async def _routed_video_backend(
         app,
         registry_id=registry_id,
         environ={
-            "AAP_ROUTE_CONTROL_TOKEN": control_token,
+            "ROUTE_CONTROL_TOKEN": control_token,
             "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "0",
         },
     )

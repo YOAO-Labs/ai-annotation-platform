@@ -144,7 +144,7 @@ def _backend_app(registry_id, token, *, entered=None, release=None):
         app,
         registry_id=registry_id,
         environ={
-            "AAP_ROUTE_CONTROL_TOKEN": token,
+            "ROUTE_CONTROL_TOKEN": token,
             "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "0",
         },
     )
@@ -992,7 +992,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         # backend request, including the pre-finish safety status reads.
         backend_control_counts = (
             counter.paths[ROUTE_STATUS_PATH],
-            counter.paths["/v1/aap-routing/control"],
+            counter.paths["/v1/yoao-routing/control"],
         )
         requests_before_replay = tuple(backend_calls)
         assert requests_before_replay == ({"operation": "omitted-after-backup"},)
@@ -1001,7 +1001,7 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         assert replayed_restore.record == completed_before
         assert backend_control_counts == (
             counter.paths[ROUTE_STATUS_PATH],
-            counter.paths["/v1/aap-routing/control"],
+            counter.paths["/v1/yoao-routing/control"],
         )
         assert tuple(backend_calls) == requests_before_replay
     finally:

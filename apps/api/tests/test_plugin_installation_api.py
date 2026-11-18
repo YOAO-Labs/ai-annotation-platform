@@ -640,8 +640,8 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkey
             if (
                 request.path != "/health"
                 or self.headers.get("Authorization") != "Bearer test-token"
-                or self.headers.get("X-AAP-GPU-Health-Challenge") != challenge
-                or parse_qs(request.query).get("aap_gpu_health_challenge")
+                or self.headers.get("X-YOAO-GPU-Health-Challenge") != challenge
+                or parse_qs(request.query).get("yoao_gpu_health_challenge")
                 != [challenge]
             ):
                 self.send_response(403)
@@ -651,7 +651,7 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkey
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("X-AAP-GPU-Health-Challenge", challenge)
+            self.send_header("X-YOAO-GPU-Health-Challenge", challenge)
             self.end_headers()
             self.wfile.write(body)
 

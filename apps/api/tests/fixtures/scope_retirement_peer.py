@@ -14,7 +14,7 @@ app = FastAPI()
 controller = install_backend_routing_controller(
     app,
     environ={
-        "AAP_ROUTE_CONTROL_TOKEN": os.environ["AAP_FIXTURE_ROUTE_TOKEN"],
+        "ROUTE_CONTROL_TOKEN": os.environ["AAP_FIXTURE_ROUTE_TOKEN"],
         "AAP_ROUTE_REGISTRY_ID": os.environ["AAP_FIXTURE_REGISTRY_ID"],
     },
 )

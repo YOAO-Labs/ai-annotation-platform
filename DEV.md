@@ -3246,8 +3246,10 @@ Native 能力，不能授予原表权限。
 定向退役沿用相同进程、端口与控制认证，接口为 `/v1/routes/retire` 与
 `/v1/routes/retirement-status`；调用前保存退役 ID，状态查询不发送后端控制。
 
-五个内置后端共享路由控制器。设置 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 后启动为未绑定，
+五个内置后端共享路由控制器。设置 `ROUTE_CONTROL_TOKEN(_FILE)` 后启动为未绑定，
 可选 `AAP_ROUTE_REGISTRY_ID` 固定实例身份；否则第一次认证管理交换固定身份。
+旧名 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 任一非空时拒绝启动，只报告键名、不输出值；
+迁移时删除旧键并重建容器，不保留双写或隐式回退。
 控制 bearer 需与 Registry 内保存的 token 相同。每次启动均在实际 drain/bind 前拒绝计算，
 不提供旧流量绕过开关；残留的 `AAP_ROUTE_ALLOW_LEGACY_EXECUTION=1` 配置会拒绝启动。
 迁移时先停止旧实例，再配置控制凭据、启动并绑定新实例，不能用空账本或 Redis 零计数作为停流证明。

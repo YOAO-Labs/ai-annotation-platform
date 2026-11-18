@@ -372,7 +372,7 @@ async def test_terminal_drain_uses_scoped_native_unload_control(test_engine):
                     assert isinstance(result, RoutingRejectedResult)
                     assert result.reason == "invalid_command"
                 else:
-                    token = result.headers["X-AAP-Route-Admission"]
+                    token = result.headers["X-YOAO-Route-Admission"]
                     payload = token.split(".")[1]
                     claims = json.loads(
                         base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))

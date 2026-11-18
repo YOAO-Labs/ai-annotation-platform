@@ -103,7 +103,7 @@ SUBPROCESS_TERMINATE_TIMEOUT_SECONDS = 1
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}\Z")
 _GPU_UUID_RE = re.compile(r"GPU-[A-Za-z0-9][A-Za-z0-9-]*\Z")
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
-_GPU_HEALTH_CHALLENGE_ECHO_MARKER = "_aap_gpu_health_challenge_echo"
+_GPU_HEALTH_CHALLENGE_ECHO_MARKER = "_yoao_gpu_health_challenge_echo"
 _ACTION_SCOPE = {
     "predict": AdmissionScope.PREDICT,
     "predict_interactive": AdmissionScope.PREDICT,

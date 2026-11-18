@@ -187,7 +187,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
                 client, owner, world, unrelated_scope_id, unrelated_capability
             )
 
-        exp = _admission_exp(active["headers"]["X-AAP-Route-Admission"])
+        exp = _admission_exp(active["headers"]["X-YOAO-Route-Admission"])
         recorded_highwater = await owner.fetchval(
             """SELECT admission_expires_at FROM aap_inference_routing_v1.scopes
                WHERE id=$1""",

@@ -82,8 +82,8 @@ def test_canonical_positive_int64_rejects_non_canonical_values(value: str) -> No
 
 def test_gpu_health_challenge_wire_names_and_canonical_value() -> None:
     challenge = "a1" * 32
-    assert GPU_HEALTH_CHALLENGE_HEADER == "X-AAP-GPU-Health-Challenge"
-    assert GPU_HEALTH_CHALLENGE_QUERY_PARAM == "aap_gpu_health_challenge"
+    assert GPU_HEALTH_CHALLENGE_HEADER == "X-YOAO-GPU-Health-Challenge"
+    assert GPU_HEALTH_CHALLENGE_QUERY_PARAM == "yoao_gpu_health_challenge"
     assert validate_gpu_health_challenge(challenge) == challenge
     assert match_gpu_health_challenge((challenge,), (challenge,)) == challenge
 
@@ -188,10 +188,10 @@ def test_managed_lifecycle_capability_payload_matches_adr() -> None:
     }
     assert canonical_managed_lifecycle_capabilities(payload) == payload
     assert managed_lifecycle_capability_sha256(payload) == (
-        "5d56bb11856728e20ae4b2b50f8bab5a0826af018e6d115b6bba48c8e35c95ea"
+        "95fa5e050d045f84ed8492a9114d0167cc907cc54282dc8037103ff539b0b432"
     )
     assert managed_lifecycle_capability_sha256(dict(reversed(payload.items()))) == (
-        "5d56bb11856728e20ae4b2b50f8bab5a0826af018e6d115b6bba48c8e35c95ea"
+        "95fa5e050d045f84ed8492a9114d0167cc907cc54282dc8037103ff539b0b432"
     )
 
 

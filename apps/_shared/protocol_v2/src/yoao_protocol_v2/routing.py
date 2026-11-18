@@ -12,9 +12,9 @@ from uuid import UUID
 
 import jwt
 
-ROUTE_ADMISSION_HEADER = "x-aap-route-admission"
-ROUTE_CONTROL_PATH = "/v1/aap-routing/control"
-ROUTE_STATUS_PATH = "/v1/aap-routing/status"
+ROUTE_ADMISSION_HEADER = "x-yoao-route-admission"
+ROUTE_CONTROL_PATH = "/v1/yoao-routing/control"
+ROUTE_STATUS_PATH = "/v1/yoao-routing/status"
 ROUTE_CONTROL_PROTOCOL = "aap-backend-route-control/v1"
 ROUTE_CONTROL_REPLY_PROTOCOL = "aap-backend-route-control-reply/v1"
 ROUTE_ADMISSION_PROTOCOL = "aap-route-admission/v1"
