@@ -60,7 +60,10 @@ async def test_identity_briefs_login_has_only_two_functions_and_no_raw_access():
                     AND dependency.deptype = 'e'
               )
               AND (
-                  pg_catalog.left(namespace.nspname,4)='aap_'
+                  (
+                      pg_catalog.left(namespace.nspname,4)='aap_'
+                      OR pg_catalog.left(namespace.nspname,5)='yoao_'
+                  )
                   OR function.prosecdef
                   OR EXISTS (
                       SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
