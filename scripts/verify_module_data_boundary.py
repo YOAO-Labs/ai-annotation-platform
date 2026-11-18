@@ -9247,7 +9247,7 @@ def main(
                     "migration_role": "owner",
                     "audit_owner": "audit_code",
                     "api_role": "legacy_runtime",
-                    "yoao_append_client": AUDIT_APPEND_ROLE,
+                    "append_client": AUDIT_APPEND_ROLE,
                 },
             )
 
