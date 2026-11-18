@@ -47,7 +47,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     healthcheck:
-      test: [CMD, python, -m, yoao_assets_source_import, --healthcheck]
+      test: [CMD, python, -m, aap_assets_source_import, --healthcheck]
       interval: 30s
       timeout: 10s
       start_period: 30s

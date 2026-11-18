@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: apps/jobs/Dockerfile.queue
-    command: [yoao-jobs-dispatch-relay]
+    command: [aap-jobs-dispatch-relay]
     environment:
       JOBS_DISPATCH_RELAY_ENABLED: "true"
       JOBS_DISPATCH_RELAY_DATABASE_URL_FILE: /run/secrets/jobs_dispatch_relay_database_url

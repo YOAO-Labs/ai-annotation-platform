@@ -186,6 +186,11 @@ FROZEN_OWNER_NAMESPACES = {
     "yoao_workspace_template_query_v1": "aap_workspace_template_query_v1",
     "yoao_workspace_v1": "aap_workspace_v1",
 }
+PROJECTED_GUCS = {
+    "aap.identity_offboarding_prepare": "yoao.identity_offboarding_prepare",
+    "aap.mask_gc_write_permit": "yoao.mask_gc_write_permit",
+    "aap.restore_training_storage": "yoao.restore_training_storage",
+}
 NAMESPACE_BODY_CALLERS = {
     "public.capture_fixture_native_export",
     "public.capture_fixture_native_export_output",
@@ -5781,6 +5786,9 @@ def _installed_function_body_sha256(
     if schema in FROZEN_OWNER_NAMESPACES or current_name in NAMESPACE_BODY_CALLERS:
         for current, frozen in FROZEN_OWNER_NAMESPACES.items():
             expected = expected.replace(f"{frozen}.", f"{current}.")
+    # bo0474 also projects the three authorized transaction-local GUCs.
+    for old, new in PROJECTED_GUCS.items():
+        expected = expected.replace(old, new)
     if current_name in {
         "yoao_inference_gpu_caller_v1.gpu_caller_policy",
         "yoao_inference_gpu_collector_v1.gpu_collector_policy",
@@ -6239,8 +6247,27 @@ async def _verify_inbox_grant_guards(owner_url: str, profile_sql: str) -> dict:
     }
 
 
-def _read_relation_evidence_expression() -> str:
-    targets = ", ".join(f"('{relation_name}')" for relation_name in READ_RELATION_SPECS)
+def _frozen_relation_name(name: str) -> str:
+    schema, _, relation = name.partition(".")
+    for current, frozen in FROZEN_OWNER_NAMESPACES.items():
+        if schema == current:
+            return f"{frozen}.{relation}"
+    return name
+
+
+def _project_relation_name(name: str) -> str:
+    schema, _, relation = name.partition(".")
+    for current, frozen in FROZEN_OWNER_NAMESPACES.items():
+        if schema == frozen:
+            return f"{current}.{relation}"
+    return name
+
+
+def _read_relation_evidence_expression(*, frozen: bool = False) -> str:
+    targets = ", ".join(
+        f"('{_frozen_relation_name(relation_name) if frozen else relation_name}')"
+        for relation_name in READ_RELATION_SPECS
+    )
     return f"""COALESCE((
         SELECT pg_catalog.jsonb_agg(
             pg_catalog.jsonb_build_object(
@@ -6279,7 +6306,10 @@ def _read_relation_evidence_expression() -> str:
 
 
 def _normalize_read_relation_observations(
-    value: str, *, expected_owner: str | dict[str, str] | None = None
+    value: str,
+    *,
+    expected_owner: str | dict[str, str] | None = None,
+    projected: bool = False,
 ) -> dict[str, dict]:
     try:
         observations = json.loads(value)
@@ -6293,6 +6323,8 @@ def _normalize_read_relation_observations(
         if not isinstance(observation, dict):
             raise RuntimeError("read relation catalog entry is malformed")
         relation_name = observation.get("relation")
+        if projected and isinstance(relation_name, str):
+            relation_name = _project_relation_name(relation_name)
         if relation_name not in READ_RELATION_SPECS or relation_name in normalized:
             raise RuntimeError("read relation catalog returned an unknown relation")
         definition_hex = observation.get("deparser_hex")
@@ -6696,123 +6728,126 @@ def _install_and_rollback_frozen_sql(
         "BEGIN;\n"
         "SELECT 1 / (current_database() = :'expected_database')::integer;\n"
         f"{install_sql}\n"
-        "SELECT yoao_identity_accounts_v1.account_policy();\n"
-        "SELECT yoao_identity_accounts_v1.prepare_account_command(NULL::jsonb);\n"
-        "SELECT yoao_identity_accounts_v1.apply_account_command(NULL::jsonb);\n"
-        "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline('2000-01-01T00:00:00Z'::timestamptz);\n"
-        "SELECT yoao_identity_recovery_v1.recovery_policy();\n"
-        "SELECT yoao_identity_recovery_v1.prepare_recovery_command(NULL::jsonb);\n"
-        "SELECT yoao_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
-        "SELECT yoao_identity_recovery_v1.mail_policy();\n"
-        "SELECT yoao_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_directory_v1.directory_policy();\n"
-        "SELECT yoao_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_admin_passwords_v1.admin_password_policy();\n"
-        "SELECT yoao_identity_admin_passwords_v1.execute_admin_password_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_platform_roles_v1.platform_role_policy();\n"
-        "SELECT yoao_identity_platform_roles_v1.execute_platform_role_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_suspensions_v1.suspension_policy();\n"
-        "SELECT yoao_identity_suspensions_v1.execute_suspension_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_deletions_v1.deletion_policy();\n"
-        "SELECT yoao_identity_deletions_v1.execute_deletion_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_offboarding_v1.offboarding_policy();\n"
-        "SELECT yoao_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
-        "SELECT yoao_identity_v1.read_provisioning_account(:'provisioning_email');\n"
-        "SELECT yoao_identity_v1.create_provisioning_account(jsonb_build_object("
+        "SELECT aap_identity_accounts_v1.account_policy();\n"
+        "SELECT aap_identity_accounts_v1.prepare_account_command(NULL::jsonb);\n"
+        "SELECT aap_identity_accounts_v1.apply_account_command(NULL::jsonb);\n"
+        "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline('2000-01-01T00:00:00Z'::timestamptz);\n"
+        "SELECT aap_identity_recovery_v1.recovery_policy();\n"
+        "SELECT aap_identity_recovery_v1.prepare_recovery_command(NULL::jsonb);\n"
+        "SELECT aap_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
+        "SELECT aap_identity_recovery_v1.mail_policy();\n"
+        "SELECT aap_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
+        "SELECT aap_identity_directory_v1.directory_policy();\n"
+        "SELECT aap_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
+        "SELECT aap_identity_admin_passwords_v1.admin_password_policy();\n"
+        "SELECT aap_identity_admin_passwords_v1.execute_admin_password_command('{}'::jsonb);\n"
+        "SELECT aap_identity_platform_roles_v1.platform_role_policy();\n"
+        "SELECT aap_identity_platform_roles_v1.execute_platform_role_command('{}'::jsonb);\n"
+        "SELECT aap_identity_suspensions_v1.suspension_policy();\n"
+        "SELECT aap_identity_suspensions_v1.execute_suspension_command('{}'::jsonb);\n"
+        "SELECT aap_identity_deletions_v1.deletion_policy();\n"
+        "SELECT aap_identity_deletions_v1.execute_deletion_command('{}'::jsonb);\n"
+        "SELECT aap_identity_offboarding_v1.offboarding_policy();\n"
+        "SELECT aap_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
+        "SELECT aap_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
+        "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
+        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT aap_identity_v1.create_provisioning_account(jsonb_build_object("
         "'schema','aap-identity-provisioning/v1',"
         "'mode','bootstrap_admin','account_id',:'provisioning_id',"
         "'email',:'provisioning_email','name','Provisioning probe',"
         "'password_hash','probe-only-hash','now','2026-10-21T00:00:00+00:00',"
         "'request_id',:'provisioning_request'));\n"
-        "SELECT yoao_identity_v1.read_provisioning_account(:'provisioning_email');\n"
-        "SELECT yoao_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
-        "SELECT yoao_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
-        "SELECT yoao_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT aap_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
+        "SELECT aap_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
         "SELECT yoao_identity_briefs_v1.briefs_policy();\n"
         "SELECT yoao_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
-        "SELECT yoao_identity_deactivation_v1.deactivation_policy();\n"
-        "SELECT yoao_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
-        "SELECT yoao_identity_deactivation_v1.due_policy();\n"
-        "SELECT yoao_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
-        "SELECT yoao_notifications_v1.identity_delivery_policy();\n"
-        "SELECT yoao_notifications_v1.delete_command(NULL::pg_catalog.jsonb);\n"
-        "SELECT yoao_identity_groups_v1.group_policy();\n"
-        "SELECT yoao_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
-        "SELECT yoao_identity_v1.lock_active_actor(NULL::uuid);\n"
-        "SELECT yoao_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_assets_v1.lock_task_creation_items(NULL::uuid, NULL::uuid[]);\n"
-        "SELECT yoao_jobs_v1.create_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_jobs_v1.find_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_jobs_v1.claim_task_creation_job(NULL::uuid, NULL::text);\n"
-        "SELECT yoao_jobs_v1.lock_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_jobs_v1.finish_task_creation_job(NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_jobs_v1.fail_task_creation_job(NULL::uuid, NULL::uuid, NULL::text);\n"
-        "SELECT yoao_jobs_v1.cancel_task_creation_job(NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_labeling_v1.accept_dataset_task_creation(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::integer);\n"
-        "SELECT yoao_labeling_v1.prepare_dataset_task_creation(NULL::uuid, NULL::jsonb);\n"
-        "SELECT yoao_labeling_v1.read_dataset_task_creation(NULL::uuid);\n"
-        "SELECT yoao_labeling_v1.advance_dataset_task_creation(NULL::uuid, NULL::integer);\n"
-        "SELECT yoao_identity_v1.lock_audit_actor(NULL::uuid);\n"
-        "SELECT yoao_learning_v1.guard_project_deletion(NULL::uuid);\n"
-        "SELECT yoao_workspace_v1.delete_project(NULL::uuid, NULL::uuid, NULL::uuid, NULL::jsonb);\n"
-        "SELECT yoao_learning_v1.guard_dataset_item_deletion(NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_learning_v1.guard_dataset_unlink(NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_workspace_v1.preview_dataset_unlink(NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT yoao_workspace_v1.unlink_dataset(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.reserve_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text);\n"
-        "SELECT yoao_assets_v1.delete_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
-        "SELECT count(*) FROM yoao_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,100);\n"
-        "SELECT yoao_assets_v1.list_catalog_datasets(NULL::uuid,NULL::text,NULL::text,NULL::boolean,50,0::bigint);\n"
-        "SELECT yoao_assets_v1.get_catalog_dataset(NULL::uuid,NULL::uuid);\n"
-        "SELECT yoao_assets_v1.list_catalog_items(NULL::uuid,NULL::uuid,50,0::bigint);\n"
-        "SELECT yoao_assets_v1.create_catalog_dataset(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.update_catalog_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.list_dataset_projects(NULL::uuid,NULL::uuid);\n"
-        "SELECT yoao_assets_v1.list_project_datasets(NULL::uuid,NULL::uuid);\n"
-        "SELECT yoao_assets_v1.lock_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid);\n"
-        "SELECT yoao_assets_v1.complete_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::text,NULL::integer,NULL::integer);\n"
-        "SELECT yoao_assets_v1.begin_dataset_ingest(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer);\n"
-        "SELECT yoao_assets_v1.guard_spatial_actor(NULL::uuid,NULL::text);\n"
-        "SELECT yoao_assets_v1.list_spatial_scenes(NULL::uuid,NULL::uuid,NULL::timestamp with time zone,NULL::uuid,NULL::integer);\n"
-        "SELECT yoao_assets_v1.get_spatial_scene(NULL::uuid,NULL::uuid);\n"
-        "SELECT yoao_assets_v1.read_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::integer);\n"
-        "SELECT yoao_assets_v1.read_spatial_items(NULL::uuid,NULL::uuid[],NULL::uuid,NULL::integer);\n"
-        "SELECT yoao_assets_v1.read_spatial_poses(NULL::uuid,NULL::uuid,NULL::integer,NULL::integer);\n"
-        "SELECT yoao_assets_v1.read_spatial_pose_pairs(NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.read_spatial_calibrations(NULL::uuid[],NULL::boolean,NULL::uuid,NULL::integer,NULL::integer);\n"
-        "SELECT yoao_assets_v1.lock_spatial_calibration_facts(NULL::uuid,NULL::uuid,NULL::text,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.mutate_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.apply_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.read_spatial_layout_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean);\n"
-        "SELECT yoao_assets_v1.upsert_spatial_poses(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.create_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::jsonb,NULL::uuid);\n"
-        "SELECT yoao_assets_v1.assign_spatial_items(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.set_spatial_scene_source(NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.update_spatial_calibration(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::integer,NULL::text,NULL::jsonb,NULL::text,NULL::text,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.read_pointcloud_preparation(NULL::uuid,NULL::uuid,NULL::integer);\n"
-        "SELECT yoao_assets_v1.apply_pointcloud_preparation(NULL::uuid,NULL::jsonb,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.read_spatial_camera_target(NULL::uuid,NULL::uuid,NULL::text);\n"
-        "SELECT yoao_assets_v1.record_spatial_calibration_provenance(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT yoao_assets_v1.set_spatial_dataset_axis(NULL::uuid,NULL::uuid,NULL::text);\n"
-        "SELECT yoao_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
-        "SELECT yoao_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
-        "SELECT yoao_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
-        "SELECT yoao_inference_v1.clear_project_ml_backend_pool(:'project_id'::uuid);\n"
-        "SELECT yoao_inference_v1.clear_project_pipelines(:'project_id'::uuid);\n"
+        "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
+        "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
+        "SELECT aap_identity_deactivation_v1.due_policy();\n"
+        "SELECT aap_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
+        "SELECT aap_notifications_v1.identity_delivery_policy();\n"
+        "SELECT aap_notifications_v1.delete_command(NULL::pg_catalog.jsonb);\n"
+        "SELECT aap_identity_groups_v1.group_policy();\n"
+        "SELECT aap_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
+        "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
+        "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_assets_v1.lock_task_creation_items(NULL::uuid, NULL::uuid[]);\n"
+        "SELECT aap_jobs_v1.create_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.find_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.claim_task_creation_job(NULL::uuid, NULL::text);\n"
+        "SELECT aap_jobs_v1.lock_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.finish_task_creation_job(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_jobs_v1.fail_task_creation_job(NULL::uuid, NULL::uuid, NULL::text);\n"
+        "SELECT aap_jobs_v1.cancel_task_creation_job(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_labeling_v1.accept_dataset_task_creation(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::integer);\n"
+        "SELECT aap_labeling_v1.prepare_dataset_task_creation(NULL::uuid, NULL::jsonb);\n"
+        "SELECT aap_labeling_v1.read_dataset_task_creation(NULL::uuid);\n"
+        "SELECT aap_labeling_v1.advance_dataset_task_creation(NULL::uuid, NULL::integer);\n"
+        "SELECT aap_identity_v1.lock_audit_actor(NULL::uuid);\n"
+        "SELECT aap_learning_v1.guard_project_deletion(NULL::uuid);\n"
+        "SELECT aap_workspace_v1.delete_project(NULL::uuid, NULL::uuid, NULL::uuid, NULL::jsonb);\n"
+        "SELECT aap_learning_v1.guard_dataset_item_deletion(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_learning_v1.guard_dataset_unlink(NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_workspace_v1.preview_dataset_unlink(NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT aap_workspace_v1.unlink_dataset(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::jsonb);\n"
+        "SELECT aap_assets_v1.reserve_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text);\n"
+        "SELECT aap_assets_v1.delete_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
+        "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,100);\n"
+        "SELECT aap_assets_v1.list_catalog_datasets(NULL::uuid,NULL::text,NULL::text,NULL::boolean,50,0::bigint);\n"
+        "SELECT aap_assets_v1.get_catalog_dataset(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.list_catalog_items(NULL::uuid,NULL::uuid,50,0::bigint);\n"
+        "SELECT aap_assets_v1.create_catalog_dataset(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.update_catalog_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.list_dataset_projects(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.list_project_datasets(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.lock_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.complete_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::text,NULL::integer,NULL::integer);\n"
+        "SELECT aap_assets_v1.begin_dataset_ingest(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.guard_spatial_actor(NULL::uuid,NULL::text);\n"
+        "SELECT aap_assets_v1.list_spatial_scenes(NULL::uuid,NULL::uuid,NULL::timestamp with time zone,NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.get_spatial_scene(NULL::uuid,NULL::uuid);\n"
+        "SELECT aap_assets_v1.read_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.read_spatial_items(NULL::uuid,NULL::uuid[],NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.read_spatial_poses(NULL::uuid,NULL::uuid,NULL::integer,NULL::integer);\n"
+        "SELECT aap_assets_v1.read_spatial_pose_pairs(NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_spatial_calibrations(NULL::uuid[],NULL::boolean,NULL::uuid,NULL::integer,NULL::integer);\n"
+        "SELECT aap_assets_v1.lock_spatial_calibration_facts(NULL::uuid,NULL::uuid,NULL::text,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.mutate_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.apply_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_spatial_layout_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean);\n"
+        "SELECT aap_assets_v1.upsert_spatial_poses(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.create_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::jsonb,NULL::uuid);\n"
+        "SELECT aap_assets_v1.assign_spatial_items(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.set_spatial_scene_source(NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.update_spatial_calibration(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::integer,NULL::text,NULL::jsonb,NULL::text,NULL::text,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_pointcloud_preparation(NULL::uuid,NULL::uuid,NULL::integer);\n"
+        "SELECT aap_assets_v1.apply_pointcloud_preparation(NULL::uuid,NULL::jsonb,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.read_spatial_camera_target(NULL::uuid,NULL::uuid,NULL::text);\n"
+        "SELECT aap_assets_v1.record_spatial_calibration_provenance(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT aap_assets_v1.set_spatial_dataset_axis(NULL::uuid,NULL::uuid,NULL::text);\n"
+        "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
+        "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
+        "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT aap_inference_v1.clear_project_ml_backend_pool(:'project_id'::uuid);\n"
+        "SELECT aap_inference_v1.clear_project_pipelines(:'project_id'::uuid);\n"
         "SELECT yoao_insights_v1.clear_project_task_views(:'project_id'::uuid);\n"
         "SELECT yoao_diagnostics_v1.detach_project_references(:'project_id'::uuid);\n"
-        "SELECT yoao_export_v1.clear_project_export_artifacts(:'project_id'::uuid);\n"
-        "SELECT yoao_jobs_v1.detach_project_references(:'project_id'::uuid);\n"
-        "SELECT yoao_learning_v1.delete_project_owned_records(:'project_id'::uuid);\n"
-        "SELECT yoao_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
-        "SELECT yoao_labeling_v1.append_dataset_items("
+        "SELECT aap_export_v1.clear_project_export_artifacts(:'project_id'::uuid);\n"
+        "SELECT aap_jobs_v1.detach_project_references(:'project_id'::uuid);\n"
+        "SELECT aap_learning_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT aap_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT aap_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
         "SELECT 'AAP_READ_RELATIONS_FROZEN=' || ("
-        f"{_read_relation_evidence_expression()}"
+        # The replay installs the frozen artifacts on the bo0267 base, i.e.
+        # historical bo0473 names. bo0474 is applied only by the real alembic
+        # head; never preview its renames in this transient transaction.
+        f"{_read_relation_evidence_expression(frozen=True)}"
         ")::text;\n"
         "ROLLBACK;\n"
     )
@@ -6841,7 +6876,9 @@ def _install_and_rollback_frozen_sql(
     if len(relation_rows) != 1:
         raise RuntimeError("frozen SQL read relation evidence is missing")
     frozen_relations = _normalize_read_relation_observations(
-        relation_rows[0], expected_owner=migration_role
+        relation_rows[0],
+        expected_owner=migration_role,
+        projected=True,
     )
     responses: dict[str, list[dict]] = {}
     for line in output.splitlines():
