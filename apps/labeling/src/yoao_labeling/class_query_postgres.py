@@ -12,7 +12,7 @@ from .class_query_contract import (
     decode_labeling_class_query_policy,
 )
 
-CLASS_QUERY_SCHEMA = "aap_labeling_class_query_v1"
+CLASS_QUERY_SCHEMA = "yoao_labeling_class_query_v1"
 CLASS_QUERY_FUNCTIONS = {
     ("class_query_policy", ""),
     ("class_counts", "uuid"),

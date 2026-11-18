@@ -45,7 +45,7 @@ def class_query_dsn(test_engine):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_LABELING_CLASS_QUERY_URL",
-        "labeling_class_query_client",
+        "yoao_labeling_class_query_client",
     )
 
 
@@ -168,8 +168,8 @@ async def test_labeling_readiness_rejects_lost_function_or_extra_column_grant(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "REVOKE EXECUTE ON FUNCTION aap_labeling_class_query_v1.attribute_rows(uuid) "
-                    "FROM labeling_class_query_client"
+                    "REVOKE EXECUTE ON FUNCTION yoao_labeling_class_query_v1.attribute_rows(uuid) "
+                    "FROM yoao_labeling_class_query_client"
                 )
             )
         with pytest.raises(LabelingClassQueryUnavailable):
@@ -178,15 +178,15 @@ async def test_labeling_readiness_rejects_lost_function_or_extra_column_grant(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "GRANT EXECUTE ON FUNCTION aap_labeling_class_query_v1.attribute_rows(uuid) "
-                    "TO labeling_class_query_client"
+                    "GRANT EXECUTE ON FUNCTION yoao_labeling_class_query_v1.attribute_rows(uuid) "
+                    "TO yoao_labeling_class_query_client"
                 )
             )
     try:
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "GRANT SELECT (attributes) ON public.annotations TO labeling_class_query_client"
+                    "GRANT SELECT (attributes) ON public.annotations TO yoao_labeling_class_query_client"
                 )
             )
         with pytest.raises(LabelingClassQueryUnavailable):
@@ -195,7 +195,7 @@ async def test_labeling_readiness_rejects_lost_function_or_extra_column_grant(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "REVOKE SELECT (attributes) ON public.annotations FROM labeling_class_query_client"
+                    "REVOKE SELECT (attributes) ON public.annotations FROM yoao_labeling_class_query_client"
                 )
             )
     await data.class_query_policy()

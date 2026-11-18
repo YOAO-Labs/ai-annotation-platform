@@ -237,7 +237,7 @@ async def _assert_clone_owner(engine, clone: str, ownership: str) -> None:
                 text(
                     "SELECT current_user, current_database(), "
                     "pg_catalog.has_schema_privilege(current_user, "
-                    "'aap_labeling_class_query_v1', 'CREATE')"
+                    "'yoao_labeling_class_query_v1', 'CREATE')"
                 )
             )
         ).one()

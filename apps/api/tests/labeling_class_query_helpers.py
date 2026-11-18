@@ -205,10 +205,10 @@ def clear_local_identity(monkeypatch) -> None:
 
 def labeling_class_query_dsn(test_engine) -> str:
     raw = _role_url(
-        "AAP_MODULE_DATA_LABELING_CLASS_QUERY_URL", "labeling_class_query_client"
+        "AAP_MODULE_DATA_LABELING_CLASS_QUERY_URL", "yoao_labeling_class_query_client"
     )
     parsed = make_url(raw)
-    assert parsed.username == "labeling_class_query_client"
+    assert parsed.username == "yoao_labeling_class_query_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -239,7 +239,7 @@ async def installed_workspace_query_provider(dsn, token):
 async def installed_labeling_query_provider(dsn, token):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     parsed = make_url(dsn)
-    assert parsed.username == "labeling_class_query_client"
+    assert parsed.username == "yoao_labeling_class_query_client"
     assert parsed.database and parsed.database.endswith("_test")
     _verify_postgres(parsed)
     interpreter = Path(os.environ["AAP_LABELING_CLASS_QUERY_PYTHON"])
@@ -436,11 +436,11 @@ def observe_borrowed_labeling_rpc(engine):
         if current is None:
             return
         compact = " ".join(statement.casefold().split())
-        if "aap_labeling_class_query_v1.class_query_policy()" in compact:
+        if "yoao_labeling_class_query_v1.class_query_policy()" in compact:
             current.append("class_query_policy")
-        elif "aap_labeling_class_query_v1.class_counts(" in compact:
+        elif "yoao_labeling_class_query_v1.class_counts(" in compact:
             current.append("class_counts")
-        elif "aap_labeling_class_query_v1.attribute_rows(" in compact:
+        elif "yoao_labeling_class_query_v1.attribute_rows(" in compact:
             current.append("attribute_rows")
 
     event.listen(engine.sync_engine, "before_cursor_execute", observe)
@@ -470,7 +470,7 @@ async def _wait_for_blocked_class_query(test_engine, timeout_seconds=20) -> dict
         "FROM pg_catalog.pg_stat_activity "
         "WHERE datname=current_database() AND pid <> pg_backend_pid() "
         "AND wait_event_type='Lock' "
-        "AND query ILIKE '%aap_labeling_class_query_v1.class_counts%' "
+        "AND query ILIKE '%yoao_labeling_class_query_v1.class_counts%' "
         "ORDER BY query_start DESC LIMIT 1"
     )
     loop = asyncio.get_running_loop()
@@ -500,14 +500,14 @@ async def assert_owned_test_database(test_engine) -> dict:
                 text(
                     "SELECT current_user, current_database(), "
                     "pg_catalog.has_schema_privilege(current_user, "
-                    "'aap_labeling_class_query_v1', 'CREATE')"
+                    "'yoao_labeling_class_query_v1', 'CREATE')"
                 )
             )
         ).one()
     assert database == test_engine.url.database and database.endswith("_test")
     assert current_user not in {
         "legacy_runtime",
-        "labeling_class_query_client",
+        "yoao_labeling_class_query_client",
         "yoao_workspace_project_query_client",
     }
     assert can_create
@@ -524,7 +524,7 @@ async def _function_metadata(connection) -> tuple[int, str | None, int, str]:
                     "FROM pg_catalog.pg_proc AS proc "
                     "WHERE proc.oid = CAST(:signature AS regprocedure)"
                 ),
-                {"signature": "aap_labeling_class_query_v1.class_counts(uuid)"},
+                {"signature": "yoao_labeling_class_query_v1.class_counts(uuid)"},
             )
         )
         .mappings()

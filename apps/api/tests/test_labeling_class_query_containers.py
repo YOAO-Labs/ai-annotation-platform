@@ -235,7 +235,7 @@ async def _labeling_owner_container(test_engine, directory: Path, token: str):
 
     original_dsn = labeling_class_query_dsn(test_engine)
     parsed = make_url(original_dsn)
-    assert parsed.username == "labeling_class_query_client"
+    assert parsed.username == "yoao_labeling_class_query_client"
     postgres_id = _required("AAP_MODULE_DATA_PG_CONTAINER_ID")
     postgres_name = _required("AAP_MODULE_DATA_PG_CONTAINER_NAME")
     postgres_identity = _required("AAP_MODULE_DATA_PG_CONTAINER_IDENTITY")
@@ -734,7 +734,7 @@ async def test_labeling_owner_container_public_api_restart_and_bounded_load(
                                         "image_limits": owner["limits"],
                                         "owner_budget": {"cpu": 1, "memory_mib": 256},
                                         "secret_mounts": 2,
-                                        "database_role": "labeling_class_query_client",
+                                        "database_role": "yoao_labeling_class_query_client",
                                         "workspace_provider": "installed-http-artifact",
                                         "workspace_identity_profiles_configured": False,
                                         "api_and_database_outside_owner_budget": True,

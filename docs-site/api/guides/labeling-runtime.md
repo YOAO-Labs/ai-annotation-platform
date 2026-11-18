@@ -50,7 +50,7 @@ Labeling 也没有共同快照。授权只执行原来的一轮当前权限读�
 ## 数据权限与本地部署
 
 先应用包含两个 owner 扩展的当前迁移，再应用 `infra/docker/module-data-grants.sql`
-和 `infra/docker/labeling-class-query-grants.sql`。`labeling_class_query_client`
+和 `infra/docker/labeling-class-query-grants.sql`。`yoao_labeling_class_query_client`
 只得到 `class_query_policy()`、`class_counts(uuid)`、`attribute_rows(uuid)` 三个函数，
 没有原表、列、角色成员、CREATE 或 TEMP 权限。Workspace 管理权检查沿用现有
 Project Query 配置；部署时同步更新匹配的 Workspace／Labeling 工件与 Native 函数。

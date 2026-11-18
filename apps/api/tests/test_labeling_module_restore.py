@@ -46,7 +46,7 @@ pytestmark = [
 ]
 
 _LABELING_SCHEMA = "aap_labeling_v1"
-_LABELING_SCHEMAS = (_LABELING_SCHEMA, "aap_labeling_class_query_v1")
+_LABELING_SCHEMAS = (_LABELING_SCHEMA, "yoao_labeling_class_query_v1")
 _ANNOTATION_WRITE_ROLE = "labeling_annotation_write_client"
 _CORE_READ_ROLE = "labeling_core_read_client"
 _ANNOTATION_WRITE_FUNCTIONS = {

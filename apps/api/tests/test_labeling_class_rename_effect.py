@@ -125,7 +125,7 @@ async def _function_privileges(connection: AsyncConnection) -> dict:
                        'workspace_configuration_client', function.oid, 'EXECUTE'
                    ) AS configuration_client_execute,
                    pg_catalog.has_function_privilege(
-                       'labeling_class_query_client', function.oid, 'EXECUTE'
+                       'yoao_labeling_class_query_client', function.oid, 'EXECUTE'
                    ) AS class_query_client_execute,
                    EXISTS (
                        SELECT 1

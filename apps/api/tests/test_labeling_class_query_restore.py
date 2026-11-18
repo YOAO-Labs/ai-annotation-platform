@@ -102,7 +102,7 @@ async def _labeling_function_facts(engine) -> list[tuple]:
                     "ON namespace.oid = function.pronamespace "
                     "JOIN pg_catalog.pg_roles AS owner "
                     "ON owner.oid = function.proowner "
-                    "WHERE namespace.nspname = 'aap_labeling_class_query_v1' "
+                    "WHERE namespace.nspname = 'yoao_labeling_class_query_v1' "
                     "AND function.proname IN "
                     "('class_query_policy', 'class_counts', 'attribute_rows') "
                     "ORDER BY function.proname"
@@ -409,7 +409,7 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
         cloned_labeling_dsn = _dsn(
             test_engine,
             "AAP_MODULE_DATA_LABELING_CLASS_QUERY_URL",
-            "labeling_class_query_client",
+            "yoao_labeling_class_query_client",
             clone,
         )
         cloned_workspace_dsn = project_query_dsn(test_engine, clone)

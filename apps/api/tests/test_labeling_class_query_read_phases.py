@@ -59,7 +59,7 @@ async def test_committed_annotation_between_real_labeling_reads_is_visible_to_at
         assert result["body"]["attributes"] == expected_attributes
         assert "phase-new-class" not in result["body"]["classes"]
         assert (
-            "aap_labeling_class_query_v1.class_counts"
+            "yoao_labeling_class_query_v1.class_counts"
             in result["blocked_rpc"]["query"].casefold()
         )
         assert result["blocked_rpc"]["wait_event_type"] == "Lock"

@@ -1,7 +1,7 @@
 -- Grant the Labeling class-query LOGIN only its three closed native functions.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v labeling_owner=labeling_code
---   -v labeling_class_query_role=labeling_class_query_client
+--   -v labeling_class_query_role=yoao_labeling_class_query_client
 --   -f infra/docker/labeling-class-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -24,7 +24,7 @@ BEGIN
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF client_name <> 'labeling_class_query_client'
+    IF client_name <> 'yoao_labeling_class_query_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 2 THEN
         RAISE EXCEPTION 'Unexpected Labeling class-query role names';
@@ -68,13 +68,13 @@ DECLARE
         WHERE role.rolname = current_setting('aap.labeling_owner')
     );
     policy_oid oid := pg_catalog.to_regprocedure(
-        'aap_labeling_class_query_v1.class_query_policy()'
+        'yoao_labeling_class_query_v1.class_query_policy()'
     )::oid;
     classes_oid oid := pg_catalog.to_regprocedure(
-        'aap_labeling_class_query_v1.class_counts(uuid)'
+        'yoao_labeling_class_query_v1.class_counts(uuid)'
     )::oid;
     attributes_oid oid := pg_catalog.to_regprocedure(
-        'aap_labeling_class_query_v1.attribute_rows(uuid)'
+        'yoao_labeling_class_query_v1.attribute_rows(uuid)'
     )::oid;
 BEGIN
     IF labeling_oid IS NULL
@@ -141,7 +141,7 @@ BEGIN
         RAISE EXCEPTION 'Labeling class-query functions must not be executable by PUBLIC';
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-        labeling_oid, 'aap_labeling_class_query_v1', 'USAGE'
+        labeling_oid, 'yoao_labeling_class_query_v1', 'USAGE'
     ) OR EXISTS (
         SELECT 1
         FROM pg_catalog.unnest(ARRAY[
@@ -153,7 +153,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Labeling owner lacks its class-query read capability';
     END IF;
-    IF aap_labeling_class_query_v1.class_query_policy()
+    IF yoao_labeling_class_query_v1.class_query_policy()
        IS DISTINCT FROM '{"schema":"aap-labeling-class-query/v1"}'::jsonb THEN
         RAISE EXCEPTION 'Unexpected Labeling class-query policy';
     END IF;
@@ -193,12 +193,12 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_labeling_class_query_v1
+GRANT USAGE ON SCHEMA yoao_labeling_class_query_v1
     TO :"labeling_class_query_role";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_class_query_v1.class_query_policy(),
-    aap_labeling_class_query_v1.class_counts(uuid),
-    aap_labeling_class_query_v1.attribute_rows(uuid)
+    yoao_labeling_class_query_v1.class_query_policy(),
+    yoao_labeling_class_query_v1.class_counts(uuid),
+    yoao_labeling_class_query_v1.attribute_rows(uuid)
     TO :"labeling_class_query_role";
 
 DO $$
@@ -210,9 +210,9 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_labeling_class_query_v1.attribute_rows(uuid)',
-        'aap_labeling_class_query_v1.class_counts(uuid)',
-        'aap_labeling_class_query_v1.class_query_policy()'
+        'yoao_labeling_class_query_v1.attribute_rows(uuid)',
+        'yoao_labeling_class_query_v1.class_counts(uuid)',
+        'yoao_labeling_class_query_v1.class_query_policy()'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -268,7 +268,7 @@ BEGIN
         FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_labeling_class_query_v1', 'public'
+            'yoao_labeling_class_query_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
@@ -277,7 +277,7 @@ BEGIN
               OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE')
           )
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_labeling_class_query_v1', 'CREATE'
+        role_oid, 'yoao_labeling_class_query_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(
         role_oid, 'public', 'CREATE'
     ) OR EXISTS (
