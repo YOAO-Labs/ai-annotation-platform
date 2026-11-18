@@ -110,7 +110,7 @@ async def _assert_no_published(pubsub, *, timeout=0.5):
 _HEARTBEAT_FRAME = {"type": "ping"}
 
 
-async def _next_socket_delivery(socket, *, timeout=8):
+async def _next_socket_delivery(socket, *, timeout=5):
     """Read the next business frame, skipping the documented heartbeat."""
 
     async with asyncio.timeout(timeout):
@@ -124,19 +124,11 @@ async def _next_socket_delivery(socket, *, timeout=8):
 async def _assert_no_socket_delivery(socket, *, timeout=0.5):
     """Fail on any business frame; tolerate only the exact heartbeat frame."""
 
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        remaining = deadline - asyncio.get_running_loop().time()
-        if remaining <= 0:
-            return
-        try:
-            raw = await asyncio.wait_for(socket.recv(), remaining)
-        except TimeoutError:
-            return
-        frame = json.loads(raw)
-        assert frame == _HEARTBEAT_FRAME, (
-            f"unexpected notification delivery frame: {frame!r}"
-        )
+    try:
+        frame = await _next_socket_delivery(socket, timeout=timeout)
+    except TimeoutError:
+        return
+    pytest.fail(f"unexpected notification delivery frame: {frame!r}")
 
 
 async def _publish_from_node_consumer(

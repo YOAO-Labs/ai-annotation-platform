@@ -357,6 +357,10 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
         stack = WorkspaceModuleStack(
             test_engine,
             tmp_path,
+            api_s3_credentials=(
+                os.environ["AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY"],
+                os.environ["AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY"],
+            ),
             api_secret=api_secret,
             control_token=control_token,
             inference_token=inference_token,

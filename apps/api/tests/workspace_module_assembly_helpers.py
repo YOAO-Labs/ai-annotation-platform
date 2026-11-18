@@ -90,6 +90,7 @@ class WorkspaceModuleStack:
         test_engine,
         directory: Path,
         *,
+        api_s3_credentials: tuple[str, str],
         api_secret: str,
         control_token: str,
         inference_token: str,
@@ -102,6 +103,7 @@ class WorkspaceModuleStack:
         self._override_file = self._secret_directory / "compose.override.yml"
         self._log_file = self._secret_directory / "compose.log"
         self._api_secret = api_secret
+        self._api_s3_credentials = api_s3_credentials
         self._control_token = control_token
         self._inference_token = inference_token
         _verify_postgres(test_engine.url)
@@ -480,8 +482,7 @@ class WorkspaceModuleStack:
 
     def _api_environment(self) -> dict[str, str]:
         api_container = self._api_database_url.render_as_string(hide_password=False)
-        minio_access = self._required("AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY")
-        minio_secret = self._required("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY")
+        minio_access, minio_secret = self._api_s3_credentials
         values = {
             "ENVIRONMENT": "development",
             "DEBUG": "false",

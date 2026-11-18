@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
@@ -12,6 +12,7 @@ import re
 import secrets
 import threading
 import time
+from types import SimpleNamespace
 import uuid
 
 from yoao_identity.security import create_access_token
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import httpx
 import pytest
 
+from app.config import settings
 from app.db.models.dataset import Dataset, ProjectDataset
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -36,7 +38,7 @@ from tests.project_guide_asset_owner_helpers import (
     _cleanup_objects,
     assert_workspace_identity,
 )
-from tests.workspace_module_assembly_helpers import WorkspaceModuleStack
+from tests.workspace_module_assembly_helpers import ROOT, WorkspaceModuleStack
 from tests.workspace_module_quality_helpers import qualify_point_quality_promotion
 
 
@@ -443,12 +445,35 @@ async def _restored_database_with_acl_and_proofs(
             await admin.dispose()
 
 
+@pytest.fixture
+async def workspace_guide_storage(test_engine, monkeypatch):
+    resources, bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    from verify_module_data_boundary import (
+        _cleanup_storage_scope,
+        _create_api_bootstrap_storage_scope,
+        _destroy_cleanup_storage_scope,
+    )
+
+    with ExitStack() as cleanup:
+        cleanup.callback(owner_s3.close)
+        scope = _cleanup_storage_scope(
+            SimpleNamespace(settings=settings, resources=resources, s3=owner_s3)
+        )
+        cleanup.callback(_destroy_cleanup_storage_scope, scope)
+        scope["buckets"] = resources["buckets"]
+        # Only this API receives Guide object access; other cold consumers keep
+        # the verifier's metadata-only bootstrap principal.
+        _create_api_bootstrap_storage_scope(scope, workspace_guides=True)
+        yield bucket, owner_s3, (scope["access_key"], scope["secret_key"])
+
+
 async def test_workspace_module_assembly_public_api_native_boundaries_and_restore(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, workspace_guide_storage
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
-    _, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    guide_bucket, owner_s3, api_s3_credentials = workspace_guide_storage
     await _assert_restricted_api_consumer(test_engine)
     maker, actors = await _seed_users(test_engine)
     api_secret = secrets.token_urlsafe(32)
@@ -463,6 +488,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
             stack = WorkspaceModuleStack(
                 test_engine,
                 tmp_path,
+                api_s3_credentials=api_s3_credentials,
                 api_secret=api_secret,
                 control_token=control_token,
                 inference_token=probe_token,

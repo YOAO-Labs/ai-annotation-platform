@@ -4776,9 +4776,9 @@ def _verify_native_storage_scopes(
 
 
 def _create_api_bootstrap_storage_scope(
-    scope: dict, *, e2e_fixtures: bool = False
+    scope: dict, *, e2e_fixtures: bool = False, workspace_guides: bool = False
 ) -> None:
-    """Allow legacy API startup metadata checks on only this run's ten buckets."""
+    """Grant startup metadata access and only the requested API consumer's objects."""
     buckets = scope["buckets"]
     policy = {
         "Version": "2012-10-17",
@@ -4812,6 +4812,16 @@ def _create_api_bootstrap_storage_scope(
             },
         ],
     }
+    if workspace_guides:
+        policy["Statement"].append(
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject", "s3:GetObject", "s3:GetObjectVersion"],
+                "Resource": [
+                    f"arn:aws:s3:::{buckets['MINIO_BUCKET']}/projects/*/guide/*"
+                ],
+            }
+        )
     if e2e_fixtures:
         policy["Statement"].append(
             {
