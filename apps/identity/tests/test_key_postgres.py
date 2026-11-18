@@ -82,11 +82,11 @@ async def test_key_readiness_requires_exact_two_function_grants_and_closes_conne
     policy = await KeyPostgresData("postgresql://keys").key_policy()
     assert policy["derivation"] == "aap-identity-api-keys/v1"
     assert connection.calls[1][1][0] == [
-        "aap_identity_keys_v1.key_policy()",
-        "aap_identity_keys_v1.execute_key_command(jsonb)",
+        "yoao_identity_keys_v1.key_policy()",
+        "yoao_identity_keys_v1.execute_key_command(jsonb)",
     ]
     assert connect_calls[0][1]["server_settings"] == {
-        "application_name": "aap-identity-key-commands"
+        "application_name": "yoao-identity-key-commands"
     }
     assert connection.closed and not connection.in_transaction
     assert connection.committed and not connection.rolled_back
@@ -145,7 +145,7 @@ async def test_execute_uses_one_fresh_bounded_transaction_and_jsonb_function(
     connection, args, kwargs = connections[0]
     sql, params, in_transaction = connection.calls[0]
     assert result["ok"] is True
-    assert sql == "SELECT aap_identity_keys_v1.execute_key_command($1::jsonb)"
+    assert sql == "SELECT yoao_identity_keys_v1.execute_key_command($1::jsonb)"
     assert json.loads(params[0]) == command and in_transaction is True
     assert kwargs["timeout"] == 2 and kwargs["command_timeout"] == 4
     assert connection.closed and not connection.in_transaction

@@ -18,6 +18,7 @@ def _dsn() -> str:
     value = os.environ.get("AAP_MODULE_DATA_IDENTITY_KEYS_URL")
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
+    assert parsed.username == "yoao_identity_key_client"
     assert parsed.database.endswith("_test") and parsed.host in {
         "127.0.0.1",
         "localhost",
@@ -29,26 +30,30 @@ def _dsn() -> str:
 async def test_identity_key_login_has_only_two_functions_and_no_private_or_ddl_access():
     connection = await asyncpg.connect(_dsn())
     try:
+        assert await connection.fetchval("SELECT current_user") == (
+            "yoao_identity_key_client"
+        )
         actual = await connection.fetch(
             """
             SELECT namespace.nspname || '.' || function.proname || '('
                    || pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (pg_catalog.left(namespace.nspname,4)='aap_'
+                   OR pg_catalog.left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
         )
         assert {row["signature"] for row in actual} == {
-            "aap_identity_keys_v1.key_policy()",
-            "aap_identity_keys_v1.execute_key_command(jsonb)",
+            "yoao_identity_keys_v1.key_policy()",
+            "yoao_identity_keys_v1.execute_key_command(jsonb)",
         }
         assert not await connection.fetchval(
             """
             SELECT EXISTS (
                 SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-                WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
-                  AND namespace.nspname <> 'aap_identity_keys_v1'
+                WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
+                  AND namespace.nspname <> 'yoao_identity_keys_v1'
                   AND pg_catalog.has_schema_privilege(current_user,namespace.oid,'USAGE')
             )
             """
@@ -103,7 +108,7 @@ async def test_identity_key_login_has_only_two_functions_and_no_private_or_ddl_a
         )
 
         policy = json.loads(
-            await connection.fetchval("SELECT aap_identity_keys_v1.key_policy()")
+            await connection.fetchval("SELECT yoao_identity_keys_v1.key_policy()")
         )
         assert policy == {
             "schema": "aap-identity-keys-policy/v1",
@@ -111,7 +116,7 @@ async def test_identity_key_login_has_only_two_functions_and_no_private_or_ddl_a
         }
         invalid = json.loads(
             await connection.fetchval(
-                "SELECT aap_identity_keys_v1.execute_key_command('{}'::jsonb)"
+                "SELECT yoao_identity_keys_v1.execute_key_command('{}'::jsonb)"
             )
         )
         assert invalid["error"]["code"] == "invalid_request"

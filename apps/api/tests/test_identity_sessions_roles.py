@@ -168,7 +168,7 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
             [
                 "identity_session_client",
                 "identity_auth_client",
-                "identity_key_client",
+                "yoao_identity_key_client",
             ],
             audit_function_oid,
         )
@@ -176,7 +176,7 @@ async def test_session_auth_and_key_logins_cannot_call_audit_or_access_audit_tab
         assert set(actual) == {
             "identity_session_client",
             "identity_auth_client",
-            "identity_key_client",
+            "yoao_identity_key_client",
         }
         for row in actual.values():
             assert not row["audit_schema"]

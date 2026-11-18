@@ -176,12 +176,12 @@ class IdentityKeySessionData:
             raise IdentityGatewayUnavailable() from None
 
     async def key_policy(self) -> dict:
-        return await self._call("SELECT aap_identity_keys_v1.key_policy()", {})
+        return await self._call("SELECT yoao_identity_keys_v1.key_policy()", {})
 
     async def execute_key_command(self, request: dict) -> dict:
         await self.db.flush()
         return await self._call(
-            "SELECT aap_identity_keys_v1.execute_key_command(CAST(:request AS jsonb))",
+            "SELECT yoao_identity_keys_v1.execute_key_command(CAST(:request AS jsonb))",
             {"request": json.dumps(request)},
         )
 

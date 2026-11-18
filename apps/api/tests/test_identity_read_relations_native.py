@@ -106,7 +106,7 @@ async def test_relation_enumeration_is_limited_to_required_owner_columns(
         "settings_code",
         "notifications_code",
         "identity_auth_client",
-        "identity_key_client",
+        "yoao_identity_key_client",
         "append_client",
     )
     async with test_engine.connect() as db:

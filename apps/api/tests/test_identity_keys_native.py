@@ -89,7 +89,7 @@ def _new_key(key_id: uuid.UUID, *, salt_char: str = "a") -> dict:
 async def _execute(session: AsyncSession, request: dict) -> dict:
     result = await session.execute(
         text(
-            "SELECT aap_identity_keys_v1.execute_key_command(CAST(:request AS jsonb))"
+            "SELECT yoao_identity_keys_v1.execute_key_command(CAST(:request AS jsonb))"
         ),
         {"request": json.dumps(request)},
     )
@@ -144,9 +144,10 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
     assert "Cannot remove Identity API-key operation receipts" in migration
     assert "identity_key_operation_receipts" in native_schema
     assert 'identity_key_operation_receipts TO :"identity_owner"' in module_grants
-    assert "identity_key_role=identity_key_client" in key_grants
-    assert key_grants.count("aap_identity_keys_v1.key_policy()") == 2
-    assert key_grants.count("aap_identity_keys_v1.execute_key_command(jsonb)") == 2
+    assert "identity_key_role=yoao_identity_key_client" in key_grants
+    assert key_grants.count("yoao_identity_keys_v1.key_policy()") == 2
+    assert key_grants.count("yoao_identity_keys_v1.execute_key_command(jsonb)") == 2
+    assert "aap_identity_keys_v1" not in key_grants
     assert "identity_auth_role" not in key_grants
     assert "identity_command_role" not in key_grants
 

@@ -35,16 +35,16 @@ class KeyPostgresData:
                 self.dsn,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
-                server_settings={"application_name": "aap-identity-key-commands"},
+                server_settings={"application_name": "yoao-identity-key-commands"},
             )
             async with connection.transaction():
                 if function == "key_policy":
                     raw = await connection.fetchval(
-                        "SELECT aap_identity_keys_v1.key_policy()"
+                        "SELECT yoao_identity_keys_v1.key_policy()"
                     )
                     required = [
-                        "aap_identity_keys_v1.key_policy()",
-                        "aap_identity_keys_v1.execute_key_command(jsonb)",
+                        "yoao_identity_keys_v1.key_policy()",
+                        "yoao_identity_keys_v1.execute_key_command(jsonb)",
                     ]
                     allowed = await connection.fetchval(
                         "SELECT bool_and(has_function_privilege(current_user, capability, 'EXECUTE')) "
@@ -55,7 +55,7 @@ class KeyPostgresData:
                         raise IdentityUnavailable()
                 elif function == "execute_key_command":
                     raw = await connection.fetchval(
-                        "SELECT aap_identity_keys_v1.execute_key_command($1::jsonb)",
+                        "SELECT yoao_identity_keys_v1.execute_key_command($1::jsonb)",
                         *args,
                     )
                 else:

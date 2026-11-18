@@ -196,7 +196,7 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
             "identity_presence_client",
             "identity_session_client",
             "identity_auth_client",
-            "identity_key_client",
+            "yoao_identity_key_client",
         ]
         rows = await connection.fetch(
             """
@@ -248,7 +248,7 @@ async def test_account_and_presence_logins_do_not_inherit_old_identity_or_audit_
         for old_role in (
             "identity_session_client",
             "identity_auth_client",
-            "identity_key_client",
+            "yoao_identity_key_client",
         ):
             assert not actual[old_role]["account_function"]
             assert not actual[old_role]["presence_function"]

@@ -54,6 +54,12 @@ second-handshake status read. It uses a dedicated LOGIN with only
 `aap_identity_v1.read_actor_facts(uuid)` and has no fallback to the admission
 database URL. Without that source, `/v1/identity/actor-status` returns 503.
 
+API-key management may use `IDENTITY_KEY_DATABASE_URL` or its `_FILE` variant,
+which selects `yoao_identity_key_client`, the LOGIN restricted to `key_policy()`
+and `execute_key_command(jsonb)` in `yoao_identity_keys_v1`. Its installer also
+rejects direct table, column, sequence, database-create/TEMP and foreign module
+schema access. Without this DSN the key routes stay unavailable and fail closed.
+
 ```sh
 uv run --project apps/identity --locked --extra runtime python -m yoao_identity_runtime
 ```

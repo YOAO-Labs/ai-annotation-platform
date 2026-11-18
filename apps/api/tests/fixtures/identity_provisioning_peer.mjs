@@ -286,7 +286,7 @@ function roleProbeSql() {
     "CASE WHEN has_schema_privilege(current_user, 'aap_identity_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_schema_privilege(current_user, 'aap_audit_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_schema_privilege(current_user, 'aap_identity_sessions_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
-    "CASE WHEN has_schema_privilege(current_user, 'aap_identity_keys_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
+    "CASE WHEN has_schema_privilege(current_user, 'yoao_identity_keys_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_database_privilege(current_user, current_database(), 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
     "CASE WHEN has_database_privilege(current_user, current_database(), 'TEMP') THEN 'true' ELSE 'false' END || '|' ||",
     "(SELECT count(*)::text FROM pg_catalog.pg_proc AS proc " +

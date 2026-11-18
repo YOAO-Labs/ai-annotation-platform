@@ -230,7 +230,7 @@ async def test_recovery_login_has_only_four_functions_and_status_has_no_durable_
         }
         for role in [
             "identity_auth_client",
-            "identity_key_client",
+            "yoao_identity_key_client",
             "identity_mail_client",
             "identity_mail_v2_client",
             "append_client",

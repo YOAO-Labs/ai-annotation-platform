@@ -263,7 +263,7 @@ async def test_learning_owner_calls_only_the_key_capability_without_identity_tab
             )
             for role in (
                 "identity_auth_client",
-                "identity_key_client",
+                "yoao_identity_key_client",
                 "append_client",
             ):
                 assert not await caller.scalar(

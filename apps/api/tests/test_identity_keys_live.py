@@ -241,7 +241,7 @@ async def test_key_replay_survives_restart_without_reviving_revoked_material(
             async with maker.begin() as db:
                 await db.execute(
                     text(
-                        "REVOKE EXECUTE ON FUNCTION aap_identity_keys_v1.execute_key_command(jsonb) FROM identity_key_client"
+                        "REVOKE EXECUTE ON FUNCTION yoao_identity_keys_v1.execute_key_command(jsonb) FROM yoao_identity_key_client"
                     )
                 )
             assert (await client.get(identity.origin + "/ready")).status_code == 503
@@ -253,7 +253,7 @@ async def test_key_replay_survives_restart_without_reviving_revoked_material(
         async with maker.begin() as db:
             await db.execute(
                 text(
-                    "GRANT EXECUTE ON FUNCTION aap_identity_keys_v1.execute_key_command(jsonb) TO identity_key_client"
+                    "GRANT EXECUTE ON FUNCTION yoao_identity_keys_v1.execute_key_command(jsonb) TO yoao_identity_key_client"
                 )
             )
         await _cleanup(maker, actor, jtis)
@@ -341,7 +341,7 @@ async def test_public_key_routes_use_remote_owner_without_identity_table_privile
                 await client.get("/api/v1/me/api-keys", headers=headers)
             ).status_code == 503
         record_property("api_database_role", "identity_auth_client")
-        record_property("command_database_role", "identity_key_client")
+        record_property("command_database_role", "yoao_identity_key_client")
         record_property(
             "audit_scope", "existing asynchronous enqueue; delivery not asserted"
         )
