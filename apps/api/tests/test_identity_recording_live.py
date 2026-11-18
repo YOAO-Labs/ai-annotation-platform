@@ -134,8 +134,7 @@ async def _run(cli: WorkspaceImportCli, command: tuple[str, ...]):
     return await asyncio.to_thread(cli.run_command, command)
 
 
-async def _ordinary_preference_denial(cli, user_id):
-    script = """
+_ORDINARY_PREFERENCE_PROBE = """
 import asyncio, os, sys, uuid
 import asyncpg
 
@@ -157,7 +156,6 @@ async def main():
 
 asyncio.run(main())
 """
-    return await _run(cli, ("python", "-c", script, str(user_id)))
 
 
 async def _run_job_fixture(
@@ -432,6 +430,12 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
     source_root = tmp_path / "identity-recording-fixture-source"
     source_root.mkdir()
     preferences_path = source_root / "preferences.json"
+    probe_root = tmp_path / "ordinary-recording-probe"
+    probe_root.mkdir(mode=0o700)
+    probe = probe_root / "preference_denial.py"
+    probe.write_text(_ORDINARY_PREFERENCE_PROBE, encoding="utf-8")
+    probe.chmod(0o444)
+    probe_root.chmod(0o755)
     cli = None
     fixture_cli = None
     pending_gate = None
@@ -449,7 +453,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             cli = WorkspaceImportCli(
                 test_engine,
                 tmp_path,
-                source_root=source_root,
+                source_root=probe_root,
                 buckets=resources["buckets"],
                 minio_authority=f"{authority_host}:{endpoint.port or 9000}",
                 minio_use_ssl=endpoint.scheme == "https",
@@ -719,7 +723,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
 
             _write_preferences(preferences_path, rich_preferences)
             await _assert_identity_profile(test_engine)
-            denied_preferences = await _ordinary_preference_denial(cli, ids["recorder"])
+            denied_preferences = await _run(
+                cli, ("python", "/fixture/preference_denial.py", str(ids["recorder"]))
+            )
             record_property(
                 "identity_recording_preferences_capability_denied",
                 denied_preferences.evidence,

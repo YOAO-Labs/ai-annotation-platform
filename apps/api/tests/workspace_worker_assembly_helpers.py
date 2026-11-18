@@ -382,8 +382,7 @@ class WorkspaceCeleryWorker:
             "exit_code": state["ExitCode"],
         }
 
-    def task_signature(self, task_name: str) -> dict:
-        """Inspect the callable in the same immutable image as the live worker."""
+    def _inspect_installed_task(self, task_name: str, expression: str) -> dict:
         if task_name not in {
             "app.workers.cross_frame_job.run_cross_frame_job",
             "app.workers.export.run_export",
@@ -392,33 +391,46 @@ class WorkspaceCeleryWorker:
             "app.workers.audit.persist_audit_entry",
         }:
             raise ValueError("Task is outside the qualified worker paths")
-        self.assert_runtime()
+        image_id = self.assert_runtime()["image_id"]
         code = (
             "import importlib,inspect,json,sys; "
             "module,name=sys.argv[1].rsplit('.',1); "
             "task=getattr(importlib.import_module(module),name); "
-            "print(json.dumps({'task':task.name,"
-            "'parameters':list(inspect.signature(task.run).parameters)}))"
+            f"print(json.dumps({expression}))"
         )
         return json.loads(
             self._docker(
-                "exec", self.container_id, "/opt/venv/bin/python", "-c", code, task_name
+                "run",
+                "--rm",
+                "--pull=never",
+                "--network=none",
+                "--read-only",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges",
+                "--user=10003:10003",
+                "--memory=512m",
+                "--cpus=1",
+                "--pids-limit=64",
+                "--tmpfs=/tmp:rw,noexec,nosuid,size=32m",
+                "--env=OPENBLAS_NUM_THREADS=1",
+                "--entrypoint=/opt/venv/bin/python",
+                image_id,
+                "-c",
+                code,
+                task_name,
             )
         )
 
-    def task_delivery_policy(self, task_name: str) -> dict:
-        self.task_signature(task_name)
-        code = (
-            "import importlib,json,sys; "
-            "module,name=sys.argv[1].rsplit('.',1); "
-            "task=getattr(importlib.import_module(module),name); "
-            "print(json.dumps({'acks_late':bool(task.acks_late),"
-            "'reject_on_worker_lost':bool(task.reject_on_worker_lost)}))"
+    def task_signature(self, task_name: str) -> dict:
+        return self._inspect_installed_task(
+            task_name,
+            "{'task':task.name,'parameters':list(inspect.signature(task.run).parameters)}",
         )
-        return json.loads(
-            self._docker(
-                "exec", self.container_id, "/opt/venv/bin/python", "-c", code, task_name
-            )
+
+    def task_delivery_policy(self, task_name: str) -> dict:
+        return self._inspect_installed_task(
+            task_name,
+            "{'acks_late':bool(task.acks_late),'reject_on_worker_lost':bool(task.reject_on_worker_lost)}",
         )
 
     def kill_prefork_child(self, pid: int) -> dict:

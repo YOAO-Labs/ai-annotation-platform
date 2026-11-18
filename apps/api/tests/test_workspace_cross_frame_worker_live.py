@@ -27,6 +27,7 @@ from tests.project_guide_asset_owner_helpers import (
     endpoint_url,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_assets_media_live import _guard_role_url
 from tests.test_cross_frame_jobs import _add_box, _create_worker_job
 from tests.test_module_data_roles import _role_url as _module_role_url
 from tests.test_workspace_worker_assembly_live import (
@@ -576,6 +577,7 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
             task_serializer="json",
             result_serializer="json",
             accept_content=["json"],
+            task_routes={_TASK_NAME: {"queue": worker.queue}},
         )
 
         await _assert_workspace_consumer_closure(test_engine)
@@ -721,7 +723,7 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
         from app.deps import get_db
         from app.main import app as app_module
         from app.deps import get_identity_gateway
-        from app.workers.cross_frame_job import run_cross_frame_job
+        from app.workers import celery_app as worker_app
         import httpx
 
         old_get_db = app_module.dependency_overrides.get(get_db)
@@ -742,16 +744,21 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
                 subject=str(busy_world["actor_id"]), role="employee"
             )
 
-            def dispatch_retry(job_id: str):
-                delivery = sender.send_task(
-                    _TASK_NAME,
-                    args=[job_id],
-                    queue=worker.queue,
+            publication_url = (
+                _guard_role_url(
+                    "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+                    "jobs_publication_client",
+                    test_engine,
                 )
-                deliveries.append(delivery)
-                return delivery
-
-            monkeypatch.setattr(run_cross_frame_job, "delay", dispatch_retry)
+                .set(drivername="postgresql")
+                .render_as_string(hide_password=False)
+            )
+            monkeypatch.setattr(
+                settings, "jobs_publication_database_url", publication_url
+            )
+            monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+            monkeypatch.setattr(settings, "jobs_queue_url", "")
+            monkeypatch.setattr(worker_app, "celery_app", sender)
             retry_response = await client.post(
                 f"/api/v1/tasks/{busy_world['source_task_id']}/cross-frame-jobs/"
                 f"{busy_world['job_id']}/retry-failed",
@@ -761,7 +768,13 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
             retry_payload = retry_response.json()["payload"]
             assert retry_payload["parent_job_id"] == str(busy_world["job_id"])
             retry_job_id = uuid.UUID(retry_response.json()["id"])
-            retry_delivery = deliveries[-1]
+            async with maker() as db:
+                execution_id = await db.scalar(
+                    select(AsyncJob.celery_task_id).where(AsyncJob.id == retry_job_id)
+                )
+            assert execution_id
+            retry_delivery = sender.AsyncResult(execution_id)
+            deliveries.append(retry_delivery)
             retry_result = await asyncio.to_thread(
                 retry_delivery.get, timeout=120, propagate=False
             )

@@ -229,18 +229,27 @@ asyncio.run(main())
 """
 
 
-async def _run_terminal_in_api(stack, job_id, *, commit, delay):
-    source = _terminal_script(job_id, commit=commit, delay=delay)
-    await asyncio.to_thread(
+async def _run_in_api_image(stack, source, *args, timeout=45):
+    # These standalone consumers must not share the serving API's memory budget.
+    return await asyncio.to_thread(
         stack._compose,
-        "exec",
+        "run",
+        "--rm",
+        "--no-deps",
+        "--pull",
+        "never",
         "-T",
         "identity-api",
         "python",
         "-c",
         source,
-        timeout=45,
+        *args,
+        timeout=timeout,
     )
+
+
+async def _run_terminal_in_api(stack, job_id, *, commit, delay):
+    await _run_in_api_image(stack, _terminal_script(job_id, commit=commit, delay=delay))
 
 
 async def _append_deferred_notification_in_api(stack, *, user_id, issue_id, project_id):
@@ -265,18 +274,7 @@ async def main():
 
 asyncio.run(main())
 """
-    return uuid.UUID(
-        await asyncio.to_thread(
-            stack._compose,
-            "exec",
-            "-T",
-            "identity-api",
-            "python",
-            "-c",
-            source,
-            timeout=45,
-        )
-    )
+    return uuid.UUID(await _run_in_api_image(stack, source))
 
 
 async def _publish_committed_in_api(stack, notification_id):
@@ -296,16 +294,7 @@ async def main():
 
 asyncio.run(main())
 """
-    return await asyncio.to_thread(
-        stack._compose,
-        "exec",
-        "-T",
-        "identity-api",
-        "python",
-        "-c",
-        source,
-        timeout=45,
-    )
+    return await _run_in_api_image(stack, source)
 
 
 async def _deliver_notification_import_in_worker(stack, delivery):
@@ -327,22 +316,9 @@ async def main():
 
 asyncio.run(main())
 """
-    output = await asyncio.to_thread(
-        stack._compose,
-        "run",
-        "--rm",
-        "--no-deps",
-        "--pull",
-        "never",
-        "-T",
-        "identity-api",
-        "python",
-        "-c",
-        source,
-        delivery.model_dump_json(),
-        timeout=60,
+    return await _run_in_api_image(
+        stack, source, delivery.model_dump_json(), timeout=60
     )
-    return output
 
 
 async def _claim_notification_import_delivery(test_engine, notification_id):

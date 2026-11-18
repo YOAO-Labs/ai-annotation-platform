@@ -27,6 +27,7 @@ from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServiceP
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.user import User
 from tests.factory import create_user
+from tests.native_signer_support import bridge_gateway
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_recovery import _postgres_tool
 from tests.test_module_data_roles import _role_url
@@ -50,7 +51,7 @@ pytestmark = [
 
 
 @contextmanager
-def _backend_endpoint():
+def _backend_endpoint(host: str):
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -72,11 +73,11 @@ def _backend_endpoint():
         def log_message(self, *_args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer((host, 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}", calls
+        yield f"http://{host}:{server.server_port}", calls
     finally:
         server.shutdown()
         server.server_close()
@@ -457,12 +458,8 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
     guide_key = None
     stack = None
     try:
-        with _backend_endpoint() as (backend_origin, probe_calls):
-            await _seed_backend(
-                test_engine,
-                backend_id,
-                backend_origin.replace("127.0.0.1", "host.docker.internal"),
-            )
+        with _backend_endpoint(bridge_gateway()) as (backend_origin, probe_calls):
+            await _seed_backend(test_engine, backend_id, backend_origin)
             stack = WorkspaceModuleStack(
                 test_engine,
                 tmp_path,

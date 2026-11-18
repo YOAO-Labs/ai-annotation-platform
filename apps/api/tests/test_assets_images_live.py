@@ -28,6 +28,7 @@ from app.application.dataset_deletion import unlink_dataset_from_project
 from app.db.models.dataset import DatasetItem, ProjectDataset
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from app.services.dataset_assets import ensure_legacy_bindings
 from tests.factory import create_project
 from tests.native_signer_support import NativeSigner
 from tests.test_asset_storage_cleanup_runtime import (
@@ -532,6 +533,9 @@ async def _image_live_runtime(
         streams=[control_stream],
     )
     try:
+        if native_signer is not None:
+            async with runtime.owner_sessions.begin() as owner:
+                await ensure_legacy_bindings(owner)
         await _wait_control_ready(control_client, control_process, control_log)
         worker_environment = _runtime_environment(
             tmp_path=tmp_path,

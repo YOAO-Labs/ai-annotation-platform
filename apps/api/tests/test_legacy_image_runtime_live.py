@@ -293,12 +293,7 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
             )
             assert page.members[0].input.sha256 == sha256(body).hexdigest()
 
-        async with sessions.begin() as db:
-            assert (
-                await lock_input_source(
-                    db, input_id=record.input_id, task_id=task_id, project_id=project_id
-                )
-            ).input_id == record.input_id
+        async with owner_sessions.begin() as db:
             parent = Annotation(
                 task_id=task_id,
                 project_id=project_id,
@@ -318,6 +313,13 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
             )
             db.add(child)
             await db.flush()
+
+        async with sessions.begin() as db:
+            assert (
+                await lock_input_source(
+                    db, input_id=record.input_id, task_id=task_id, project_id=project_id
+                )
+            ).input_id == record.input_id
             assert await attach_annotation_input_source(
                 db,
                 annotation_id=parent.id,
