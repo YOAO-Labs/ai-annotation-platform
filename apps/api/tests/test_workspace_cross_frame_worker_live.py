@@ -17,8 +17,6 @@ import pytest
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
-from app.db.models.dataset import DatasetItem, Scene
-from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from tests.factory import create_membership, create_user
 from tests.project_guide_asset_owner_helpers import (
@@ -28,7 +26,7 @@ from tests.project_guide_asset_owner_helpers import (
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_assets_media_live import _guard_role_url
-from tests.test_cross_frame_jobs import _add_box, _create_worker_job
+from tests.test_cross_frame_jobs import _add_box, _seed_scene
 from tests.test_module_data_roles import _role_url as _module_role_url
 from tests.test_workspace_worker_assembly_live import (
     _delete_owned_queue,
@@ -154,31 +152,12 @@ async def _seed_member_job(
             f"cross-frame-actor-{label}-{uuid.uuid4().hex}@worker.test",
             f"Cross-frame annotator {label}",
         )
-        job_id, tasks = await _create_worker_job(
-            db,
-            owner_id=actor.id,
-            target_statuses=["in_progress"] * target_count,
+        project, scene, tasks = await _seed_scene(
+            db, owner_id=actor.id, frames=range(target_count + 1)
         )
-        project = await db.get(Project, tasks[0].project_id)
-        assert project is not None
-        project.owner_id = owner.id
-        membership = await create_membership(
-            db,
-            project_id=project.id,
-            user_id=actor.id,
-            role="annotator",
-            assigned_by=owner.id,
-        )
-        ordered_tasks = [tasks[index] for index in sorted(tasks)]
-        for task in ordered_tasks:
-            task.assignee_id = actor.id
-
-        job = await db.get(AsyncJob, job_id)
-        assert job is not None
-        payload = dict(job.payload or {})
-        source_id = uuid.UUID(payload["sources"][0]["annotation_id"])
-        source = await db.get(Annotation, source_id)
-        assert source is not None
+        for frame_index in range(1, target_count + 1):
+            tasks[frame_index].status = "in_progress"
+        source = await _add_box(db, task=tasks[0], project=project, user_id=actor.id)
         track_id = f"trk-cross-frame-{uuid.uuid4().hex[:14]}"
         source.track_id = track_id
         if existing_track:
@@ -189,38 +168,47 @@ async def _seed_member_job(
                 user_id=actor.id,
                 track_id=track_id,
             )
-
-        source_item = await db.get(DatasetItem, tasks[0].dataset_item_id)
-        assert source_item is not None and source_item.scene_id is not None
-        scene = await db.get(Scene, source_item.scene_id)
-        assert scene is not None
         await db.flush()
 
-        sources = [dict(row) for row in payload["sources"]]
-        sources[0]["version"] = int(source.version or 1)
-        payload.update(
-            {
-                "contract_version": 1,
-                "source_frame": 0,
-                "scene_id": str(scene.id),
-                "scene_name": scene.name,
-                "operation": "propagate",
-                "scope": "selected",
-                "direction": "forward",
-                "start_frame": 1,
-                "end_frame": target_count,
-                "conflict_policy": "skip_existing",
-                "sources": sources,
-                "total_frames": target_count,
-                "parent_job_id": None,
-                "project_display_id": project.display_id,
-                "project_name": project.name,
-            }
+        ordered_tasks = [tasks[index] for index in sorted(tasks)]
+        for task in ordered_tasks:
+            task.assignee_id = actor.id
+        membership = await create_membership(
+            db,
+            project_id=project.id,
+            user_id=actor.id,
+            role="annotator",
+            assigned_by=owner.id,
         )
-        from app.services.cross_frame_job import singleflight_key
+        await db.flush()
 
-        payload["singleflight_key"] = singleflight_key(payload)
-        job.payload = payload
+        # Birth the Job through the real producer so its immutable Dataset
+        # receipt is derived from these Scene/Task/source facts, not from a
+        # legacy minimal envelope.
+        from app.api.v1.tasks.cross_frame_jobs import _create_job
+        from app.schemas.cross_frame_job import CrossFrameJobCreate
+        from app.services.project_access import resolve_project_access
+
+        access = await resolve_project_access(db, actor_id=actor.id, project=project)
+        job, created = await _create_job(
+            db,
+            source_task=tasks[0],
+            current_user=actor,
+            data=CrossFrameJobCreate(
+                operation="propagate",
+                scope="selected",
+                annotation_ids=[source.id],
+                direction="forward",
+                start_frame=1,
+                end_frame=target_count,
+                conflict_policy="skip_existing",
+            ),
+            access=access,
+        )
+        assert created, "the live fixture must birth a new cross-frame Job"
+        job_id = job.id
+
+        project.owner_id = owner.id
         await db.flush()
 
         return {
@@ -230,7 +218,7 @@ async def _seed_member_job(
             "membership_id": membership.id,
             "job_id": job_id,
             "source_task_id": tasks[0].id,
-            "source_annotation_id": source_id,
+            "source_annotation_id": source.id,
             "target_task_ids": [
                 tasks[index].id for index in sorted(tasks) if index > 0
             ],

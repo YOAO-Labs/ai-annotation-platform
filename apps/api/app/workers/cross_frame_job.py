@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -123,6 +124,64 @@ def _failure_reason(exc: Exception) -> str:
     return "propagate_failed"
 
 
+def _scope_changed_items(targets: list[Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for target in targets:
+        if not isinstance(target, dict):
+            continue
+        try:
+            frame_index = int(target["frame_index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        items.append(
+            {
+                "frame_index": frame_index,
+                "task_id": target.get("task_id"),
+                "status": "failed",
+                "created_count": 0,
+                "skipped_count": 0,
+                "reason": "dataset_scope_changed",
+            }
+        )
+    return items
+
+
+async def _born_dataset_scope_matches(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    guard_task_ids: list[uuid.UUID] | None = None,
+) -> bool:
+    """Refuse to write once owner facts no longer derive the born Dataset set.
+
+    A historical or otherwise unproven Job keeps its prior executor behavior;
+    its Dataset cleanup remains blocked by the fixture classifier. Any proven
+    Job must still match exactly, including source/source-less Task,
+    primary_lidar and Scene remaps performed after birth.
+    """
+    job = await async_job_svc.get_job(db, job_id, populate_existing=True)
+    if job is None or job.kind != JOB_KIND:
+        return False
+    payload = job.payload or {}
+    return bool(
+        await db.scalar(
+            text(
+                "SELECT aap_assets_v1.fence_cross_frame_job_dataset_scope("
+                ":job, :project, :actor, CAST(:payload AS jsonb), "
+                "CAST(:guard AS uuid[]))"
+            ),
+            {
+                "job": job.id,
+                "project": job.project_id,
+                "actor": job.user_id,
+                "payload": json.dumps(
+                    payload, ensure_ascii=False, separators=(",", ":")
+                ),
+                "guard": guard_task_ids,
+            },
+        )
+    )
+
+
 async def _cancel_requested(db: AsyncSession, job_id: uuid.UUID) -> bool:
     job = await async_job_svc.get_job(db, job_id)
     if job is None:
@@ -196,6 +255,18 @@ async def execute_cross_frame_job(
     sources = payload.get("sources")
     if not isinstance(targets, list) or not isinstance(sources, list):
         raise ValueError("invalid cross-frame job snapshot")
+    if not await _born_dataset_scope_matches(db, job_id):
+        result = summarize_items(_scope_changed_items(targets))
+        await async_job_svc.update_progress(db, job_id, 100)
+        await async_job_svc.mark_failed(
+            db,
+            job_id,
+            error="cross-frame dataset scope changed",
+            result=result,
+        )
+        await notify_job_terminal(db, job_id=job_id)
+        await db.commit()
+        return
     source_task_id = uuid.UUID(str(payload["source_task_id"]))
     source_ids = [uuid.UUID(str(source["annotation_id"])) for source in sources]
     expected_versions = {
@@ -312,6 +383,17 @@ async def execute_cross_frame_job(
             target_task = tasks_by_id.get(target_task_id)
             if source_task is None or target_task is None:
                 raise RuntimeError("task_missing")
+            if (
+                job.project_id is None
+                or source_task.project_id != job.project_id
+                or target_task.project_id != job.project_id
+            ):
+                raise RuntimeError("permission_changed")
+            # Recheck the born Dataset proof inside every frame transaction so
+            # a committed Task/item/primary_lidar/Scene remap fails the frame
+            # before any Annotation write instead of widening silently.
+            if not await _born_dataset_scope_matches(db, job_id, lock_ids):
+                raise RuntimeError("dataset_scope_changed")
             try:
                 await task_access.assert_task_visible(db, source_task, actor.id)
                 await task_access.assert_task_visible(db, target_task, actor.id)
@@ -436,6 +518,7 @@ async def execute_cross_frame_job(
                     "source_task_locked",
                     "target_task_locked",
                     "permission_changed",
+                    "dataset_scope_changed",
                 }
                 else _failure_reason(exc)
             )
