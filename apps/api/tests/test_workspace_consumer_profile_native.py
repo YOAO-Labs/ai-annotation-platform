@@ -560,7 +560,7 @@ async def test_actual_http_workspace_lifecycle_uses_closed_borrowed_profile(
                 for s in statements
             )
             assert any(
-                "aap_workspace_membership_v1.apply_membership_command" in s
+                "yoao_workspace_membership_v1.apply_membership_command" in s
                 for s in statements
             )
             assert any("aap_workspace_v1.delete_project" in s for s in statements)

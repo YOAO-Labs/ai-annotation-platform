@@ -103,7 +103,7 @@ async def test_native_column_contract_owner_and_grants_match_database(test_engin
                     ("legacy_runtime", True),
                     ("append_client", False),
                     ("inference_code", False),
-                    ("workspace_membership_client", False),
+                    ("yoao_workspace_membership_client", False),
                 ]:
                     assert (
                         await db.scalar(

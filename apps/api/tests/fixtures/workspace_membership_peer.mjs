@@ -11,7 +11,7 @@ import { TextDecoder } from "node:util";
 const wireSchema = "aap-workspace-membership/v1";
 const nativeSchema = "aap-workspace-membership-native/v1";
 const nativeEndpoint = "/v1/workspace/membership/execute";
-const nativeRole = "workspace_membership_client";
+const nativeRole = "yoao_workspace_membership_client";
 const operations = new Set(["add_member", "preview_role_change", "change_role", "remove_member"]);
 const publicOperations = new Set([...operations, "list_members"]);
 const roles = new Set(["annotator", "reviewer", "viewer"]);
@@ -1217,11 +1217,11 @@ async function runNative(input) {
         "CASE WHEN has_table_privilege(current_user, 'public.task_locks', 'SELECT,INSERT,UPDATE,DELETE') OR has_any_column_privilege(current_user, 'public.task_locks', 'SELECT') OR has_any_column_privilege(current_user, 'public.task_locks', 'INSERT') OR has_any_column_privilege(current_user, 'public.task_locks', 'UPDATE') THEN 'true' ELSE 'false' END || '|' ||",
         "CASE WHEN has_table_privilege(current_user, 'public.audit_logs', 'SELECT,INSERT,UPDATE,DELETE') OR has_any_column_privilege(current_user, 'public.audit_logs', 'SELECT') OR has_any_column_privilege(current_user, 'public.audit_logs', 'INSERT') OR has_any_column_privilege(current_user, 'public.audit_logs', 'UPDATE') THEN 'true' ELSE 'false' END || '|' ||",
         "CASE WHEN has_table_privilege(current_user, 'public.project_templates', 'SELECT,INSERT,UPDATE,DELETE') OR has_any_column_privilege(current_user, 'public.project_templates', 'SELECT') OR has_any_column_privilege(current_user, 'public.project_templates', 'INSERT') OR has_any_column_privilege(current_user, 'public.project_templates', 'UPDATE') THEN 'true' ELSE 'false' END || '|' ||",
-        "CASE WHEN has_schema_privilege(current_user, 'aap_workspace_membership_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
-        "CASE WHEN has_schema_privilege(current_user, 'aap_workspace_membership_v1', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
+        "CASE WHEN has_schema_privilege(current_user, 'yoao_workspace_membership_v1', 'USAGE') THEN 'true' ELSE 'false' END || '|' ||",
+        "CASE WHEN has_schema_privilege(current_user, 'yoao_workspace_membership_v1', 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
         "CASE WHEN has_database_privilege(current_user, current_database(), 'CREATE') THEN 'true' ELSE 'false' END || '|' ||",
         "CASE WHEN has_database_privilege(current_user, current_database(), 'TEMP') THEN 'true' ELSE 'false' END || '|' ||",
-        "(SELECT count(*)::text FROM pg_catalog.pg_proc AS proc JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=proc.pronamespace WHERE namespace.nspname='aap_workspace_membership_v1' AND has_function_privilege(current_user, proc.oid, 'EXECUTE'));",
+        "(SELECT count(*)::text FROM pg_catalog.pg_proc AS proc JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=proc.pronamespace WHERE namespace.nspname='yoao_workspace_membership_v1' AND has_function_privilege(current_user, proc.oid, 'EXECUTE'));",
       ].join("\n"),
     );
     if (probe.length !== 1) fail();
@@ -1240,7 +1240,7 @@ async function runNative(input) {
 
     const begin = await query("BEGIN;");
     if (begin.length !== 0) fail();
-    const policyLines = await query("SELECT aap_workspace_membership_v1.membership_policy();");
+    const policyLines = await query("SELECT yoao_workspace_membership_v1.membership_policy();");
     if (policyLines.length !== 1) fail();
     const policy = parseStrictJson(policyLines[0]);
     validateNativePolicy(policy);
@@ -1248,7 +1248,7 @@ async function runNative(input) {
     const requestJson = stringifyLossless(nativeRequest(input.request));
     const requestHex = Buffer.from(requestJson, "utf8").toString("hex");
     const prepareLines = await query(
-      `SELECT aap_workspace_membership_v1.prepare_membership_command(convert_from(decode('${requestHex}', 'hex'), 'UTF8')::jsonb);`,
+      `SELECT yoao_workspace_membership_v1.prepare_membership_command(convert_from(decode('${requestHex}', 'hex'), 'UTF8')::jsonb);`,
     );
     if (prepareLines.length !== 1) fail();
     const prepared = validateNativeReply(input.request, parseStrictJson(prepareLines[0]));
@@ -1305,7 +1305,7 @@ async function runNative(input) {
     };
     const applyHex = Buffer.from(stringifyLossless(apply), "utf8").toString("hex");
     const applyLines = await query(
-      `SELECT aap_workspace_membership_v1.apply_membership_command(convert_from(decode('${applyHex}', 'hex'), 'UTF8')::jsonb);`,
+      `SELECT yoao_workspace_membership_v1.apply_membership_command(convert_from(decode('${applyHex}', 'hex'), 'UTF8')::jsonb);`,
     );
     if (applyLines.length !== 1) fail();
     const applied = validateNativeReply(input.request, parseStrictJson(applyLines[0]));

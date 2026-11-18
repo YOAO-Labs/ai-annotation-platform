@@ -56,7 +56,8 @@ pytestmark = [
 def _workspace_dsn(test_engine):
     value = make_url(
         _role_url(
-            "AAP_MODULE_DATA_WORKSPACE_MEMBERSHIP_URL", "workspace_membership_client"
+            "AAP_MODULE_DATA_WORKSPACE_MEMBERSHIP_URL",
+            "yoao_workspace_membership_client",
         )
     )
     assert (value.host, value.port, value.database) == (
@@ -634,7 +635,7 @@ async def test_execute_rejects_an_unready_native_text_codec(
     async with test_engine.connect() as db:
         original = await db.scalar(
             text(
-                "SELECT pg_get_functiondef('aap_workspace_membership_v1.membership_policy()'::regprocedure)"
+                "SELECT pg_get_functiondef('yoao_workspace_membership_v1.membership_policy()'::regprocedure)"
             )
         )
     try:
@@ -643,7 +644,7 @@ async def test_execute_rejects_an_unready_native_text_codec(
         async with test_engine.begin() as db:
             await db.execute(
                 text("""
-                CREATE OR REPLACE FUNCTION aap_workspace_membership_v1.membership_policy()
+                CREATE OR REPLACE FUNCTION yoao_workspace_membership_v1.membership_policy()
                 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER
                 SET search_path=pg_catalog,pg_temp AS $body$
                 SELECT pg_catalog.jsonb_build_object(
@@ -737,7 +738,7 @@ async def test_readiness_rejects_nonmodule_definer_and_explicit_function_grants(
                 )
                 await db.execute(
                     text(
-                        f"GRANT EXECUTE ON FUNCTION public.{function}() TO workspace_membership_client"
+                        f"GRANT EXECUTE ON FUNCTION public.{function}() TO yoao_workspace_membership_client"
                     )
                 )
             assert (await client.get("/ready")).status_code == 503

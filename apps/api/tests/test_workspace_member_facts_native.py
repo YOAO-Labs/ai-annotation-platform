@@ -86,7 +86,7 @@ async def test_view_owner_columns_and_acl_are_narrow(test_engine):
                 ("append_client", False),
                 ("assets_code", False),
                 ("inference_code", False),
-                ("workspace_membership_client", False),
+                ("yoao_workspace_membership_client", False),
             ]:
                 assert (
                     await db.scalar(

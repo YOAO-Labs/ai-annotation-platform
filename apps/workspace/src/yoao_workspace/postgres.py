@@ -19,6 +19,8 @@ from .contract import (
 )
 
 _NATIVE_SCHEMA = "aap-workspace-membership-native/v1"
+_MEMBERSHIP_SCHEMA = "yoao_workspace_membership_v1"
+_MEMBERSHIP_ROLE = "yoao_workspace_membership_client"
 _OPERATIONS = {
     "add_member",
     "preview_role_change",
@@ -52,7 +54,7 @@ class MembershipPostgresTransaction:
                 else payload
             )
             raw = await self.connection.fetchval(
-                f"SELECT aap_workspace_membership_v1.{function}($1::jsonb)",
+                f"SELECT {_MEMBERSHIP_SCHEMA}.{function}($1::jsonb)",
                 native_membership_command_json(payload),
             )
             reply = decode_native_membership_reply(
@@ -114,7 +116,7 @@ class MembershipPostgresData:
             async with connection.transaction(readonly=not write):
                 try:
                     policy = await connection.fetchval(
-                        "SELECT aap_workspace_membership_v1.membership_policy()"
+                        f"SELECT {_MEMBERSHIP_SCHEMA}.membership_policy()"
                     )
                 except asyncpg.PostgresError:
                     raise MembershipUnavailable() from None
@@ -151,7 +153,7 @@ class MembershipPostgresData:
             connection = await self._connect()
             raw = _result(
                 await connection.fetchval(
-                    "SELECT aap_workspace_membership_v1.membership_policy()"
+                    f"SELECT {_MEMBERSHIP_SCHEMA}.membership_policy()"
                 )
             )
             if (
@@ -167,12 +169,13 @@ class MembershipPostgresData:
                 raise MembershipUnavailable()
             await verify_function_only_role(
                 connection,
-                schema="aap_workspace_membership_v1",
+                schema=_MEMBERSHIP_SCHEMA,
                 functions={
                     ("membership_policy", ""),
                     ("prepare_membership_command", "jsonb"),
                     ("apply_membership_command", "jsonb"),
                 },
+                role=_MEMBERSHIP_ROLE,
             )
             return raw
         except MembershipUnavailable:

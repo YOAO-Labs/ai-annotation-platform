@@ -19,7 +19,7 @@ def _membership_dsn(test_engine) -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "workspace_membership_client"
+    assert parsed.username == "yoao_workspace_membership_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -34,7 +34,7 @@ async def test_workspace_membership_client_has_only_native_rpcs_and_no_raw_acces
     connection = await asyncpg.connect(_membership_dsn(test_engine))
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "workspace_membership_client"
+            "yoao_workspace_membership_client"
         )
         rows = await connection.fetch(
             """
@@ -43,7 +43,7 @@ async def test_workspace_membership_client_has_only_native_rpcs_and_no_raw_acces
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid = function.pronamespace
-            WHERE namespace.nspname = 'aap_workspace_membership_v1'
+            WHERE namespace.nspname = 'yoao_workspace_membership_v1'
               AND function.prokind = 'f'
               AND pg_catalog.has_function_privilege(
                   current_user, function.oid, 'EXECUTE'
@@ -52,12 +52,12 @@ async def test_workspace_membership_client_has_only_native_rpcs_and_no_raw_acces
             """
         )
         assert [row["signature"] for row in rows] == [
-            "aap_workspace_membership_v1.apply_membership_command(jsonb)",
-            "aap_workspace_membership_v1.membership_policy()",
-            "aap_workspace_membership_v1.prepare_membership_command(jsonb)",
+            "yoao_workspace_membership_v1.apply_membership_command(jsonb)",
+            "yoao_workspace_membership_v1.membership_policy()",
+            "yoao_workspace_membership_v1.prepare_membership_command(jsonb)",
         ]
         policy = await connection.fetchval(
-            "SELECT aap_workspace_membership_v1.membership_policy()"
+            "SELECT yoao_workspace_membership_v1.membership_policy()"
         )
         assert json.loads(policy) == {
             "schema": "aap-workspace-membership-native/v1",
@@ -89,13 +89,13 @@ async def test_workspace_membership_client_has_only_native_rpcs_and_no_raw_acces
         }
         for command in invalid:
             reply = await connection.fetchval(
-                "SELECT aap_workspace_membership_v1.prepare_membership_command("
+                "SELECT yoao_workspace_membership_v1.prepare_membership_command("
                 + command
                 + ")"
             )
             assert json.loads(reply) == expected_failure
             apply_reply = await connection.fetchval(
-                "SELECT aap_workspace_membership_v1.apply_membership_command("
+                "SELECT yoao_workspace_membership_v1.apply_membership_command("
                 + command
                 + ")"
             )
@@ -110,7 +110,7 @@ async def test_workspace_membership_client_has_only_native_rpcs_and_no_raw_acces
             "SELECT aap_labeling_v1.read_membership_work(NULL,NULL,NULL,NULL)",
             "SELECT aap_labeling_v1._membership_python_repr('null'::jsonb)",
             "SELECT aap_audit_v1.record_workspace_membership_event(NULL,NULL,NULL,NULL,NULL)",
-            "SELECT aap_workspace_membership_v1._failure(400,'null'::jsonb,NULL,false)",
+            "SELECT yoao_workspace_membership_v1._failure(400,'null'::jsonb,NULL,false)",
             "CREATE TEMP TABLE workspace_membership_forbidden(id integer)",
             "SET ROLE workspace_code",
         )

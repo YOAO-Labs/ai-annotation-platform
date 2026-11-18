@@ -28,7 +28,7 @@ def _membership_dsn(test_engine) -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "workspace_membership_client"
+    assert parsed.username == "yoao_workspace_membership_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -54,14 +54,16 @@ async def test_workspace_membership_readiness_rejects_raw_table_grant(test_engin
     try:
         async with owner_engine.begin() as connection:
             await connection.execute(
-                text("GRANT SELECT ON public.users TO workspace_membership_client")
+                text("GRANT SELECT ON public.users TO yoao_workspace_membership_client")
             )
         with pytest.raises(MembershipUnavailable):
             await MembershipPostgresData(dsn).membership_policy()
     finally:
         async with owner_engine.begin() as connection:
             await connection.execute(
-                text("REVOKE SELECT ON public.users FROM workspace_membership_client")
+                text(
+                    "REVOKE SELECT ON public.users FROM yoao_workspace_membership_client"
+                )
             )
         await owner_engine.dispose()
     assert (await MembershipPostgresData(dsn).membership_policy())[
@@ -89,7 +91,7 @@ async def test_workspace_membership_readiness_rejects_extra_public_function(
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO workspace_membership_client"
+                    "TO yoao_workspace_membership_client"
                 )
             )
         with pytest.raises(MembershipUnavailable):
@@ -118,7 +120,7 @@ async def test_workspace_membership_readiness_rejects_database_temp(test_engine)
             await connection.execute(
                 text(
                     f"GRANT TEMP ON DATABASE {quoted_database} "
-                    "TO workspace_membership_client"
+                    "TO yoao_workspace_membership_client"
                 )
             )
         with pytest.raises(MembershipUnavailable):
@@ -128,7 +130,7 @@ async def test_workspace_membership_readiness_rejects_database_temp(test_engine)
             await connection.execute(
                 text(
                     f"REVOKE TEMP ON DATABASE {quoted_database} "
-                    "FROM workspace_membership_client"
+                    "FROM yoao_workspace_membership_client"
                 )
             )
         await owner_engine.dispose()

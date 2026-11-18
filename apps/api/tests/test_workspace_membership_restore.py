@@ -33,7 +33,7 @@ def _membership_dsn(test_engine, database: str | None = None) -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "workspace_membership_client"
+    assert parsed.username == "yoao_workspace_membership_client"
     if database is not None:
         parsed = parsed.set(database=database)
     else:

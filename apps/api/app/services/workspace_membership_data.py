@@ -33,7 +33,7 @@ class WorkspaceMembershipData:
                 await self.db.flush()
             try:
                 policy = await self.db.scalar(
-                    text("SELECT aap_workspace_membership_v1.membership_policy()")
+                    text("SELECT yoao_workspace_membership_v1.membership_policy()")
                 )
             except SQLAlchemyError:
                 raise MembershipUnavailable() from None
@@ -60,7 +60,7 @@ class WorkspaceMembershipData:
             )
             raw = await self.db.scalar(
                 text(
-                    f"SELECT aap_workspace_membership_v1.{function}"
+                    f"SELECT yoao_workspace_membership_v1.{function}"
                     "(CAST(:command AS jsonb))"
                 ),
                 {"command": native_membership_command_json(payload)},

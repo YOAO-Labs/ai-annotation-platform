@@ -19,9 +19,11 @@ Labeling 只按项目返回成员职责变更所需的窄工作事实，并提�
 
 SQL 传输对 `change_role` 的 `preview_token` 和 `reason` 使用 `json-string-ascii/v1`：字段值承载原字符串的 ASCII JSON 字符串字面量，HTTP 仍传原始逻辑字符串。Native policy 必须声明相同的 `opaque_text_codec`，每次执行都在同一事务内核对；进程与迁移需要一起更新。请求指纹绑定编码后的原值，便携策略仍比较原 token；reason 只在 Audit detail 处转换为 JSONB。这样，含 NUL 的过期版本／快照仍先返回 409，有效请求的 NUL reason 则保留后续审计写入的原生错误和原子回滚。
 
-命令只返回契约值，不返回 ORM `User` 或凭据。所需用户显示字段仍由 API 在 owner 命令完成后按现有路径组合。跨 owner 的 Project/Identity/Labeling/Audit 权限使用窄 Native 函数；Workspace 不获得这些 owner 的原始表权限。Labeling 的交接、职责锁定与任务锁释放 helper 只授权给 Workspace owner。专用 `workspace_membership_client` LOGIN 仅能执行 `membership_policy()`、`prepare_membership_command(jsonb)` 和 `apply_membership_command(jsonb)`，不获得 AUTH、credential FENCE 或 workflow append 权限。
+命令只返回契约值，不返回 ORM `User` 或凭据。所需用户显示字段仍由 API 在 owner 命令完成后按现有路径组合。跨 owner 的 Project/Identity/Labeling/Audit 权限使用窄 Native 函数；Workspace 不获得这些 owner 的原始表权限。Labeling 的交接、职责锁定与任务锁释放 helper 只授权给 Workspace owner。专用 `yoao_workspace_membership_client` LOGIN 仅能执行 `yoao_workspace_membership_v1` 中的 `membership_policy()`、`prepare_membership_command(jsonb)` 和 `apply_membership_command(jsonb)`，不获得 AUTH、credential FENCE 或 workflow append 权限。
 
 成功 receipt 冻结原响应并绑定 operation UUID、actor、project、operation、请求与 audit context。同一 UUID 的匹配重放返回冻结成功结果、不重复写入或 Audit；绑定不同的请求返回冲突。重放会重新检查当前 actor 和 Project 管理权，但不要求已删除的目标成员外键仍存在。公开调用仍生成新 operation UUID，现有 version CAS 不变；没有新增公开幂等键，也不会把过期 preview 当成成功。
+
+已有数据库切换 namespace 前须保留恢复点、停止旧准入并把旧 `workspace_membership_client` 设为 `NOLOGIN`、排空可调用 prepare／apply／policy 的连接，再执行前向迁移 `0467`。迁移拒绝仍启用的旧 LOGIN、旧 namespace 的可调用连接、目标 namespace 冲突或未预期函数依赖；不主动停用账号或终止会话，也不提供旧 namespace 别名。切换后安装 `yoao_workspace_membership_client` 的精确 grants、更新 DSN secret，再启动匹配的新消费者。wire schema、receipt、operation UUID、GUC 绑定的事务语义及历史 `0253` 工件保持不变；当前阶段不要求 schema downgrade。
 
 ## 私有运行配置
 

@@ -974,6 +974,15 @@ API 默认保留现有 caller Session；`WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE
 
 成员命令切片已通过隔离本地的受限权限、独立包／进程／镜像、真实 API、并发交接、重启与备份恢复验收，详见 [ADR-0133](docs/adr/0133-workspace-membership-lifecycle-owner.md)。Native 的 `opaque_text_codec` 在执行事务内校验，迁移与进程需一起更新。它不迁移 Project 创建／转移、配置、模板、列表或 mention，也不完成整个 Workspace/Identity、另一语言提供方、生产容量验证或 primary cutover。
 
+Native namespace 已切到 `yoao_workspace_membership_v1`，专用 LOGIN 为
+`yoao_workspace_membership_client`；同事务 prepare／apply 绑定继续使用
+`yoao.workspace_membership_prepare` 本地 GUC。已有数据库切换前须保留恢复点、
+停止旧准入并把旧 `workspace_membership_client` 设为 `NOLOGIN`、排空可调用连接，
+再执行前向迁移 `0467`。迁移拒绝仍启用的旧 LOGIN、旧 namespace 的可调用连接、
+目标 namespace 冲突或未预期函数依赖；不会自动停用账号、终止会话或改写 wire
+schema、receipt 与历史 `0253` 工件。切换后安装新 LOGIN 的精确 grants 并更新
+DSN secret；不保留旧 namespace 别名。
+
 ## 独立 Assets 目录服务
 
 `apps/assets-catalog` 提供目录列表、详情、文件分页、公开创建/更新、数据集与项目的双向关联列表，以及 Scene、位姿、标定和点云素材准备。数据集关联写入、建题、

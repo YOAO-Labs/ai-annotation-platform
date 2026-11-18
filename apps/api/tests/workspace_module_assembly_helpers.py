@@ -38,7 +38,7 @@ _WORKSPACE_SERVICES = {
 _WORKSPACE_ROLES = {
     "membership": (
         "AAP_MODULE_DATA_WORKSPACE_MEMBERSHIP_URL",
-        "workspace_membership_client",
+        "yoao_workspace_membership_client",
         "membership_database_url",
     ),
     "owner_transfer": (

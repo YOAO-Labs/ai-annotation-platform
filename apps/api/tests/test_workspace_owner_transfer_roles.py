@@ -101,7 +101,7 @@ async def test_owner_transfer_client_has_exact_functions_and_no_raw_access(test_
             "SELECT * FROM public.projects LIMIT 1",
             "SELECT * FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
             "SELECT aap_identity_v1.lock_accounts_update('{}'::uuid[], false)",
-            "SELECT aap_workspace_membership_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
+            "SELECT yoao_workspace_membership_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
             "SELECT yoao_workspace_owner_transfer_v1._failure(400, 'null'::jsonb, false)",
             "CREATE TEMP TABLE workspace_owner_transfer_forbidden(id integer)",
             "SET ROLE workspace_code",

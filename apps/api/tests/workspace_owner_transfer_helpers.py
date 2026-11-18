@@ -88,7 +88,7 @@ async def _provider_url(
         if membership_dsn is not None:
             assert node is False
             membership = make_url(membership_dsn)
-            assert membership.username == "workspace_membership_client"
+            assert membership.username == "yoao_workspace_membership_client"
             assert (membership.host, membership.port, membership.database) == (
                 parsed.host,
                 parsed.port,

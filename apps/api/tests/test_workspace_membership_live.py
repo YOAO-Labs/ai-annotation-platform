@@ -734,7 +734,7 @@ async def test_node_membership_owner_and_native_same_transaction_consumers(
         }
         native_reply = _node("--call", payload=native_input)
         assert native_reply["ok"] is True
-        assert native_reply["current_user"] == "workspace_membership_client"
+        assert native_reply["current_user"] == "yoao_workspace_membership_client"
         assert native_reply["executable_membership_functions"] == 3
         assert native_reply["reply"]["data"]["result"]["member"]["user_id"] == str(
             native_target.id
