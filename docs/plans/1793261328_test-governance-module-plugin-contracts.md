@@ -1255,7 +1255,6 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 ### 16.7 未关闭问题
 
 - **T1 默认完整门。** 最近完整尝试 `t1-gate-1 @ bf1a38543` 失败，后十四个 profile 未运行。`81c973b3b` 已核对 18 项制品和默认收集：18 个 profile、424 个不同文件、3311 个唯一节点；只收集，未执行。此前 22 项定向消费者为 8 通过、14 失败；独立录制已越过普通角色隔离，但负向探针不符合 CLI 参数合同，取消／恢复尚未验证。普通 Native 整链仍为原 `8a8b61477` 证据，详见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。严格峰值后置；当前 Beta 不要求 schema downgrade，前向升级、事务原子性、当前 head 的恢复隔离和物理结算仍必须验证。
-- **共库回填。** `bo0465` 已在独占 PostgreSQL 前向升级：历史 retry／跨帧作业仍为 unknown；新作业经实际准入获得独立数据集范围，能在共库中保留两个待处理作业并放行无关数据集的守卫。真实回填两条入口仍须同时证明 worker 投递、物理清理和邻居不变，不能用守卫探针代替。
 - **严格内存峰值（延期／未验证）。** 用户确认当前没有其他验收环境，且不便安装或重启；该单项不作为已获授权的独立开发与收尾工作的前置条件。不要求更改宿主、安装、重启或另找环境，也不在本机重复运行已知缺少 `memory.peak` 能力的检查。保留严格指标和未验证状态，不用应用侧预算或采样指标冒充内核峰值证明；正式发布评审时再决定补验安排。此决定不认定完整 T1／T2 通过，也不开放其他批准门。
 - **Playwright owned teardown 与截图失败／取消邻居保护（已通过）。** 2026-11-12 的真实运行修复了推理 owner 关闭、supervisor 导入路径、私有 supervisor 存储凭据、provider 地址、API／Vite webServer 以 SIGTERM 优雅关闭及截图入口的多项首个阻塞，集成为 `d4f231adf`、`2cce80154`。此前每次普通 `exec --mode e2e -- playwright test` 都因 Playwright 以 SIGKILL 结束 Vite 而以 `descendant_boundary_unproved` 退出 1；现在 exec 边界只接受 0，或独立且已退出的 webServer 进程组的 SIGTERM（-15／143），SIGKILL、其他退出码、supervisor 自身进程组和仍存活的组长都保留为失败。`t2-playwright-teardown-10` 失败与取消两例通过，B 的五个原件版本保持、真实重载通过，exec 退出 0；`t2-screenshot-teardown-8` 通过、exec 退出 0（限制：真实截图输出失败而非生产场景失败处理器，消费者为活动浏览器而非在途原件读取）；`test_scale_cleanup_blocks_live_admission_and_preserves_neighbor` 1 项通过。两份环境均经 owning `destroy` 退役。
 - **held-inference 邻居测试与 `batch_predict` 数据集范围（已通过）。** 此前 A 的真实 `batch_predict` 被物理挂起时，清理无关的 run C 得到 409 `fixture_dataset_job_unsettled`：`guard_fixture_dataset_jobs` 遇到任何范围未知、未退役的 Job 都拒绝清理，而 `fixture_job_dataset_scope` 不识别 `batch_predict`。`bo0456`（集成为 `59675c3f6`）在 fixture 预测 Job 出生时，由出生 payload 的准确 `task_ids` 经 Task、DatasetItem 解析出数据集集合，写入只允许出生触发器插入、不可更新或删除的 `aap_jobs_v1.fixture_prediction_job_datasets`；只有出生记录的 project／actor 与 Job 一致时，范围函数才返回这些数据集。缺少绑定、旧行或不一致时仍为 unknown 并继续阻塞。该 `task_ids` 是请求选择器，执行集合只会更小；全项目作业不带 `task_ids`，保持 unknown。两个守卫函数与退役证明均未改动。module-data 验证器单项 1 通过、exit 0，迁移头 `bo0456`，同时首次证明了新授权；测试模式 `test_fixture_run_ownership.py` 19 项通过。
@@ -1268,6 +1267,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 
 每条只登记该切片自己的结论，末尾的“不证明”从句界定不能外推的范围。完整回执名与失败原文见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
 
+- **共库回填与作业隔离**（`t1-backfill-88bfc8f62-2`）：真实 worker 的尺寸回填和缩略图回填均通过。每条路径都保留两个无关的待处理作业（预测重试、点云跨帧），核对截止时间、在途读取拒绝、迟到投递、准确版本已删除与邻居原件不变。迁移前未知作业仍阻止清理。不代表完整 T1／T2 或严格峰值通过。
 - **普通 Native 保存输出整链**（`native-lifecycle-isolated-8a8b61477-1`）：真实生产端口、登记、独立读取、A→B 新写/旧读、未知 I/O 与读租约屏障、A/B/D 物理回收、恢复 A 绑定和正常退役全部通过；前置使用实际媒体缓存探针与受限身份，完整分页及重启续页不放宽。不证明编码器进程、浏览器 8K、通用 MinIO 替换、生产容量或默认完整 T1／T2。
 - **规范 Raster 二十一项与源码 Worker（分阶段证据）**：二十项未受改动影响的产品案例保留 `candidate-canonical-raster-complete-5717af5f9` 原证据；8K 案例与源码 Worker 经 `candidate-canonical-pyramid-strict-7a459b704` 定向复验通过。8K 首次打开和重载均有实际解码瓦片与完整覆盖，瓦片错误／可见重试及浏览器 console/page error 为零；三次 Native 瓦片 GET 均为 200，版本与 CORS 响应头完整。原编辑／保存／重载、预算和 bfcache 断言保留，无重试／跳过，两份 trace 与截图完整留存，环境正常退役。这是二十项旧证据加一项增强复验，不冒充当前 HEAD 单次全量二十一项，也不证明严格内存峰值、默认 T1／T2 或通用存储替换。
 
