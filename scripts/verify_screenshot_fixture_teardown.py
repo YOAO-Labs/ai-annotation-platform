@@ -641,11 +641,11 @@ async def db_identities(engine, run):
     async with engine.connect() as db:
         return [
             await db.scalar(
-                text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"),
+                text("SELECT yoao_assets_v1.fixture_native_reader_identity(:run)"),
                 {"run": run},
             ),
             await db.scalar(
-                text("SELECT aap_jobs_v1.fixture_media_executor_identity(:run)"),
+                text("SELECT yoao_jobs_v1.fixture_media_executor_identity(:run)"),
                 {"run": run},
             ),
         ]
@@ -1043,13 +1043,13 @@ async def verify_retired(
             "reader session remains",
         )
         target = await db.scalar(
-            text("SELECT aap_assets_v1.fixture_native_target_receipt(:run)"),
+            text("SELECT yoao_assets_v1.fixture_native_target_receipt(:run)"),
             {"run": run},
         )
         ack = (
             await db.execute(
                 text(
-                    "SELECT receipt,receipt_sha256 FROM aap_assets_v1.fixture_native_target_physical_acknowledgements WHERE run_id=:run"
+                    "SELECT receipt,receipt_sha256 FROM yoao_assets_v1.fixture_native_target_physical_acknowledgements WHERE run_id=:run"
                 ),
                 {"run": run},
             )

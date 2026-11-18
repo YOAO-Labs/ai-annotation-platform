@@ -3,7 +3,7 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v labeling_owner=labeling_code -v audit_owner=audit_code
---   -v identity_directory_role=identity_directory_client
+--   -v identity_directory_role=yoao_identity_directory_client
 --   -f infra/docker/identity-directory-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -30,7 +30,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'identity_directory_client'
+    IF role_name <> 'yoao_identity_directory_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM unnest(role_names) AS candidate(name)) <> 5 THEN
         RAISE EXCEPTION 'Unexpected Identity directory role names';
@@ -87,53 +87,53 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_directory_v1.directory_policy()'
+            'yoao_identity_directory_v1.directory_policy()'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_directory_v1.execute_directory_command(jsonb)'
+               'yoao_identity_directory_v1.execute_directory_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.identity_directory_owned_member_ids(uuid)'
+               'yoao_workspace_v1.identity_directory_owned_member_ids(uuid)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.identity_directory_project_member_ids(uuid)'
+               'yoao_workspace_v1.identity_directory_project_member_ids(uuid)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.identity_directory_lifecycle_blocked(uuid,uuid[])'
+               'yoao_workspace_v1.identity_directory_lifecycle_blocked(uuid,uuid[])'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.identity_directory_project_refs(uuid[])'
+               'yoao_labeling_v1.identity_directory_project_refs(uuid[])'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_identity_directory_export(jsonb,jsonb,jsonb)'
+               'yoao_audit_v1.record_identity_directory_export(jsonb,jsonb,jsonb)'
            )::oid) IS DISTINCT FROM audit_oid THEN
         RAISE EXCEPTION 'An Identity directory cross-owner function has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.identity_directory_owned_member_ids(uuid)'
+            'yoao_workspace_v1.identity_directory_owned_member_ids(uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.identity_directory_project_member_ids(uuid)'
+            'yoao_workspace_v1.identity_directory_project_member_ids(uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.identity_directory_lifecycle_blocked(uuid,uuid[])'
+            'yoao_workspace_v1.identity_directory_lifecycle_blocked(uuid,uuid[])'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.identity_directory_project_refs(uuid[])'
+            'yoao_labeling_v1.identity_directory_project_refs(uuid[])'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_directory_export(jsonb,jsonb,jsonb)'
+            'yoao_audit_v1.record_identity_directory_export(jsonb,jsonb,jsonb)'
         )::oid, 'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Identity directory owner is missing a projection or Audit capability';
@@ -196,10 +196,10 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_directory_v1 TO :"identity_directory_role";
+GRANT USAGE ON SCHEMA yoao_identity_directory_v1 TO :"identity_directory_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_directory_v1.directory_policy(),
-    aap_identity_directory_v1.execute_directory_command(jsonb)
+    yoao_identity_directory_v1.directory_policy(),
+    yoao_identity_directory_v1.execute_directory_command(jsonb)
     TO :"identity_directory_role";
 
 DO $$
@@ -210,8 +210,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_directory_v1.directory_policy()',
-        'aap_identity_directory_v1.execute_directory_command(jsonb)'
+        'yoao_identity_directory_v1.directory_policy()',
+        'yoao_identity_directory_v1.execute_directory_command(jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -236,7 +236,7 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE (left(namespace.nspname, 4) = 'aap_'
                OR left(namespace.nspname, 5) = 'yoao_')
-          AND namespace.nspname <> 'aap_identity_directory_v1'
+          AND namespace.nspname <> 'yoao_identity_directory_v1'
           AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
     ) OR EXISTS (
         SELECT 1

@@ -15,8 +15,8 @@ DECLARE
     v_consumer name := current_setting('yoao.workspace_consumer_role');
     v_workspace name := current_setting('yoao.workspace_owner');
     v_allowed oid[] := ARRAY[
-        'aap_workspace_configuration_v1.configuration_policy()'::regprocedure::oid,
-        'aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])'::regprocedure::oid,
+        'yoao_workspace_configuration_v1.configuration_policy()'::regprocedure::oid,
+        'yoao_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])'::regprocedure::oid,
         'yoao_workspace_directory_query_v1.directory_query_policy()'::regprocedure::oid,
         'yoao_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)'::regprocedure::oid,
         'yoao_workspace_membership_v1.apply_membership_command(jsonb)'::regprocedure::oid,
@@ -30,23 +30,23 @@ DECLARE
         'yoao_workspace_project_query_v1.project_search_scope(uuid,text)'::regprocedure::oid,
         'yoao_workspace_template_query_v1.template_query_policy()'::regprocedure::oid,
         'yoao_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text)'::regprocedure::oid,
-        'aap_workspace_v1.actor_project_memberships(uuid)'::regprocedure::oid,
-        'aap_workspace_v1.clear_primary_backend_bindings(uuid)'::regprocedure::oid,
-        'aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)'::regprocedure::oid,
-        'aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)'::regprocedure::oid,
-        'aap_workspace_v1.lock_project_manager(uuid,uuid)'::regprocedure::oid,
-        'aap_workspace_v1.lock_project_member_reference(uuid,uuid,boolean)'::regprocedure::oid,
-        'aap_workspace_v1.lock_project_reference(uuid)'::regprocedure::oid,
-        'aap_workspace_v1.lock_project_reference_nowait(uuid)'::regprocedure::oid,
-        'aap_workspace_v1.lock_project_references_for_update(uuid[])'::regprocedure::oid,
-        'aap_workspace_v1.lock_project_row(uuid,boolean)'::regprocedure::oid,
-        'aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)'::regprocedure::oid,
-        'aap_workspace_v1.project_access_step(uuid,uuid,text)'::regprocedure::oid,
-        'aap_workspace_v1.project_member_rows(uuid,uuid[],boolean)'::regprocedure::oid,
-        'aap_workspace_v1.read_import_project(text)'::regprocedure::oid,
-        'aap_workspace_v1.read_project_row(uuid)'::regprocedure::oid,
-        'aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)'::regprocedure::oid,
-        'aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)'::regprocedure::oid
+        'yoao_workspace_v1.actor_project_memberships(uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.clear_primary_backend_bindings(uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)'::regprocedure::oid,
+        'yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)'::regprocedure::oid,
+        'yoao_workspace_v1.lock_project_manager(uuid,uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.lock_project_member_reference(uuid,uuid,boolean)'::regprocedure::oid,
+        'yoao_workspace_v1.lock_project_reference(uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.lock_project_reference_nowait(uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.lock_project_references_for_update(uuid[])'::regprocedure::oid,
+        'yoao_workspace_v1.lock_project_row(uuid,boolean)'::regprocedure::oid,
+        'yoao_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.project_access_step(uuid,uuid,text)'::regprocedure::oid,
+        'yoao_workspace_v1.project_member_rows(uuid,uuid[],boolean)'::regprocedure::oid,
+        'yoao_workspace_v1.read_import_project(text)'::regprocedure::oid,
+        'yoao_workspace_v1.read_project_row(uuid)'::regprocedure::oid,
+        'yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)'::regprocedure::oid,
+        'yoao_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)'::regprocedure::oid
     ];
     v_relation record;
     v_schema record;
@@ -87,7 +87,7 @@ BEGIN
                   WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
                   ORDER BY a.attnum) AS columns
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='aap_workspace_v1'
+        WHERE n.nspname='yoao_workspace_v1'
           AND c.relname IN ('project_facts','project_member_facts')
     LOOP
         IF v_relation.relkind <> 'v'
@@ -99,8 +99,8 @@ BEGIN
             RAISE EXCEPTION 'Workspace read relation does not match its fixed contract';
         END IF;
     END LOOP;
-    IF to_regclass('aap_workspace_v1.project_facts') IS NULL
-       OR to_regclass('aap_workspace_v1.project_member_facts') IS NULL THEN
+    IF to_regclass('yoao_workspace_v1.project_facts') IS NULL
+       OR to_regclass('yoao_workspace_v1.project_member_facts') IS NULL THEN
         RAISE EXCEPTION 'Workspace read relations are missing';
     END IF;
 
@@ -145,19 +145,19 @@ BEGIN
         WHERE nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
-        IF v_schema.nspname = 'aap_workspace_fixture_v1' THEN
+        IF v_schema.nspname = 'yoao_workspace_fixture_v1' THEN
             EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
         END IF;
         EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
     END LOOP;
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean) FROM %I', v_consumer);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean) FROM %I', v_consumer);
     FOR v_schema IN
         SELECT DISTINCT n.nspname FROM pg_namespace n JOIN pg_proc p ON p.pronamespace=n.oid
         WHERE p.oid=ANY(v_allowed)
     LOOP
         EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I',v_schema.nspname,v_consumer);
     END LOOP;
-    EXECUTE format('GRANT SELECT ON aap_workspace_v1.project_facts, aap_workspace_v1.project_member_facts TO %I',v_consumer);
+    EXECUTE format('GRANT SELECT ON yoao_workspace_v1.project_facts, yoao_workspace_v1.project_member_facts TO %I',v_consumer);
     FOR v_function IN SELECT oid::regprocedure AS signature FROM pg_proc WHERE oid=ANY(v_allowed)
     LOOP
         EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I',v_function.signature,v_consumer);
@@ -180,8 +180,8 @@ BEGIN
         ) AND (
             has_table_privilege(v_consumer,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
             OR has_any_column_privilege(v_consumer,c.oid,'INSERT,UPDATE,REFERENCES')
-            OR (c.oid NOT IN ('aap_workspace_v1.project_facts'::regclass,
-                             'aap_workspace_v1.project_member_facts'::regclass)
+            OR (c.oid NOT IN ('yoao_workspace_v1.project_facts'::regclass,
+                             'yoao_workspace_v1.project_member_facts'::regclass)
                 AND (has_table_privilege(v_consumer,c.oid,'SELECT')
                      OR has_any_column_privilege(v_consumer,c.oid,'SELECT')))
         )

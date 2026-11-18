@@ -2,7 +2,7 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v inference_owner=inference_code
---   -v inference_pipelines_role=inference_pipelines_client
+--   -v inference_pipelines_role=yoao_inference_pipelines_client
 --   -f infra/docker/inference-pipelines-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -29,7 +29,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'inference_pipelines_client'
+    IF role_name <> 'yoao_inference_pipelines_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 4 THEN
         RAISE EXCEPTION 'Unexpected Inference pipelines role names';
@@ -64,10 +64,10 @@ DECLARE
         WHERE rolname = current_setting('yoao.inference_owner')
     );
     policy_oid oid := pg_catalog.to_regprocedure(
-        'aap_inference_pipelines_v1.pipeline_policy()'
+        'yoao_inference_pipelines_v1.pipeline_policy()'
     )::oid;
     step_oid oid := pg_catalog.to_regprocedure(
-        'aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])'
+        'yoao_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])'
     )::oid;
     dependency record;
     dependency_oid oid;
@@ -91,11 +91,11 @@ BEGIN
     END IF;
     FOR dependency IN
         SELECT * FROM (VALUES
-            ('aap_workspace_v1.project_access_step(uuid,uuid,text)',
+            ('yoao_workspace_v1.project_access_step(uuid,uuid,text)',
              current_setting('yoao.workspace_owner')),
             ('yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)',
              current_setting('yoao.workspace_owner')),
-            ('aap_identity_v1.workspace_template_query_org_ids(uuid)',
+            ('yoao_identity_v1.workspace_template_query_org_ids(uuid)',
              current_setting('yoao.identity_owner'))
         ) AS required(signature, owner_name)
     LOOP
@@ -114,7 +114,7 @@ BEGIN
         END IF;
     END LOOP;
     IF NOT pg_catalog.has_schema_privilege(
-        inference_oid,'aap_inference_pipelines_v1','USAGE'
+        inference_oid,'yoao_inference_pipelines_v1','USAGE'
     ) OR NOT pg_catalog.has_column_privilege(
         inference_oid,'public.project_pipelines','id','SELECT'
     ) OR NOT pg_catalog.has_column_privilege(
@@ -161,11 +161,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_inference_pipelines_v1
+GRANT USAGE ON SCHEMA yoao_inference_pipelines_v1
     TO :"inference_pipelines_role";
 GRANT EXECUTE ON FUNCTION
-    aap_inference_pipelines_v1.pipeline_policy(),
-    aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
+    yoao_inference_pipelines_v1.pipeline_policy(),
+    yoao_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
     TO :"inference_pipelines_role";
 
 DO $$
@@ -176,8 +176,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_inference_pipelines_v1.pipeline_policy()',
-        'aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])'
+        'yoao_inference_pipelines_v1.pipeline_policy()',
+        'yoao_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -229,14 +229,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_inference_pipelines_v1', 'public'
+            'yoao_inference_pipelines_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_inference_pipelines_v1', 'CREATE'
+        role_oid, 'yoao_inference_pipelines_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

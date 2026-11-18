@@ -1,6 +1,6 @@
 -- Run after migrations and module-data-grants as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_import_role=asset_import_client
+--   -v assets_owner=assets_code -v asset_import_role=yoao_asset_import_client
 --   -f infra/docker/assets-import-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -99,28 +99,28 @@ BEGIN
     END LOOP;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_import_role";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_import_role";
+REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_import_role";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_import_role";
 
 -- The runtime can execute only accepted-import and verified-original capabilities.
-GRANT EXECUTE ON FUNCTION aap_assets_v1.claim_dataset_import(uuid,integer,uuid),
-    aap_assets_v1.resume_import_original_verification(jsonb),
-    aap_assets_v1.reserve_import_original_read(jsonb),
-    aap_assets_v1.cancel_unstarted_import_original_read(jsonb),
-    aap_assets_v1.begin_operator_auxiliary(jsonb),
-    aap_assets_v1.open_operator_storage_operation(uuid),
-    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
-    aap_assets_v1.mark_operator_original_writing(uuid),
-    aap_assets_v1.record_operator_original_written(uuid,jsonb),
-    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
-    aap_assets_v1.heartbeat_dataset_import(uuid,uuid,integer),
-    aap_assets_v1.read_dataset_import_connection(uuid,uuid,jsonb),
-    aap_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb),
-    aap_assets_v1.next_dataset_import_entry(uuid,uuid,uuid),
-    aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb),
-    aap_assets_v1.finish_dataset_import(uuid,uuid,text),
-    aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
-    aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.claim_dataset_import(uuid,integer,uuid),
+    yoao_assets_v1.resume_import_original_verification(jsonb),
+    yoao_assets_v1.reserve_import_original_read(jsonb),
+    yoao_assets_v1.cancel_unstarted_import_original_read(jsonb),
+    yoao_assets_v1.begin_operator_auxiliary(jsonb),
+    yoao_assets_v1.open_operator_storage_operation(uuid),
+    yoao_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    yoao_assets_v1.mark_operator_original_writing(uuid),
+    yoao_assets_v1.record_operator_original_written(uuid,jsonb),
+    yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    yoao_assets_v1.heartbeat_dataset_import(uuid,uuid,integer),
+    yoao_assets_v1.read_dataset_import_connection(uuid,uuid,jsonb),
+    yoao_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb),
+    yoao_assets_v1.next_dataset_import_entry(uuid,uuid,uuid),
+    yoao_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb),
+    yoao_assets_v1.finish_dataset_import(uuid,uuid,text),
+    yoao_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
+    yoao_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)
     TO :"asset_import_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -131,30 +131,30 @@ DECLARE
         WHERE role.rolname = current_setting('yoao.asset_import_role')
     );
     allowed_functions oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_assets_v1.resume_import_original_verification(jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.reserve_import_original_read(jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.cancel_unstarted_import_original_read(jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.claim_dataset_import(uuid,integer,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_dataset_import(uuid,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_dataset_import_connection(uuid,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.next_dataset_import_entry(uuid,uuid,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_dataset_import(uuid,uuid,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.begin_operator_auxiliary(jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.open_operator_storage_operation(uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_prepared(uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.mark_operator_original_writing(uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_written(uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid
+        pg_catalog.to_regprocedure('yoao_assets_v1.resume_import_original_verification(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.reserve_import_original_read(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.cancel_unstarted_import_original_read(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.claim_dataset_import(uuid,integer,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.heartbeat_dataset_import(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_dataset_import_connection(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.save_dataset_import_manifest(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.next_dataset_import_entry(uuid,uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.finish_dataset_import(uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.begin_operator_auxiliary(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.open_operator_storage_operation(uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.record_operator_original_prepared(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.mark_operator_original_writing(uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.record_operator_original_written(uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid
     ];
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND ns.nspname <> 'aap_assets_v1'
+          AND ns.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Import LOGIN has access to a foreign module schema';

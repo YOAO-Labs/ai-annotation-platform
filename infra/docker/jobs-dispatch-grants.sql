@@ -51,13 +51,13 @@ BEGIN
     END IF;
     FOR v_function IN
         SELECT * FROM (VALUES
-            ('aap_jobs_v1.prepare_dispatch(jsonb)', 'jsonb', false, 'v'),
-            ('aap_jobs_v1.prepare_media_delivery(jsonb)', 'jsonb', false, 'v'),
-            ('aap_jobs_v1.fixture_media_backfill_route(uuid)', 'text', false, 'v'),
-            ('aap_jobs_v1.fixture_media_work_exists(text,text)', 'boolean', false, 's'),
-            ('aap_jobs_v1.claim_dispatches(jsonb)', 'jsonb', false, 'v'),
-            ('aap_jobs_v1.finish_dispatch(jsonb)', 'jsonb', false, 'v'),
-            ('aap_jobs_v1.dispatch_status(uuid)', 'jsonb', false, 's')
+            ('yoao_jobs_v1.prepare_dispatch(jsonb)', 'jsonb', false, 'v'),
+            ('yoao_jobs_v1.prepare_media_delivery(jsonb)', 'jsonb', false, 'v'),
+            ('yoao_jobs_v1.fixture_media_backfill_route(uuid)', 'text', false, 'v'),
+            ('yoao_jobs_v1.fixture_media_work_exists(text,text)', 'boolean', false, 's'),
+            ('yoao_jobs_v1.claim_dispatches(jsonb)', 'jsonb', false, 'v'),
+            ('yoao_jobs_v1.finish_dispatch(jsonb)', 'jsonb', false, 'v'),
+            ('yoao_jobs_v1.dispatch_status(uuid)', 'jsonb', false, 's')
         ) AS expected(signature, return_type, returns_set, volatility)
     LOOP
         IF NOT EXISTS (
@@ -77,7 +77,7 @@ BEGIN
     END LOOP;
     IF NOT EXISTS (
         SELECT FROM pg_catalog.pg_class AS relation
-        WHERE relation.oid='aap_jobs_v1.dispatch_intents'::regclass
+        WHERE relation.oid='yoao_jobs_v1.dispatch_intents'::regclass
           AND relation.relkind='r'
           AND relation.relowner=v_jobs
     ) THEN
@@ -86,48 +86,48 @@ BEGIN
 END;
 $guard$;
 
-REVOKE ALL ON SCHEMA aap_jobs_v1 FROM :"dispatch_relay_role";
+REVOKE ALL ON SCHEMA yoao_jobs_v1 FROM :"dispatch_relay_role";
 REVOKE ALL ON SCHEMA public FROM :"dispatch_relay_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_jobs_v1 FROM :"dispatch_relay_role";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_jobs_v1, public FROM :"dispatch_relay_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_jobs_v1 FROM :"dispatch_relay_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_jobs_v1, public FROM :"dispatch_relay_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"dispatch_relay_role";
 REVOKE ALL ON FUNCTION
-    aap_jobs_v1.prepare_dispatch(jsonb),
-    aap_jobs_v1.prepare_media_delivery(jsonb),
-    aap_jobs_v1.fixture_media_backfill_route(uuid),
-    aap_jobs_v1.fixture_media_work_exists(text,text),
-    aap_jobs_v1.claim_dispatches(jsonb),
-    aap_jobs_v1.finish_dispatch(jsonb),
-    aap_jobs_v1.dispatch_status(uuid)
+    yoao_jobs_v1.prepare_dispatch(jsonb),
+    yoao_jobs_v1.prepare_media_delivery(jsonb),
+    yoao_jobs_v1.fixture_media_backfill_route(uuid),
+    yoao_jobs_v1.fixture_media_work_exists(text,text),
+    yoao_jobs_v1.claim_dispatches(jsonb),
+    yoao_jobs_v1.finish_dispatch(jsonb),
+    yoao_jobs_v1.dispatch_status(uuid)
     FROM PUBLIC;
-REVOKE ALL ON FUNCTION aap_jobs_v1.claim_dispatches(jsonb)
+REVOKE ALL ON FUNCTION yoao_jobs_v1.claim_dispatches(jsonb)
     FROM :"api_role";
 REVOKE ALL ON FUNCTION
-    aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb),
-    aap_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb)
+    yoao_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb),
+    yoao_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb)
     FROM :"api_role";
-REVOKE ALL ON TABLE aap_jobs_v1.dispatch_intents
+REVOKE ALL ON TABLE yoao_jobs_v1.dispatch_intents
     FROM :"api_role", :"dispatch_relay_role";
 REVOKE ALL (
     intent_id, job_id, purpose, execution_id, envelope, natural_identity,
     state, lease_token, generation, attempts, lease_expires_at,
     next_attempt_at, accepted_at, created_at, updated_at
-) ON TABLE aap_jobs_v1.dispatch_intents
+) ON TABLE yoao_jobs_v1.dispatch_intents
     FROM :"api_role", :"dispatch_relay_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"dispatch_relay_role";
-GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"api_role", :"dispatch_relay_role";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"api_role", :"dispatch_relay_role";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.prepare_dispatch(jsonb),
-    aap_jobs_v1.prepare_media_delivery(jsonb),
-    aap_jobs_v1.fixture_media_backfill_route(uuid),
-    aap_jobs_v1.fixture_media_work_exists(text,text),
-    aap_jobs_v1.finish_dispatch(jsonb),
-    aap_jobs_v1.dispatch_status(uuid)
+    yoao_jobs_v1.prepare_dispatch(jsonb),
+    yoao_jobs_v1.prepare_media_delivery(jsonb),
+    yoao_jobs_v1.fixture_media_backfill_route(uuid),
+    yoao_jobs_v1.fixture_media_work_exists(text,text),
+    yoao_jobs_v1.finish_dispatch(jsonb),
+    yoao_jobs_v1.dispatch_status(uuid)
     TO :"api_role";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.claim_dispatches(jsonb),
-    aap_jobs_v1.finish_dispatch(jsonb),
-    aap_jobs_v1.dispatch_status(uuid)
+    yoao_jobs_v1.claim_dispatches(jsonb),
+    yoao_jobs_v1.finish_dispatch(jsonb),
+    yoao_jobs_v1.dispatch_status(uuid)
     TO :"dispatch_relay_role";
 
 DO $verify$
@@ -137,30 +137,30 @@ DECLARE
     v_relay oid := (SELECT oid FROM pg_catalog.pg_roles
                     WHERE rolname=current_setting('yoao.dispatch_relay_role'));
     v_api_allowed oid[] := ARRAY[
-        'aap_jobs_v1.prepare_dispatch(jsonb)'::regprocedure::oid,
-        'aap_jobs_v1.prepare_media_delivery(jsonb)'::regprocedure::oid,
-        'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure::oid,
-        'aap_jobs_v1.fixture_media_work_exists(text,text)'::regprocedure::oid,
-        'aap_jobs_v1.finish_dispatch(jsonb)'::regprocedure::oid,
-        'aap_jobs_v1.dispatch_status(uuid)'::regprocedure::oid
+        'yoao_jobs_v1.prepare_dispatch(jsonb)'::regprocedure::oid,
+        'yoao_jobs_v1.prepare_media_delivery(jsonb)'::regprocedure::oid,
+        'yoao_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure::oid,
+        'yoao_jobs_v1.fixture_media_work_exists(text,text)'::regprocedure::oid,
+        'yoao_jobs_v1.finish_dispatch(jsonb)'::regprocedure::oid,
+        'yoao_jobs_v1.dispatch_status(uuid)'::regprocedure::oid
     ];
     v_relay_allowed oid[] := ARRAY[
-        'aap_jobs_v1.claim_dispatches(jsonb)'::regprocedure::oid,
-        'aap_jobs_v1.finish_dispatch(jsonb)'::regprocedure::oid,
-        'aap_jobs_v1.dispatch_status(uuid)'::regprocedure::oid
+        'yoao_jobs_v1.claim_dispatches(jsonb)'::regprocedure::oid,
+        'yoao_jobs_v1.finish_dispatch(jsonb)'::regprocedure::oid,
+        'yoao_jobs_v1.dispatch_status(uuid)'::regprocedure::oid
     ];
 BEGIN
     IF EXISTS (
         SELECT FROM pg_catalog.unnest(v_api_allowed) AS allowed(function_oid)
         WHERE NOT pg_catalog.has_function_privilege(v_api,function_oid,'EXECUTE')
     ) OR pg_catalog.has_function_privilege(
-        v_api,'aap_jobs_v1.claim_dispatches(jsonb)'::regprocedure,'EXECUTE'
+        v_api,'yoao_jobs_v1.claim_dispatches(jsonb)'::regprocedure,'EXECUTE'
     ) OR pg_catalog.has_function_privilege(
         v_api,
-        'aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)'::regprocedure,
+        'yoao_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)'::regprocedure,
         'EXECUTE'
     ) OR pg_catalog.has_function_privilege(
-        v_api,'aap_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb)'::regprocedure,
+        v_api,'yoao_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb)'::regprocedure,
         'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'API Jobs dispatch capability profile differs';
@@ -168,11 +168,11 @@ BEGIN
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-        WHERE namespace.nspname='aap_jobs_v1'
+        WHERE namespace.nspname='yoao_jobs_v1'
           AND function.proname LIKE '%fixture_media%'
           AND function.oid NOT IN (
-              'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure,
-              'aap_jobs_v1.fixture_media_work_exists(text,text)'::regprocedure
+              'yoao_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure,
+              'yoao_jobs_v1.fixture_media_work_exists(text,text)'::regprocedure
           )
           AND pg_catalog.has_function_privilege(v_api,function.oid,'EXECUTE')
     ) THEN
@@ -182,7 +182,7 @@ BEGIN
         SELECT FROM pg_catalog.unnest(v_relay_allowed) AS allowed(function_oid)
         WHERE NOT pg_catalog.has_function_privilege(v_relay,function_oid,'EXECUTE')
     ) OR pg_catalog.has_function_privilege(
-        v_relay,'aap_jobs_v1.prepare_dispatch(jsonb)'::regprocedure,'EXECUTE'
+        v_relay,'yoao_jobs_v1.prepare_dispatch(jsonb)'::regprocedure,'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Jobs dispatch relay capability profile differs';
     END IF;
@@ -198,21 +198,21 @@ BEGIN
         RAISE EXCEPTION 'Jobs dispatch relay has unrelated AAP function EXECUTE';
     END IF;
     IF pg_catalog.has_table_privilege(
-           v_api,'aap_jobs_v1.dispatch_intents',
+           v_api,'yoao_jobs_v1.dispatch_intents',
            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
        ) OR pg_catalog.has_any_column_privilege(
-           v_api,'aap_jobs_v1.dispatch_intents','SELECT,INSERT,UPDATE,REFERENCES'
+           v_api,'yoao_jobs_v1.dispatch_intents','SELECT,INSERT,UPDATE,REFERENCES'
        ) OR pg_catalog.has_table_privilege(
-           v_relay,'aap_jobs_v1.dispatch_intents',
+           v_relay,'yoao_jobs_v1.dispatch_intents',
            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
        ) OR pg_catalog.has_any_column_privilege(
-           v_relay,'aap_jobs_v1.dispatch_intents','SELECT,INSERT,UPDATE,REFERENCES'
+           v_relay,'yoao_jobs_v1.dispatch_intents','SELECT,INSERT,UPDATE,REFERENCES'
        ) THEN
         RAISE EXCEPTION 'Jobs dispatch private table has direct API or relay privileges';
     END IF;
     IF pg_catalog.has_database_privilege(
            v_relay,current_database(),'CREATE,TEMP'
-       ) OR pg_catalog.has_schema_privilege(v_relay,'aap_jobs_v1','CREATE')
+       ) OR pg_catalog.has_schema_privilege(v_relay,'yoao_jobs_v1','CREATE')
        OR pg_catalog.has_schema_privilege(v_relay,'public','CREATE') THEN
         RAISE EXCEPTION 'Jobs dispatch relay has unsafe database or schema privileges';
     END IF;
@@ -241,7 +241,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_relay,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_jobs_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_jobs_v1')
                    AND pg_catalog.has_schema_privilege(v_relay,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Jobs dispatch relay has unrelated relation or schema privileges';

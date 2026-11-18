@@ -1,7 +1,7 @@
 -- Give the Labeling video writer LOGIN exactly one Labeling Native function.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v labeling_owner=labeling_code -v labeling_video_writer_role=labeling_video_writer_client
+--   -v labeling_owner=labeling_code -v labeling_video_writer_role=yoao_labeling_video_writer_client
 --   -f infra/docker/labeling-video-writer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -19,7 +19,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'labeling_video_writer_client' OR owner_name <> 'labeling_code'
+    IF role_name <> 'yoao_labeling_video_writer_client' OR owner_name <> 'labeling_code'
        OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected Labeling video writer roles';
     END IF;
@@ -56,14 +56,14 @@ DECLARE
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_labeling_v1'
+        WHERE namespace.nspname = 'yoao_labeling_v1'
     ) OR NOT pg_catalog.has_schema_privilege(
-        owner_oid, 'aap_labeling_v1', 'USAGE'
+        owner_oid, 'yoao_labeling_v1', 'USAGE'
     ) THEN
         RAISE EXCEPTION 'Labeling video writer Native schema or function is unavailable';
     END IF;
     FOREACH signature IN ARRAY ARRAY[
-        'aap_labeling_v1.video_writer_step(text,text)'
+        'yoao_labeling_v1.video_writer_step(text,text)'
     ] LOOP
     function_oid := pg_catalog.to_regprocedure(signature);
     IF function_oid IS NULL OR EXISTS (
@@ -100,8 +100,8 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_video_writer_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text)
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"labeling_video_writer_role";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.video_writer_step(text,text)
     TO :"labeling_video_writer_role";
 
 DO $$
@@ -112,7 +112,7 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_labeling_v1.video_writer_step(text, text)'
+        'yoao_labeling_v1.video_writer_step(text, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(

@@ -2,7 +2,7 @@
 -- Run after migrations and module-data-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v audit_owner=audit_code -v api_role=api_runtime \
---   -v read_client=audit_read_client -f infra/docker/audit-read-grants.sql
+--   -v read_client=yoao_audit_read_client -f infra/docker/audit-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -16,8 +16,8 @@ DECLARE
     v_audit oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.audit_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.read_client'));
-    v_relation oid := pg_catalog.to_regclass('aap_audit_v1.audit_events')::oid;
-    v_daily oid := pg_catalog.to_regclass('aap_audit_v1.audit_daily_facts')::oid;
+    v_relation oid := pg_catalog.to_regclass('yoao_audit_v1.audit_events')::oid;
+    v_daily oid := pg_catalog.to_regclass('yoao_audit_v1.audit_daily_facts')::oid;
 BEGIN
     IF current_database() <> current_setting('yoao.expected_database')
        OR current_user <> current_setting('yoao.migration_role') THEN
@@ -66,9 +66,9 @@ $guard$;
 -- Reset only this task-supplied LOGIN's relation/function grants. Column-level
 -- public table rights are revoked explicitly because table ACL revocation does
 -- not remove independently granted column privileges.
-REVOKE ALL ON SCHEMA aap_audit_v1 FROM :"read_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_audit_v1 FROM :"read_client";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_audit_v1 FROM :"read_client";
+REVOKE ALL ON SCHEMA yoao_audit_v1 FROM :"read_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_audit_v1 FROM :"read_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_audit_v1 FROM :"read_client";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"read_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"read_client";
 DO $revoke_public_columns$
@@ -103,13 +103,13 @@ END;
 $revoke_public_columns$;
 
 GRANT CONNECT ON DATABASE :"expected_database" TO :"read_client";
-GRANT USAGE ON SCHEMA aap_audit_v1 TO :"read_client", :"api_role";
-GRANT SELECT ON TABLE aap_audit_v1.audit_events TO :"read_client", :"api_role";
-GRANT SELECT ON TABLE aap_audit_v1.audit_daily_facts TO :"read_client", :"api_role";
+GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"read_client", :"api_role";
+GRANT SELECT ON TABLE yoao_audit_v1.audit_events TO :"read_client", :"api_role";
+GRANT SELECT ON TABLE yoao_audit_v1.audit_daily_facts TO :"read_client", :"api_role";
 REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM :"api_role", PUBLIC;
 REVOKE ALL (day, action, target_type, actor_role, status_family, event_count)
     ON TABLE public.mv_audit_bi_daily FROM :"api_role", PUBLIC;
-REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv()
+REVOKE EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv()
     FROM :"api_role", PUBLIC;
 
 DO $verify$
@@ -117,15 +117,15 @@ DECLARE
     v_audit oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.audit_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.read_client'));
-    v_relation oid := pg_catalog.to_regclass('aap_audit_v1.audit_events')::oid;
-    v_daily oid := pg_catalog.to_regclass('aap_audit_v1.audit_daily_facts')::oid;
-    v_refresh oid := pg_catalog.to_regprocedure('aap_audit_v1.refresh_audit_bi_mv()')::oid;
-    v_append oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
-    v_query oid := pg_catalog.to_regprocedure('aap_audit_v1.query_events(pg_catalog.jsonb)')::oid;
+    v_relation oid := pg_catalog.to_regclass('yoao_audit_v1.audit_events')::oid;
+    v_daily oid := pg_catalog.to_regclass('yoao_audit_v1.audit_daily_facts')::oid;
+    v_refresh oid := pg_catalog.to_regprocedure('yoao_audit_v1.refresh_audit_bi_mv()')::oid;
+    v_append oid := pg_catalog.to_regprocedure('yoao_audit_v1.append_events(jsonb)')::oid;
+    v_query oid := pg_catalog.to_regprocedure('yoao_audit_v1.query_events(pg_catalog.jsonb)')::oid;
 BEGIN
     IF NOT pg_catalog.has_database_privilege(v_client, current_database(), 'CONNECT')
        OR v_append IS NULL OR v_query IS NULL OR v_refresh IS NULL
-       OR NOT pg_catalog.has_schema_privilege(v_client, 'aap_audit_v1', 'USAGE')
+       OR NOT pg_catalog.has_schema_privilege(v_client, 'yoao_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_table_privilege(v_client, v_relation, 'SELECT')
        OR NOT pg_catalog.has_table_privilege(v_client, v_daily, 'SELECT')
        OR pg_catalog.has_function_privilege(v_client, v_append, 'EXECUTE')
@@ -185,7 +185,7 @@ BEGIN
         SELECT FROM pg_catalog.pg_namespace AS namespace
         WHERE (namespace.nspname LIKE 'aap\_%' ESCAPE '\'
                OR namespace.nspname LIKE 'yoao\_%' ESCAPE '\')
-          AND namespace.nspname<>'aap_audit_v1'
+          AND namespace.nspname<>'yoao_audit_v1'
           AND pg_catalog.has_schema_privilege(v_client, namespace.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Audit read client has a foreign module schema grant';
@@ -194,7 +194,7 @@ BEGIN
         SELECT FROM pg_catalog.pg_proc AS procedure
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid=procedure.pronamespace
-        WHERE namespace.nspname='aap_audit_v1'
+        WHERE namespace.nspname='yoao_audit_v1'
           AND pg_catalog.has_function_privilege(v_client, procedure.oid, 'EXECUTE')
     ) THEN
         RAISE EXCEPTION 'Audit read client has an Audit function capability';
@@ -202,10 +202,10 @@ BEGIN
     IF pg_catalog.has_database_privilege(v_client, current_database(), 'CREATE')
        OR pg_catalog.has_database_privilege(v_client, current_database(), 'TEMP')
        OR pg_catalog.has_schema_privilege(v_client, 'public', 'CREATE')
-       OR pg_catalog.has_schema_privilege(v_client, 'aap_audit_v1', 'CREATE') THEN
+       OR pg_catalog.has_schema_privilege(v_client, 'yoao_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Audit read client has database or schema creation privileges';
     END IF;
-    IF NOT pg_catalog.has_schema_privilege(v_api, 'aap_audit_v1', 'USAGE')
+    IF NOT pg_catalog.has_schema_privilege(v_api, 'yoao_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_table_privilege(v_api, v_relation, 'SELECT')
        OR NOT pg_catalog.has_table_privilege(v_api, v_daily, 'SELECT')
        OR pg_catalog.has_table_privilege(

@@ -1,7 +1,7 @@
 -- Grant the Workspace configuration LOGIN only its closed native capabilities.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v workspace_configuration_role=workspace_configuration_client
+--   -v workspace_configuration_role=yoao_workspace_configuration_client
 --   -f infra/docker/workspace-configuration-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -26,7 +26,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'workspace_configuration_client'
+    IF role_name <> 'yoao_workspace_configuration_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 3 THEN
         RAISE EXCEPTION 'Unexpected Workspace configuration role names';
@@ -69,13 +69,13 @@ DECLARE
         WHERE role.rolname = current_setting('yoao.workspace_configuration_role')
     );
     policy_oid oid := pg_catalog.to_regprocedure(
-        'aap_workspace_configuration_v1.configuration_policy()'
+        'yoao_workspace_configuration_v1.configuration_policy()'
     )::oid;
     step_oid oid := pg_catalog.to_regprocedure(
-        'aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])'
+        'yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])'
     )::oid;
     guide_oid oid := pg_catalog.to_regprocedure(
-        'aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)'
+        'yoao_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)'
     )::oid;
 BEGIN
     IF identity_oid IS NULL OR workspace_oid IS NULL OR client_oid IS NULL
@@ -84,7 +84,7 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_v1.lock_accounts_share(uuid[],boolean)'
+            'yoao_identity_v1.lock_accounts_share(uuid[],boolean)'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = policy_oid) IS DISTINCT FROM workspace_oid
@@ -101,12 +101,12 @@ BEGIN
         RAISE EXCEPTION 'A Workspace configuration RPC has the wrong owner or return type';
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-        workspace_oid, 'aap_workspace_configuration_v1', 'USAGE'
+        workspace_oid, 'yoao_workspace_configuration_v1', 'USAGE'
     ) OR NOT pg_catalog.has_schema_privilege(
-        workspace_oid, 'aap_identity_v1', 'USAGE'
+        workspace_oid, 'yoao_identity_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid,
-        pg_catalog.to_regprocedure('aap_identity_v1.lock_accounts_share(uuid[],boolean)'),
+        pg_catalog.to_regprocedure('yoao_identity_v1.lock_accounts_share(uuid[],boolean)'),
         'EXECUTE'
     ) OR NOT pg_catalog.has_column_privilege(
         workspace_oid, 'public.projects', 'id', 'SELECT'
@@ -156,12 +156,12 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_workspace_configuration_v1
+GRANT USAGE ON SCHEMA yoao_workspace_configuration_v1
     TO :"workspace_configuration_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb),
-    aap_workspace_configuration_v1.configuration_policy(),
-    aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
+    yoao_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb),
+    yoao_workspace_configuration_v1.configuration_policy(),
+    yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     TO :"workspace_configuration_role";
 
 DO $$
@@ -172,9 +172,9 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_workspace_configuration_v1.configuration_policy()',
-        'aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])',
-        'aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)'
+        'yoao_workspace_configuration_v1.configuration_policy()',
+        'yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])',
+        'yoao_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -226,14 +226,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_workspace_configuration_v1', 'public'
+            'yoao_workspace_configuration_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_workspace_configuration_v1', 'CREATE'
+        role_oid, 'yoao_workspace_configuration_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

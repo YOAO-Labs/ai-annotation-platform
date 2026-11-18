@@ -1,6 +1,6 @@
 -- Run after migrations, module-data-grants and assets-catalog-grants as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_operator_role=asset_operator_client
+--   -v assets_owner=assets_code -v asset_operator_role=yoao_asset_operator_client
 --   -f infra/docker/assets-operator-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -97,37 +97,37 @@ BEGIN
     END LOOP;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_operator_role";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_operator_role";
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"asset_operator_role";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_first_seed_account()
+REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_operator_role";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_operator_role";
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"asset_operator_role";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_first_seed_account()
     TO :"asset_operator_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.publish_operator_item_original(jsonb),
-    aap_assets_v1.operator_item_original_facts(uuid,uuid),
-    aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid),
-    aap_assets_v1.begin_operator_auxiliary(jsonb),
-    aap_assets_v1.publish_operator_auxiliary(uuid),
-    aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid),
-    aap_assets_v1.operator_auxiliary_material(uuid,uuid),
-    aap_assets_v1.operator_item_original_material(uuid,uuid),
-    aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid),
-    aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid),
-    aap_assets_v1.operator_dataset_state(uuid),
-    aap_assets_v1.operator_scene_state(uuid,uuid),
-    aap_assets_v1.open_operator_storage_operation(uuid),
-    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
-    aap_assets_v1.mark_operator_original_writing(uuid),
-    aap_assets_v1.record_operator_original_written(uuid,jsonb),
-    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
-    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
-    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean),
-    aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text),
-    aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb),
-    aap_assets_v1.append_operator_items(uuid,uuid,jsonb),
-    aap_assets_v1.patch_operator_items(uuid,uuid,jsonb),
-    aap_assets_v1.recount_operator_items(uuid,uuid),
-    aap_assets_v1.read_operator_items(uuid,uuid,integer)
+    yoao_assets_v1.publish_operator_item_original(jsonb),
+    yoao_assets_v1.operator_item_original_facts(uuid,uuid),
+    yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid),
+    yoao_assets_v1.begin_operator_auxiliary(jsonb),
+    yoao_assets_v1.publish_operator_auxiliary(uuid),
+    yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid),
+    yoao_assets_v1.operator_auxiliary_material(uuid,uuid),
+    yoao_assets_v1.operator_item_original_material(uuid,uuid),
+    yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid),
+    yoao_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid),
+    yoao_assets_v1.operator_dataset_state(uuid),
+    yoao_assets_v1.operator_scene_state(uuid,uuid),
+    yoao_assets_v1.open_operator_storage_operation(uuid),
+    yoao_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    yoao_assets_v1.mark_operator_original_writing(uuid),
+    yoao_assets_v1.record_operator_original_written(uuid,jsonb),
+    yoao_assets_v1.record_operator_original_verified(uuid,jsonb),
+    yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean),
+    yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text),
+    yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb),
+    yoao_assets_v1.append_operator_items(uuid,uuid,jsonb),
+    yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb),
+    yoao_assets_v1.recount_operator_items(uuid,uuid),
+    yoao_assets_v1.read_operator_items(uuid,uuid,integer)
     TO :"asset_operator_role";
 
 -- Fail closed if the operator LOGIN can access anything beyond the exact protocol.
@@ -139,82 +139,82 @@ DECLARE
     );
     allowed_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure(
-            'aap_identity_v1.read_first_seed_account()'
+            'yoao_identity_v1.read_first_seed_account()'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.publish_operator_item_original(jsonb)'
+            'yoao_assets_v1.publish_operator_item_original(jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_item_original_facts(uuid,uuid)'
+            'yoao_assets_v1.operator_item_original_facts(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)'
+            'yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.begin_operator_auxiliary(jsonb)'
+            'yoao_assets_v1.begin_operator_auxiliary(jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.publish_operator_auxiliary(uuid)'
+            'yoao_assets_v1.publish_operator_auxiliary(uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)'
+            'yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_auxiliary_material(uuid,uuid)'
+            'yoao_assets_v1.operator_auxiliary_material(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_item_original_material(uuid,uuid)'
+            'yoao_assets_v1.operator_item_original_material(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)'
+            'yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid)'
+            'yoao_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_dataset_state(uuid)'
+            'yoao_assets_v1.operator_dataset_state(uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.operator_scene_state(uuid,uuid)'
+            'yoao_assets_v1.operator_scene_state(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.open_operator_storage_operation(uuid)'
+            'yoao_assets_v1.open_operator_storage_operation(uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.record_operator_original_prepared(uuid,jsonb)'
+            'yoao_assets_v1.record_operator_original_prepared(uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.mark_operator_original_writing(uuid)'
+            'yoao_assets_v1.mark_operator_original_writing(uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.record_operator_original_written(uuid,jsonb)'
+            'yoao_assets_v1.record_operator_original_written(uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.record_operator_original_verified(uuid,jsonb)'
+            'yoao_assets_v1.record_operator_original_verified(uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)'
+            'yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)'
+            'yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)'
+            'yoao_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)'
+            'yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid,uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.append_operator_items(uuid,uuid,jsonb)'
+            'yoao_assets_v1.append_operator_items(uuid,uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.patch_operator_items(uuid,uuid,jsonb)'
+            'yoao_assets_v1.patch_operator_items(uuid,uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.recount_operator_items(uuid,uuid)'
+            'yoao_assets_v1.recount_operator_items(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.read_operator_items(uuid,uuid,integer)'
+            'yoao_assets_v1.read_operator_items(uuid,uuid,integer)'
         )::oid
     ];
 BEGIN
@@ -225,7 +225,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND ns.nspname NOT IN ('aap_assets_v1', 'aap_identity_v1')
+          AND ns.nspname NOT IN ('yoao_assets_v1', 'yoao_identity_v1')
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Operator LOGIN has access to a foreign module schema';

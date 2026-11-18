@@ -1,7 +1,7 @@
 -- Apply after module-data-grants.sql and lan-production-grants.sql as migration owner.
 -- One LOGIN per closed profile; ordinary API/worker credentials must not use this script.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v inference_owner=inference_code -v client_role=inference_execution_client \
+--   -v inference_owner=inference_code -v client_role=yoao_inference_execution_client \
 --   -v profile=execution -f infra/docker/inference-owner-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -18,7 +18,7 @@ DECLARE
     v_owner oid := (SELECT oid FROM pg_catalog.pg_roles
                     WHERE rolname=current_setting('yoao.inference_owner'));
     v_profile text := current_setting('yoao.inference_profile');
-    v_schema text := 'aap_inference_backend_endpoint_v1';
+    v_schema text := 'yoao_inference_backend_endpoint_v1';
     v_signatures text[];
     v_allowed oid[];
     v_signature text;
@@ -72,7 +72,7 @@ BEGIN
             v_schema||'.open_stats_endpoint(text,uuid,uuid,text)'
         ];
     ELSIF v_profile='gpu_authority' THEN
-        v_schema := 'aap_inference_gpu_v1';
+        v_schema := 'yoao_inference_gpu_v1';
         v_signatures := ARRAY[v_schema||'.gpu_authority_policy()',
                               v_schema||'.gpu_authority_step(text,text)'];
     ELSIF v_profile='gpu_collector' THEN

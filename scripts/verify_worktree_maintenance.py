@@ -128,7 +128,7 @@ async def probe_presence_task(celery_app):
                                     text(
                                         "SELECT pid,usename FROM pg_stat_activity WHERE datname=current_database() "
                                         "AND state='active' AND wait_event_type='Lock' "
-                                        "AND query LIKE 'SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline%'"
+                                        "AND query LIKE 'SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline%'"
                                     )
                                 )
                             )

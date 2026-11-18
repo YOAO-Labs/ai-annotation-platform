@@ -125,7 +125,7 @@
     "relations": [
       {
         "name": "project_facts",
-        "qualified_name": "aap_workspace_audit_v1.project_facts",
+        "qualified_name": "yoao_workspace_audit_v1.project_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -177,7 +177,7 @@
       },
       {
         "name": "project_member_facts",
-        "qualified_name": "aap_workspace_audit_v1.project_member_facts",
+        "qualified_name": "yoao_workspace_audit_v1.project_member_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -246,7 +246,7 @@
       },
       {
         "name": "schema_capabilities",
-        "qualified_name": "aap_workspace_audit_v1.schema_capabilities",
+        "qualified_name": "yoao_workspace_audit_v1.schema_capabilities",
         "kind": "security_barrier_view",
         "columns": [
           {

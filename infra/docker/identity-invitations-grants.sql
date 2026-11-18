@@ -4,8 +4,8 @@
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v labeling_owner=labeling_code -v settings_owner=settings_code
 --   -v audit_owner=audit_code
---   -v identity_invitation_role=identity_invitation_client
---   -v identity_mail_v2_role=identity_mail_v2_client
+--   -v identity_invitation_role=yoao_identity_invitation_client
+--   -v identity_mail_v2_role=yoao_identity_mail_v2_client
 --   -f infra/docker/identity-invitations-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -31,8 +31,8 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF current_setting('yoao.identity_invitation_role') <> 'identity_invitation_client'
-       OR current_setting('yoao.identity_mail_v2_role') <> 'identity_mail_v2_client'
+    IF current_setting('yoao.identity_invitation_role') <> 'yoao_identity_invitation_client'
+       OR current_setting('yoao.identity_mail_v2_role') <> 'yoao_identity_mail_v2_client'
        OR (SELECT count(DISTINCT candidate.name) FROM unnest(role_names) AS candidate(name)) <> 2
        OR EXISTS (
            SELECT 1 FROM unnest(role_names) AS candidate(name)
@@ -83,71 +83,71 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_invitations_v1.invitation_policy()'
+            'yoao_identity_invitations_v1.invitation_policy()'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_invitations_v1.prepare_invitation_command(jsonb)'
+               'yoao_identity_invitations_v1.prepare_invitation_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_invitations_v1.apply_invitation_command(jsonb)'
+               'yoao_identity_invitations_v1.apply_invitation_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_invitations_v1._incompatible_role_detail(text,text)'
+               'yoao_identity_invitations_v1._incompatible_role_detail(text,text)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_groups_v1.resolve_invitation_group(uuid,text)'
+               'yoao_identity_groups_v1.resolve_invitation_group(uuid,text)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_identity_invitation_event(text,jsonb,jsonb,jsonb,jsonb)'
+               'yoao_audit_v1.record_identity_invitation_event(text,jsonb,jsonb,jsonb,jsonb)'
            )::oid) IS DISTINCT FROM audit_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_settings_v1.invitation_policy(jsonb)'
+               'yoao_settings_v1.invitation_policy(jsonb)'
            )::oid) IS DISTINCT FROM settings_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.invitation_work_summary(uuid,uuid,text)'
+               'yoao_labeling_v1.invitation_work_summary(uuid,uuid,text)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.grant_invitation_membership(uuid,uuid,text,uuid,uuid)'
+               'yoao_workspace_v1.grant_invitation_membership(uuid,uuid,text,uuid,uuid)'
            )::oid) IS DISTINCT FROM workspace_oid THEN
         RAISE EXCEPTION 'An invitation cross-owner capability has the wrong owner';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc AS function
         WHERE function.oid IN (
-            pg_catalog.to_regprocedure('aap_identity_mail_v2.mail_policy()')::oid,
-            pg_catalog.to_regprocedure('aap_identity_mail_v2.claim_mail(jsonb)')::oid,
-            pg_catalog.to_regprocedure('aap_identity_mail_v2.renew_mail(jsonb)')::oid,
-            pg_catalog.to_regprocedure('aap_identity_mail_v2.finish_mail(jsonb)')::oid
+            pg_catalog.to_regprocedure('yoao_identity_mail_v2.mail_policy()')::oid,
+            pg_catalog.to_regprocedure('yoao_identity_mail_v2.claim_mail(jsonb)')::oid,
+            pg_catalog.to_regprocedure('yoao_identity_mail_v2.renew_mail(jsonb)')::oid,
+            pg_catalog.to_regprocedure('yoao_identity_mail_v2.finish_mail(jsonb)')::oid
         ) AND function.proowner <> identity_oid
     ) THEN
         RAISE EXCEPTION 'Mail v2 functions have the wrong owner';
     END IF;
     IF NOT pg_catalog.has_function_privilege(
         identity_oid,pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_invitation_event(text,jsonb,jsonb,jsonb,jsonb)'
+            'yoao_audit_v1.record_identity_invitation_event(text,jsonb,jsonb,jsonb,jsonb)'
         )::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_settings_v1.invitation_policy(jsonb)')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_settings_v1.invitation_policy(jsonb)')::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_labeling_v1.invitation_work_summary(uuid,uuid,text)')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_labeling_v1.invitation_work_summary(uuid,uuid,text)')::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_workspace_v1.invitation_projects(uuid[])')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_workspace_v1.invitation_projects(uuid[])')::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_workspace_v1.lock_invitation_project(uuid,uuid)')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_workspace_v1.lock_invitation_project(uuid,uuid)')::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_workspace_v1.read_invitation_membership(uuid,uuid)')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_workspace_v1.read_invitation_membership(uuid,uuid)')::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_workspace_v1.grant_invitation_membership(uuid,uuid,text,uuid,uuid)')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_workspace_v1.grant_invitation_membership(uuid,uuid,text,uuid,uuid)')::oid,'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
-        identity_oid,pg_catalog.to_regprocedure('aap_identity_groups_v1.resolve_invitation_group(uuid,text)')::oid,'EXECUTE'
+        identity_oid,pg_catalog.to_regprocedure('yoao_identity_groups_v1.resolve_invitation_group(uuid,text)')::oid,'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Identity owner is missing an invitation owner capability';
     END IF;
@@ -200,18 +200,18 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_invitations_v1 TO :"identity_invitation_role";
+GRANT USAGE ON SCHEMA yoao_identity_invitations_v1 TO :"identity_invitation_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_invitations_v1.invitation_policy(),
-    aap_identity_invitations_v1.prepare_invitation_command(jsonb),
-    aap_identity_invitations_v1.apply_invitation_command(jsonb)
+    yoao_identity_invitations_v1.invitation_policy(),
+    yoao_identity_invitations_v1.prepare_invitation_command(jsonb),
+    yoao_identity_invitations_v1.apply_invitation_command(jsonb)
     TO :"identity_invitation_role";
-GRANT USAGE ON SCHEMA aap_identity_mail_v2 TO :"identity_mail_v2_role";
+GRANT USAGE ON SCHEMA yoao_identity_mail_v2 TO :"identity_mail_v2_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_mail_v2.mail_policy(),
-    aap_identity_mail_v2.claim_mail(jsonb),
-    aap_identity_mail_v2.renew_mail(jsonb),
-    aap_identity_mail_v2.finish_mail(jsonb)
+    yoao_identity_mail_v2.mail_policy(),
+    yoao_identity_mail_v2.claim_mail(jsonb),
+    yoao_identity_mail_v2.renew_mail(jsonb),
+    yoao_identity_mail_v2.finish_mail(jsonb)
     TO :"identity_mail_v2_role";
 
 DO $$
@@ -228,19 +228,19 @@ BEGIN
     ] LOOP
         role_oid := (SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname=role_name);
         IF role_name = current_setting('yoao.identity_invitation_role') THEN
-            allowed_schema := 'aap_identity_invitations_v1';
+            allowed_schema := 'yoao_identity_invitations_v1';
             expected_functions := ARRAY[
-                'aap_identity_invitations_v1.apply_invitation_command(jsonb)',
-                'aap_identity_invitations_v1.invitation_policy()',
-                'aap_identity_invitations_v1.prepare_invitation_command(jsonb)'
+                'yoao_identity_invitations_v1.apply_invitation_command(jsonb)',
+                'yoao_identity_invitations_v1.invitation_policy()',
+                'yoao_identity_invitations_v1.prepare_invitation_command(jsonb)'
             ];
         ELSE
-            allowed_schema := 'aap_identity_mail_v2';
+            allowed_schema := 'yoao_identity_mail_v2';
             expected_functions := ARRAY[
-                'aap_identity_mail_v2.claim_mail(jsonb)',
-                'aap_identity_mail_v2.finish_mail(jsonb)',
-                'aap_identity_mail_v2.mail_policy()',
-                'aap_identity_mail_v2.renew_mail(jsonb)'
+                'yoao_identity_mail_v2.claim_mail(jsonb)',
+                'yoao_identity_mail_v2.finish_mail(jsonb)',
+                'yoao_identity_mail_v2.mail_policy()',
+                'yoao_identity_mail_v2.renew_mail(jsonb)'
             ];
         END IF;
         SELECT COALESCE(pg_catalog.array_agg(

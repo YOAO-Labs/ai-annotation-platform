@@ -1,7 +1,7 @@
 -- Grant the trusted Workspace maintenance LOGIN only its six fixed native functions.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v workspace_owner=workspace_code
---   -v workspace_project_maintenance_role=workspace_project_maintenance_client
+--   -v workspace_project_maintenance_role=yoao_workspace_project_maintenance_client
 --   -f infra/docker/workspace-project-maintenance-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -24,7 +24,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'workspace_project_maintenance_client'
+    IF role_name <> 'yoao_workspace_project_maintenance_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 2 THEN
         RAISE EXCEPTION 'Unexpected Workspace project-maintenance role names';
@@ -62,15 +62,15 @@ DECLARE
     function_oid oid;
 BEGIN
     FOREACH signature IN ARRAY ARRAY[
-        'aap_workspace_v1.read_import_project(text)',
-        'aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)',
-        'aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
-        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
-        'aap_workspace_v1.write_seed_members(jsonb)',
-        'aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)',
-        'aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',
-        'aap_workspace_v1.write_seed_project_projection(uuid,jsonb)',
-        'aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)'
+        'yoao_workspace_v1.read_import_project(text)',
+        'yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)',
+        'yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
+        'yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
+        'yoao_workspace_v1.write_seed_members(jsonb)',
+        'yoao_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)',
+        'yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',
+        'yoao_workspace_v1.write_seed_project_projection(uuid,jsonb)',
+        'yoao_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)'
     ] LOOP
         function_oid := pg_catalog.to_regprocedure(signature);
         IF function_oid IS NULL OR NOT EXISTS (
@@ -83,7 +83,7 @@ BEGIN
             RAISE EXCEPTION 'Wrong Workspace project-maintenance capability owner or shape';
         END IF;
     END LOOP;
-    IF NOT pg_catalog.has_schema_privilege(owner_oid, 'aap_workspace_v1', 'USAGE')
+    IF NOT pg_catalog.has_schema_privilege(owner_oid, 'yoao_workspace_v1', 'USAGE')
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'id', 'SELECT')
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'display_id', 'SELECT')
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'point_cloud_quality_config', 'SELECT')
@@ -130,15 +130,15 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_workspace_v1
+GRANT USAGE ON SCHEMA yoao_workspace_v1
     TO :"workspace_project_maintenance_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.read_import_project(text),
-    aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb),
-    aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
-    aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
-    aap_workspace_v1.write_seed_members(jsonb),
-    aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
+    yoao_workspace_v1.read_import_project(text),
+    yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb),
+    yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
+    yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
+    yoao_workspace_v1.write_seed_members(jsonb),
+    yoao_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     TO :"workspace_project_maintenance_role";
 
 DO $$
@@ -149,12 +149,12 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)',
-        'aap_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)',
-        'aap_workspace_v1.read_import_project(text)',
-        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)',
-        'aap_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)',
-        'aap_workspace_v1.write_seed_members(jsonb)'
+        'yoao_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)',
+        'yoao_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)',
+        'yoao_workspace_v1.read_import_project(text)',
+        'yoao_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)',
+        'yoao_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)',
+        'yoao_workspace_v1.write_seed_members(jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -206,14 +206,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_workspace_v1', 'public'
+            'yoao_workspace_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_workspace_v1', 'CREATE'
+        role_oid, 'yoao_workspace_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

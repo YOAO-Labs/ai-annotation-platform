@@ -50,7 +50,7 @@ BEGIN
         RAISE EXCEPTION 'Apply the ordinary Identity consumer fence first';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_identity_v1.replace_fixture_preferences(uuid,jsonb)'
+        'yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner

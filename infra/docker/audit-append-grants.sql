@@ -2,7 +2,7 @@
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v audit_owner=audit_code -v api_role=api_runtime \
---   -v append_client=audit_append_client \
+--   -v append_client=yoao_audit_append_client \
 --   -f infra/docker/audit-append-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -17,7 +17,7 @@ DECLARE
     owner_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.audit_owner'));
     api_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.api_role'));
     client_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.append_client'));
-    append_function oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
+    append_function oid := pg_catalog.to_regprocedure('yoao_audit_v1.append_events(jsonb)')::oid;
     audit_sequence oid := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id')::regclass::oid;
 BEGIN
     IF current_database() <> current_setting('yoao.expected_database')
@@ -88,14 +88,14 @@ BEGIN
     IF pg_catalog.has_database_privilege(client_oid, current_database(), 'CREATE')
        OR pg_catalog.has_database_privilege(client_oid, current_database(), 'TEMP')
        OR pg_catalog.has_schema_privilege(client_oid, 'public', 'CREATE')
-       OR pg_catalog.has_schema_privilege(client_oid, 'aap_audit_v1', 'CREATE') THEN
+       OR pg_catalog.has_schema_privilege(client_oid, 'yoao_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Audit append client has database or schema creation privileges';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_namespace AS namespace
         WHERE (namespace.nspname LIKE 'aap\_%' ESCAPE '\'
                OR namespace.nspname LIKE 'yoao\_%' ESCAPE '\')
-          AND namespace.nspname <> 'aap_audit_v1'
+          AND namespace.nspname <> 'yoao_audit_v1'
           AND pg_catalog.has_schema_privilege(client_oid, namespace.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Audit append client has a foreign module schema grant';
@@ -188,8 +188,8 @@ BEGIN
         current_setting('yoao.api_role')
     );
 END $$;
-REVOKE ALL ON SCHEMA aap_audit_v1 FROM :"append_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_audit_v1 FROM :"append_client";
+REVOKE ALL ON SCHEMA yoao_audit_v1 FROM :"append_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_audit_v1 FROM :"append_client";
 REVOKE ALL ON TABLE public.audit_logs FROM :"append_client";
 DO $$
 BEGIN
@@ -200,20 +200,20 @@ BEGIN
     );
 END $$;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"append_client";
-GRANT USAGE ON SCHEMA aap_audit_v1 TO :"append_client";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb) TO :"append_client";
-GRANT USAGE ON SCHEMA aap_audit_v1 TO :"api_role";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb) TO :"api_role";
+GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"append_client";
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.append_events(jsonb) TO :"append_client";
+GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"api_role";
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.append_events(jsonb) TO :"api_role";
 
 DO $$
 DECLARE
     api_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.api_role'));
     client_oid oid := (SELECT oid FROM pg_roles WHERE rolname = current_setting('yoao.append_client'));
-    append_function oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
+    append_function oid := pg_catalog.to_regprocedure('yoao_audit_v1.append_events(jsonb)')::oid;
     audit_sequence oid := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id')::regclass::oid;
 BEGIN
     IF NOT pg_catalog.has_database_privilege(client_oid, current_database(), 'CONNECT')
-       OR NOT pg_catalog.has_schema_privilege(client_oid, 'aap_audit_v1', 'USAGE')
+       OR NOT pg_catalog.has_schema_privilege(client_oid, 'yoao_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_function_privilege(client_oid, append_function, 'EXECUTE')
        OR pg_catalog.has_table_privilege(client_oid, 'public.audit_logs', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
        OR pg_catalog.has_any_column_privilege(client_oid, 'public.audit_logs', 'SELECT,INSERT,UPDATE,REFERENCES')
@@ -247,7 +247,7 @@ BEGIN
         RAISE EXCEPTION 'Audit append client has privileges outside its function';
     END IF;
     IF NOT pg_catalog.has_table_privilege(api_oid, 'public.audit_logs', 'SELECT')
-       OR NOT pg_catalog.has_schema_privilege(api_oid, 'aap_audit_v1', 'USAGE')
+       OR NOT pg_catalog.has_schema_privilege(api_oid, 'yoao_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_function_privilege(api_oid, append_function, 'EXECUTE')
        OR pg_catalog.has_table_privilege(api_oid, 'public.audit_logs',
             'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
@@ -271,7 +271,7 @@ BEGIN
     IF EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS schema ON schema.oid = function.pronamespace
-        WHERE schema.nspname = 'aap_audit_v1'
+        WHERE schema.nspname = 'yoao_audit_v1'
           AND pg_catalog.has_function_privilege(client_oid, function.oid, 'EXECUTE')
           AND function.oid <> append_function
     ) THEN

@@ -1,7 +1,7 @@
 -- Grant a Inference Pool reference data LOGIN exactly one fixed Pool read.
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v inference_owner=labeling_code -v pool_reference_role=inference_pool_reference_client \
+--   -v inference_owner=inference_code -v pool_reference_role=yoao_inference_pool_reference_client \
 --   -f infra/docker/inference-pool-reference-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -51,7 +51,7 @@ BEGIN
         RAISE EXCEPTION 'Inference owner and caller LOGIN have unsafe membership';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_inference_v1.ai_mask_pool_reference_row(uuid)'
+        'yoao_inference_v1.ai_mask_pool_reference_row(uuid)'
     ] LOOP
     v_function := pg_catalog.to_regprocedure(v_signature);
     IF v_function IS NULL OR NOT EXISTS (
@@ -99,10 +99,10 @@ BEGIN
 END;
 $revoke$;
 
-REVOKE ALL ON FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid)
+REVOKE ALL ON FUNCTION yoao_inference_v1.ai_mask_pool_reference_row(uuid)
     FROM :"pool_reference_role", PUBLIC;
-GRANT USAGE ON SCHEMA aap_inference_v1 TO :"pool_reference_role";
-GRANT EXECUTE ON FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid)
+GRANT USAGE ON SCHEMA yoao_inference_v1 TO :"pool_reference_role";
+GRANT EXECUTE ON FUNCTION yoao_inference_v1.ai_mask_pool_reference_row(uuid)
     TO :"pool_reference_role";
 
 DO $verify$
@@ -110,15 +110,15 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('yoao.pool_reference_role'));
     v_allowed oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_inference_v1.ai_mask_pool_reference_row(uuid)')
+        pg_catalog.to_regprocedure('yoao_inference_v1.ai_mask_pool_reference_row(uuid)')
     ];
     v_relation record;
 BEGIN
     IF pg_catalog.array_position(v_allowed,NULL) IS NOT NULL
        OR NOT pg_catalog.has_database_privilege(v_client,current_database(),'CONNECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP')
-       OR NOT pg_catalog.has_schema_privilege(v_client,'aap_inference_v1','USAGE')
-       OR pg_catalog.has_schema_privilege(v_client,'aap_inference_v1','CREATE')
+       OR NOT pg_catalog.has_schema_privilege(v_client,'yoao_inference_v1','USAGE')
+       OR pg_catalog.has_schema_privilege(v_client,'yoao_inference_v1','CREATE')
        OR pg_catalog.has_schema_privilege(v_client,'public','CREATE')
        OR EXISTS (
            SELECT FROM pg_catalog.unnest(v_allowed) AS capability(oid)
@@ -164,7 +164,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_inference_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_inference_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Inference Pool reference data LOGIN has foreign schema privileges';

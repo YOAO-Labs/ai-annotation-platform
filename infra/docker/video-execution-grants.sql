@@ -1,7 +1,7 @@
 -- Give the video execution LOGIN exactly two Jobs Native functions.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v jobs_owner=jobs_code -v video_execution_role=video_execution_client
+--   -v jobs_owner=jobs_code -v video_execution_role=yoao_video_execution_client
 --   -f infra/docker/video-execution-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -19,7 +19,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'video_execution_client' OR owner_name <> 'jobs_code'
+    IF role_name <> 'yoao_video_execution_client' OR owner_name <> 'jobs_code'
        OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected video execution roles';
     END IF;
@@ -56,14 +56,14 @@ DECLARE
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_jobs_v1'
+        WHERE namespace.nspname = 'yoao_jobs_v1'
           AND namespace.nspowner IS DISTINCT FROM owner_oid
     ) THEN
         RAISE EXCEPTION 'Video execution Native schema or function is unavailable';
     END IF;
     FOREACH signature IN ARRAY ARRAY[
-        'aap_jobs_v1.video_execution_step(text,text)',
-        'aap_jobs_v1.video_execution_checkpoint_step(text,text)'
+        'yoao_jobs_v1.video_execution_step(text,text)',
+        'yoao_jobs_v1.video_execution_checkpoint_step(text,text)'
     ] LOOP
     function_oid := pg_catalog.to_regprocedure(signature);
     IF function_oid IS NULL OR EXISTS (
@@ -100,9 +100,9 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"video_execution_role";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text),
-    aap_jobs_v1.video_execution_checkpoint_step(text,text)
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"video_execution_role";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_step(text,text),
+    yoao_jobs_v1.video_execution_checkpoint_step(text,text)
     TO :"video_execution_role";
 
 DO $$
@@ -113,8 +113,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_jobs_v1.video_execution_checkpoint_step(text, text)',
-        'aap_jobs_v1.video_execution_step(text, text)'
+        'yoao_jobs_v1.video_execution_checkpoint_step(text, text)',
+        'yoao_jobs_v1.video_execution_step(text, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(

@@ -3,7 +3,7 @@
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v labeling_owner=labeling_code \
---   -v result_role=preannotation_result_client \
+--   -v result_role=yoao_preannotation_result_client \
 --   -f infra/docker/preannotation-result-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -49,29 +49,29 @@ END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM :"result_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"result_role";
-REVOKE ALL ON SCHEMA public, aap_jobs_v1, aap_labeling_v1 FROM :"result_role";
+REVOKE ALL ON SCHEMA public, yoao_jobs_v1, yoao_labeling_v1 FROM :"result_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"result_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"result_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_jobs_v1, aap_labeling_v1 FROM :"result_role";
-GRANT USAGE ON SCHEMA aap_jobs_v1, aap_labeling_v1 TO :"result_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_jobs_v1, yoao_labeling_v1 FROM :"result_role";
+GRANT USAGE ON SCHEMA yoao_jobs_v1, yoao_labeling_v1 TO :"result_role";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.claim_batch_result_execution(jsonb),
-    aap_jobs_v1.heartbeat_batch_result_execution(jsonb),
-    aap_jobs_v1.release_batch_result_execution(jsonb),
-    aap_jobs_v1.stage_batch_result_members(jsonb),
-    aap_jobs_v1.start_batch_result_execution(jsonb),
-    aap_jobs_v1.read_batch_result_execution(jsonb),
-    aap_jobs_v1.mark_batch_result_overwrite(jsonb),
-    aap_jobs_v1.skip_batch_result_member(jsonb),
-    aap_jobs_v1.finish_batch_result_execution(jsonb),
-    aap_jobs_v1.start_batch_result_member(jsonb),
-    aap_labeling_v1.begin_batch_result(jsonb),
-    aap_labeling_v1.put_batch_result_part(jsonb),
-    aap_labeling_v1.seal_batch_result(jsonb),
-    aap_labeling_v1.read_batch_result(jsonb),
-    aap_labeling_v1.read_prediction_retry(jsonb),
-    aap_jobs_v1.claim_prediction_retry_deliveries(jsonb),
-    aap_jobs_v1.finish_prediction_retry_delivery(jsonb)
+    yoao_jobs_v1.claim_batch_result_execution(jsonb),
+    yoao_jobs_v1.heartbeat_batch_result_execution(jsonb),
+    yoao_jobs_v1.release_batch_result_execution(jsonb),
+    yoao_jobs_v1.stage_batch_result_members(jsonb),
+    yoao_jobs_v1.start_batch_result_execution(jsonb),
+    yoao_jobs_v1.read_batch_result_execution(jsonb),
+    yoao_jobs_v1.mark_batch_result_overwrite(jsonb),
+    yoao_jobs_v1.skip_batch_result_member(jsonb),
+    yoao_jobs_v1.finish_batch_result_execution(jsonb),
+    yoao_jobs_v1.start_batch_result_member(jsonb),
+    yoao_labeling_v1.begin_batch_result(jsonb),
+    yoao_labeling_v1.put_batch_result_part(jsonb),
+    yoao_labeling_v1.seal_batch_result(jsonb),
+    yoao_labeling_v1.read_batch_result(jsonb),
+    yoao_labeling_v1.read_prediction_retry(jsonb),
+    yoao_jobs_v1.claim_prediction_retry_deliveries(jsonb),
+    yoao_jobs_v1.finish_prediction_retry_delivery(jsonb)
     TO :"result_role";
 
 DO $$
@@ -80,8 +80,8 @@ DECLARE
     v_callable integer;
 BEGIN
     IF has_schema_privilege(role_name, 'public', 'CREATE')
-       OR has_schema_privilege(role_name, 'aap_jobs_v1', 'CREATE')
-       OR has_schema_privilege(role_name, 'aap_labeling_v1', 'CREATE')
+       OR has_schema_privilege(role_name, 'yoao_jobs_v1', 'CREATE')
+       OR has_schema_privilege(role_name, 'yoao_labeling_v1', 'CREATE')
        OR has_database_privilege(role_name, current_database(), 'TEMP') THEN
         RAISE EXCEPTION 'The preannotation result role has direct schema or TEMP access';
     END IF;
@@ -106,17 +106,17 @@ BEGIN
     SELECT count(*) INTO v_callable
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = proc.pronamespace
-    WHERE namespace.nspname IN ('aap_jobs_v1','aap_labeling_v1')
+    WHERE namespace.nspname IN ('yoao_jobs_v1','yoao_labeling_v1')
       AND proc.prokind = 'f'
       AND has_function_privilege(role_name, proc.oid, 'EXECUTE');
     IF v_callable <> 17
-       OR has_function_privilege(role_name, 'aap_labeling_v1.lock_batch_result_write(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_labeling_v1.finish_batch_result_write(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_labeling_v1.finish_batch_result_failure(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_jobs_v1.lock_batch_result_execution(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_labeling_v1.admit_prediction_retry(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_labeling_v1.finish_prediction_retry_write(jsonb)', 'EXECUTE')
-       OR has_function_privilege(role_name, 'aap_labeling_v1.finish_prediction_retry_failure(jsonb)', 'EXECUTE') THEN
+       OR has_function_privilege(role_name, 'yoao_labeling_v1.lock_batch_result_write(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'yoao_labeling_v1.finish_batch_result_write(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'yoao_labeling_v1.finish_batch_result_failure(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'yoao_jobs_v1.lock_batch_result_execution(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'yoao_labeling_v1.admit_prediction_retry(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'yoao_labeling_v1.finish_prediction_retry_write(jsonb)', 'EXECUTE')
+       OR has_function_privilege(role_name, 'yoao_labeling_v1.finish_prediction_retry_failure(jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'The preannotation result role must execute exactly 17 executor capabilities';
     END IF;
 END $$;

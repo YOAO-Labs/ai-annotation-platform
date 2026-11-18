@@ -3,7 +3,7 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v labeling_owner=labeling_code -v audit_owner=audit_code
---   -v identity_platform_role_role=identity_platform_role_client
+--   -v identity_platform_role_role=yoao_identity_platform_role_client
 --   -f infra/docker/identity-platform-roles-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -32,7 +32,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'identity_platform_role_client'
+    IF role_name <> 'yoao_identity_platform_role_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM unnest(role_names) AS candidate(name)) <> 5 THEN
         RAISE EXCEPTION 'Unexpected Identity platform-role role names';
@@ -89,45 +89,45 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_platform_roles_v1.platform_role_policy()'
+            'yoao_identity_platform_roles_v1.platform_role_policy()'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)'
+               'yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.identity_platform_role_facts(uuid)'
+               'yoao_workspace_v1.identity_platform_role_facts(uuid)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.lock_identity_platform_role_owned_projects(uuid)'
+               'yoao_workspace_v1.lock_identity_platform_role_owned_projects(uuid)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.identity_platform_role_facts(uuid,uuid[])'
+               'yoao_labeling_v1.identity_platform_role_facts(uuid,uuid[])'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_identity_platform_role_change(jsonb,uuid,jsonb,text,text,text)'
+               'yoao_audit_v1.record_identity_platform_role_change(jsonb,uuid,jsonb,text,text,text)'
            )::oid) IS DISTINCT FROM audit_oid THEN
         RAISE EXCEPTION 'An Identity platform-role capability has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.identity_platform_role_facts(uuid)'
+            'yoao_workspace_v1.identity_platform_role_facts(uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.lock_identity_platform_role_owned_projects(uuid)'
+            'yoao_workspace_v1.lock_identity_platform_role_owned_projects(uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.identity_platform_role_facts(uuid,uuid[])'
+            'yoao_labeling_v1.identity_platform_role_facts(uuid,uuid[])'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_platform_role_change(jsonb,uuid,jsonb,text,text,text)'
+            'yoao_audit_v1.record_identity_platform_role_change(jsonb,uuid,jsonb,text,text,text)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.identity_platform_role_operation_receipts',
@@ -207,11 +207,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_platform_roles_v1
+GRANT USAGE ON SCHEMA yoao_identity_platform_roles_v1
     TO :"identity_platform_role_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_platform_roles_v1.platform_role_policy(),
-    aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)
+    yoao_identity_platform_roles_v1.platform_role_policy(),
+    yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)
     TO :"identity_platform_role_role";
 
 DO $$
@@ -222,8 +222,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)',
-        'aap_identity_platform_roles_v1.platform_role_policy()'
+        'yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)',
+        'yoao_identity_platform_roles_v1.platform_role_policy()'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -268,9 +268,9 @@ BEGIN
         RAISE EXCEPTION 'Identity platform-role LOGIN has unexpected functions: %', actual_functions;
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-           role_oid, 'aap_identity_platform_roles_v1', 'USAGE'
+           role_oid, 'yoao_identity_platform_roles_v1', 'USAGE'
        ) OR pg_catalog.has_schema_privilege(
-           role_oid, 'aap_identity_platform_roles_v1', 'CREATE'
+           role_oid, 'yoao_identity_platform_roles_v1', 'CREATE'
        ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
        OR pg_catalog.has_database_privilege(
            role_oid, current_database(), 'CREATE,TEMP'
@@ -278,7 +278,7 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
                   'pg_catalog', 'information_schema',
-                  'aap_identity_platform_roles_v1', 'public'
+                  'yoao_identity_platform_roles_v1', 'public'
               )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'

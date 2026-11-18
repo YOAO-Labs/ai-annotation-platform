@@ -1,7 +1,7 @@
 -- Grant a standalone Audit maintenance LOGIN exactly one owner command.
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v audit_owner=audit_code -v maintenance_role=audit_maintenance_client \
+--   -v audit_owner=audit_code -v maintenance_role=yoao_audit_maintenance_client \
 --   -f infra/docker/audit-maintenance-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -17,7 +17,7 @@ DECLARE
     v_maintenance oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('yoao.maintenance_role'));
     v_function oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.maintenance_command(jsonb)'
+        'yoao_audit_v1.maintenance_command(jsonb)'
     );
 BEGIN
     IF current_database()<>current_setting('yoao.expected_database')
@@ -67,7 +67,7 @@ BEGIN
     END IF;
     IF NOT pg_catalog.has_database_privilege(v_owner, current_database(), 'TEMP')
        OR NOT pg_catalog.has_schema_privilege(v_owner, 'public', 'CREATE')
-       OR pg_catalog.has_schema_privilege(v_owner, 'aap_audit_v1', 'CREATE') THEN
+       OR pg_catalog.has_schema_privilege(v_owner, 'yoao_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Audit owner is missing its bounded partition and refresh rights';
     END IF;
 END;
@@ -99,10 +99,10 @@ BEGIN
 END;
 $revoke$;
 
-REVOKE ALL ON FUNCTION aap_audit_v1.maintenance_command(jsonb)
+REVOKE ALL ON FUNCTION yoao_audit_v1.maintenance_command(jsonb)
     FROM :"maintenance_role", PUBLIC;
-GRANT USAGE ON SCHEMA aap_audit_v1 TO :"maintenance_role";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb)
+GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"maintenance_role";
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.maintenance_command(jsonb)
     TO :"maintenance_role";
 
 DO $verify$
@@ -112,15 +112,15 @@ DECLARE
     v_maintenance oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('yoao.maintenance_role'));
     v_allowed oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.maintenance_command(jsonb)'
+        'yoao_audit_v1.maintenance_command(jsonb)'
     );
     v_relation record;
 BEGIN
     IF v_allowed IS NULL
        OR NOT pg_catalog.has_database_privilege(v_maintenance,current_database(),'CONNECT')
        OR pg_catalog.has_database_privilege(v_maintenance,current_database(),'CREATE,TEMP')
-       OR NOT pg_catalog.has_schema_privilege(v_maintenance,'aap_audit_v1','USAGE')
-       OR pg_catalog.has_schema_privilege(v_maintenance,'aap_audit_v1','CREATE')
+       OR NOT pg_catalog.has_schema_privilege(v_maintenance,'yoao_audit_v1','USAGE')
+       OR pg_catalog.has_schema_privilege(v_maintenance,'yoao_audit_v1','CREATE')
        OR pg_catalog.has_schema_privilege(v_maintenance,'public','CREATE')
        OR NOT pg_catalog.has_function_privilege(v_maintenance,v_allowed,'EXECUTE') THEN
         RAISE EXCEPTION 'Audit maintenance LOGIN is missing its exact function profile';
@@ -163,7 +163,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_maintenance,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_audit_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_audit_v1')
                    AND pg_catalog.has_schema_privilege(v_maintenance,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Audit maintenance LOGIN has foreign schema privileges';

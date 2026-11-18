@@ -1,6 +1,6 @@
 -- Run after migrations and module-data-grants as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_catalog_role=asset_catalog_client
+--   -v assets_owner=assets_code -v asset_catalog_role=yoao_asset_catalog_client
 --   -f infra/docker/assets-catalog-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -99,8 +99,8 @@ BEGIN
     END LOOP;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_catalog_role";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_catalog_role";
+REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_catalog_role";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_catalog_role";
 
 -- The NOLOGIN Assets owner may read only catalog facts and write catalog fields.
 GRANT SELECT (
@@ -120,56 +120,56 @@ GRANT SELECT (
     ON public.dataset_catalog_operations TO :"assets_owner";
 
 -- Function owners are NOLOGIN; the runtime receives only the frozen public calls.
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._catalog_failure(text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._catalog_actor(uuid, boolean) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._catalog_dataset_summary(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.list_catalog_datasets(
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._catalog_failure(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._catalog_actor(uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._catalog_dataset_summary(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.list_catalog_datasets(
     uuid, text, text, boolean, integer, bigint
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.get_catalog_dataset(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.get_catalog_dataset(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.list_catalog_items(uuid, uuid, integer, bigint)
+ALTER FUNCTION yoao_assets_v1.list_catalog_items(uuid, uuid, integer, bigint)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.create_catalog_dataset(uuid, uuid, jsonb)
+ALTER FUNCTION yoao_assets_v1.create_catalog_dataset(uuid, uuid, jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb)
+ALTER FUNCTION yoao_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb)
     OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
 
-GRANT EXECUTE ON FUNCTION aap_assets_v1.list_catalog_datasets(
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.list_catalog_datasets(
     uuid, text, text, boolean, integer, bigint
-), aap_assets_v1.get_catalog_dataset(uuid, uuid),
-    aap_assets_v1.list_catalog_items(uuid, uuid, integer, bigint),
-    aap_assets_v1.create_catalog_dataset(uuid, uuid, jsonb),
-    aap_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb),
-    aap_assets_v1.list_dataset_projects(uuid, uuid),
-    aap_assets_v1.list_project_datasets(uuid, uuid)
+), yoao_assets_v1.get_catalog_dataset(uuid, uuid),
+    yoao_assets_v1.list_catalog_items(uuid, uuid, integer, bigint),
+    yoao_assets_v1.create_catalog_dataset(uuid, uuid, jsonb),
+    yoao_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb),
+    yoao_assets_v1.list_dataset_projects(uuid, uuid),
+    yoao_assets_v1.list_project_datasets(uuid, uuid)
     TO :"asset_catalog_role";
 
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.guard_spatial_actor(uuid,text),
-    aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
-    aap_assets_v1.get_spatial_scene(uuid,uuid),
-    aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
-    aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
-    aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
-    aap_assets_v1.read_spatial_pose_pairs(jsonb),
-    aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
-    aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
-    aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
-    aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
-    aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
-    aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
-    aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
-    aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
-    aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
-    aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
-    aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
-    aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
-    aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
-    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
-    aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
+    yoao_assets_v1.guard_spatial_actor(uuid,text),
+    yoao_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
+    yoao_assets_v1.get_spatial_scene(uuid,uuid),
+    yoao_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
+    yoao_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
+    yoao_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
+    yoao_assets_v1.read_spatial_pose_pairs(jsonb),
+    yoao_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
+    yoao_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
+    yoao_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
+    yoao_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    yoao_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
+    yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
+    yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
+    yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
+    yoao_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
+    yoao_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
+    yoao_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
+    yoao_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
+    yoao_assets_v1.read_spatial_camera_target(uuid,uuid,text),
+    yoao_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"asset_catalog_role";
 
 -- Fail closed if the runtime role can access anything beyond the exact protocol.
@@ -181,54 +181,54 @@ DECLARE
     );
     allowed_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint)'
+            'yoao_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.get_catalog_dataset(uuid,uuid)'
+            'yoao_assets_v1.get_catalog_dataset(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.list_catalog_items(uuid,uuid,integer,bigint)'
+            'yoao_assets_v1.list_catalog_items(uuid,uuid,integer,bigint)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)'
+            'yoao_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)'
+            'yoao_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.list_dataset_projects(uuid,uuid)'
+            'yoao_assets_v1.list_dataset_projects(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.list_project_datasets(uuid,uuid)'
+            'yoao_assets_v1.list_project_datasets(uuid,uuid)'
         )::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.guard_spatial_actor(uuid,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.get_spatial_scene(uuid,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_pose_pairs(jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.read_spatial_camera_target(uuid,uuid,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)')::oid
+        pg_catalog.to_regprocedure('yoao_assets_v1.guard_spatial_actor(uuid,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.get_spatial_scene(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_poses(uuid,uuid,integer,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_pose_pairs(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_pointcloud_preparation(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.read_spatial_camera_target(uuid,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)')::oid
     ];
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND ns.nspname <> 'aap_assets_v1'
+          AND ns.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Catalog LOGIN has access to a foreign module schema';

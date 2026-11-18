@@ -85,14 +85,14 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 ```sql
 CREATE ROLE anno_prod_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE anno_prod_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE asset_cleanup_client LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE yoao_asset_cleanup_client LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 GRANT anno_prod_app TO anno_prod_owner WITH INHERIT TRUE, SET TRUE;
 CREATE DATABASE annotation_production OWNER anno_prod_owner;
 REVOKE ALL ON DATABASE annotation_production FROM PUBLIC;
 GRANT CONNECT ON DATABASE annotation_production TO anno_prod_app;
 ```
 
-通过交互式 `psql` 的 `\password anno_prod_owner`、`\password anno_prod_app` 和 `\password asset_cleanup_client` 分别设置新密码，并写入对应的本机配置文件，避免把密码放进命令历史。迁移需要安装 `pgcrypto` 和 `btree_gist` 扩展；当前 PostgreSQL 镜像支持由新库 owner 安装这些受信任扩展。
+通过交互式 `psql` 的 `\password anno_prod_owner`、`\password anno_prod_app` 和 `\password yoao_asset_cleanup_client` 分别设置新密码，并写入对应的本机配置文件，避免把密码放进命令历史。迁移需要安装 `pgcrypto` 和 `btree_gist` 扩展；当前 PostgreSQL 镜像支持由新库 owner 安装这些受信任扩展。
 
 由 MinIO 管理员预建十个空桶及一个新的应用账号；启用 `MINIO_INPUTS_BUCKET` 的 versioning 并核验状态为 `Enabled`，然后附加仓库中的 `infra/docker/lan-production-minio-policy.json`。该策略只授予这些桶的对象操作及当前应用实际使用的生命周期设置权限，不授予旧桶访问或 MinIO 管理权限。输入对象的读取和删除必须指定非空且非 `null` VersionId；输入清理逐版本删除，不使用无版本 ID 或批量删除。
 
@@ -119,7 +119,7 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml run --r
 -v expected_database=annotation_production
 -v application_role=anno_prod_app
 -v migration_role=anno_prod_owner
--v asset_cleanup_role=asset_cleanup_client
+-v asset_cleanup_role=yoao_asset_cleanup_client
 ```
 
 每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，授予业务 DML，禁止运行角色修改迁移版本或删除 GPU membership/fence 真值；同时把审计、预测父表及全部子分区、两个统计物化视图交给运行角色维护。
@@ -129,7 +129,7 @@ Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固
 私表访问时，脚本会拒绝并回滚授权；先解除冲突再重试，勿给应用进程迁移 owner 凭据。
 这不代表日常或生产环境已经切换，详见 [Identity 内嵌权限](../../api/guides/identity-runtime.md#内嵌运行角色的私表权限)。
 
-应用角色保留本地 API/Celery 适配所需的图片媒体 22 项能力，以及已受理图片输入、清单和 Labeling 引用的 16 项能力。受理图片的后台 sweep、垃圾回收和私有回执/Pin helper 不会授给应用角色。这里的 `asset_cleanup_client` 仅有旧存储删除 outbox 的领取/确认能力；LAN Compose 没有启动独立 `assets-cleanup`。若另行部署清理 overlay，按其 [清理工件说明](../../dev/concepts/module-deployment.md) 单独安装完整角色授权，不要把 overlay 的权限叠加到这个 LAN 配置中。
+应用角色保留本地 API/Celery 适配所需的图片媒体 22 项能力，以及已受理图片输入、清单和 Labeling 引用的 16 项能力。受理图片的后台 sweep、垃圾回收和私有回执/Pin helper 不会授给应用角色。这里的 `yoao_asset_cleanup_client` 仅有旧存储删除 outbox 的领取/确认能力；LAN Compose 没有启动独立 `assets-cleanup`。若另行部署清理 overlay，按其 [清理工件说明](../../dev/concepts/module-deployment.md) 单独安装完整角色授权，不要把 overlay 的权限叠加到这个 LAN 配置中。
 
 连接器配置也依赖当前公开的列举、读取、策略、接受快照、观察回执、创建、删除及连通测试能力；
 迁移后须重应用此 profile，而不是给应用角色补私表权限或迁移 owner 凭据。

@@ -2,7 +2,7 @@
 -- The restricted LOGIN must already exist and have no memberships.
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code -v identity_session_role=identity_session_client \
+--   -v identity_owner=identity_code -v identity_session_role=yoao_identity_session_client \
 --   -f infra/docker/identity-sessions-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -31,8 +31,8 @@ BEGIN
        OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity owner and session client must be distinct';
     END IF;
-    IF current_setting('yoao.identity_session_role') <> 'identity_session_client' THEN
-        RAISE EXCEPTION 'Identity sessions must use the identity_session_client LOGIN';
+    IF current_setting('yoao.identity_session_role') <> 'yoao_identity_session_client' THEN
+        RAISE EXCEPTION 'Identity sessions must use the yoao_identity_session_client LOGIN';
     END IF;
 
     FOREACH role_name IN ARRAY role_names LOOP
@@ -82,7 +82,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_identity_sessions_v1'
+        WHERE namespace.nspname = 'yoao_identity_sessions_v1'
           AND namespace.nspowner = migration_oid
     ) THEN
         RAISE EXCEPTION 'Identity session schema must remain owned by the migration role';
@@ -90,7 +90,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_identity_sessions_v1'
+        WHERE namespace.nspname = 'yoao_identity_sessions_v1'
           AND function.prokind = 'f' AND function.proowner <> owner_oid
     ) THEN
         RAISE EXCEPTION 'Identity session functions must be owned by the Identity code owner';
@@ -98,7 +98,7 @@ BEGIN
     IF NOT pg_catalog.has_function_privilege(
         owner_oid,
         pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_session_event(text,jsonb,jsonb,jsonb)'
+            'yoao_audit_v1.record_identity_session_event(text,jsonb,jsonb,jsonb)'
         )::oid,
         'EXECUTE'
     ) THEN
@@ -127,11 +127,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_sessions_v1 TO :"identity_session_role";
+GRANT USAGE ON SCHEMA yoao_identity_sessions_v1 TO :"identity_session_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_sessions_v1.session_policy(),
-    aap_identity_sessions_v1.read_login_candidate(text),
-    aap_identity_sessions_v1.execute_session_command(jsonb)
+    yoao_identity_sessions_v1.session_policy(),
+    yoao_identity_sessions_v1.read_login_candidate(text),
+    yoao_identity_sessions_v1.execute_session_command(jsonb)
     TO :"identity_session_role";
 
 -- Fail closed unless the LOGIN can reach only its three public capabilities.
@@ -140,12 +140,12 @@ DECLARE
     role_name text := current_setting('yoao.identity_session_role');
     role_oid oid;
     allowed_functions oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_identity_sessions_v1.session_policy()')::oid,
-        pg_catalog.to_regprocedure('aap_identity_sessions_v1.read_login_candidate(text)')::oid,
-        pg_catalog.to_regprocedure('aap_identity_sessions_v1.execute_session_command(jsonb)')::oid
+        pg_catalog.to_regprocedure('yoao_identity_sessions_v1.session_policy()')::oid,
+        pg_catalog.to_regprocedure('yoao_identity_sessions_v1.read_login_candidate(text)')::oid,
+        pg_catalog.to_regprocedure('yoao_identity_sessions_v1.execute_session_command(jsonb)')::oid
     ];
     audit_function oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.record_identity_session_event(text,jsonb,jsonb,jsonb)'
+        'yoao_audit_v1.record_identity_session_event(text,jsonb,jsonb,jsonb)'
     )::oid;
     callable_count integer;
 BEGIN
@@ -163,12 +163,12 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND namespace.nspname <> 'aap_identity_sessions_v1'
+          AND namespace.nspname <> 'yoao_identity_sessions_v1'
           AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Identity session LOGIN has access to a foreign module schema';
     END IF;
-    IF pg_catalog.has_schema_privilege(role_oid, 'aap_audit_v1', 'USAGE')
+    IF pg_catalog.has_schema_privilege(role_oid, 'yoao_audit_v1', 'USAGE')
        OR pg_catalog.has_function_privilege(role_oid, audit_function, 'EXECUTE') THEN
         RAISE EXCEPTION 'Identity session LOGIN has direct Audit capability';
     END IF;
@@ -228,7 +228,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND (namespace.nspname <> 'aap_identity_sessions_v1'
+          AND (namespace.nspname <> 'yoao_identity_sessions_v1'
                OR function.oid <> ALL (allowed_functions))
           AND function.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(role_oid, function.oid, 'EXECUTE')
@@ -238,7 +238,7 @@ BEGIN
     SELECT pg_catalog.count(*) INTO callable_count
     FROM pg_catalog.pg_proc AS function
     JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-    WHERE namespace.nspname = 'aap_identity_sessions_v1'
+    WHERE namespace.nspname = 'yoao_identity_sessions_v1'
       AND function.prokind IN ('f', 'p')
       AND pg_catalog.has_function_privilege(role_oid, function.oid, 'EXECUTE');
     IF callable_count <> pg_catalog.cardinality(allowed_functions) THEN

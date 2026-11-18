@@ -2,7 +2,7 @@
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
---   -v inference_routing_role=inference_routing_client
+--   -v inference_routing_role=yoao_inference_routing_client
 --   -f infra/docker/inference-routing-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -20,7 +20,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'inference_routing_client'
+    IF role_name <> 'yoao_inference_routing_client'
        OR owner_name <> 'inference_code'
        OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected routing roles';
@@ -70,7 +70,7 @@ DECLARE
     function_oid oid;
 BEGIN
     IF (SELECT nspowner FROM pg_catalog.pg_namespace
-        WHERE nspname = 'aap_inference_routing_v1') IS DISTINCT FROM owner_oid THEN
+        WHERE nspname = 'yoao_inference_routing_v1') IS DISTINCT FROM owner_oid THEN
         RAISE EXCEPTION 'Routing schema has unexpected owner';
     END IF;
     SELECT COALESCE(pg_catalog.array_agg(
@@ -81,14 +81,14 @@ BEGIN
       FROM pg_catalog.pg_class AS relation
       JOIN pg_catalog.pg_namespace AS namespace
         ON namespace.oid = relation.relnamespace
-     WHERE namespace.nspname = 'aap_inference_routing_v1'
+     WHERE namespace.nspname = 'yoao_inference_routing_v1'
        AND relation.relkind IN ('r', 'p');
     IF actual_tables IS DISTINCT FROM expected_tables OR EXISTS (
         SELECT 1
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = relation.relnamespace
-        WHERE namespace.nspname = 'aap_inference_routing_v1'
+        WHERE namespace.nspname = 'yoao_inference_routing_v1'
           AND relation.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
           AND relation.relowner IS DISTINCT FROM owner_oid
     ) THEN
@@ -100,7 +100,7 @@ BEGIN
       FROM pg_catalog.pg_proc AS function
       JOIN pg_catalog.pg_namespace AS namespace
         ON namespace.oid = function.pronamespace
-      WHERE namespace.nspname = 'aap_inference_routing_v1'
+      WHERE namespace.nspname = 'yoao_inference_routing_v1'
         AND (function.proowner IS DISTINCT FROM owner_oid
              OR NOT function.prosecdef
              OR function.proconfig IS NULL
@@ -114,14 +114,14 @@ BEGIN
             bad_function;
     END IF;
     FOR required IN SELECT * FROM (VALUES
-        ('aap_inference_routing_v1.model_dispatch_step(text)','jsonb'),
-        ('aap_inference_routing_v1.prediction_scope_reserve(text)','jsonb'),
-        ('aap_inference_routing_v1.prediction_test_scope_reserve(text)','jsonb'),
-        ('aap_inference_routing_v1.routing_policy()','jsonb'),
-        ('aap_inference_routing_v1.routing_step(text,text)','jsonb'),
-        ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb'),
-        ('aap_inference_routing_v1.supersede_unbegun_scope(text)','jsonb'),
-        ('aap_inference_routing_v1.video_execution_scope_step(text,text)','jsonb')
+        ('yoao_inference_routing_v1.model_dispatch_step(text)','jsonb'),
+        ('yoao_inference_routing_v1.prediction_scope_reserve(text)','jsonb'),
+        ('yoao_inference_routing_v1.prediction_test_scope_reserve(text)','jsonb'),
+        ('yoao_inference_routing_v1.routing_policy()','jsonb'),
+        ('yoao_inference_routing_v1.routing_step(text,text)','jsonb'),
+        ('yoao_inference_routing_v1.scope_retirement_step(text,text)','jsonb'),
+        ('yoao_inference_routing_v1.supersede_unbegun_scope(text)','jsonb'),
+        ('yoao_inference_routing_v1.video_execution_scope_step(text,text)','jsonb')
     ) AS capability(signature,result_type)
     LOOP
         function_oid := pg_catalog.to_regprocedure(required.signature)::oid;
@@ -159,17 +159,17 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_inference_routing_v1
+GRANT USAGE ON SCHEMA yoao_inference_routing_v1
     TO :"inference_routing_role";
 GRANT EXECUTE ON FUNCTION
-    aap_inference_routing_v1.model_dispatch_step(text),
-    aap_inference_routing_v1.prediction_scope_reserve(text),
-    aap_inference_routing_v1.prediction_test_scope_reserve(text),
-    aap_inference_routing_v1.routing_policy(),
-    aap_inference_routing_v1.routing_step(text,text),
-    aap_inference_routing_v1.scope_retirement_step(text,text),
-    aap_inference_routing_v1.supersede_unbegun_scope(text),
-    aap_inference_routing_v1.video_execution_scope_step(text,text)
+    yoao_inference_routing_v1.model_dispatch_step(text),
+    yoao_inference_routing_v1.prediction_scope_reserve(text),
+    yoao_inference_routing_v1.prediction_test_scope_reserve(text),
+    yoao_inference_routing_v1.routing_policy(),
+    yoao_inference_routing_v1.routing_step(text,text),
+    yoao_inference_routing_v1.scope_retirement_step(text,text),
+    yoao_inference_routing_v1.supersede_unbegun_scope(text),
+    yoao_inference_routing_v1.video_execution_scope_step(text,text)
     TO :"inference_routing_role";
 
 DO $$
@@ -180,14 +180,14 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_inference_routing_v1.model_dispatch_step(text)',
-        'aap_inference_routing_v1.prediction_scope_reserve(text)',
-        'aap_inference_routing_v1.prediction_test_scope_reserve(text)',
-        'aap_inference_routing_v1.routing_policy()',
-        'aap_inference_routing_v1.routing_step(text, text)',
-        'aap_inference_routing_v1.scope_retirement_step(text, text)',
-        'aap_inference_routing_v1.supersede_unbegun_scope(text)',
-        'aap_inference_routing_v1.video_execution_scope_step(text, text)'
+        'yoao_inference_routing_v1.model_dispatch_step(text)',
+        'yoao_inference_routing_v1.prediction_scope_reserve(text)',
+        'yoao_inference_routing_v1.prediction_test_scope_reserve(text)',
+        'yoao_inference_routing_v1.routing_policy()',
+        'yoao_inference_routing_v1.routing_step(text, text)',
+        'yoao_inference_routing_v1.scope_retirement_step(text, text)',
+        'yoao_inference_routing_v1.supersede_unbegun_scope(text)',
+        'yoao_inference_routing_v1.video_execution_scope_step(text, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -235,13 +235,13 @@ BEGIN
     IF pg_catalog.has_function_privilege(
         role_oid,
         pg_catalog.to_regprocedure(
-            'aap_inference_routing_v1._routing_step_0279(text,text)'
+            'yoao_inference_routing_v1._routing_step_0279(text,text)'
         ),
         'EXECUTE'
     ) OR pg_catalog.has_function_privilege(
         role_oid,
         pg_catalog.to_regprocedure(
-            'aap_inference_routing_v1._scope_retirement_step_0280(text,text)'
+            'yoao_inference_routing_v1._scope_retirement_step_0280(text,text)'
         ),
         'EXECUTE'
     ) THEN
@@ -250,14 +250,14 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
-            'pg_catalog','information_schema','aap_inference_routing_v1','public'
+            'pg_catalog','information_schema','yoao_inference_routing_v1','public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid,namespace.oid,'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid,namespace.oid,'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid,'aap_inference_routing_v1','CREATE'
+        role_oid,'yoao_inference_routing_v1','CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid,'public','CREATE')
       OR EXISTS (
           SELECT 1

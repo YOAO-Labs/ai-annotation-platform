@@ -1,5 +1,5 @@
 -- Install fixed historical-audit projections for one trusted audit LOGIN.
--- This explicit installer supports legacy schemas before aap_identity_v1 exists;
+-- This explicit installer supports legacy schemas before yoao_identity_v1 exists;
 -- it creates no login, Alembic revision, runtime selector, or database credential.
 -- psql -v expected_database=... -v migration_role=... -v identity_owner=...
 --      -v consumer_role=... -f identity-role-audit-grants.sql
@@ -210,13 +210,13 @@ BEGIN
     END IF;
 
     SELECT namespace.oid INTO v_schema_oid FROM pg_catalog.pg_namespace AS namespace
-    WHERE namespace.nspname = 'aap_identity_audit_v1';
+    WHERE namespace.nspname = 'yoao_identity_audit_v1';
     IF v_schema_oid IS NULL THEN
         EXECUTE pg_catalog.format(
-            'CREATE SCHEMA aap_identity_audit_v1 AUTHORIZATION %I', v_identity
+            'CREATE SCHEMA yoao_identity_audit_v1 AUTHORIZATION %I', v_identity
         );
         SELECT namespace.oid INTO v_schema_oid FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_identity_audit_v1';
+        WHERE namespace.nspname = 'yoao_identity_audit_v1';
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
@@ -229,32 +229,32 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_proc AS routine
         WHERE routine.pronamespace = v_schema_oid
     ) THEN
-        RAISE EXCEPTION 'aap_identity_audit_v1 has a foreign owner or unexpected object';
+        RAISE EXCEPTION 'yoao_identity_audit_v1 has a foreign owner or unexpected object';
     END IF;
 
     FOR v_index IN 1..3 LOOP
         v_view_name := v_view_names[v_index];
         v_view_oid := pg_catalog.to_regclass(
-            pg_catalog.format('aap_identity_audit_v1.%I', v_view_name)
+            pg_catalog.format('yoao_identity_audit_v1.%I', v_view_name)
         );
         IF v_view_oid IS NULL THEN
             IF NOT pg_catalog.has_schema_privilege(v_migration_oid, v_schema_oid, 'CREATE')
                AND NOT v_granted_create THEN
                 EXECUTE pg_catalog.format(
-                    'GRANT CREATE ON SCHEMA aap_identity_audit_v1 TO %I', v_migration
+                    'GRANT CREATE ON SCHEMA yoao_identity_audit_v1 TO %I', v_migration
                 );
                 v_granted_create := true;
             END IF;
             v_view_definition := pg_catalog.pg_get_viewdef(v_reference_oids[v_index], true);
             EXECUTE pg_catalog.format(
-                'CREATE VIEW aap_identity_audit_v1.%I WITH (security_barrier = true) AS %s',
+                'CREATE VIEW yoao_identity_audit_v1.%I WITH (security_barrier = true) AS %s',
                 v_view_name, v_view_definition
             );
             EXECUTE pg_catalog.format(
-                'ALTER VIEW aap_identity_audit_v1.%I OWNER TO %I', v_view_name, v_identity
+                'ALTER VIEW yoao_identity_audit_v1.%I OWNER TO %I', v_view_name, v_identity
             );
             v_view_oid := pg_catalog.to_regclass(
-                pg_catalog.format('aap_identity_audit_v1.%I', v_view_name)
+                pg_catalog.format('yoao_identity_audit_v1.%I', v_view_name)
             );
         END IF;
         IF NOT EXISTS (
@@ -265,7 +265,7 @@ BEGIN
                   @> ARRAY['security_barrier=true']
         ) THEN
             RAISE EXCEPTION '%.% has an unexpected owner, kind, or security option',
-                'aap_identity_audit_v1', v_view_name;
+                'yoao_identity_audit_v1', v_view_name;
         END IF;
         SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attnum),
                pg_catalog.array_agg(
@@ -299,17 +299,17 @@ BEGIN
            OR pg_catalog.pg_get_viewdef(v_view_oid, true) IS DISTINCT FROM
               pg_catalog.pg_get_viewdef(v_reference_oids[v_index], true) THEN
             RAISE EXCEPTION '%.% has an unexpected definition or shape',
-                'aap_identity_audit_v1', v_view_name;
+                'yoao_identity_audit_v1', v_view_name;
         END IF;
     END LOOP;
     IF v_granted_create THEN
         EXECUTE pg_catalog.format(
-            'REVOKE CREATE ON SCHEMA aap_identity_audit_v1 FROM %I', v_migration
+            'REVOKE CREATE ON SCHEMA yoao_identity_audit_v1 FROM %I', v_migration
         );
     END IF;
 
-    EXECUTE 'REVOKE ALL ON SCHEMA aap_identity_audit_v1 FROM PUBLIC';
-    EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA aap_identity_audit_v1 FROM %I', v_consumer);
+    EXECUTE 'REVOKE ALL ON SCHEMA yoao_identity_audit_v1 FROM PUBLIC';
+    EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA yoao_identity_audit_v1 FROM %I', v_consumer);
     SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ', '
                                  ORDER BY attribute.attnum)
     INTO v_all_user_columns FROM pg_catalog.pg_attribute AS attribute
@@ -334,7 +334,7 @@ BEGIN
     FOR v_index IN 1..3 LOOP
         v_view_name := v_view_names[v_index];
         v_view_oid := pg_catalog.to_regclass(
-            pg_catalog.format('aap_identity_audit_v1.%I', v_view_name)
+            pg_catalog.format('yoao_identity_audit_v1.%I', v_view_name)
         );
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ', '
                                      ORDER BY attribute.attnum)
@@ -342,27 +342,27 @@ BEGIN
         WHERE attribute.attrelid = v_view_oid AND attribute.attnum > 0
           AND NOT attribute.attisdropped;
         EXECUTE pg_catalog.format(
-            'REVOKE ALL ON TABLE aap_identity_audit_v1.%I FROM PUBLIC', v_view_name
+            'REVOKE ALL ON TABLE yoao_identity_audit_v1.%I FROM PUBLIC', v_view_name
         );
         EXECUTE pg_catalog.format(
-            'REVOKE ALL (%s) ON TABLE aap_identity_audit_v1.%I FROM PUBLIC',
+            'REVOKE ALL (%s) ON TABLE yoao_identity_audit_v1.%I FROM PUBLIC',
             v_view_columns, v_view_name
         );
         EXECUTE pg_catalog.format(
-            'REVOKE ALL ON TABLE aap_identity_audit_v1.%I FROM %I',
+            'REVOKE ALL ON TABLE yoao_identity_audit_v1.%I FROM %I',
             v_view_name, v_consumer
         );
         EXECUTE pg_catalog.format(
-            'REVOKE ALL (%s) ON TABLE aap_identity_audit_v1.%I FROM %I',
+            'REVOKE ALL (%s) ON TABLE yoao_identity_audit_v1.%I FROM %I',
             v_view_columns, v_view_name, v_consumer
         );
         EXECUTE pg_catalog.format(
-            'GRANT SELECT ON TABLE aap_identity_audit_v1.%I TO %I',
+            'GRANT SELECT ON TABLE yoao_identity_audit_v1.%I TO %I',
             v_view_name, v_consumer
         );
     END LOOP;
     EXECUTE pg_catalog.format(
-        'GRANT USAGE ON SCHEMA aap_identity_audit_v1 TO %I', v_consumer
+        'GRANT USAGE ON SCHEMA yoao_identity_audit_v1 TO %I', v_consumer
     );
 
     IF pg_catalog.has_table_privilege(v_consumer_oid, v_users_oid,
@@ -386,7 +386,7 @@ BEGIN
     FOR v_index IN 1..3 LOOP
         v_view_name := v_view_names[v_index];
         v_view_oid := pg_catalog.to_regclass(
-            pg_catalog.format('aap_identity_audit_v1.%I', v_view_name)
+            pg_catalog.format('yoao_identity_audit_v1.%I', v_view_name)
         );
         IF NOT pg_catalog.has_table_privilege(v_consumer_oid, v_view_oid, 'SELECT')
            OR pg_catalog.has_table_privilege(
@@ -416,7 +416,7 @@ BEGIN
         ) AS privilege
         WHERE namespace.oid = v_schema_oid AND privilege.grantee = 0
     ) THEN
-        RAISE EXCEPTION 'PUBLIC retains access to aap_identity_audit_v1';
+        RAISE EXCEPTION 'PUBLIC retains access to yoao_identity_audit_v1';
     END IF;
 END
 $install$;

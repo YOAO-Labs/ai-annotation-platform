@@ -3,7 +3,7 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v labeling_owner=labeling_code -v audit_owner=audit_code
---   -v identity_deletion_role=identity_deletion_client
+--   -v identity_deletion_role=yoao_identity_deletion_client
 --   -f infra/docker/identity-deletions-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -32,7 +32,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'identity_deletion_client'
+    IF role_name <> 'yoao_identity_deletion_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM unnest(role_names) AS candidate(name)) <> 5 THEN
         RAISE EXCEPTION 'Unexpected Identity deletion role names';
@@ -89,53 +89,53 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_deletions_v1.deletion_policy()'
+            'yoao_identity_deletions_v1.deletion_policy()'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_deletions_v1.execute_deletion_command(jsonb)'
+               'yoao_identity_deletions_v1.execute_deletion_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.lock_identity_deletion_scope(uuid,uuid)'
+               'yoao_workspace_v1.lock_identity_deletion_scope(uuid,uuid)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.identity_deletion_transfer_covered(uuid,uuid[])'
+               'yoao_workspace_v1.identity_deletion_transfer_covered(uuid,uuid[])'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.identity_deletion_work(uuid)'
+               'yoao_labeling_v1.identity_deletion_work(uuid)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.transfer_identity_deletion_work(uuid,uuid)'
+               'yoao_labeling_v1.transfer_identity_deletion_work(uuid,uuid)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_identity_deletion_event(jsonb,uuid,jsonb,jsonb)'
+               'yoao_audit_v1.record_identity_deletion_event(jsonb,uuid,jsonb,jsonb)'
            )::oid) IS DISTINCT FROM audit_oid THEN
         RAISE EXCEPTION 'An Identity deletion capability has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.lock_identity_deletion_scope(uuid,uuid)'
+            'yoao_workspace_v1.lock_identity_deletion_scope(uuid,uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.identity_deletion_transfer_covered(uuid,uuid[])'
+            'yoao_workspace_v1.identity_deletion_transfer_covered(uuid,uuid[])'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.identity_deletion_work(uuid)'
+            'yoao_labeling_v1.identity_deletion_work(uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.transfer_identity_deletion_work(uuid,uuid)'
+            'yoao_labeling_v1.transfer_identity_deletion_work(uuid,uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_deletion_event(jsonb,uuid,jsonb,jsonb)'
+            'yoao_audit_v1.record_identity_deletion_event(jsonb,uuid,jsonb,jsonb)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.identity_deletion_operation_receipts',
@@ -263,11 +263,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_deletions_v1
+GRANT USAGE ON SCHEMA yoao_identity_deletions_v1
     TO :"identity_deletion_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_deletions_v1.deletion_policy(),
-    aap_identity_deletions_v1.execute_deletion_command(jsonb)
+    yoao_identity_deletions_v1.deletion_policy(),
+    yoao_identity_deletions_v1.execute_deletion_command(jsonb)
     TO :"identity_deletion_role";
 
 DO $$
@@ -278,8 +278,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_deletions_v1.deletion_policy()',
-        'aap_identity_deletions_v1.execute_deletion_command(jsonb)'
+        'yoao_identity_deletions_v1.deletion_policy()',
+        'yoao_identity_deletions_v1.execute_deletion_command(jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -324,9 +324,9 @@ BEGIN
         RAISE EXCEPTION 'Identity deletion LOGIN has unexpected functions: %', actual_functions;
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-           role_oid, 'aap_identity_deletions_v1', 'USAGE'
+           role_oid, 'yoao_identity_deletions_v1', 'USAGE'
        ) OR pg_catalog.has_schema_privilege(
-           role_oid, 'aap_identity_deletions_v1', 'CREATE'
+           role_oid, 'yoao_identity_deletions_v1', 'CREATE'
        ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
        OR pg_catalog.has_database_privilege(
            role_oid, current_database(), 'CREATE,TEMP'
@@ -334,7 +334,7 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
                   'pg_catalog', 'information_schema',
-                  'aap_identity_deletions_v1', 'public'
+                  'yoao_identity_deletions_v1', 'public'
               )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'

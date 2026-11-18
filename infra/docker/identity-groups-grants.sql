@@ -3,7 +3,7 @@
 -- Database provisioning revokes PUBLIC TEMP; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code \
---   -v audit_owner=audit_code -v identity_group_role=identity_group_client \
+--   -v audit_owner=audit_code -v identity_group_role=yoao_identity_group_client \
 --   -f infra/docker/identity-groups-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -40,8 +40,8 @@ BEGIN
        OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, owners and group client must be distinct';
     END IF;
-    IF current_setting('yoao.identity_group_role') <> 'identity_group_client' THEN
-        RAISE EXCEPTION 'Identity groups must use identity_group_client';
+    IF current_setting('yoao.identity_group_role') <> 'yoao_identity_group_client' THEN
+        RAISE EXCEPTION 'Identity groups must use yoao_identity_group_client';
     END IF;
 
     FOREACH role_name IN ARRAY role_names LOOP
@@ -74,10 +74,10 @@ BEGIN
     SELECT role.oid INTO role_oid FROM pg_catalog.pg_roles AS role
     WHERE role.rolname = current_setting('yoao.identity_group_role');
     workspace_function_oid := pg_catalog.to_regprocedure(
-        'aap_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)'
+        'yoao_workspace_v1.lock_group_assignment_scope(uuid,uuid[],boolean)'
     )::oid;
     audit_function_oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.record_identity_group_event(text,jsonb,jsonb,jsonb)'
+        'yoao_audit_v1.record_identity_group_event(text,jsonb,jsonb,jsonb)'
     )::oid;
 
     IF EXISTS (
@@ -92,12 +92,12 @@ BEGIN
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_identity_groups_v1'
+        WHERE namespace.nspname = 'yoao_identity_groups_v1'
           AND namespace.nspowner = migration_oid
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_identity_groups_v1'
+        WHERE namespace.nspname = 'yoao_identity_groups_v1'
           AND function.prokind = 'f' AND function.proowner <> identity_oid
     ) THEN
         RAISE EXCEPTION 'Identity group schema or function owner is unexpected';
@@ -119,7 +119,7 @@ BEGIN
         'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid,
-        pg_catalog.to_regprocedure('aap_audit_v1.valid_request_context(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_audit_v1.valid_request_context(jsonb)')::oid,
         'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Identity owner is missing Workspace or Audit capability';
@@ -147,10 +147,10 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_groups_v1 TO :"identity_group_role";
+GRANT USAGE ON SCHEMA yoao_identity_groups_v1 TO :"identity_group_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_groups_v1.group_policy(),
-    aap_identity_groups_v1.execute_group_command(jsonb)
+    yoao_identity_groups_v1.group_policy(),
+    yoao_identity_groups_v1.execute_group_command(jsonb)
     TO :"identity_group_role";
 
 -- Fail closed unless this LOGIN can reach exactly the two native group entrypoints.
@@ -158,8 +158,8 @@ DO $$
 DECLARE
     role_oid oid;
     allowed_functions oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_identity_groups_v1.group_policy()')::oid,
-        pg_catalog.to_regprocedure('aap_identity_groups_v1.execute_group_command(jsonb)')::oid
+        pg_catalog.to_regprocedure('yoao_identity_groups_v1.group_policy()')::oid,
+        pg_catalog.to_regprocedure('yoao_identity_groups_v1.execute_group_command(jsonb)')::oid
     ];
     actual_functions oid[];
 BEGIN
@@ -184,7 +184,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND namespace.nspname <> 'aap_identity_groups_v1'
+          AND namespace.nspname <> 'yoao_identity_groups_v1'
           AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Identity group LOGIN has a foreign module schema';

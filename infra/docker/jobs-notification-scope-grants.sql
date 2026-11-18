@@ -2,7 +2,7 @@
 -- Run after migrations and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v api_role=api_runtime \
---   -v read_client=jobs_notification_scope_client \
+--   -v read_client=yoao_jobs_notification_scope_client \
 --   -f infra/docker/jobs-notification-scope-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -17,7 +17,7 @@ DECLARE
     v_jobs oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.jobs_owner'));
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.read_client'));
-    v_relation oid := pg_catalog.to_regclass('aap_jobs_v1.notification_scope_facts')::oid;
+    v_relation oid := pg_catalog.to_regclass('yoao_jobs_v1.notification_scope_facts')::oid;
 BEGIN
     IF current_database() <> current_setting('yoao.expected_database')
        OR current_user <> current_setting('yoao.migration_role') THEN
@@ -54,9 +54,9 @@ BEGIN
 END;
 $guard$;
 
-REVOKE ALL ON SCHEMA aap_jobs_v1 FROM :"read_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_jobs_v1 FROM :"read_client";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_jobs_v1 FROM :"read_client";
+REVOKE ALL ON SCHEMA yoao_jobs_v1 FROM :"read_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_jobs_v1 FROM :"read_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_jobs_v1 FROM :"read_client";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"read_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"read_client";
 DO $revoke_columns$
@@ -68,7 +68,7 @@ BEGIN
         SELECT relation.oid, namespace.nspname, relation.relname
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=relation.relnamespace
-        WHERE namespace.nspname IN ('public', 'aap_jobs_v1')
+        WHERE namespace.nspname IN ('public', 'yoao_jobs_v1')
           AND relation.relkind IN ('r','p','v','m','f')
     LOOP
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname), ',' ORDER BY attnum)
@@ -84,18 +84,18 @@ BEGIN
 END;
 $revoke_columns$;
 
-REVOKE ALL ON TABLE aap_jobs_v1.notification_scope_facts FROM :"api_role", PUBLIC;
+REVOKE ALL ON TABLE yoao_jobs_v1.notification_scope_facts FROM :"api_role", PUBLIC;
 REVOKE ALL (id, kind, scope_project_id)
-    ON TABLE aap_jobs_v1.notification_scope_facts FROM :"api_role", PUBLIC;
+    ON TABLE yoao_jobs_v1.notification_scope_facts FROM :"api_role", PUBLIC;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"read_client";
-GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"read_client", :"api_role";
-GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO :"read_client", :"api_role";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"read_client", :"api_role";
+GRANT SELECT ON yoao_jobs_v1.notification_scope_facts TO :"read_client", :"api_role";
 
 DO $verify$
 DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.read_client'));
-    v_relation oid := 'aap_jobs_v1.notification_scope_facts'::regclass;
+    v_relation oid := 'yoao_jobs_v1.notification_scope_facts'::regclass;
 BEGIN
     IF NOT pg_catalog.has_table_privilege(v_client, v_relation, 'SELECT')
        OR NOT pg_catalog.has_table_privilege(v_api, v_relation, 'SELECT')
@@ -137,7 +137,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client, namespace.oid, 'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_jobs_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_jobs_v1')
                    AND pg_catalog.has_schema_privilege(v_client, namespace.oid, 'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Jobs fact reader has unrelated data, function or schema privileges';

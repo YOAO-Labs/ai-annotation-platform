@@ -2,7 +2,7 @@
 -- Run after migration 0326 and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v api_role=api_runtime \
---   -v list_client=jobs_list_query_client \
+--   -v list_client=yoao_jobs_list_query_client \
 --   -f infra/docker/jobs-list-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -50,11 +50,11 @@ BEGIN
     END IF;
     FOR v_function IN
         SELECT * FROM (VALUES
-            ('aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)',
+            ('yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)',
                 'record', true),
-            ('aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)',
+            ('yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)',
                 'bigint', false),
-            ('aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)',
+            ('yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)',
                 'public.async_jobs', true)
         ) AS expected(signature, return_type, returns_set)
     LOOP
@@ -75,18 +75,18 @@ BEGIN
 END;
 $guard$;
 
-GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_project_query_v1
+GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_workspace_project_query_v1
     TO :"jobs_owner";
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.actor_project_memberships(uuid),
     yoao_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid)
     TO :"jobs_owner";
 
-REVOKE ALL ON SCHEMA aap_jobs_v1 FROM :"list_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_jobs_v1 FROM :"list_client";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_jobs_v1, public FROM :"list_client";
+REVOKE ALL ON SCHEMA yoao_jobs_v1 FROM :"list_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_jobs_v1 FROM :"list_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_jobs_v1, public FROM :"list_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"list_client";
 DO $revoke_columns$
 DECLARE
@@ -98,7 +98,7 @@ BEGIN
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid=relation.relnamespace
-        WHERE namespace.nspname IN ('public', 'aap_jobs_v1')
+        WHERE namespace.nspname IN ('public', 'yoao_jobs_v1')
           AND relation.relkind IN ('r','p','v','m','f')
     LOOP
         SELECT pg_catalog.string_agg(
@@ -120,17 +120,17 @@ BEGIN
 END;
 $revoke_columns$;
 REVOKE ALL ON FUNCTION
-    aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
+    yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     FROM :"api_role", :"list_client", PUBLIC;
 REVOKE ALL ON FUNCTION
-    aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
-    aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+    yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
+    yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
     FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"list_client";
-GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"api_role", :"list_client";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"api_role", :"list_client";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
-    aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+    yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
+    yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
     TO :"api_role", :"list_client";
 
 DO $verify$
@@ -142,8 +142,8 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                      WHERE rolname=current_setting('yoao.list_client'));
     v_allowed oid[] := ARRAY[
-        'aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)'::regprocedure::oid,
-        'aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)'::regprocedure::oid
+        'yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)'::regprocedure::oid,
+        'yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)'::regprocedure::oid
     ];
 BEGIN
     IF EXISTS (
@@ -154,19 +154,19 @@ BEGIN
         RAISE EXCEPTION 'Missing fixed Jobs list function EXECUTE';
     END IF;
     IF pg_catalog.has_function_privilege(v_api,
-            'aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)','EXECUTE')
+            'yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)','EXECUTE')
        OR pg_catalog.has_function_privilege(v_client,
-            'aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)','EXECUTE')
+            'yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)','EXECUTE')
        OR pg_catalog.has_table_privilege(v_client,'public.async_jobs','SELECT')
        OR pg_catalog.has_any_column_privilege(v_client,'public.async_jobs','SELECT')
        OR NOT pg_catalog.has_function_privilege(v_jobs,
-            'aap_identity_v1.read_actor_facts(uuid)','EXECUTE')
+            'yoao_identity_v1.read_actor_facts(uuid)','EXECUTE')
        OR pg_catalog.has_table_privilege(v_jobs,'public.users','SELECT')
        OR pg_catalog.has_any_column_privilege(v_jobs,'public.users','SELECT')
        OR pg_catalog.has_table_privilege(v_jobs,
-            'aap_identity_v1.account_profiles','SELECT')
+            'yoao_identity_v1.account_profiles','SELECT')
        OR pg_catalog.has_any_column_privilege(v_jobs,
-            'aap_identity_v1.account_profiles','SELECT')
+            'yoao_identity_v1.account_profiles','SELECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP') THEN
         RAISE EXCEPTION 'Jobs list profile exposes private reads or a helper';
     END IF;
@@ -204,7 +204,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_jobs_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_jobs_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Jobs list client has unrelated data or schema privileges';

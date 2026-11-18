@@ -81,15 +81,15 @@ BEGIN
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])'
+               'yoao_workspace_v1.identity_brief_project_roles(uuid,uuid[])'
            )::oid) IS DISTINCT FROM workspace_oid THEN
         RAISE EXCEPTION 'An Identity briefs capability has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-        identity_oid, 'aap_workspace_v1', 'USAGE'
+        identity_oid, 'yoao_workspace_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])'
+            'yoao_workspace_v1.identity_brief_project_roles(uuid,uuid[])'
         )::oid, 'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Identity owner cannot call the Workspace briefs capability';

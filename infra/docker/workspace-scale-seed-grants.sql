@@ -3,7 +3,7 @@
 -- ordinary Workspace consumer fence. Ordinary API/worker credentials omit this profile.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v workspace_owner=workspace_code -v assets_owner=assets_code
---   -v labeling_owner=labeling_code -v consumer_role=workspace_scale_seed_client
+--   -v labeling_owner=labeling_code -v consumer_role=yoao_workspace_scale_seed_client
 --   -f infra/docker/workspace-scale-seed-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -94,16 +94,16 @@ BEGIN
     END IF;
 
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_workspace_v1.create_scale_seed_project(uuid,text)',
-        'aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)',
-        'aap_workspace_v1.guard_scale_seed_cleanup(text)',
-        'aap_workspace_v1.delete_scale_seed_projects(text,uuid[])',
-        'aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)',
-        'aap_labeling_v1.write_project_counter_projection(uuid,jsonb)',
-        'aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])',
-        'aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)',
-        'aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)',
-        'aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)'
+        'yoao_workspace_v1.create_scale_seed_project(uuid,text)',
+        'yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)',
+        'yoao_workspace_v1.guard_scale_seed_cleanup(text)',
+        'yoao_workspace_v1.delete_scale_seed_projects(text,uuid[])',
+        'yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)',
+        'yoao_labeling_v1.write_project_counter_projection(uuid,jsonb)',
+        'yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])',
+        'yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)',
+        'yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)',
+        'yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1
@@ -113,9 +113,9 @@ BEGIN
               AND function.prosecdef
               AND owner.rolname = CASE
                   WHEN pg_catalog.split_part(v_signature, '.', 1)
-                       = 'aap_workspace_v1' THEN v_workspace
+                       = 'yoao_workspace_v1' THEN v_workspace
                   WHEN pg_catalog.split_part(v_signature, '.', 1)
-                       = 'aap_assets_v1' THEN v_assets
+                       = 'yoao_assets_v1' THEN v_assets
                   ELSE v_labeling
               END
               AND function.provolatile = 'v'
@@ -125,21 +125,21 @@ BEGIN
     END LOOP;
 END $profile$;
 
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1
+GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_assets_v1, yoao_labeling_v1
     TO :"consumer_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.create_scale_seed_project(uuid,text),
-    aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid),
-    aap_workspace_v1.guard_scale_seed_cleanup(text),
-    aap_workspace_v1.delete_scale_seed_projects(text,uuid[]),
-    aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean),
-    aap_labeling_v1.write_project_counter_projection(uuid,jsonb),
-    aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]),
-    aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid),
-    aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid),
-    aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
+    yoao_workspace_v1.create_scale_seed_project(uuid,text),
+    yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid),
+    yoao_workspace_v1.guard_scale_seed_cleanup(text),
+    yoao_workspace_v1.delete_scale_seed_projects(text,uuid[]),
+    yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean),
+    yoao_labeling_v1.write_project_counter_projection(uuid,jsonb),
+    yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]),
+    yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid),
+    yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid),
+    yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
     TO :"consumer_role";
 GRANT SELECT (id, project_id, display_id)
-    ON aap_labeling_v1.batch_rows TO :"consumer_role";
+    ON yoao_labeling_v1.batch_rows TO :"consumer_role";
 
 COMMIT;

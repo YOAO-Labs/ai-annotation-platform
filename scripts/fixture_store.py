@@ -1562,7 +1562,7 @@ async def retire_native_output(
             proof = (
                 await connection.execute(
                     text(
-                        "SELECT aap_assets_v1.retire_fixture_native_target(:run,:identity,:receipt)"
+                        "SELECT yoao_assets_v1.retire_fixture_native_target(:run,:identity,:receipt)"
                     ),
                     {
                         "run": run_id,

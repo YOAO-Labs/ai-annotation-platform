@@ -14,14 +14,14 @@ DECLARE
     v_consumer name := current_setting('yoao.identity_consumer_role');
     v_identity name := current_setting('yoao.identity_owner');
     v_allowed oid[] := ARRAY[
-        'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
-        'aap_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
-        'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
-        'aap_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
-        'aap_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
+        'yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
+        'yoao_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
+        'yoao_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
+        'yoao_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
+        'yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
+        'yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
+        'yoao_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
+        'yoao_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
     ];
     v_relation record;
 BEGIN
@@ -61,7 +61,7 @@ BEGIN
                      ORDER BY a.attnum) AS columns
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='aap_identity_v1'
+        WHERE n.nspname='yoao_identity_v1'
           AND c.relname IN ('account_profiles','invitation_audit_targets')
     LOOP
         IF v_relation.relkind <> 'v'
@@ -73,8 +73,8 @@ BEGIN
             RAISE EXCEPTION 'Identity read relation does not match its fixed contract';
         END IF;
     END LOOP;
-    IF pg_catalog.to_regclass('aap_identity_v1.account_profiles') IS NULL
-       OR pg_catalog.to_regclass('aap_identity_v1.invitation_audit_targets') IS NULL THEN
+    IF pg_catalog.to_regclass('yoao_identity_v1.account_profiles') IS NULL
+       OR pg_catalog.to_regclass('yoao_identity_v1.invitation_audit_targets') IS NULL THEN
         RAISE EXCEPTION 'Identity read relations are missing';
     END IF;
 END;
@@ -124,33 +124,33 @@ BEGIN
 END;
 $revoke$;
 
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"consumer_role";
-GRANT SELECT ON aap_identity_v1.account_profiles,
-    aap_identity_v1.invitation_audit_targets TO :"consumer_role";
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"consumer_role";
+GRANT SELECT ON yoao_identity_v1.account_profiles,
+    yoao_identity_v1.invitation_audit_targets TO :"consumer_role";
 GRANT EXECUTE ON FUNCTION
     -- Read-only JWT rechecks in the caller transaction; no revocation commands.
-    aap_identity_v1.read_accepted_api_key_facts(uuid,uuid),
-    aap_identity_v1.read_actor_facts(uuid),
-    aap_identity_v1.lock_accounts_share(uuid[],boolean),
-    aap_identity_v1.lock_accounts_update(uuid[],boolean),
-    aap_identity_v1.lock_accounts_key_share(uuid[],boolean),
-    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
-    aap_identity_v1.is_jti_revoked(uuid),
-    aap_identity_v1.get_credential_generation(uuid)
+    yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid),
+    yoao_identity_v1.read_actor_facts(uuid),
+    yoao_identity_v1.lock_accounts_share(uuid[],boolean),
+    yoao_identity_v1.lock_accounts_update(uuid[],boolean),
+    yoao_identity_v1.lock_accounts_key_share(uuid[],boolean),
+    yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
+    yoao_identity_v1.is_jti_revoked(uuid),
+    yoao_identity_v1.get_credential_generation(uuid)
     TO :"consumer_role";
 
 DO $verify$
 DECLARE
     v_consumer name := current_setting('yoao.identity_consumer_role');
     v_allowed oid[] := ARRAY[
-        'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
-        'aap_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
-        'aap_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
-        'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
-        'aap_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
-        'aap_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
+        'yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)'::regprocedure::oid,
+        'yoao_identity_v1.read_actor_facts(uuid)'::regprocedure::oid,
+        'yoao_identity_v1.lock_accounts_share(uuid[],boolean)'::regprocedure::oid,
+        'yoao_identity_v1.lock_accounts_update(uuid[],boolean)'::regprocedure::oid,
+        'yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)'::regprocedure::oid,
+        'yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
+        'yoao_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
+        'yoao_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
     ];
 BEGIN
     IF EXISTS (
@@ -173,8 +173,8 @@ BEGIN
         ) AND (
             pg_catalog.has_table_privilege(v_consumer,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
             OR pg_catalog.has_any_column_privilege(v_consumer,c.oid,'INSERT,UPDATE,REFERENCES')
-            OR (c.oid NOT IN ('aap_identity_v1.account_profiles'::regclass,
-                             'aap_identity_v1.invitation_audit_targets'::regclass)
+            OR (c.oid NOT IN ('yoao_identity_v1.account_profiles'::regclass,
+                             'yoao_identity_v1.invitation_audit_targets'::regclass)
                 AND (pg_catalog.has_table_privilege(v_consumer,c.oid,'SELECT')
                      OR pg_catalog.has_any_column_privilege(v_consumer,c.oid,'SELECT')))
         )

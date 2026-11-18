@@ -2,7 +2,7 @@
 -- Run after current migrations and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v notifications_owner=notifications_code -v api_role=api_runtime \
---   -v query_client=notification_inbox_query_client \
+--   -v query_client=yoao_notification_inbox_query_client \
 --   -f infra/docker/notification-inbox-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -45,20 +45,20 @@ BEGIN
     END IF;
     FOR v_function IN
         SELECT * FROM (VALUES
-            ('aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)',
-                'aap_notifications_v1.notification_facts', true),
-            ('aap_notifications_v1.inbox_total_count(uuid,text)', 'bigint', false),
-            ('aap_notifications_v1.inbox_unread_count(uuid,text)', 'bigint', false),
-            ('aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)',
-                'aap_notifications_v1.notification_facts', true),
-            ('aap_notifications_v1.inbox_total_count_scoped(uuid,text)', 'bigint', false),
-            ('aap_notifications_v1.inbox_unread_count_scoped(uuid,text)', 'bigint', false),
-            ('aap_notifications_v1._notification_is_migration_inventory(uuid)', 'boolean', false),
-            ('aap_notifications_v1._notification_unknown_job_scope(uuid)', 'boolean', false),
-            ('aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)',
-                'aap_notifications_v1.notification_facts', true),
-            ('aap_notifications_v1._visible_inbox_rows(uuid,text)',
-                'aap_notifications_v1.notification_facts', true)
+            ('yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)',
+                'yoao_notifications_v1.notification_facts', true),
+            ('yoao_notifications_v1.inbox_total_count(uuid,text)', 'bigint', false),
+            ('yoao_notifications_v1.inbox_unread_count(uuid,text)', 'bigint', false),
+            ('yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)',
+                'yoao_notifications_v1.notification_facts', true),
+            ('yoao_notifications_v1.inbox_total_count_scoped(uuid,text)', 'bigint', false),
+            ('yoao_notifications_v1.inbox_unread_count_scoped(uuid,text)', 'bigint', false),
+            ('yoao_notifications_v1._notification_is_migration_inventory(uuid)', 'boolean', false),
+            ('yoao_notifications_v1._notification_unknown_job_scope(uuid)', 'boolean', false),
+            ('yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text)',
+                'yoao_notifications_v1.notification_facts', true),
+            ('yoao_notifications_v1._visible_inbox_rows(uuid,text)',
+                'yoao_notifications_v1.notification_facts', true)
         ) AS expected(signature, return_type, returns_set)
     LOOP
         IF NOT EXISTS (
@@ -76,9 +76,9 @@ BEGIN
 END;
 $guard$;
 
-REVOKE ALL ON SCHEMA aap_notifications_v1 FROM :"query_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_notifications_v1 FROM :"query_client";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_notifications_v1, public FROM :"query_client";
+REVOKE ALL ON SCHEMA yoao_notifications_v1 FROM :"query_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_notifications_v1 FROM :"query_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_notifications_v1, public FROM :"query_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"query_client";
 DO $revoke_columns$
 DECLARE
@@ -89,7 +89,7 @@ BEGIN
         SELECT relation.oid, namespace.nspname, relation.relname
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=relation.relnamespace
-        WHERE namespace.nspname IN ('public','aap_notifications_v1')
+        WHERE namespace.nspname IN ('public','yoao_notifications_v1')
           AND relation.relkind IN ('r','p','v','m','f')
     LOOP
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname), ',' ORDER BY attnum)
@@ -103,28 +103,28 @@ BEGIN
     END LOOP;
 END;
 $revoke_columns$;
-REVOKE EXECUTE ON FUNCTION aap_notifications_v1._visible_inbox_rows(uuid,text),
-    aap_notifications_v1._visible_inbox_rows_scoped(uuid,text),
-    aap_notifications_v1._notification_is_migration_inventory(uuid),
-    aap_notifications_v1._notification_unknown_job_scope(uuid)
+REVOKE EXECUTE ON FUNCTION yoao_notifications_v1._visible_inbox_rows(uuid,text),
+    yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text),
+    yoao_notifications_v1._notification_is_migration_inventory(uuid),
+    yoao_notifications_v1._notification_unknown_job_scope(uuid)
     FROM :"api_role", :"query_client", PUBLIC;
 REVOKE EXECUTE ON FUNCTION
-    aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
-    aap_notifications_v1.inbox_total_count_scoped(uuid,text),
-    aap_notifications_v1.inbox_unread_count_scoped(uuid,text),
-    aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
-    aap_notifications_v1.inbox_total_count(uuid,text),
-    aap_notifications_v1.inbox_unread_count(uuid,text)
+    yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
+    yoao_notifications_v1.inbox_total_count_scoped(uuid,text),
+    yoao_notifications_v1.inbox_unread_count_scoped(uuid,text),
+    yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
+    yoao_notifications_v1.inbox_total_count(uuid,text),
+    yoao_notifications_v1.inbox_unread_count(uuid,text)
     FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"query_client";
-GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"query_client", :"api_role";
+GRANT USAGE ON SCHEMA yoao_notifications_v1 TO :"query_client", :"api_role";
 GRANT EXECUTE ON FUNCTION
-    aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
-    aap_notifications_v1.inbox_total_count_scoped(uuid,text),
-    aap_notifications_v1.inbox_unread_count_scoped(uuid,text),
-    aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
-    aap_notifications_v1.inbox_total_count(uuid,text),
-    aap_notifications_v1.inbox_unread_count(uuid,text)
+    yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer),
+    yoao_notifications_v1.inbox_total_count_scoped(uuid,text),
+    yoao_notifications_v1.inbox_unread_count_scoped(uuid,text),
+    yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer),
+    yoao_notifications_v1.inbox_total_count(uuid,text),
+    yoao_notifications_v1.inbox_unread_count(uuid,text)
     TO :"query_client", :"api_role";
 
 DO $verify$
@@ -133,12 +133,12 @@ DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.query_client'));
     v_allowed oid[] := ARRAY[
-        'aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)'::regprocedure::oid,
-        'aap_notifications_v1.inbox_total_count_scoped(uuid,text)'::regprocedure::oid,
-        'aap_notifications_v1.inbox_unread_count_scoped(uuid,text)'::regprocedure::oid,
-        'aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)'::regprocedure::oid,
-        'aap_notifications_v1.inbox_total_count(uuid,text)'::regprocedure::oid,
-        'aap_notifications_v1.inbox_unread_count(uuid,text)'::regprocedure::oid
+        'yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)'::regprocedure::oid,
+        'yoao_notifications_v1.inbox_total_count_scoped(uuid,text)'::regprocedure::oid,
+        'yoao_notifications_v1.inbox_unread_count_scoped(uuid,text)'::regprocedure::oid,
+        'yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)'::regprocedure::oid,
+        'yoao_notifications_v1.inbox_total_count(uuid,text)'::regprocedure::oid,
+        'yoao_notifications_v1.inbox_unread_count(uuid,text)'::regprocedure::oid
     ];
     v_function oid;
     v_private text;
@@ -154,26 +154,26 @@ BEGIN
         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function.proacl,
             pg_catalog.acldefault('f',function.proowner))) AS acl
         WHERE function.oid=ANY(v_allowed || ARRAY[
-            'aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)'::regprocedure::oid,
-            'aap_notifications_v1._notification_is_migration_inventory(uuid)'::regprocedure::oid,
-            'aap_notifications_v1._notification_unknown_job_scope(uuid)'::regprocedure::oid,
-            'aap_notifications_v1._visible_inbox_rows(uuid,text)'::regprocedure::oid
+            'yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text)'::regprocedure::oid,
+            'yoao_notifications_v1._notification_is_migration_inventory(uuid)'::regprocedure::oid,
+            'yoao_notifications_v1._notification_unknown_job_scope(uuid)'::regprocedure::oid,
+            'yoao_notifications_v1._visible_inbox_rows(uuid,text)'::regprocedure::oid
         ]) AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
     ) THEN
         RAISE EXCEPTION 'PUBLIC retains inbox EXECUTE';
     END IF;
     IF pg_catalog.has_function_privilege(v_api,
-            'aap_notifications_v1._visible_inbox_rows(uuid,text)','EXECUTE')
+            'yoao_notifications_v1._visible_inbox_rows(uuid,text)','EXECUTE')
        OR pg_catalog.has_function_privilege(v_api,
-            'aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)','EXECUTE')
+            'yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text)','EXECUTE')
        OR pg_catalog.has_function_privilege(v_api,
-            'aap_notifications_v1._notification_is_migration_inventory(uuid)','EXECUTE')
+            'yoao_notifications_v1._notification_is_migration_inventory(uuid)','EXECUTE')
        OR pg_catalog.has_function_privilege(v_api,
-            'aap_notifications_v1._notification_unknown_job_scope(uuid)','EXECUTE')
+            'yoao_notifications_v1._notification_unknown_job_scope(uuid)','EXECUTE')
        OR pg_catalog.has_table_privilege(v_api,
-            'aap_notifications_v1.notification_facts','SELECT')
+            'yoao_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_any_column_privilege(v_api,
-            'aap_notifications_v1.notification_facts','SELECT')
+            'yoao_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP') THEN
         RAISE EXCEPTION 'Inbox grants expose helpers or direct API fact reads';
     END IF;
@@ -208,7 +208,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_notifications_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_notifications_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) OR EXISTS (
         SELECT FROM pg_catalog.pg_class AS relation

@@ -669,13 +669,13 @@ async def remap_storage(
         )
     # Only the table owner may opt into the narrowly scoped JSON physical map.
     # Any failure rolls back the caller's complete offline mapping transaction.
-    await db.execute(text("SET LOCAL aap.restore_training_storage = 'on'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage = 'on'"))
     for row, field, value in planned:
         setattr(row, field, value)
     for cache in invalidated_caches:
         await db.delete(cache)
     await db.flush()
-    await db.execute(text("SET LOCAL aap.restore_training_storage = 'off'"))
+    await db.execute(text("SET LOCAL yoao.restore_training_storage = 'off'"))
     return ledger
 
 

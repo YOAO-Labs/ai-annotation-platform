@@ -1,7 +1,7 @@
 -- Grant a Labeling core read LOGIN only fixed row locks and public projections.
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v core_read_role=labeling_core_read_client \
+--   -v labeling_owner=labeling_code -v core_read_role=yoao_labeling_core_read_client \
 --   -f infra/docker/labeling-core-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -51,24 +51,24 @@ BEGIN
         RAISE EXCEPTION 'Labeling owner and caller LOGIN have unsafe membership';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)',
-        'aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)',
-        'aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)',
-        'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)',
-        'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)',
-        'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)',
-        'aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)',
-        'aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)',
-        'aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)',
-        'aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)',
-        'aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)',
-        'aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)',
-        'aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)',
-        'aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)',
-        'aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)',
-        'aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)',
-        'aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])',
-        'aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])'
+        'yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)',
+        'yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)',
+        'yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)',
+        'yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)',
+        'yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)',
+        'yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)',
+        'yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)',
+        'yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)',
+        'yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)',
+        'yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)',
+        'yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)',
+        'yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)',
+        'yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)',
+        'yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)',
+        'yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)',
+        'yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)',
+        'yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])',
+        'yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])'
     ] LOOP
     v_function := pg_catalog.to_regprocedure(v_signature);
     IF v_function IS NULL OR NOT EXISTS (
@@ -80,24 +80,24 @@ BEGIN
           AND function.prokind='f'
           AND function.proretset
           AND function.prorettype = CASE v_signature
-              WHEN 'aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)' THEN 'aap_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)' THEN 'aap_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)' THEN 'aap_labeling_v1.batch_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)' THEN 'aap_labeling_v1.annotation_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)' THEN 'aap_labeling_v1.prediction_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)' THEN 'aap_labeling_v1.prediction_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)' THEN 'aap_labeling_v1.scene_track_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)' THEN 'aap_labeling_v1.scene_track_interval_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)' THEN 'aap_labeling_v1.prediction_meta_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)' THEN 'aap_labeling_v1.video_segment_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)' THEN 'uuid'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)' THEN 'uuid'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])' THEN 'aap_labeling_v1.task_rows'::pg_catalog.regtype
-              WHEN 'aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])' THEN 'aap_labeling_v1.annotation_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)' THEN 'yoao_labeling_v1.task_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)' THEN 'yoao_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)' THEN 'yoao_labeling_v1.task_dataset_item_link_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)' THEN 'yoao_labeling_v1.batch_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)' THEN 'yoao_labeling_v1.annotation_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)' THEN 'yoao_labeling_v1.video_segment_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)' THEN 'yoao_labeling_v1.task_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)' THEN 'yoao_labeling_v1.task_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)' THEN 'yoao_labeling_v1.prediction_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)' THEN 'yoao_labeling_v1.prediction_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)' THEN 'yoao_labeling_v1.scene_track_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)' THEN 'yoao_labeling_v1.scene_track_interval_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)' THEN 'yoao_labeling_v1.prediction_meta_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)' THEN 'yoao_labeling_v1.video_segment_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)' THEN 'uuid'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)' THEN 'uuid'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])' THEN 'yoao_labeling_v1.task_rows'::pg_catalog.regtype
+              WHEN 'yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])' THEN 'yoao_labeling_v1.annotation_rows'::pg_catalog.regtype
           END
           AND function.proconfig @> ARRAY[
               'search_path=pg_catalog, pg_temp', 'TimeZone=UTC'
@@ -135,59 +135,59 @@ BEGIN
 END;
 $revoke$;
 
-REVOKE ALL ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
-    aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
-    aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer),
-    aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
-    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
-    aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
-    aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
-    aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
-    aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
-    aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer),
-    aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer),
-    aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
-    aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
-    aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
-    aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer),
-    aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer),
-    aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
-    aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
+REVOKE ALL ON FUNCTION yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
+    yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer),
+    yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
+    yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
+    yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
+    yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
+    yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
+    yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
+    yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer),
+    yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer),
+    yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
+    yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
+    yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
+    yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer),
+    yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer),
+    yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
+    yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
     FROM :"core_read_role", PUBLIC;
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"core_read_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
-    aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
-    aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer),
-    aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
-    aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
-    aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
-    aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
-    aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
-    aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
-    aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer),
-    aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer),
-    aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
-    aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
-    aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
-    aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer),
-    aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer),
-    aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
-    aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"core_read_role";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer),
+    yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer),
+    yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean),
+    yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean),
+    yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid),
+    yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid),
+    yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid),
+    yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid),
+    yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer),
+    yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer),
+    yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer),
+    yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid),
+    yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid),
+    yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer),
+    yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer),
+    yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]),
+    yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
     TO :"core_read_role";
-GRANT SELECT ON aap_labeling_v1.task_rows,
-    aap_labeling_v1.batch_rows,
-    aap_labeling_v1.annotation_rows,
-    aap_labeling_v1.prediction_rows,
-    aap_labeling_v1.prediction_meta_rows,
-    aap_labeling_v1.failed_prediction_rows,
-    aap_labeling_v1.task_lock_rows,
-    aap_labeling_v1.task_dataset_item_link_rows,
-    aap_labeling_v1.scene_track_rows,
-    aap_labeling_v1.scene_track_interval_rows,
-    aap_labeling_v1.video_segment_rows,
-    aap_labeling_v1.video_tracker_job_rows,
-    aap_labeling_v1.video_track_quality_run_rows,
-    aap_labeling_v1.annotation_draft_rows
+GRANT SELECT ON yoao_labeling_v1.task_rows,
+    yoao_labeling_v1.batch_rows,
+    yoao_labeling_v1.annotation_rows,
+    yoao_labeling_v1.prediction_rows,
+    yoao_labeling_v1.prediction_meta_rows,
+    yoao_labeling_v1.failed_prediction_rows,
+    yoao_labeling_v1.task_lock_rows,
+    yoao_labeling_v1.task_dataset_item_link_rows,
+    yoao_labeling_v1.scene_track_rows,
+    yoao_labeling_v1.scene_track_interval_rows,
+    yoao_labeling_v1.video_segment_rows,
+    yoao_labeling_v1.video_tracker_job_rows,
+    yoao_labeling_v1.video_track_quality_run_rows,
+    yoao_labeling_v1.annotation_draft_rows
     TO :"core_read_role";
 
 DO $verify$
@@ -195,40 +195,40 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('yoao.core_read_role'));
     v_allowed oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])')
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])')
     ];
     v_allowed_relations oid[] := ARRAY[
-        pg_catalog.to_regclass('aap_labeling_v1.task_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.batch_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.annotation_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.prediction_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.prediction_meta_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.failed_prediction_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.task_lock_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.task_dataset_item_link_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.scene_track_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.scene_track_interval_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.video_segment_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.video_tracker_job_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.video_track_quality_run_rows'),
-        pg_catalog.to_regclass('aap_labeling_v1.annotation_draft_rows')
+        pg_catalog.to_regclass('yoao_labeling_v1.task_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.batch_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.annotation_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.prediction_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.prediction_meta_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.failed_prediction_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.task_lock_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.task_dataset_item_link_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.scene_track_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.scene_track_interval_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.video_segment_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.video_tracker_job_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.video_track_quality_run_rows'),
+        pg_catalog.to_regclass('yoao_labeling_v1.annotation_draft_rows')
     ];
     v_projection oid;
     v_relation record;
@@ -236,8 +236,8 @@ BEGIN
     IF pg_catalog.array_position(v_allowed,NULL) IS NOT NULL
        OR NOT pg_catalog.has_database_privilege(v_client,current_database(),'CONNECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP')
-       OR NOT pg_catalog.has_schema_privilege(v_client,'aap_labeling_v1','USAGE')
-       OR pg_catalog.has_schema_privilege(v_client,'aap_labeling_v1','CREATE')
+       OR NOT pg_catalog.has_schema_privilege(v_client,'yoao_labeling_v1','USAGE')
+       OR pg_catalog.has_schema_privilege(v_client,'yoao_labeling_v1','CREATE')
        OR pg_catalog.has_schema_privilege(v_client,'public','CREATE')
        OR EXISTS (
            SELECT FROM pg_catalog.unnest(v_allowed) AS capability(oid)
@@ -283,7 +283,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_labeling_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_labeling_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Labeling core read data LOGIN has foreign schema privileges';

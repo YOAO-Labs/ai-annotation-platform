@@ -43,21 +43,21 @@ from worktree_runtime import (
 )
 
 _ROUTING = (
-    "aap_inference_routing_v1.model_dispatch_step(text)",
-    "aap_inference_routing_v1.prediction_scope_reserve(text)",
-    "aap_inference_routing_v1.prediction_test_scope_reserve(text)",
-    "aap_inference_routing_v1.routing_policy()",
-    "aap_inference_routing_v1.routing_step(text,text)",
-    "aap_inference_routing_v1.scope_retirement_step(text,text)",
-    "aap_inference_routing_v1.supersede_unbegun_scope(text)",
-    "aap_inference_routing_v1.video_execution_scope_step(text,text)",
+    "yoao_inference_routing_v1.model_dispatch_step(text)",
+    "yoao_inference_routing_v1.prediction_scope_reserve(text)",
+    "yoao_inference_routing_v1.prediction_test_scope_reserve(text)",
+    "yoao_inference_routing_v1.routing_policy()",
+    "yoao_inference_routing_v1.routing_step(text,text)",
+    "yoao_inference_routing_v1.scope_retirement_step(text,text)",
+    "yoao_inference_routing_v1.supersede_unbegun_scope(text)",
+    "yoao_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 
 
 _HEALTH = (
-    "aap_inference_health_observation_v1.health_observation_policy()",
-    "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
-    "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+    "yoao_inference_health_observation_v1.health_observation_policy()",
+    "yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+    "yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
 )
 
 
@@ -72,7 +72,7 @@ def _control_profiles():
     from yoao_inference.gpu.native import _AUTHORITY_FUNCTIONS
     from yoao_inference.health_data_postgres import _FUNCTIONS as health_functions
 
-    endpoint_schema = "aap_inference_backend_endpoint_v1"
+    endpoint_schema = "yoao_inference_backend_endpoint_v1"
     profiles = {
         f"endpoint_{purpose}": (endpoint_schema, _function_set(purpose))
         for purpose in (
@@ -94,8 +94,8 @@ def _control_profiles():
                 ("open_installation_terminal_endpoint", "uuid, uuid, text, text, text")
             }
         profiles[f"gpu_endpoint_{purpose}"] = (endpoint_schema, functions)
-    profiles["gpu_authority"] = ("aap_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
-    profiles["health_data"] = ("aap_inference_health_data_v1", health_functions)
+    profiles["gpu_authority"] = ("yoao_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
+    profiles["health_data"] = ("yoao_inference_health_data_v1", health_functions)
     return {
         kind: (
             schema,
@@ -333,8 +333,8 @@ class FixtureInferenceServices:
                     .one()
                 )
                 profiles = {
-                    "routing": ("aap_inference_routing_v1", _ROUTING),
-                    "health": ("aap_inference_health_observation_v1", _HEALTH),
+                    "routing": ("yoao_inference_routing_v1", _ROUTING),
+                    "health": ("yoao_inference_health_observation_v1", _HEALTH),
                     **_control_profiles(),
                 }
                 for kind, (schema, functions) in profiles.items():
@@ -1063,7 +1063,7 @@ async def _serve(payload):
                     )
                     await _verify_endpoint_profile(connection, purpose)
                     policy = await connection.fetchval(
-                        "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
+                        "SELECT yoao_inference_backend_endpoint_v1.backend_endpoint_policy()"
                     )
                     if not backend_endpoint_policy_ready(policy):
                         raise RuntimeError("Fixture GPU endpoint policy unavailable")

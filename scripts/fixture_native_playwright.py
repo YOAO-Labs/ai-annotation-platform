@@ -312,11 +312,11 @@ async def _suite_settled(environment, suite_id, root_family, directory):
             for row in native_rows:
                 _require(row.state == "retired", "fixture_native_run_unsettled")
                 execution = await connection.scalar(
-                    text("SELECT aap_jobs_v1.fixture_media_executor_identity(:run)"),
+                    text("SELECT yoao_jobs_v1.fixture_media_executor_identity(:run)"),
                     {"run": row.id},
                 )
                 reader = await connection.scalar(
-                    text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"),
+                    text("SELECT yoao_assets_v1.fixture_native_reader_identity(:run)"),
                     {"run": row.id},
                 )
                 directory_present = (directory / f"native-run-{row.id.hex}").is_dir()

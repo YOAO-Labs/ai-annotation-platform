@@ -3,8 +3,8 @@
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v identity_owner=identity_code \
---   -v identity_account_role=identity_account_client \
---   -v identity_presence_role=identity_presence_client \
+--   -v identity_account_role=yoao_identity_account_client \
+--   -v identity_presence_role=yoao_identity_presence_client \
 --   -f infra/docker/identity-accounts-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -35,8 +35,8 @@ BEGIN
        OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity owner, account and presence roles must be distinct';
     END IF;
-    IF current_setting('yoao.identity_account_role') <> 'identity_account_client'
-       OR current_setting('yoao.identity_presence_role') <> 'identity_presence_client' THEN
+    IF current_setting('yoao.identity_account_role') <> 'yoao_identity_account_client'
+       OR current_setting('yoao.identity_presence_role') <> 'yoao_identity_presence_client' THEN
         RAISE EXCEPTION 'Self-account and presence must use their restricted LOGIN roles';
     END IF;
 
@@ -89,7 +89,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_identity_accounts_v1'
+        WHERE namespace.nspname = 'yoao_identity_accounts_v1'
           AND namespace.nspowner = migration_oid
     ) THEN
         RAISE EXCEPTION 'Identity account schema must remain owned by the migration role';
@@ -97,7 +97,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_identity_accounts_v1'
+        WHERE namespace.nspname = 'yoao_identity_accounts_v1'
           AND function.prokind = 'f' AND function.proowner <> owner_oid
     ) THEN
         RAISE EXCEPTION 'Identity account functions must be owned by the Identity code owner';
@@ -105,12 +105,12 @@ BEGIN
     IF NOT pg_catalog.has_function_privilege(
         owner_oid,
         pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
+            'yoao_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
         )::oid,
         'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         owner_oid,
-        pg_catalog.to_regprocedure('aap_audit_v1.valid_request_context(jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_audit_v1.valid_request_context(jsonb)')::oid,
         'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Identity code owner cannot call the Audit-owned account event capability';
@@ -146,15 +146,15 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_accounts_v1
+GRANT USAGE ON SCHEMA yoao_identity_accounts_v1
     TO :"identity_account_role", :"identity_presence_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_accounts_v1.account_policy(),
-    aap_identity_accounts_v1.prepare_account_command(jsonb),
-    aap_identity_accounts_v1.apply_account_command(jsonb)
+    yoao_identity_accounts_v1.account_policy(),
+    yoao_identity_accounts_v1.prepare_account_command(jsonb),
+    yoao_identity_accounts_v1.apply_account_command(jsonb)
     TO :"identity_account_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
+    yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
     TO :"identity_presence_role";
 
 -- Fail closed unless each LOGIN has exactly its designated function surface.
@@ -163,7 +163,7 @@ DECLARE
     role_entry record;
     role_oid oid;
     audit_function oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
+        'yoao_audit_v1.record_identity_account_event(text,jsonb,jsonb,jsonb)'
     )::oid;
     callable_count integer;
 BEGIN
@@ -176,16 +176,16 @@ BEGIN
             (
                 current_setting('yoao.identity_account_role'),
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_accounts_v1.account_policy()')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_accounts_v1.prepare_account_command(jsonb)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_accounts_v1.apply_account_command(jsonb)')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_accounts_v1.account_policy()')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_accounts_v1.prepare_account_command(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_accounts_v1.apply_account_command(jsonb)')::oid
                 ]::oid[]
             ),
             (
                 current_setting('yoao.identity_presence_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure(
-                        'aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)'
+                        'yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)'
                     )::oid
                 ]::oid[]
             )
@@ -204,12 +204,12 @@ BEGIN
         IF EXISTS (
             SELECT 1 FROM pg_catalog.pg_namespace AS namespace
             WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-              AND namespace.nspname <> 'aap_identity_accounts_v1'
+              AND namespace.nspname <> 'yoao_identity_accounts_v1'
               AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
         ) THEN
             RAISE EXCEPTION 'Identity account LOGIN has a foreign module schema: %', role_entry.role_name;
         END IF;
-        IF pg_catalog.has_schema_privilege(role_oid, 'aap_audit_v1', 'USAGE')
+        IF pg_catalog.has_schema_privilege(role_oid, 'yoao_audit_v1', 'USAGE')
            OR pg_catalog.has_function_privilege(role_oid, audit_function, 'EXECUTE') THEN
             RAISE EXCEPTION 'Identity account LOGIN has direct Audit capability: %', role_entry.role_name;
         END IF;
@@ -269,7 +269,7 @@ BEGIN
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
             WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-              AND (namespace.nspname <> 'aap_identity_accounts_v1'
+              AND (namespace.nspname <> 'yoao_identity_accounts_v1'
                    OR function.oid <> ALL (role_entry.allowed_functions))
               AND function.prokind IN ('f', 'p')
               AND pg_catalog.has_function_privilege(role_oid, function.oid, 'EXECUTE')
@@ -279,7 +279,7 @@ BEGIN
         SELECT pg_catalog.count(*) INTO callable_count
         FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_identity_accounts_v1'
+        WHERE namespace.nspname = 'yoao_identity_accounts_v1'
           AND function.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(role_oid, function.oid, 'EXECUTE');
         IF callable_count <> pg_catalog.cardinality(role_entry.allowed_functions) THEN

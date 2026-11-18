@@ -3,10 +3,10 @@
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v identity_owner=identity_code \
---   -v identity_auth_role=identity_auth_client \
---   -v identity_command_role=identity_command_client \
---   -v identity_fence_role=identity_fence_client \
---   -v identity_operator_role=identity_session_operator \
+--   -v identity_auth_role=yoao_identity_auth_client \
+--   -v identity_command_role=yoao_identity_command_client \
+--   -v identity_fence_role=yoao_identity_fence_client \
+--   -v identity_operator_role=yoao_identity_session_operator \
 --   -f infra/docker/identity-auth-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -124,28 +124,28 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_v1 TO
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO
     :"identity_auth_role", :"identity_command_role",
     :"identity_fence_role", :"identity_operator_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.authentication_policy(),
-    aap_identity_v1.read_actor_context(uuid, text),
-    aap_identity_v1.read_jwt_principal(uuid, uuid, bigint, timestamptz, boolean),
-    aap_identity_v1.read_api_key_candidates(text, uuid, integer),
-    aap_identity_v1.confirm_api_key_principal(uuid, text)
+    yoao_identity_v1.authentication_policy(),
+    yoao_identity_v1.read_actor_context(uuid, text),
+    yoao_identity_v1.read_jwt_principal(uuid, uuid, bigint, timestamptz, boolean),
+    yoao_identity_v1.read_api_key_candidates(text, uuid, integer),
+    yoao_identity_v1.confirm_api_key_principal(uuid, text)
     TO :"identity_auth_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.get_credential_generation(uuid),
-    aap_identity_v1.advance_credential_generation(uuid),
-    aap_identity_v1.revoke_jti(uuid, timestamptz),
-    aap_identity_v1.is_jti_revoked(uuid),
-    aap_identity_v1.retire_account_credentials(uuid)
+    yoao_identity_v1.get_credential_generation(uuid),
+    yoao_identity_v1.advance_credential_generation(uuid),
+    yoao_identity_v1.revoke_jti(uuid, timestamptz),
+    yoao_identity_v1.is_jti_revoked(uuid),
+    yoao_identity_v1.retire_account_credentials(uuid)
     TO :"identity_command_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.lock_current_principal(uuid, text, uuid, bigint, timestamptz, text[])
+    yoao_identity_v1.lock_current_principal(uuid, text, uuid, bigint, timestamptz, text[])
     TO :"identity_fence_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.purge_expired_revocations(integer)
+    yoao_identity_v1.purge_expired_revocations(integer)
     TO :"identity_operator_role";
 
 -- Fail closed unless each LOGIN has only its exact Identity operation surface.
@@ -161,33 +161,33 @@ BEGIN
             (
                 current_setting('yoao.identity_auth_role'),
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_v1.authentication_policy()')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.read_api_key_candidates(text,uuid,integer)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.confirm_api_key_principal(uuid,text)')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_v1.authentication_policy()')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.read_actor_context(uuid,text)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.read_api_key_candidates(text,uuid,integer)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.confirm_api_key_principal(uuid,text)')::oid
                 ]::oid[]
             ),
             (
                 current_setting('yoao.identity_command_role'),
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_v1.get_credential_generation(uuid)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.advance_credential_generation(uuid)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.revoke_jti(uuid,timestamptz)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.is_jti_revoked(uuid)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_v1.retire_account_credentials(uuid)')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_v1.get_credential_generation(uuid)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.advance_credential_generation(uuid)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.revoke_jti(uuid,timestamptz)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.is_jti_revoked(uuid)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_v1.retire_account_credentials(uuid)')::oid
                 ]::oid[]
             ),
             (
                 current_setting('yoao.identity_fence_role'),
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[])')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[])')::oid
                 ]::oid[]
             ),
             (
                 current_setting('yoao.identity_operator_role'),
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_v1.purge_expired_revocations(integer)')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_v1.purge_expired_revocations(integer)')::oid
                 ]::oid[]
             )
         ) AS expected(role_name, allowed_functions)
@@ -206,7 +206,7 @@ BEGIN
         IF EXISTS (
             SELECT 1 FROM pg_catalog.pg_namespace AS ns
             WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-              AND ns.nspname <> 'aap_identity_v1'
+              AND ns.nspname <> 'yoao_identity_v1'
               AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
         ) THEN
             RAISE EXCEPTION 'Identity LOGIN has access to a foreign module schema: %', role_entry.role_name;
@@ -269,7 +269,7 @@ BEGIN
             FROM pg_catalog.pg_proc AS proc
             JOIN pg_catalog.pg_namespace AS ns ON ns.oid = proc.pronamespace
             WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-              AND (ns.nspname <> 'aap_identity_v1'
+              AND (ns.nspname <> 'yoao_identity_v1'
                    OR proc.oid <> ALL (role_entry.allowed_functions))
               AND proc.prokind IN ('f', 'p')
               AND pg_catalog.has_function_privilege(role_oid, proc.oid, 'EXECUTE')
@@ -279,7 +279,7 @@ BEGIN
         SELECT pg_catalog.count(*) INTO callable_count
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS ns ON ns.oid = proc.pronamespace
-        WHERE ns.nspname = 'aap_identity_v1'
+        WHERE ns.nspname = 'yoao_identity_v1'
           AND proc.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(role_oid, proc.oid, 'EXECUTE');
         IF callable_count <> pg_catalog.cardinality(role_entry.allowed_functions) THEN

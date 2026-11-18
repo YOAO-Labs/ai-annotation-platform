@@ -136,7 +136,7 @@ async def image_role(backend, owner, action):
                     f"TO {quote(role)}"
                 )
                 await connection.exec_driver_sql(
-                    f"GRANT USAGE ON SCHEMA aap_assets_v1 TO {quote(role)}"
+                    f"GRANT USAGE ON SCHEMA yoao_assets_v1 TO {quote(role)}"
                 )
                 signatures = ", ".join(_expected_signatures("worker"))
                 await connection.exec_driver_sql(

@@ -98,31 +98,31 @@ BEGIN
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_v1.read_workspace_membership_accounts(uuid[])'
+               'yoao_identity_v1.read_workspace_membership_accounts(uuid[])'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_workspace_membership_event(text,jsonb,uuid,jsonb,jsonb)'
+               'yoao_audit_v1.record_workspace_membership_event(text,jsonb,uuid,jsonb,jsonb)'
            )::oid) IS DISTINCT FROM audit_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.read_membership_work(uuid,uuid,uuid,uuid)'
+               'yoao_labeling_v1.read_membership_work(uuid,uuid,uuid,uuid)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'
+               'yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.handoff_membership_annotation(uuid,uuid,uuid)'
+               'yoao_labeling_v1.handoff_membership_annotation(uuid,uuid,uuid)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.handoff_membership_reviewer(uuid,uuid,uuid)'
+               'yoao_labeling_v1.handoff_membership_reviewer(uuid,uuid,uuid)'
            )::oid) IS DISTINCT FROM labeling_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_labeling_v1.release_membership_task_locks(uuid,uuid)'
+               'yoao_labeling_v1.release_membership_task_locks(uuid,uuid)'
            )::oid) IS DISTINCT FROM labeling_oid THEN
         RAISE EXCEPTION 'A Workspace membership capability has the wrong owner';
     END IF;
@@ -130,39 +130,39 @@ BEGIN
         workspace_oid, 'yoao_workspace_membership_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_identity_v1.lock_accounts_update(uuid[],boolean)'
+            'yoao_identity_v1.lock_accounts_update(uuid[],boolean)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_identity_v1.read_workspace_membership_accounts(uuid[])'
+            'yoao_identity_v1.read_workspace_membership_accounts(uuid[])'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_workspace_membership_event(text,jsonb,uuid,jsonb,jsonb)'
+            'yoao_audit_v1.record_workspace_membership_event(text,jsonb,uuid,jsonb,jsonb)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.valid_request_context(jsonb)'
+            'yoao_audit_v1.valid_request_context(jsonb)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.read_membership_work(uuid,uuid,uuid,uuid)'
+            'yoao_labeling_v1.read_membership_work(uuid,uuid,uuid,uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'
+            'yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.handoff_membership_annotation(uuid,uuid,uuid)'
+            'yoao_labeling_v1.handoff_membership_annotation(uuid,uuid,uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.handoff_membership_reviewer(uuid,uuid,uuid)'
+            'yoao_labeling_v1.handoff_membership_reviewer(uuid,uuid,uuid)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
-            'aap_labeling_v1.release_membership_task_locks(uuid,uuid)'
+            'yoao_labeling_v1.release_membership_task_locks(uuid,uuid)'
         )::oid, 'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'Workspace owner lacks a required typed capability';

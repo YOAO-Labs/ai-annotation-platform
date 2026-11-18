@@ -139,7 +139,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     healthcheck:
-      test: ["CMD", "python", "-m", "aap_assets_images_runtime.worker", "--healthcheck"]
+      test: ["CMD", "python", "-m", "yoao_assets_images_runtime.worker", "--healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3

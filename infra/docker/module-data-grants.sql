@@ -6,11 +6,11 @@
 --   -v inference_owner=inference_code -v insights_owner=insights_code
 --   -v diagnostics_owner=diagnostics_code -v export_owner=export_code
 --   -v audit_owner=audit_code -v settings_owner=settings_code
---   -v notifications_owner=notifications_code -v workflow_role=append_client
---   -v asset_cleanup_role=asset_cleanup_client
---   -v mask_gc_role=labeling_mask_gc_client
---   -v inference_registry_ingress_role=inference_registry_ingress_client
---   -v inference_routing_role=inference_routing_client
+--   -v notifications_owner=notifications_code -v workflow_role=yoao_append_client
+--   -v asset_cleanup_role=yoao_asset_cleanup_client
+--   -v mask_gc_role=yoao_labeling_mask_gc_client
+--   -v inference_registry_ingress_role=yoao_inference_registry_ingress_client
+--   -v inference_routing_role=yoao_inference_routing_client
 --   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -109,29 +109,29 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
-    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
-    yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
-    aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON SCHEMA aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
-    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
+REVOKE ALL ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1, yoao_assets_v1,
+    yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1, yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1,
+    yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1, yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1 FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1,
+    yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_assets_v1, yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1,
+    yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1,
+    yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1 FROM PUBLIC;
+REVOKE ALL ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1, yoao_assets_v1,
+    yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1, yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1,
+    yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1, yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1
     FROM :"asset_cleanup_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
-    yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
-    aap_audit_v1 FROM :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
-    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1,
-    aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
-    yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
-    aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1,
+    yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_assets_v1, yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1,
+    yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1,
+    yoao_audit_v1 FROM :"asset_cleanup_role";
+REVOKE ALL ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1, yoao_assets_v1,
+    yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1, yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1,
+    yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1, yoao_audit_v1,
+    yoao_settings_v1, yoao_notifications_v1 FROM :"mask_gc_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1,
+    yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_assets_v1, yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1,
+    yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1,
+    yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
@@ -414,7 +414,7 @@ GRANT SELECT (
     method, path, status_code, ip, request_id, detail_json
 ), UPDATE (actor_email, actor_role) ON public.audit_logs TO :"audit_owner";
 GRANT SELECT (id, email)
-    ON aap_identity_v1.account_profiles TO :"audit_owner";
+    ON yoao_identity_v1.account_profiles TO :"audit_owner";
 
 -- Assets owns catalog/source rows and their exact upload, deletion and connection receipts.
 GRANT SELECT (id, display_id, data_type, name, file_count),
@@ -659,7 +659,7 @@ GRANT INSERT (async_job_id, id, input_digest, input_snapshot, left_segment_id, m
 GRANT UPDATE (accepted_at, accepted_by_id, completed_at, error_message, metrics, pairs, progress_pct, stale_at, started_at, status, updated_at) ON public.video_track_quality_runs TO :"labeling_owner";
 GRANT INSERT (annotation_id, correction_frame, created_by, dataset_item_id, direction, event_channel, from_frame, id, job_kind, model_key, prompt, revision, segment_id, status, target_class_name, target_tool_unit_id, task_id, to_frame, track_id_snapshot) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT UPDATE (cancel_requested_at, celery_task_id, event_channel, prompt, revision, started_at) ON public.video_tracker_jobs TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.workspace_project_query_dataset_ids(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.workspace_project_query_dataset_ids(uuid) TO :"labeling_owner";
 
 -- Fixed owner snapshots for the remaining Labeling operation families.
 GRANT SELECT (
@@ -703,10 +703,10 @@ GRANT SELECT (
 ) ON public.video_track_quality_issues TO :"labeling_owner";
 GRANT SELECT (id, sensor_name, created_at) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT SELECT (id, dataset_item_id, title, start_frame, end_frame) ON public.video_chapters TO :"assets_owner";
-GRANT SELECT ON aap_assets_v1.video_chapter_facts,
-    aap_assets_v1.labeling_dataset_item_facts,
-    aap_assets_v1.scale_seed_dataset_item_facts TO :"labeling_owner";
-GRANT SELECT ON aap_labeling_v1.annotation_draft_rows TO :"labeling_owner";
+GRANT SELECT ON yoao_assets_v1.video_chapter_facts,
+    yoao_assets_v1.labeling_dataset_item_facts,
+    yoao_assets_v1.scale_seed_dataset_item_facts TO :"labeling_owner";
+GRANT SELECT ON yoao_labeling_v1.annotation_draft_rows TO :"labeling_owner";
 
 -- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
 GRANT SELECT (total_annotations, is_labeled),
@@ -1151,37 +1151,37 @@ GRANT UPDATE (
     last_reason, delivered_at
 ) ON public.notification_delivery_outbox TO :"notifications_owner";
 
-GRANT USAGE ON SCHEMA aap_settings_v1 TO :"settings_owner", :"assets_owner", :"identity_owner";
-GRANT USAGE ON SCHEMA aap_notifications_v1
+GRANT USAGE ON SCHEMA yoao_settings_v1 TO :"settings_owner", :"assets_owner", :"identity_owner";
+GRANT USAGE ON SCHEMA yoao_notifications_v1
     TO :"notifications_owner", :"jobs_owner", :"identity_owner";
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner", :"notifications_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"jobs_owner", :"notifications_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.lock_active_actor(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid)
     TO :"notifications_owner";
-GRANT SELECT (id, role, is_active) ON aap_identity_v1.account_profiles
+GRANT SELECT (id, role, is_active) ON yoao_identity_v1.account_profiles
     TO :"notifications_owner";
-GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_project_query_v1, aap_jobs_v1
+GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_workspace_project_query_v1, yoao_jobs_v1
     TO :"notifications_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.actor_project_memberships(uuid),
     yoao_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"notifications_owner";
-GRANT SELECT (id, kind, scope_project_id) ON aap_jobs_v1.notification_scope_facts
+GRANT SELECT (id, kind, scope_project_id) ON yoao_jobs_v1.notification_scope_facts
     TO :"notifications_owner";
-GRANT EXECUTE ON FUNCTION aap_settings_v1.resolve_connector_host_allowlist(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_settings_v1.resolve_connector_host_allowlist(jsonb)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_settings_v1.lock_connector_host_allowlist(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_settings_v1.lock_connector_host_allowlist(jsonb)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.create_job_terminal_notification(
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.create_job_terminal_notification(
     uuid, uuid, text, jsonb
 ) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.create_dataset_import_job(uuid,uuid,jsonb),
-    aap_jobs_v1.lock_dataset_import_job(uuid),
-    aap_jobs_v1.claim_dataset_import_job(uuid),
-    aap_jobs_v1.update_dataset_import_job_progress(uuid,text,integer,integer,bigint),
-    aap_jobs_v1.finish_dataset_import_job(uuid,text,jsonb,text),
-    aap_jobs_v1.cancel_dataset_import_job(uuid,uuid,jsonb)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.create_dataset_import_job(uuid,uuid,jsonb),
+    yoao_jobs_v1.lock_dataset_import_job(uuid),
+    yoao_jobs_v1.claim_dataset_import_job(uuid),
+    yoao_jobs_v1.update_dataset_import_job_progress(uuid,text,integer,integer,bigint),
+    yoao_jobs_v1.finish_dataset_import_job(uuid,text,jsonb,text),
+    yoao_jobs_v1.cancel_dataset_import_job(uuid,uuid,jsonb)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_dataset_import(uuid,uuid,uuid,jsonb,jsonb)
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_dataset_import(uuid,uuid,uuid,jsonb,jsonb)
     TO :"assets_owner";
 
 -- Learning holds project retention evidence, task-derived streams and recipes.
@@ -1276,47 +1276,47 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 
 -- Cross-owner function calls share one PostgreSQL transaction and retain the
 -- dataset -> current authority -> association -> Jobs/Labeling lock order.
-GRANT USAGE ON SCHEMA aap_identity_v1
+GRANT USAGE ON SCHEMA yoao_identity_v1
     TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner",
        :"labeling_owner", :"learning_owner", :"inference_owner", :"workflow_role";
-GRANT USAGE ON SCHEMA yoao_identity_keys_v1, aap_identity_sessions_v1,
-    aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1,
-    aap_identity_deactivation_v1, aap_identity_invitations_v1,
-    aap_identity_mail_v2, aap_identity_directory_v1,
-    aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1,
-    aap_identity_suspensions_v1, aap_identity_deletions_v1,
-    aap_identity_offboarding_v1, yoao_identity_briefs_v1
+GRANT USAGE ON SCHEMA yoao_identity_keys_v1, yoao_identity_sessions_v1,
+    yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1,
+    yoao_identity_deactivation_v1, yoao_identity_invitations_v1,
+    yoao_identity_mail_v2, yoao_identity_directory_v1,
+    yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1,
+    yoao_identity_suspensions_v1, yoao_identity_deletions_v1,
+    yoao_identity_offboarding_v1, yoao_identity_briefs_v1
     TO :"identity_owner";
-GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
+GRANT USAGE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner", :"assets_owner",
     :"labeling_owner", :"jobs_owner", :"workflow_role", :"identity_owner",
     :"inference_owner";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"assets_owner", :"labeling_owner",
     :"jobs_owner", :"learning_owner", :"workspace_owner", :"workflow_role",
     :"asset_cleanup_role";
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_owner", :"jobs_owner",
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner", :"jobs_owner",
     :"assets_owner", :"learning_owner", :"diagnostics_owner",
     :"workspace_owner", :"workflow_role", :"identity_owner";
-GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner", :"labeling_owner",
     :"workspace_owner", :"assets_owner", :"workflow_role", :"inference_owner",
     :"export_owner";
-GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_inference_routing_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text),
-    aap_jobs_v1.video_execution_checkpoint_step(text,text)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_step(text,text),
+    yoao_jobs_v1.video_execution_checkpoint_step(text,text)
     TO :"labeling_owner", :"workflow_role";
-GRANT USAGE ON SCHEMA aap_learning_v1
+GRANT USAGE ON SCHEMA yoao_learning_v1
     TO :"learning_owner", :"workspace_owner", :"assets_owner", :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
-    aap_jobs_v1.count_running_registry_predictions(uuid),
-    aap_jobs_v1._video_execution_route_step(text,text),
-    aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.registry_evaluation_reference_exists(uuid),
+    yoao_jobs_v1.count_running_registry_predictions(uuid),
+    yoao_jobs_v1._video_execution_route_step(text,text),
+    yoao_jobs_v1._video_execution_scope_is_current(uuid,boolean)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_inference_routing_v1._video_execution_canonical_json(jsonb),
-    aap_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)
+    yoao_inference_routing_v1._video_execution_canonical_json(jsonb),
+    yoao_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)
     TO :"jobs_owner";
-GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_inference_v1 TO :"inference_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_workspace_configuration_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_workspace_template_query_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_workspace_directory_query_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_labeling_class_query_v1 TO :"labeling_owner";
@@ -1327,797 +1327,797 @@ GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_search_scope(u
 GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_search_member_ids(uuid, text)
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.workspace_project_query_counters(uuid[]),
-    aap_labeling_v1.workspace_project_query_ai_counts(uuid[]),
-    aap_labeling_v1.workspace_project_query_annotation_count(uuid[], boolean),
-    aap_labeling_v1.workspace_project_query_task_series(uuid[], timestamptz[]),
-    aap_labeling_v1.workspace_project_query_annotation_series(uuid[], timestamptz[]),
-    aap_labeling_v1.workspace_project_query_linked_task_count(uuid, uuid[]),
-    aap_labeling_v1.workspace_project_query_task_count(uuid),
-    aap_labeling_v1.workspace_project_query_batches(uuid),
-    aap_labeling_v1.workspace_project_query_batch_task_counts(uuid),
-    aap_assets_v1.workspace_project_query_dataset_ids(uuid),
-    aap_assets_v1.workspace_project_query_dataset_item_count(uuid[]),
-    aap_jobs_v1.workspace_project_query_job_status_counts(uuid),
-    aap_jobs_v1.workspace_project_query_latest_job_status(uuid),
-    aap_inference_v1.workspace_project_query_pool(uuid)
+    yoao_labeling_v1.workspace_project_query_counters(uuid[]),
+    yoao_labeling_v1.workspace_project_query_ai_counts(uuid[]),
+    yoao_labeling_v1.workspace_project_query_annotation_count(uuid[], boolean),
+    yoao_labeling_v1.workspace_project_query_task_series(uuid[], timestamptz[]),
+    yoao_labeling_v1.workspace_project_query_annotation_series(uuid[], timestamptz[]),
+    yoao_labeling_v1.workspace_project_query_linked_task_count(uuid, uuid[]),
+    yoao_labeling_v1.workspace_project_query_task_count(uuid),
+    yoao_labeling_v1.workspace_project_query_batches(uuid),
+    yoao_labeling_v1.workspace_project_query_batch_task_counts(uuid),
+    yoao_assets_v1.workspace_project_query_dataset_ids(uuid),
+    yoao_assets_v1.workspace_project_query_dataset_item_count(uuid[]),
+    yoao_jobs_v1.workspace_project_query_job_status_counts(uuid),
+    yoao_jobs_v1.workspace_project_query_latest_job_status(uuid),
+    yoao_inference_v1.workspace_project_query_pool(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
+    yoao_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_configuration_v1.configuration_policy(),
-    aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
+    yoao_workspace_configuration_v1.configuration_policy(),
+    yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     TO :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_insights_v1 TO :"insights_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_export_v1 TO :"export_owner", :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_audit_v1
+GRANT USAGE ON SCHEMA yoao_export_v1 TO :"export_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_audit_v1
     TO :"identity_owner", :"audit_owner", :"workspace_owner", :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_session_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_session_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_account_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_bootstrap_admin(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_bootstrap_admin(
     uuid, text, text
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_recovery_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_recovery_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_group_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_group_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_deactivation_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_deactivation_event(
     text, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_invitation_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_invitation_event(
     text, jsonb, jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.valid_request_context(jsonb)
     TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_settings_v1.identity_recovery_policy(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_settings_v1.identity_recovery_policy(jsonb)
     TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_settings_v1.invitation_policy(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_settings_v1.invitation_policy(jsonb)
     TO :"identity_owner";
-GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_group_assignment_scope(
+GRANT USAGE ON SCHEMA yoao_workspace_v1 TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.lock_group_assignment_scope(
     uuid, uuid[], boolean
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.invitation_projects(uuid[]),
-    aap_workspace_v1.lock_invitation_project(uuid, uuid),
-    aap_workspace_v1.read_invitation_membership(uuid, uuid),
-    aap_workspace_v1.grant_invitation_membership(uuid, uuid, text, uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.invitation_projects(uuid[]),
+    yoao_workspace_v1.lock_invitation_project(uuid, uuid),
+    yoao_workspace_v1.read_invitation_membership(uuid, uuid),
+    yoao_workspace_v1.grant_invitation_membership(uuid, uuid, text, uuid, uuid)
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.identity_directory_owned_member_ids(uuid),
-    aap_workspace_v1.identity_directory_project_member_ids(uuid),
-    aap_workspace_v1.identity_directory_lifecycle_blocked(uuid, uuid[])
+    yoao_workspace_v1.identity_directory_owned_member_ids(uuid),
+    yoao_workspace_v1.identity_directory_project_member_ids(uuid),
+    yoao_workspace_v1.identity_directory_lifecycle_blocked(uuid, uuid[])
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.admin_password_target_in_owned_project(uuid, uuid)
+    yoao_workspace_v1.admin_password_target_in_owned_project(uuid, uuid)
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.identity_platform_role_facts(uuid),
-    aap_workspace_v1.lock_identity_platform_role_owned_projects(uuid)
+    yoao_workspace_v1.identity_platform_role_facts(uuid),
+    yoao_workspace_v1.lock_identity_platform_role_owned_projects(uuid)
     TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_identity_suspension_scope(
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.lock_identity_suspension_scope(
     uuid, uuid, text
 ) TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.lock_identity_deletion_scope(uuid, uuid),
-    aap_workspace_v1.identity_deletion_transfer_covered(uuid, uuid[])
+    yoao_workspace_v1.lock_identity_deletion_scope(uuid, uuid),
+    yoao_workspace_v1.identity_deletion_transfer_covered(uuid, uuid[])
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.lock_identity_offboarding_scope(uuid, uuid[], uuid[]),
-    aap_workspace_v1.identity_offboarding_replay_scope(uuid, uuid[]),
-    aap_workspace_v1.identity_offboarding_facts(uuid),
-    aap_workspace_v1.transfer_identity_offboarding_owners(uuid, jsonb)
+    yoao_workspace_v1.lock_identity_offboarding_scope(uuid, uuid[], uuid[]),
+    yoao_workspace_v1.identity_offboarding_replay_scope(uuid, uuid[]),
+    yoao_workspace_v1.identity_offboarding_facts(uuid),
+    yoao_workspace_v1.transfer_identity_offboarding_owners(uuid, jsonb)
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.identity_brief_project_roles(uuid, uuid[])
+    yoao_workspace_v1.identity_brief_project_roles(uuid, uuid[])
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.read_workspace_membership_accounts(uuid[]),
-    aap_identity_v1.workspace_directory_superadmins()
+    yoao_identity_v1.read_workspace_membership_accounts(uuid[]),
+    yoao_identity_v1.workspace_directory_superadmins()
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_audit_v1.valid_request_context(jsonb),
-    aap_audit_v1.record_workspace_membership_event(text, jsonb, uuid, jsonb, jsonb)
+    yoao_audit_v1.valid_request_context(jsonb),
+    yoao_audit_v1.record_workspace_membership_event(text, jsonb, uuid, jsonb, jsonb)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.workspace_configuration_datasets(uuid),
-    aap_labeling_v1.workspace_configuration_video_facts(uuid),
-    aap_labeling_v1.rename_project_annotation_class(uuid, text, text),
-    aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
+    yoao_assets_v1.workspace_configuration_datasets(uuid),
+    yoao_labeling_v1.workspace_configuration_video_facts(uuid),
+    yoao_labeling_v1.rename_project_annotation_class(uuid, text, text),
+    yoao_inference_v1.enable_workspace_project_backend(uuid, uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.workspace_configuration_dataset_rows(uuid),
-    aap_assets_v1.workspace_configuration_dataset_scenes(uuid),
-    aap_assets_v1.read_media_summaries(uuid[]),
-    aap_labeling_v1.workspace_configuration_task_count(uuid),
-    aap_labeling_v1.workspace_configuration_annotation_count(uuid),
-    aap_labeling_v1.workspace_configuration_tracker_count(uuid),
-    aap_labeling_v1.workspace_configuration_video_items(uuid),
-    aap_inference_v1.workspace_configuration_source_pool(uuid),
-    aap_inference_v1.workspace_configuration_backend(uuid)
+    yoao_assets_v1.workspace_configuration_dataset_rows(uuid),
+    yoao_assets_v1.workspace_configuration_dataset_scenes(uuid),
+    yoao_assets_v1.read_media_summaries(uuid[]),
+    yoao_labeling_v1.workspace_configuration_task_count(uuid),
+    yoao_labeling_v1.workspace_configuration_annotation_count(uuid),
+    yoao_labeling_v1.workspace_configuration_tracker_count(uuid),
+    yoao_labeling_v1.workspace_configuration_video_items(uuid),
+    yoao_inference_v1.workspace_configuration_source_pool(uuid),
+    yoao_inference_v1.workspace_configuration_backend(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
+    yoao_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid),
-    aap_labeling_v1.lock_membership_work(uuid, uuid, text, boolean),
-    aap_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid),
-    aap_labeling_v1.handoff_membership_reviewer(uuid, uuid, uuid),
-    aap_labeling_v1.release_membership_task_locks(uuid, uuid)
+    yoao_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid),
+    yoao_labeling_v1.lock_membership_work(uuid, uuid, text, boolean),
+    yoao_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid),
+    yoao_labeling_v1.handoff_membership_reviewer(uuid, uuid, uuid),
+    yoao_labeling_v1.release_membership_task_locks(uuid, uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.identity_platform_role_facts(uuid, uuid[])
+    yoao_labeling_v1.identity_platform_role_facts(uuid, uuid[])
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.identity_deletion_work(uuid),
-    aap_labeling_v1.transfer_identity_deletion_work(uuid, uuid)
+    yoao_labeling_v1.identity_deletion_work(uuid),
+    yoao_labeling_v1.transfer_identity_deletion_work(uuid, uuid)
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.lock_identity_offboarding_work(uuid, uuid[]),
-    aap_labeling_v1.identity_offboarding_facts(uuid),
-    aap_labeling_v1.transfer_identity_offboarding_work(uuid, jsonb),
-    aap_labeling_v1.release_identity_offboarding_task_locks(uuid)
+    yoao_labeling_v1.lock_identity_offboarding_work(uuid, uuid[]),
+    yoao_labeling_v1.identity_offboarding_facts(uuid),
+    yoao_labeling_v1.transfer_identity_offboarding_work(uuid, jsonb),
+    yoao_labeling_v1.release_identity_offboarding_task_locks(uuid)
     TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.identity_directory_project_refs(uuid[])
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.identity_directory_project_refs(uuid[])
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_directory_export(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_directory_export(
     jsonb, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_admin_password_reset(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_admin_password_reset(
     jsonb, uuid, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_platform_role_change(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_platform_role_change(
     jsonb, uuid, jsonb, text, text, text
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_suspension_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_suspension_event(
     text, jsonb, uuid, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_deletion_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_deletion_event(
     jsonb, uuid, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_identity_offboarding_event(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_identity_offboarding_event(
     jsonb, uuid, jsonb, jsonb
 ) TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.invitation_work_summary(uuid, uuid, text)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.invitation_work_summary(uuid, uuid, text)
     TO :"identity_owner";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.create_identity_deactivation_notifications(
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.create_identity_deactivation_notifications(
     uuid, text, jsonb, uuid[]
 ) TO :"identity_owner";
 
-GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner", :"learning_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_current_principal(
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.lock_current_principal(
     uuid, text, uuid, bigint, timestamptz, text[]
 ) TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.workspace_configuration_org_scope(uuid, uuid),
-    aap_identity_v1.workspace_template_query_org_ids(uuid)
+    yoao_identity_v1.workspace_configuration_org_scope(uuid, uuid),
+    yoao_identity_v1.workspace_template_query_org_ids(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.lock_accounts_share(uuid[], boolean),
-    aap_identity_v1.lock_accounts_update(uuid[], boolean),
-    aap_identity_v1.lock_accounts_key_share(uuid[], boolean)
+    yoao_identity_v1.lock_accounts_share(uuid[], boolean),
+    yoao_identity_v1.lock_accounts_update(uuid[], boolean),
+    yoao_identity_v1.lock_accounts_key_share(uuid[], boolean)
     TO :"workspace_owner", :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_accounts_share(uuid[], boolean)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.lock_accounts_share(uuid[], boolean)
     TO :"labeling_owner", :"learning_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.check_accepted_api_key(uuid, uuid, text[])
     TO :"learning_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_accounts_update(uuid[], boolean)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.lock_accounts_update(uuid[], boolean)
     TO :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.lock_audit_actor(uuid)
     TO :"audit_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.lock_project_reference(uuid)
     TO :"assets_owner", :"inference_owner";
-GRANT SELECT ON aap_workspace_v1.project_catalog_configs TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
+GRANT SELECT ON yoao_workspace_v1.project_catalog_configs TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.read_project_visibility(uuid, uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.lock_project_manager(uuid, uuid)
     TO :"assets_owner", :"labeling_owner", :"jobs_owner", :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_row(uuid)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.read_project_row(uuid)
     TO :"labeling_owner";
-GRANT SELECT (project_id, user_id, role) ON aap_workspace_v1.project_member_facts
+GRANT SELECT (project_id, user_id, role) ON yoao_workspace_v1.project_member_facts
     TO :"labeling_owner";
-GRANT SELECT (id, name) ON aap_workspace_v1.project_facts
+GRANT SELECT (id, name) ON yoao_workspace_v1.project_facts
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.project_access_step(uuid, uuid, text)
     TO :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.clear_primary_backend_bindings(uuid)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_query_step(
     jsonb, text, jsonb, text, text, text[], text[], uuid, text,
     timestamptz, timestamptz, bigint, integer
 ) TO :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.workspace_template_query_org_ids(uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.workspace_template_query_org_ids(uuid)
     TO :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid),
-    aap_assets_v1.lock_current_association(uuid, uuid),
-    aap_assets_v1.lock_append_sources(uuid, uuid[]),
-    aap_assets_v1.lock_task_creation_items(uuid, uuid[])
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_dataset_reference(uuid),
+    yoao_assets_v1.lock_current_association(uuid, uuid),
+    yoao_assets_v1.lock_append_sources(uuid, uuid[]),
+    yoao_assets_v1.lock_task_creation_items(uuid, uuid[])
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.invalidate_task_image_source(uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.invalidate_task_image_source(uuid)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_current_association(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_current_association(uuid, uuid)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_dataset_reference(uuid)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_current_association(uuid, uuid),
-    aap_assets_v1.lock_dataset_reference(uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_current_association(uuid, uuid),
+    yoao_assets_v1.lock_dataset_reference(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_scene_source_references(uuid[])
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_scene_source_references(uuid[])
     TO :"labeling_owner", :"workflow_role";
-GRANT SELECT ON aap_assets_v1.project_dataset_item_sources TO :"labeling_owner";
-GRANT SELECT ON aap_labeling_v1.project_catalog_counters TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
+GRANT SELECT ON yoao_assets_v1.project_dataset_item_sources TO :"labeling_owner";
+GRANT SELECT ON yoao_labeling_v1.project_catalog_counters TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.project_dataset_task_counts(uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
-    TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.project_video_tracker_input(uuid,uuid,uuid,uuid,text,boolean,boolean,boolean),
-    aap_labeling_v1.fail_video_tracker_input_preparation(uuid,uuid,uuid,uuid,text,text),
-    aap_labeling_v1.video_tracker_input_referenced(uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.read_video_tracker_task_source(uuid,uuid,jsonb),
-    aap_assets_v1._lock_video_tracker_input_plan(uuid,uuid,uuid,uuid,text,text,boolean)
+    yoao_labeling_v1.project_video_tracker_input(uuid,uuid,uuid,uuid,text,boolean,boolean,boolean),
+    yoao_labeling_v1.fail_video_tracker_input_preparation(uuid,uuid,uuid,uuid,text,text),
+    yoao_labeling_v1.video_tracker_input_referenced(uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    yoao_assets_v1.read_video_tracker_task_source(uuid,uuid,jsonb),
+    yoao_assets_v1._lock_video_tracker_input_plan(uuid,uuid,uuid,uuid,text,text,boolean)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.project_accepted_image_input_manifest_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
-    aap_jobs_v1.accepted_image_input_manifest_job_consistency(uuid, uuid, uuid, uuid, jsonb, text)
+    yoao_jobs_v1.project_accepted_image_input_manifest_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
+    yoao_jobs_v1.accepted_image_input_manifest_job_consistency(uuid, uuid, uuid, uuid, jsonb, text)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
-    aap_labeling_v1.read_video_input_task_source(uuid, uuid),
-    aap_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
+    yoao_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
+    yoao_labeling_v1.read_video_input_task_source(uuid, uuid),
+    yoao_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.open_video_input_manifest_members(uuid, uuid, jsonb),
-    aap_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
+    yoao_labeling_v1.open_video_input_manifest_members(uuid, uuid, jsonb),
+    yoao_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
-    aap_labeling_v1.accepted_image_input_referenced(uuid)
+    yoao_labeling_v1.project_accepted_image_input_task(uuid, uuid, boolean),
+    yoao_labeling_v1.accepted_image_input_referenced(uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.accepted_video_input_referenced(uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.accepted_video_input_referenced(uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.associate_project(uuid, uuid, uuid)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.delete_project_owned_records(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.project_task_references(uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.project_task_references(uuid)
     TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.read_image_task_source(uuid, uuid, boolean),
-    aap_labeling_v1.read_image_task_source_share(uuid, uuid, boolean),
-    aap_labeling_v1.observe_image_task_source(uuid, text, jsonb),
-    aap_labeling_v1.publish_task_image_thumbnail(uuid, text, bigint, text, text),
-    aap_labeling_v1.image_thumbnail_references(text),
-    aap_labeling_v1.scan_image_task_sources(jsonb, uuid, integer),
-    aap_labeling_v1.invalidate_task_image_thumbnail(uuid, text, text)
+    yoao_labeling_v1.read_image_task_source(uuid, uuid, boolean),
+    yoao_labeling_v1.read_image_task_source_share(uuid, uuid, boolean),
+    yoao_labeling_v1.observe_image_task_source(uuid, text, jsonb),
+    yoao_labeling_v1.publish_task_image_thumbnail(uuid, text, bigint, text, text),
+    yoao_labeling_v1.image_thumbnail_references(text),
+    yoao_labeling_v1.scan_image_task_sources(jsonb, uuid, integer),
+    yoao_labeling_v1.invalidate_task_image_thumbnail(uuid, text, text)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.open_accepted_image_input_manifest_members(uuid, uuid, jsonb),
-    aap_labeling_v1.lock_accepted_image_input_manifest_member(uuid, uuid, uuid, uuid, uuid, text)
+    yoao_labeling_v1.open_accepted_image_input_manifest_members(uuid, uuid, jsonb),
+    yoao_labeling_v1.lock_accepted_image_input_manifest_member(uuid, uuid, uuid, uuid, uuid, text)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_accepted_image_input(uuid, uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_accepted_image_input(uuid, uuid, uuid)
     TO :"workflow_role", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1._lock_accepted_image_input_receipt(uuid, uuid, uuid)
+    yoao_assets_v1._lock_accepted_image_input_receipt(uuid, uuid, uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1._lock_accepted_image_input_pin(uuid, uuid, text)
+    yoao_assets_v1._lock_accepted_image_input_pin(uuid, uuid, text)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.attach_annotation_input_source(uuid, uuid, text)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.attach_annotation_input_source(uuid, uuid, text)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.copy_annotation_input_sources(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.copy_annotation_input_sources(uuid, uuid)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.find_accepted_image_input(uuid, uuid, uuid),
-    aap_assets_v1.reserve_accepted_image_input(uuid, uuid, uuid, text, jsonb),
-    aap_assets_v1.read_accepted_image_input(uuid, uuid, uuid),
-    aap_assets_v1.read_accepted_image_input_work(uuid, uuid, uuid)
+    yoao_assets_v1.find_accepted_image_input(uuid, uuid, uuid),
+    yoao_assets_v1.reserve_accepted_image_input(uuid, uuid, uuid, text, jsonb),
+    yoao_assets_v1.read_accepted_image_input(uuid, uuid, uuid),
+    yoao_assets_v1.read_accepted_image_input_work(uuid, uuid, uuid)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.capture_accepted_image_input_manifest(
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.capture_accepted_image_input_manifest(
     uuid, uuid, uuid, jsonb
 ) TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text),
-    aap_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb),
-    aap_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)
+    yoao_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text),
+    yoao_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb),
+    yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb),
-    aap_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)
+    yoao_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb),
+    yoao_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.dataset_item_references(uuid, uuid)
     TO :"labeling_owner", :"learning_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_item_scene_references(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.dataset_item_scene_references(uuid, uuid)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.dataset_scene_references(uuid),
-    aap_assets_v1.dataset_association_references(uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.dataset_scene_references(uuid),
+    yoao_assets_v1.dataset_association_references(uuid)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.dataset_task_references(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.dataset_task_references(uuid, uuid)
     TO :"assets_owner", :"learning_owner", :"diagnostics_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_project_owned_records(uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.delete_project_owned_records(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid),
-    aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer),
-    aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb),
-    aap_labeling_v1.read_dataset_task_creation(uuid),
-    aap_labeling_v1.advance_dataset_task_creation(uuid, integer)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.append_dataset_items(uuid, uuid[], uuid),
+    yoao_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer),
+    yoao_labeling_v1.prepare_dataset_task_creation(uuid, jsonb),
+    yoao_labeling_v1.read_dataset_task_creation(uuid),
+    yoao_labeling_v1.advance_dataset_task_creation(uuid, integer)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.append_dataset_items(uuid, uuid[], uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.read_dataset_task_creation(uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.read_dataset_task_creation(uuid)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.lock_task_creation_job(uuid, uuid, uuid, uuid, uuid, uuid),
-    aap_jobs_v1.update_task_creation_progress(uuid, uuid, bigint, bigint, bigint)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.lock_task_creation_job(uuid, uuid, uuid, uuid, uuid, uuid),
+    yoao_jobs_v1.update_task_creation_progress(uuid, uuid, bigint, bigint, bigint)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid),
-    aap_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid),
-    aap_jobs_v1.claim_task_creation_job(uuid, text),
-    aap_jobs_v1.finish_task_creation_job(uuid, uuid),
-    aap_jobs_v1.fail_task_creation_job(uuid, uuid, text),
-    aap_jobs_v1.cancel_task_creation_job(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid),
+    yoao_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid),
+    yoao_jobs_v1.claim_task_creation_job(uuid, text),
+    yoao_jobs_v1.finish_task_creation_job(uuid, uuid),
+    yoao_jobs_v1.fail_task_creation_job(uuid, uuid, text),
+    yoao_jobs_v1.cancel_task_creation_job(uuid, uuid)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.detach_project_references(uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.detach_project_references(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)
     TO :"workspace_owner", :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.guard_dataset_source_deletion(uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.guard_dataset_source_deletion(uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.task_creation_execution_active(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.task_creation_execution_active(uuid, uuid)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_learning_v1.lock_project_deletion(uuid),
-    aap_learning_v1.guard_project_deletion(uuid),
-    aap_learning_v1.delete_project_owned_records(uuid)
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.lock_project_deletion(uuid),
+    yoao_learning_v1.guard_project_deletion(uuid),
+    yoao_learning_v1.delete_project_owned_records(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid),
-    aap_inference_v1.clear_project_pipelines(uuid)
+GRANT EXECUTE ON FUNCTION yoao_inference_v1.clear_project_ml_backend_pool(uuid),
+    yoao_inference_v1.clear_project_pipelines(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION yoao_insights_v1.clear_project_task_views(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION yoao_diagnostics_v1.detach_project_references(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
+GRANT EXECUTE ON FUNCTION yoao_export_v1.clear_project_export_artifacts(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.record_project_deletion(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_project_deletion(
     uuid, uuid, uuid, text, text, bigint, bigint, jsonb
 ) TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_learning_v1.guard_dataset_unlink(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.guard_dataset_unlink(uuid, uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.guard_dataset_source_deletion(uuid, uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid),
-    aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.guard_dataset_source_deletion(uuid, uuid),
+    yoao_labeling_v1.detach_deleted_dataset_attribution(uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_dataset_unlink_scope(uuid, uuid),
-    aap_labeling_v1.guard_dataset_unlink(uuid, uuid),
-    aap_labeling_v1.preview_dataset_unlink(uuid, uuid),
-    aap_labeling_v1.delete_dataset_tasks(uuid, uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.lock_dataset_unlink_scope(uuid, uuid),
+    yoao_labeling_v1.guard_dataset_unlink(uuid, uuid),
+    yoao_labeling_v1.preview_dataset_unlink(uuid, uuid),
+    yoao_labeling_v1.delete_dataset_tasks(uuid, uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.prepare_dataset_unlink_cleanup(
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.prepare_dataset_unlink_cleanup(
     uuid, uuid, uuid, text
-), aap_assets_v1.remove_dataset_association(uuid, uuid, uuid)
+), yoao_assets_v1.remove_dataset_association(uuid, uuid, uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION yoao_diagnostics_v1.detach_dataset_task_references(
     uuid, uuid
 ) TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb),
-    aap_audit_v1.record_dataset_unlink(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.valid_request_context(jsonb),
+    yoao_audit_v1.record_dataset_unlink(
         uuid, uuid, uuid, uuid, bigint, bigint, uuid[], jsonb
     ) TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb),
-    aap_audit_v1.record_dataset_source_deletion(
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.valid_request_context(jsonb),
+    yoao_audit_v1.record_dataset_source_deletion(
         uuid, uuid, uuid, uuid, bigint, bigint, bigint, bigint, bigint, bigint, jsonb
     ) TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ),
-    aap_assets_v1.complete_storage_deletion(uuid, uuid),
-    aap_assets_v1.claim_image_garbage(uuid, integer, integer),
-    aap_assets_v1.complete_image_garbage(uuid, uuid),
-    aap_assets_v1.claim_accepted_input_garbage(uuid, integer, integer),
-    aap_assets_v1.complete_accepted_input_garbage(uuid, uuid),
-    aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
-    aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid),
-    aap_assets_v1.claim_native_pyramid_retirement(uuid,integer),
-    aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer),
-    aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
+    yoao_assets_v1.complete_storage_deletion(uuid, uuid),
+    yoao_assets_v1.claim_image_garbage(uuid, integer, integer),
+    yoao_assets_v1.complete_image_garbage(uuid, uuid),
+    yoao_assets_v1.claim_accepted_input_garbage(uuid, integer, integer),
+    yoao_assets_v1.complete_accepted_input_garbage(uuid, uuid),
+    yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
+    yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid),
+    yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer),
+    yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer),
+    yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
     TO :"asset_cleanup_role";
-REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
+REVOKE ALL ON FUNCTION yoao_assets_v1.pending_storage_deletions(uuid, integer)
     FROM :"asset_cleanup_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.read_dataset_source_authority(uuid, boolean)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.read_dataset_source_authority(uuid, boolean)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_dataset(
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.delete_dataset(
     uuid, uuid, uuid, text, jsonb
-), aap_assets_v1.delete_dataset_item(
+), yoao_assets_v1.delete_dataset_item(
     uuid, uuid, uuid, uuid, text, jsonb
-), aap_assets_v1.reserve_dataset_upload(
+), yoao_assets_v1.reserve_dataset_upload(
     uuid, uuid, uuid, text, text
-), aap_assets_v1.lock_dataset_upload(uuid, uuid, uuid),
-    aap_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text),
-    aap_assets_v1.complete_dataset_upload(
+), yoao_assets_v1.lock_dataset_upload(uuid, uuid, uuid),
+    yoao_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text),
+    yoao_assets_v1.complete_dataset_upload(
         uuid, uuid, uuid, uuid, bigint, text, integer, integer
-    ), aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
+    ), yoao_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
-    aap_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
-    aap_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
-    aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
-    aap_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
-    aap_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
+    yoao_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    yoao_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    yoao_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+    yoao_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
+    yoao_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb)
     TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.claim_dataset_source_ingest_delivery(uuid,integer),
-    aap_assets_v1.complete_dataset_source_ingest_delivery(uuid,uuid),
-    aap_assets_v1.dataset_import_delivery_target_is_current(text,uuid)
+    yoao_assets_v1.claim_dataset_source_ingest_delivery(uuid,integer),
+    yoao_assets_v1.complete_dataset_source_ingest_delivery(uuid,uuid),
+    yoao_assets_v1.dataset_import_delivery_target_is_current(text,uuid)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
-    aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
+    yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
     TO :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
     TO :"workflow_role";
 
 -- Keep schemas owned by the migrator; NOLOGIN code owners cannot replace code.
-GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA yoao_identity_keys_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_sessions_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_accounts_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_recovery_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_groups_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_directory_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_admin_passwords_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_platform_roles_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_suspensions_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_deletions_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_offboarding_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_sessions_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_accounts_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_recovery_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_groups_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_directory_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_admin_passwords_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_platform_roles_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_suspensions_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_deletions_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_offboarding_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA yoao_identity_briefs_v1 TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
-ALTER VIEW aap_identity_v1.account_profiles OWNER TO :"identity_owner";
-ALTER VIEW aap_identity_v1.invitation_audit_targets OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])
+ALTER FUNCTION yoao_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
+ALTER VIEW yoao_identity_v1.account_profiles OWNER TO :"identity_owner";
+ALTER VIEW yoao_identity_v1.invitation_audit_targets OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.check_accepted_api_key(uuid, uuid, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.workspace_configuration_org_scope(uuid, uuid)
+ALTER FUNCTION yoao_identity_v1.workspace_configuration_org_scope(uuid, uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.workspace_template_query_org_ids(uuid)
+ALTER FUNCTION yoao_identity_v1.workspace_template_query_org_ids(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_provisioning_account(text)
+ALTER FUNCTION yoao_identity_v1.read_provisioning_account(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.create_provisioning_account(jsonb)
+ALTER FUNCTION yoao_identity_v1.create_provisioning_account(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.create_seed_persona_account(jsonb)
+ALTER FUNCTION yoao_identity_v1.create_seed_persona_account(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb)
+ALTER FUNCTION yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)
     OWNER TO :"identity_owner";
-GRANT USAGE, CREATE ON SCHEMA aap_workspace_fixture_v1 TO :"workspace_owner";
-ALTER VIEW aap_workspace_fixture_v1.templates OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_fixture_v1.create_project(jsonb) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_fixture_v1.create_templates(jsonb) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[]) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_fixture_v1.delete_projects(uuid[]) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_fixture_v1.delete_templates(boolean,text[]) OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_fixture_v1 FROM :"workspace_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_fixture_v1 TO :"workspace_owner";
+ALTER VIEW yoao_workspace_fixture_v1.templates OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_fixture_v1.create_project(jsonb) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_fixture_v1.create_templates(jsonb) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_fixture_v1.guard_project_cleanup(uuid[]) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_fixture_v1.delete_projects(uuid[]) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_fixture_v1.delete_templates(boolean,text[]) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_fixture_v1 FROM :"workspace_owner";
 
-GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO :"identity_owner";
+GRANT USAGE ON SCHEMA yoao_identity_fixture_v1 TO :"identity_owner";
 GRANT DELETE ON public.users,public.password_reset_tokens,public.user_invitations,public.organization_members
     TO :"identity_owner";
 GRANT INSERT (accepted_at,accepted_user_id,revoked_at) ON public.user_invitations
     TO :"identity_owner";
-ALTER VIEW aap_identity_fixture_v1.account_profiles OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.create_account(uuid,text,text,text,text)
+ALTER VIEW yoao_identity_fixture_v1.account_profiles OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_fixture_v1.create_account(uuid,text,text,text,text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)
+ALTER FUNCTION yoao_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.create_invitations(jsonb)
+ALTER FUNCTION yoao_identity_fixture_v1.create_invitations(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.delete_accounts(boolean,text[])
+ALTER FUNCTION yoao_identity_fixture_v1.delete_accounts(boolean,text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.delete_reset_tokens(uuid[])
+ALTER FUNCTION yoao_identity_fixture_v1.delete_reset_tokens(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.delete_invitations(uuid[])
+ALTER FUNCTION yoao_identity_fixture_v1.delete_invitations(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_fixture_v1.delete_organization_members(uuid[])
+ALTER FUNCTION yoao_identity_fixture_v1.delete_organization_members(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_first_seed_account()
+ALTER FUNCTION yoao_identity_v1.read_first_seed_account()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_scale_seed_super_admin()
+ALTER FUNCTION yoao_identity_v1.read_scale_seed_super_admin()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_scale_seed_annotator(uuid[])
+ALTER FUNCTION yoao_identity_v1.read_scale_seed_annotator(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1._admission_failure(text)
+ALTER FUNCTION yoao_identity_v1._admission_failure(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.authentication_policy()
+ALTER FUNCTION yoao_identity_v1.authentication_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_actor_context(uuid, text)
+ALTER FUNCTION yoao_identity_v1.read_actor_context(uuid, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1._initialize_account_presence()
+ALTER FUNCTION yoao_identity_v1._initialize_account_presence()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1._initialize_account_preferences()
+ALTER FUNCTION yoao_identity_v1._initialize_account_preferences()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_accounts_share(uuid[], boolean)
+ALTER FUNCTION yoao_identity_v1.lock_accounts_share(uuid[], boolean)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_accounts_update(uuid[], boolean)
+ALTER FUNCTION yoao_identity_v1.lock_accounts_update(uuid[], boolean)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_accounts_key_share(uuid[], boolean)
+ALTER FUNCTION yoao_identity_v1.lock_accounts_key_share(uuid[], boolean)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_jwt_principal(
+ALTER FUNCTION yoao_identity_v1.read_jwt_principal(
     uuid, uuid, bigint, timestamptz, boolean
 ) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_api_key_candidates(text, uuid, integer)
+ALTER FUNCTION yoao_identity_v1.read_api_key_candidates(text, uuid, integer)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.confirm_api_key_principal(uuid, text)
+ALTER FUNCTION yoao_identity_v1.confirm_api_key_principal(uuid, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.get_credential_generation(uuid)
+ALTER FUNCTION yoao_identity_v1.get_credential_generation(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.advance_credential_generation(uuid)
+ALTER FUNCTION yoao_identity_v1.advance_credential_generation(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.revoke_jti(uuid, timestamptz)
+ALTER FUNCTION yoao_identity_v1.revoke_jti(uuid, timestamptz)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.is_jti_revoked(uuid)
+ALTER FUNCTION yoao_identity_v1.is_jti_revoked(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.retire_account_credentials(uuid)
+ALTER FUNCTION yoao_identity_v1.retire_account_credentials(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_current_principal(
+ALTER FUNCTION yoao_identity_v1.lock_current_principal(
     uuid, text, uuid, bigint, timestamptz, text[]
 ) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.purge_expired_revocations(integer)
+ALTER FUNCTION yoao_identity_v1.purge_expired_revocations(integer)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.lock_super_admin_invariant()
+ALTER FUNCTION yoao_identity_v1.lock_super_admin_invariant()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.super_admin_status(uuid)
+ALTER FUNCTION yoao_identity_v1.super_admin_status(uuid)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_v1 FROM :"identity_owner";
 ALTER FUNCTION yoao_identity_keys_v1.key_policy()
     OWNER TO :"identity_owner";
 ALTER FUNCTION yoao_identity_keys_v1.execute_key_command(jsonb)
     OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA yoao_identity_keys_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_sessions_v1._failure(text, bigint)
+ALTER FUNCTION yoao_identity_sessions_v1._failure(text, bigint)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_sessions_v1.session_policy()
+ALTER FUNCTION yoao_identity_sessions_v1.session_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_sessions_v1.read_login_candidate(text)
+ALTER FUNCTION yoao_identity_sessions_v1.read_login_candidate(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_sessions_v1.execute_session_command(jsonb)
+ALTER FUNCTION yoao_identity_sessions_v1.execute_session_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_sessions_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1._failure(text, smallint, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_sessions_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_accounts_v1._failure(text, smallint, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1._account_record(uuid)
+ALTER FUNCTION yoao_identity_accounts_v1._account_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1._lock_current_actor(jsonb, text, text)
+ALTER FUNCTION yoao_identity_accounts_v1._lock_current_actor(jsonb, text, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1.account_policy()
+ALTER FUNCTION yoao_identity_accounts_v1.account_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1.prepare_account_command(jsonb)
+ALTER FUNCTION yoao_identity_accounts_v1.prepare_account_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1.apply_account_command(jsonb)
+ALTER FUNCTION yoao_identity_accounts_v1.apply_account_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
+ALTER FUNCTION yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_accounts_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1._failure(text)
+REVOKE CREATE ON SCHEMA yoao_identity_accounts_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_recovery_v1._failure(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1._mail_failure(text)
+ALTER FUNCTION yoao_identity_recovery_v1._mail_failure(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1._actor_record(uuid)
+ALTER FUNCTION yoao_identity_recovery_v1._actor_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1._token_record(text, uuid)
+ALTER FUNCTION yoao_identity_recovery_v1._token_record(text, uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.recovery_policy()
+ALTER FUNCTION yoao_identity_recovery_v1.recovery_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.prepare_recovery_command(jsonb)
+ALTER FUNCTION yoao_identity_recovery_v1.prepare_recovery_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.apply_recovery_command(jsonb)
+ALTER FUNCTION yoao_identity_recovery_v1.apply_recovery_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.read_registration_status(jsonb)
+ALTER FUNCTION yoao_identity_recovery_v1.read_registration_status(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.mail_policy()
+ALTER FUNCTION yoao_identity_recovery_v1.mail_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.claim_mail(jsonb)
+ALTER FUNCTION yoao_identity_recovery_v1.claim_mail(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.renew_mail(jsonb)
+ALTER FUNCTION yoao_identity_recovery_v1.renew_mail(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_recovery_v1.finish_mail(jsonb)
+ALTER FUNCTION yoao_identity_recovery_v1.finish_mail(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_recovery_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1._failure(text, smallint, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_recovery_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_groups_v1._failure(text, smallint, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1._strip_unicode_space(text)
+ALTER FUNCTION yoao_identity_groups_v1._strip_unicode_space(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1._account_record(uuid)
+ALTER FUNCTION yoao_identity_groups_v1._account_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1._group_record(uuid)
+ALTER FUNCTION yoao_identity_groups_v1._group_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1._group_scope(uuid, uuid[], boolean)
+ALTER FUNCTION yoao_identity_groups_v1._group_scope(uuid, uuid[], boolean)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1._group_actor(jsonb, text)
+ALTER FUNCTION yoao_identity_groups_v1._group_actor(jsonb, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1.group_policy()
+ALTER FUNCTION yoao_identity_groups_v1.group_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1.execute_group_command(jsonb)
+ALTER FUNCTION yoao_identity_groups_v1.execute_group_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_groups_v1.resolve_invitation_group(uuid, text)
+ALTER FUNCTION yoao_identity_groups_v1.resolve_invitation_group(uuid, text)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_groups_v1 FROM :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_deactivation_v1 TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1._failure(text, smallint, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_groups_v1 FROM :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_deactivation_v1 TO :"identity_owner";
+ALTER FUNCTION yoao_identity_deactivation_v1._failure(text, smallint, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1._due_failure(text)
+ALTER FUNCTION yoao_identity_deactivation_v1._due_failure(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1._strip_unicode_space(text)
+ALTER FUNCTION yoao_identity_deactivation_v1._strip_unicode_space(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1._account_record(uuid)
+ALTER FUNCTION yoao_identity_deactivation_v1._account_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1._actor(jsonb, text)
+ALTER FUNCTION yoao_identity_deactivation_v1._actor(jsonb, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1._reconcile_request(uuid, timestamptz, timestamptz)
+ALTER FUNCTION yoao_identity_deactivation_v1._reconcile_request(uuid, timestamptz, timestamptz)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1.deactivation_policy()
+ALTER FUNCTION yoao_identity_deactivation_v1.deactivation_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1.due_policy()
+ALTER FUNCTION yoao_identity_deactivation_v1.due_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1.execute_deactivation_command(jsonb)
+ALTER FUNCTION yoao_identity_deactivation_v1.execute_deactivation_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deactivation_v1.process_due_deactivations(jsonb)
+ALTER FUNCTION yoao_identity_deactivation_v1.process_due_deactivations(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_deactivation_v1 FROM :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_deactivation_v1 FROM :"identity_owner";
 
-GRANT CREATE ON SCHEMA aap_identity_invitations_v1, aap_identity_mail_v2
+GRANT CREATE ON SCHEMA yoao_identity_invitations_v1, yoao_identity_mail_v2
     TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.bind_fixture_invitation()
+ALTER FUNCTION yoao_identity_invitations_v1.bind_fixture_invitation()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.bind_fixture_invitation_birth(uuid, uuid)
+ALTER FUNCTION yoao_identity_invitations_v1.bind_fixture_invitation_birth(uuid, uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.lock_fixture_invitation_run(uuid)
+ALTER FUNCTION yoao_identity_invitations_v1.lock_fixture_invitation_run(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.guard_fixture_invitation_acceptance()
+ALTER FUNCTION yoao_identity_invitations_v1.guard_fixture_invitation_acceptance()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._failure(text, text, text)
+ALTER FUNCTION yoao_identity_invitations_v1._failure(text, text, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._strip_unicode_space(text)
+ALTER FUNCTION yoao_identity_invitations_v1._strip_unicode_space(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._account_record(uuid)
+ALTER FUNCTION yoao_identity_invitations_v1._account_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._invitation_record(uuid, text)
+ALTER FUNCTION yoao_identity_invitations_v1._invitation_record(uuid, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._project_map(uuid[])
+ALTER FUNCTION yoao_identity_invitations_v1._project_map(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._policy(jsonb)
+ALTER FUNCTION yoao_identity_invitations_v1._policy(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._lock_users(uuid[])
+ALTER FUNCTION yoao_identity_invitations_v1._lock_users(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._actor(jsonb, text, boolean, boolean)
+ALTER FUNCTION yoao_identity_invitations_v1._actor(jsonb, text, boolean, boolean)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.invitation_policy()
+ALTER FUNCTION yoao_identity_invitations_v1.invitation_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.invitation_quota_reached(
+ALTER FUNCTION yoao_identity_invitations_v1.invitation_quota_reached(
     uuid, timestamptz, integer
 ) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._empty_result()
+ALTER FUNCTION yoao_identity_invitations_v1._empty_result()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._incompatible_role_detail(text, text)
+ALTER FUNCTION yoao_identity_invitations_v1._incompatible_role_detail(text, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._args_valid(text, jsonb)
+ALTER FUNCTION yoao_identity_invitations_v1._args_valid(text, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._read_result(text, uuid, jsonb)
+ALTER FUNCTION yoao_identity_invitations_v1._read_result(text, uuid, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._native_actor(uuid)
+ALTER FUNCTION yoao_identity_invitations_v1._native_actor(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._project_record(uuid)
+ALTER FUNCTION yoao_identity_invitations_v1._project_record(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._batch_snapshot(uuid, jsonb)
+ALTER FUNCTION yoao_identity_invitations_v1._batch_snapshot(uuid, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.prepare_invitation_command(jsonb)
+ALTER FUNCTION yoao_identity_invitations_v1.prepare_invitation_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._batch_effects(
+ALTER FUNCTION yoao_identity_invitations_v1._batch_effects(
     boolean, uuid, text, text, jsonb, jsonb, jsonb, jsonb, jsonb
 ) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1._run_invitation_preview(
+ALTER FUNCTION yoao_identity_invitations_v1._run_invitation_preview(
     uuid, text, text, jsonb, jsonb, jsonb, jsonb
 ) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.apply_invitation_command(jsonb)
+ALTER FUNCTION yoao_identity_invitations_v1.apply_invitation_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_invitations_v1.lock_invitation_mail_scope(uuid, text)
+ALTER FUNCTION yoao_identity_invitations_v1.lock_invitation_mail_scope(uuid, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_mail_v2.mail_policy()
+ALTER FUNCTION yoao_identity_mail_v2.mail_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_mail_v2.claim_mail(jsonb)
+ALTER FUNCTION yoao_identity_mail_v2.claim_mail(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_mail_v2.renew_mail(jsonb)
+ALTER FUNCTION yoao_identity_mail_v2.renew_mail(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_mail_v2.finish_mail(jsonb)
+ALTER FUNCTION yoao_identity_mail_v2.finish_mail(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_invitations_v1, aap_identity_mail_v2
+REVOKE CREATE ON SCHEMA yoao_identity_invitations_v1, yoao_identity_mail_v2
     FROM :"identity_owner";
 
-ALTER FUNCTION aap_identity_directory_v1._failure(text, integer, text)
+ALTER FUNCTION yoao_identity_directory_v1._failure(text, integer, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_identity_directory_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1._strip_unicode_space(text)
+ALTER FUNCTION yoao_identity_directory_v1._strip_unicode_space(text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1._valid_payload(text, jsonb)
+ALTER FUNCTION yoao_identity_directory_v1._valid_payload(text, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1._directory_user(uuid)
+ALTER FUNCTION yoao_identity_directory_v1._directory_user(uuid)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1._scope_user_ids(
+ALTER FUNCTION yoao_identity_directory_v1._scope_user_ids(
     uuid, text, text, jsonb, boolean
 ) OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1.directory_policy()
+ALTER FUNCTION yoao_identity_directory_v1.directory_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_directory_v1.execute_directory_command(jsonb)
+ALTER FUNCTION yoao_identity_directory_v1.execute_directory_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_directory_v1 FROM :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_directory_v1 FROM :"identity_owner";
 
-ALTER FUNCTION aap_identity_admin_passwords_v1._failure(text, integer, text)
+ALTER FUNCTION yoao_identity_admin_passwords_v1._failure(text, integer, text)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_admin_passwords_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_identity_admin_passwords_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_admin_passwords_v1.admin_password_policy()
+ALTER FUNCTION yoao_identity_admin_passwords_v1.admin_password_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb)
+ALTER FUNCTION yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_admin_passwords_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_platform_roles_v1._failure(text, integer, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_admin_passwords_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_platform_roles_v1._failure(text, integer, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_platform_roles_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_identity_platform_roles_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_platform_roles_v1.platform_role_policy()
+ALTER FUNCTION yoao_identity_platform_roles_v1.platform_role_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)
+ALTER FUNCTION yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_platform_roles_v1._preview_snapshot(uuid)
+ALTER FUNCTION yoao_identity_platform_roles_v1._preview_snapshot(uuid)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_platform_roles_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_suspensions_v1._failure(text, integer, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_platform_roles_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_suspensions_v1._failure(text, integer, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_suspensions_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_identity_suspensions_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_suspensions_v1.suspension_policy()
+ALTER FUNCTION yoao_identity_suspensions_v1.suspension_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_suspensions_v1.execute_suspension_command(jsonb)
+ALTER FUNCTION yoao_identity_suspensions_v1.execute_suspension_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_suspensions_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_deletions_v1._failure(text, integer, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_suspensions_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_deletions_v1._failure(text, integer, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deletions_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_identity_deletions_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deletions_v1.deletion_policy()
+ALTER FUNCTION yoao_identity_deletions_v1.deletion_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_deletions_v1.execute_deletion_command(jsonb)
+ALTER FUNCTION yoao_identity_deletions_v1.execute_deletion_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_deletions_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_offboarding_v1._failure(text, integer, jsonb)
+REVOKE CREATE ON SCHEMA yoao_identity_deletions_v1 FROM :"identity_owner";
+ALTER FUNCTION yoao_identity_offboarding_v1._failure(text, integer, jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_offboarding_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_identity_offboarding_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_offboarding_v1.offboarding_policy()
+ALTER FUNCTION yoao_identity_offboarding_v1.offboarding_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)
+ALTER FUNCTION yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_offboarding_v1.apply_offboarding_command(jsonb)
+ALTER FUNCTION yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_offboarding_v1 FROM :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_offboarding_v1 FROM :"identity_owner";
 ALTER FUNCTION yoao_identity_briefs_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"identity_owner";
 ALTER FUNCTION yoao_identity_briefs_v1._failure() OWNER TO :"identity_owner";
@@ -2127,308 +2127,308 @@ ALTER FUNCTION yoao_identity_briefs_v1.execute_briefs_command(jsonb)
     OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA yoao_identity_briefs_v1 FROM :"identity_owner";
 
-GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
+GRANT CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
 GRANT USAGE, CREATE ON SCHEMA yoao_workspace_membership_v1
     TO :"workspace_owner";
 GRANT USAGE, CREATE ON SCHEMA yoao_workspace_owner_transfer_v1
     TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_project_reference_nowait(uuid)
+ALTER FUNCTION yoao_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.lock_project_reference_nowait(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.read_project_row(uuid) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.actor_project_memberships(uuid) OWNER TO :"workspace_owner";
-ALTER VIEW aap_workspace_v1.project_member_facts OWNER TO :"workspace_owner";
-ALTER VIEW aap_workspace_v1.project_facts OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_project_references_for_update(uuid[])
+ALTER FUNCTION yoao_workspace_v1.read_project_row(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.actor_project_memberships(uuid) OWNER TO :"workspace_owner";
+ALTER VIEW yoao_workspace_v1.project_member_facts OWNER TO :"workspace_owner";
+ALTER VIEW yoao_workspace_v1.project_facts OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.lock_project_references_for_update(uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean)
+ALTER FUNCTION yoao_workspace_v1.lock_project_member_reference(uuid, uuid, boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.project_member_rows(uuid, uuid[], boolean)
+ALTER FUNCTION yoao_workspace_v1.project_member_rows(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1._project_read_failure(text)
+ALTER FUNCTION yoao_workspace_v1._project_read_failure(text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.read_project_visibility(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
+ALTER FUNCTION yoao_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.project_access_step(uuid, uuid, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_project_row(uuid, boolean)
+ALTER FUNCTION yoao_workspace_v1.lock_project_row(uuid, boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
+ALTER FUNCTION yoao_workspace_v1.clear_primary_backend_bindings(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.read_import_project(text)
+ALTER FUNCTION yoao_workspace_v1.read_import_project(text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)
+ALTER FUNCTION yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)
+ALTER FUNCTION yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)
+ALTER FUNCTION yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.write_seed_members(jsonb)
+ALTER FUNCTION yoao_workspace_v1.write_seed_members(jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)
+ALTER FUNCTION yoao_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
+ALTER FUNCTION yoao_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)
+ALTER FUNCTION yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.write_seed_project_projection(uuid,jsonb)
+ALTER FUNCTION yoao_workspace_v1.write_seed_project_projection(uuid,jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.create_scale_seed_project(uuid,text) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.guard_scale_seed_cleanup(text) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.delete_scale_seed_projects(text,uuid[]) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.create_scale_seed_project(uuid,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.guard_scale_seed_cleanup(text) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.delete_scale_seed_projects(text,uuid[]) OWNER TO :"workspace_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_backend_probe_v1 TO :"inference_owner";
-ALTER SCHEMA aap_inference_backend_probe_v1 OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_backend_probe_v1.probe_secret OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_backend_probe_v1.backend_probe_policy()
+GRANT CREATE ON SCHEMA yoao_inference_backend_probe_v1 TO :"inference_owner";
+ALTER SCHEMA yoao_inference_backend_probe_v1 OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_backend_probe_v1.probe_secret OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_backend_probe_v1.backend_probe_policy()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)
+ALTER FUNCTION yoao_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)
     OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_backend_probe_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_backend_probe_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_health_observation_v1 TO :"inference_owner";
-ALTER SCHEMA aap_inference_health_observation_v1 OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_health_observation_v1.observation_secret OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_observation_v1.health_observation_policy() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text) OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_health_observation_v1 FROM :"inference_owner";
+GRANT CREATE ON SCHEMA yoao_inference_health_observation_v1 TO :"inference_owner";
+ALTER SCHEMA yoao_inference_health_observation_v1 OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_health_observation_v1.observation_secret OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_observation_v1.health_observation_policy() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text) OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_health_observation_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_health_data_v1 TO :"inference_owner";
-ALTER SCHEMA aap_inference_health_data_v1 OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.health_data_policy() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.backend_row(uuid,boolean) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.membership_row(uuid,text,boolean) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.observation_clock() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.lock_resource(text) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.try_promotion() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.member_pool(uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.pool_row(uuid,uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.member_row(uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text) OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_health_data_v1 FROM :"inference_owner";
+GRANT CREATE ON SCHEMA yoao_inference_health_data_v1 TO :"inference_owner";
+ALTER SCHEMA yoao_inference_health_data_v1 OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.health_data_policy() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.backend_row(uuid,boolean) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.membership_row(uuid,text,boolean) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.observation_clock() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.lock_resource(text) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.try_promotion() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.member_pool(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.pool_row(uuid,uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.member_row(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text) OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_health_data_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_registry_ingress_v1 TO :"inference_owner";
-ALTER SCHEMA aap_inference_registry_ingress_v1 OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_registry_ingress_v1.env_sync_receipts
+GRANT CREATE ON SCHEMA yoao_inference_registry_ingress_v1 TO :"inference_owner";
+ALTER SCHEMA yoao_inference_registry_ingress_v1 OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_registry_ingress_v1.env_sync_receipts
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.registry_ingress_policy()
+ALTER FUNCTION yoao_inference_registry_ingress_v1.registry_ingress_policy()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.registry_by_url(text)
+ALTER FUNCTION yoao_inference_registry_ingress_v1.registry_by_url(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.registry_candidates(text)
+ALTER FUNCTION yoao_inference_registry_ingress_v1.registry_candidates(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.create_registry(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.create_registry(
     uuid, text, text, text, boolean, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.create_registry_plugin_legacy(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.create_registry_plugin_legacy(
     uuid, text, text, text, boolean, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.singleton_pool(uuid)
+ALTER FUNCTION yoao_inference_registry_ingress_v1.singleton_pool(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.create_singleton_pool(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.create_singleton_pool(
     uuid, uuid, uuid, text, text, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.apply_observation(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.apply_observation(
     uuid, text, text, text, boolean, text, timestamptz, text, boolean, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.apply_observation_plugin_legacy(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.apply_observation_plugin_legacy(
     uuid, text, text, text, boolean, text, timestamptz, text, boolean, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.disconnect_env_registry(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.disconnect_env_registry(
     uuid, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.disconnect_env_registry_plugin_legacy(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.disconnect_env_registry_plugin_legacy(
     uuid, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.tag_seed_registry(uuid, text)
+ALTER FUNCTION yoao_inference_registry_ingress_v1.tag_seed_registry(uuid, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.tag_seed_registry_plugin_legacy(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.tag_seed_registry_plugin_legacy(
     uuid, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.sync_result(uuid, text)
+ALTER FUNCTION yoao_inference_registry_ingress_v1.sync_result(uuid, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_registry_ingress_v1.record_sync_result(
+ALTER FUNCTION yoao_inference_registry_ingress_v1.record_sync_result(
     uuid, text, integer
 ) OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_registry_ingress_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_registry_ingress_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
-ALTER SCHEMA aap_inference_routing_v1 OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.authority_secret OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.registry_state OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.scopes OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.attempts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.weights OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.controls OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.control_attempts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.command_receipts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.plugin_terminal_update_guard OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.plugin_replacement_bindings OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.scope_retirements OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_execution_scope_permits
+GRANT CREATE ON SCHEMA yoao_inference_routing_v1 TO :"inference_owner";
+ALTER SCHEMA yoao_inference_routing_v1 OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.authority_secret OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.registry_state OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.scopes OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.attempts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.weights OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.controls OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.control_attempts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.command_receipts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.plugin_terminal_update_guard OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.plugin_replacement_bindings OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.scope_retirements OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_execution_scope_permits
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.routing_policy()
+ALTER FUNCTION yoao_inference_routing_v1.routing_policy()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.routing_step(text, text)
+ALTER FUNCTION yoao_inference_routing_v1.routing_step(text, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_step_0279(text, text)
+ALTER FUNCTION yoao_inference_routing_v1._routing_step_0279(text, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.scope_retirement_step(text, text)
+ALTER FUNCTION yoao_inference_routing_v1.scope_retirement_step(text, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.supersede_unbegun_scope(text)
+ALTER FUNCTION yoao_inference_routing_v1.supersede_unbegun_scope(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.model_dispatch_step(text)
+ALTER FUNCTION yoao_inference_routing_v1.model_dispatch_step(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.guard_model_attempt()
+ALTER FUNCTION yoao_inference_routing_v1.guard_model_attempt()
     OWNER TO :"inference_owner";
-GRANT USAGE ON SCHEMA aap_inference_topology_v1 TO :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_inference_topology_v1.plugin_asset_approval(uuid)
+GRANT USAGE ON SCHEMA yoao_inference_topology_v1 TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION yoao_inference_topology_v1.plugin_asset_approval(uuid)
     TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.capture_scope_boot()
+ALTER FUNCTION yoao_inference_routing_v1.capture_scope_boot()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._scope_retirement_step_0280(text, text)
+ALTER FUNCTION yoao_inference_routing_v1._scope_retirement_step_0280(text, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_step(text, text)
+ALTER FUNCTION yoao_inference_routing_v1.video_execution_scope_step(text, text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_canonical_json(jsonb)
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_canonical_json(jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_scope_uuid(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_scope_uuid(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_result(jsonb,text)
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_result(jsonb,text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_permit_scope()
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_permit_scope()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_attempt_gate()
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_attempt_gate()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._video_execution_heartbeat_gate()
+ALTER FUNCTION yoao_inference_routing_v1._video_execution_heartbeat_gate()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._scope_retirement_result(text, jsonb)
+ALTER FUNCTION yoao_inference_routing_v1._scope_retirement_result(text, jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._scope_retirement_rejected(text)
+ALTER FUNCTION yoao_inference_routing_v1._scope_retirement_rejected(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._scope_retirement_view(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._scope_retirement_view(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._scope_retirement_context(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._scope_retirement_context(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_scope_retirement_guard_state()
+ALTER FUNCTION yoao_inference_routing_v1._routing_scope_retirement_guard_state()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_scope_retirement_guard_control()
+ALTER FUNCTION yoao_inference_routing_v1._routing_scope_retirement_guard_control()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_inference_routing_v1._routing_exact_keys(jsonb, text[])
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_uuid(text)
+ALTER FUNCTION yoao_inference_routing_v1._routing_uuid(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_integer(jsonb, bigint, bigint)
+ALTER FUNCTION yoao_inference_routing_v1._routing_integer(jsonb, bigint, bigint)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_reply(text, jsonb)
+ALTER FUNCTION yoao_inference_routing_v1._routing_reply(text, jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_rejected(text)
+ALTER FUNCTION yoao_inference_routing_v1._routing_rejected(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_receipt_safe(jsonb)
+ALTER FUNCTION yoao_inference_routing_v1._routing_receipt_safe(jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_realm()
+ALTER FUNCTION yoao_inference_routing_v1._routing_realm()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_secret()
+ALTER FUNCTION yoao_inference_routing_v1._routing_secret()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_base64url(bytea)
+ALTER FUNCTION yoao_inference_routing_v1._routing_base64url(bytea)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_unbase64url(text)
+ALTER FUNCTION yoao_inference_routing_v1._routing_unbase64url(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_sign_snapshot(jsonb)
+ALTER FUNCTION yoao_inference_routing_v1._routing_sign_snapshot(jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_open_snapshot(text)
+ALTER FUNCTION yoao_inference_routing_v1._routing_open_snapshot(text)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_scope_capability(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_scope_capability(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_control_capability(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_control_capability(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_scope_view(uuid, boolean)
+ALTER FUNCTION yoao_inference_routing_v1._routing_scope_view(uuid, boolean)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_control_view(uuid, boolean)
+ALTER FUNCTION yoao_inference_routing_v1._routing_control_view(uuid, boolean)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_transport_identity(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_transport_identity(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_max_concurrency(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_max_concurrency(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_sign_admission(
+ALTER FUNCTION yoao_inference_routing_v1._routing_sign_admission(
     uuid, uuid, uuid, text, text, text
 ) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_lock_admission_pool(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_lock_admission_pool(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_has_unresolved(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_has_unresolved(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_has_control(uuid)
+ALTER FUNCTION yoao_inference_routing_v1._routing_has_control(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_registry_after_insert()
+ALTER FUNCTION yoao_inference_routing_v1._routing_registry_after_insert()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_registry_before_change()
+ALTER FUNCTION yoao_inference_routing_v1._routing_registry_before_change()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_pool_before_change()
+ALTER FUNCTION yoao_inference_routing_v1._routing_pool_before_change()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_pool_after_generation()
+ALTER FUNCTION yoao_inference_routing_v1._routing_pool_after_generation()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_member_before_change()
+ALTER FUNCTION yoao_inference_routing_v1._routing_member_before_change()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._routing_project_pool_before_change()
+ALTER FUNCTION yoao_inference_routing_v1._routing_project_pool_before_change()
     OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
-ALTER FUNCTION aap_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
+REVOKE CREATE ON SCHEMA yoao_inference_routing_v1 FROM :"inference_owner";
+ALTER FUNCTION yoao_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.invitation_projects(uuid[])
+ALTER FUNCTION yoao_workspace_v1.invitation_projects(uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_invitation_project(uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.lock_invitation_project(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.read_invitation_membership(uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.read_invitation_membership(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.grant_invitation_membership(uuid, uuid, text, uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.grant_invitation_membership(uuid, uuid, text, uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_directory_owned_member_ids(uuid)
+ALTER FUNCTION yoao_workspace_v1.identity_directory_owned_member_ids(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_directory_project_member_ids(uuid)
+ALTER FUNCTION yoao_workspace_v1.identity_directory_project_member_ids(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_directory_lifecycle_blocked(uuid, uuid[])
+ALTER FUNCTION yoao_workspace_v1.identity_directory_lifecycle_blocked(uuid, uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.admin_password_target_in_owned_project(uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.admin_password_target_in_owned_project(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_platform_role_facts(uuid)
+ALTER FUNCTION yoao_workspace_v1.identity_platform_role_facts(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_identity_platform_role_owned_projects(uuid)
+ALTER FUNCTION yoao_workspace_v1.lock_identity_platform_role_owned_projects(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_identity_suspension_scope(uuid, uuid, text)
+ALTER FUNCTION yoao_workspace_v1.lock_identity_suspension_scope(uuid, uuid, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_identity_deletion_scope(uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.lock_identity_deletion_scope(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_deletion_transfer_covered(uuid, uuid[])
+ALTER FUNCTION yoao_workspace_v1.identity_deletion_transfer_covered(uuid, uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.lock_identity_offboarding_scope(uuid, uuid[], uuid[])
+ALTER FUNCTION yoao_workspace_v1.lock_identity_offboarding_scope(uuid, uuid[], uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_offboarding_replay_scope(uuid, uuid[])
+ALTER FUNCTION yoao_workspace_v1.identity_offboarding_replay_scope(uuid, uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_offboarding_facts(uuid)
+ALTER FUNCTION yoao_workspace_v1.identity_offboarding_facts(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.transfer_identity_offboarding_owners(uuid, jsonb)
+ALTER FUNCTION yoao_workspace_v1.transfer_identity_offboarding_owners(uuid, jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.identity_brief_project_roles(uuid, uuid[])
+ALTER FUNCTION yoao_workspace_v1.identity_brief_project_roles(uuid, uuid[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1._project_delete_failure(text) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
+ALTER FUNCTION yoao_workspace_v1._project_delete_failure(text) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1._dataset_unlink_failure(text, text)
+ALTER FUNCTION yoao_workspace_v1._dataset_unlink_failure(text, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)
+ALTER FUNCTION yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
+ALTER FUNCTION yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)
     OWNER TO :"workspace_owner";
-ALTER VIEW aap_workspace_v1.project_catalog_configs OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
+ALTER VIEW yoao_workspace_v1.project_catalog_configs OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM :"workspace_owner";
 ALTER FUNCTION yoao_workspace_membership_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
 ALTER FUNCTION yoao_workspace_membership_v1._failure(integer, jsonb, jsonb, boolean)
@@ -2451,40 +2451,40 @@ ALTER FUNCTION yoao_workspace_owner_transfer_v1.owner_transfer_policy()
 ALTER FUNCTION yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA yoao_workspace_owner_transfer_v1 FROM :"workspace_owner";
-GRANT CREATE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1.configuration_policy()
+GRANT CREATE ON SCHEMA yoao_workspace_configuration_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1.configuration_policy()
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
+ALTER FUNCTION yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._step_success(jsonb, text, jsonb)
+ALTER FUNCTION yoao_workspace_configuration_v1._step_success(jsonb, text, jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._step_failure(jsonb, text, integer, jsonb, jsonb, boolean)
+ALTER FUNCTION yoao_workspace_configuration_v1._step_failure(jsonb, text, integer, jsonb, jsonb, boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_workspace_configuration_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._configuration_actor(uuid, boolean, text)
+ALTER FUNCTION yoao_workspace_configuration_v1._configuration_actor(uuid, boolean, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._class_rename_project_row(uuid, text)
+ALTER FUNCTION yoao_workspace_configuration_v1._class_rename_project_row(uuid, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._class_rename_member_rows(uuid, uuid)
+ALTER FUNCTION yoao_workspace_configuration_v1._class_rename_member_rows(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_asset_read_project_row(uuid)
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_asset_read_project_row(uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_asset_read_member_rows(uuid, uuid)
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_asset_read_member_rows(uuid, uuid)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_snapshot(uuid, text)
+ALTER FUNCTION yoao_workspace_configuration_v1._configuration_project_snapshot(uuid, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_access(jsonb, jsonb, boolean)
+ALTER FUNCTION yoao_workspace_configuration_v1._configuration_project_access(jsonb, jsonb, boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._configuration_template_snapshot(uuid, boolean)
+ALTER FUNCTION yoao_workspace_configuration_v1._configuration_template_snapshot(uuid, boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._configuration_template_visible(jsonb, jsonb)
+ALTER FUNCTION yoao_workspace_configuration_v1._configuration_template_visible(jsonb, jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guard_unfinished_attempt()
+ALTER FUNCTION yoao_workspace_configuration_v1._guard_unfinished_attempt()
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._cleanup_unwritten_state()
+ALTER FUNCTION yoao_workspace_configuration_v1._cleanup_unwritten_state()
     OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_configuration_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_configuration_v1 FROM :"workspace_owner";
 
 GRANT CREATE ON SCHEMA yoao_workspace_template_query_v1 TO :"workspace_owner";
 ALTER FUNCTION yoao_workspace_template_query_v1.template_query_policy()
@@ -2537,238 +2537,238 @@ ALTER FUNCTION yoao_workspace_directory_query_v1.directory_query_step(jsonb, tex
 ALTER FUNCTION yoao_workspace_directory_query_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA yoao_workspace_directory_query_v1 FROM :"workspace_owner";
-ALTER FUNCTION aap_identity_v1.workspace_directory_superadmins()
+ALTER FUNCTION yoao_identity_v1.workspace_directory_superadmins()
     OWNER TO :"identity_owner";
 
-ALTER FUNCTION aap_identity_v1.read_workspace_membership_accounts(uuid[])
+ALTER FUNCTION yoao_identity_v1.read_workspace_membership_accounts(uuid[])
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_audit_v1.record_workspace_membership_event(
+ALTER FUNCTION yoao_audit_v1.record_workspace_membership_event(
     text, jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.read_membership_work(uuid, uuid, uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_membership_work(uuid, uuid, text, boolean)
+ALTER FUNCTION yoao_labeling_v1.lock_membership_work(uuid, uuid, text, boolean)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.handoff_membership_annotation(uuid, uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.handoff_membership_reviewer(uuid, uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.handoff_membership_reviewer(uuid, uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.release_membership_task_locks(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.release_membership_task_locks(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._membership_python_repr(jsonb)
+ALTER FUNCTION yoao_labeling_v1._membership_python_repr(jsonb)
     OWNER TO :"labeling_owner";
 
-ALTER FUNCTION aap_labeling_v1.invitation_work_summary(uuid, uuid, text)
+ALTER FUNCTION yoao_labeling_v1.invitation_work_summary(uuid, uuid, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.identity_directory_project_refs(uuid[])
+ALTER FUNCTION yoao_labeling_v1.identity_directory_project_refs(uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.identity_platform_role_facts(uuid, uuid[])
+ALTER FUNCTION yoao_labeling_v1.identity_platform_role_facts(uuid, uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.identity_deletion_work(uuid)
+ALTER FUNCTION yoao_labeling_v1.identity_deletion_work(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.transfer_identity_deletion_work(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.transfer_identity_deletion_work(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_identity_offboarding_work(uuid, uuid[])
+ALTER FUNCTION yoao_labeling_v1.lock_identity_offboarding_work(uuid, uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.identity_offboarding_facts(uuid)
+ALTER FUNCTION yoao_labeling_v1.identity_offboarding_facts(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.transfer_identity_offboarding_work(uuid, jsonb)
+ALTER FUNCTION yoao_labeling_v1.transfer_identity_offboarding_work(uuid, jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.release_identity_offboarding_task_locks(uuid)
+ALTER FUNCTION yoao_labeling_v1.release_identity_offboarding_task_locks(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_admin_password_reset(
+ALTER FUNCTION yoao_audit_v1.record_identity_admin_password_reset(
     jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_platform_role_change(
+ALTER FUNCTION yoao_audit_v1.record_identity_platform_role_change(
     jsonb, uuid, jsonb, text, text, text
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_suspension_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_suspension_event(
     text, jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_bootstrap_admin(uuid, text, text)
+ALTER FUNCTION yoao_audit_v1.record_identity_bootstrap_admin(uuid, text, text)
     OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_deletion_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_deletion_event(
     jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_settings_v1.invitation_policy(jsonb)
+ALTER FUNCTION yoao_settings_v1.invitation_policy(jsonb)
     OWNER TO :"settings_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_invitation_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_invitation_event(
     text, jsonb, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
 
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_reclaim_json_string(text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_reclaim_lock_identity(text,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.is_fixture_original_source(text,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.classify_fixture_original_reclaim(uuid,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_reclaim_json_string(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_reclaim_lock_identity(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.is_fixture_original_source(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.classify_fixture_original_reclaim(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_scale_fixture_originals(uuid,uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)
+ALTER FUNCTION yoao_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_tracker_control_original(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._acceptance_history_source(uuid) OWNER TO :"assets_owner";
-REVOKE ALL ON FUNCTION aap_assets_v1._acceptance_history_source(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION aap_assets_v1._acceptance_history_source(uuid) TO :"labeling_owner";
-ALTER FUNCTION aap_assets_v1._legacy_upload_reply(jsonb, text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.finish_tracker_control_original(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._acceptance_history_source(uuid) OWNER TO :"assets_owner";
+REVOKE ALL ON FUNCTION yoao_assets_v1._acceptance_history_source(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION yoao_assets_v1._acceptance_history_source(uuid) TO :"labeling_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_upload_reply(jsonb, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.complete_legacy_dataset_upload(
+ALTER FUNCTION yoao_assets_v1.complete_legacy_dataset_upload(
     uuid, uuid, uuid, uuid, text, bigint, text, integer, integer
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._association_read_failure(text)
+ALTER FUNCTION yoao_assets_v1._association_read_failure(text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.list_dataset_projects(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.list_dataset_projects(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.list_project_datasets(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.list_project_datasets(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_configuration_datasets(uuid)
+ALTER FUNCTION yoao_assets_v1.workspace_configuration_datasets(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_configuration_dataset_rows(uuid)
+ALTER FUNCTION yoao_assets_v1.workspace_configuration_dataset_rows(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_configuration_dataset_scenes(uuid)
+ALTER FUNCTION yoao_assets_v1.workspace_configuration_dataset_scenes(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])
+ALTER FUNCTION yoao_assets_v1.workspace_configuration_existing_item_ids(uuid[])
     OWNER TO :"assets_owner";
-ALTER VIEW aap_assets_v1.video_chapter_facts OWNER TO :"assets_owner";
-ALTER VIEW aap_assets_v1.labeling_dataset_item_facts OWNER TO :"assets_owner";
-ALTER VIEW aap_assets_v1.fixture_screenshot_item_facts OWNER TO :"assets_owner";
-GRANT SELECT ON aap_assets_v1.fixture_screenshot_item_facts TO :"labeling_owner";
-ALTER VIEW aap_assets_v1.scale_seed_dataset_item_facts OWNER TO :"assets_owner";
-ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.read_dataset_source_authority(uuid, boolean)
+ALTER VIEW yoao_assets_v1.video_chapter_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.labeling_dataset_item_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.fixture_screenshot_item_facts OWNER TO :"assets_owner";
+GRANT SELECT ON yoao_assets_v1.fixture_screenshot_item_facts TO :"labeling_owner";
+ALTER VIEW yoao_assets_v1.scale_seed_dataset_item_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_dataset_source_authority(uuid, boolean)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_append_sources(uuid, uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.associate_project(uuid, uuid, uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_task_creation_items(uuid, uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_scene_source_references(uuid[])
+ALTER FUNCTION yoao_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_append_sources(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.associate_project(uuid, uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_task_creation_items(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_scene_source_references(uuid[])
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.delete_project_owned_records(uuid)
+ALTER FUNCTION yoao_assets_v1.delete_project_owned_records(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.dataset_item_references(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.dataset_item_references(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.dataset_item_scene_references(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.dataset_item_scene_references(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.guard_dataset_source_auxiliary_retention(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.dataset_scene_references(uuid)
+ALTER FUNCTION yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_scene_references(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.remove_dataset_association(uuid, uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.remove_dataset_association(uuid, uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.prepare_dataset_unlink_cleanup(uuid, uuid, uuid, text)
+ALTER FUNCTION yoao_assets_v1.prepare_dataset_unlink_cleanup(uuid, uuid, uuid, text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
+ALTER FUNCTION yoao_assets_v1.pending_storage_deletions(uuid, integer)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.complete_storage_deletion(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.complete_storage_deletion(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._dataset_upload_failure(text)
+ALTER FUNCTION yoao_assets_v1._dataset_upload_failure(text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._dataset_upload_success(jsonb)
+ALTER FUNCTION yoao_assets_v1._dataset_upload_success(jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._dataset_upload_actor(uuid)
+ALTER FUNCTION yoao_assets_v1._dataset_upload_actor(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._dataset_upload_facts(public.dataset_upload_intents)
+ALTER FUNCTION yoao_assets_v1._dataset_upload_facts(public.dataset_upload_intents)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._accept_dataset_upload(
+ALTER FUNCTION yoao_assets_v1._accept_dataset_upload(
     uuid, uuid, uuid, uuid, bigint, text, integer, integer
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._finish_dataset_upload(uuid, uuid, uuid, uuid, bigint)
+ALTER FUNCTION yoao_assets_v1._finish_dataset_upload(uuid, uuid, uuid, uuid, bigint)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.reserve_dataset_upload(uuid, uuid, uuid, text, text)
+ALTER FUNCTION yoao_assets_v1.reserve_dataset_upload(uuid, uuid, uuid, text, text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_dataset_upload(uuid, uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.lock_dataset_upload(uuid, uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text)
+ALTER FUNCTION yoao_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.complete_dataset_upload(
+ALTER FUNCTION yoao_assets_v1.complete_dataset_upload(
     uuid, uuid, uuid, uuid, bigint, text, integer, integer
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
+ALTER FUNCTION yoao_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._source_delete_failure(text)
+ALTER FUNCTION yoao_assets_v1._source_delete_failure(text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.dataset_association_references(uuid)
+ALTER FUNCTION yoao_assets_v1.dataset_association_references(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._lock_dataset_source_deletion(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1._lock_dataset_source_deletion(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._queue_pyramid_deletions(uuid, uuid[], text)
+ALTER FUNCTION yoao_assets_v1._queue_pyramid_deletions(uuid, uuid[], text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._delete_dataset_source_records(uuid, uuid, uuid, text)
+ALTER FUNCTION yoao_assets_v1._delete_dataset_source_records(uuid, uuid, uuid, text)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._delete_dataset_source(
+ALTER FUNCTION yoao_assets_v1._delete_dataset_source(
     uuid, uuid, uuid, uuid, text, jsonb
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.delete_dataset(uuid, uuid, uuid, text, jsonb)
+ALTER FUNCTION yoao_assets_v1.delete_dataset(uuid, uuid, uuid, text, jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.delete_dataset_item(
+ALTER FUNCTION yoao_assets_v1.delete_dataset_item(
     uuid, uuid, uuid, uuid, text, jsonb
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.pending_storage_deletions_v2(
+ALTER FUNCTION yoao_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
 -- Ordinary native pyramid retirement is owned and executed by Images/Assets.
-ALTER TABLE aap_assets_v1.image_pyramid_native_attempts OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.image_pyramid_native_members OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.native_pyramid_retirement_targets OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.native_pyramid_retirements OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.native_pyramid_retirement_pages OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.claim_native_pyramid_retirement(uuid, integer)
+ALTER TABLE yoao_assets_v1.image_pyramid_native_attempts OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.image_pyramid_native_members OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.native_pyramid_retirement_targets OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.native_pyramid_retirements OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.native_pyramid_retirement_pages OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_native_pyramid_retirement(uuid, integer)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.prepare_native_pyramid_retirement_page(
+ALTER FUNCTION yoao_assets_v1.prepare_native_pyramid_retirement_page(
     uuid, uuid, integer
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.complete_native_pyramid_retirement_page(
+ALTER FUNCTION yoao_assets_v1.complete_native_pyramid_retirement_page(
     uuid, uuid, uuid, text, jsonb
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_policy_valid(jsonb)
+ALTER FUNCTION yoao_assets_v1._native_pyramid_retirement_policy_valid(jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_grace(jsonb)
+ALTER FUNCTION yoao_assets_v1._native_pyramid_retirement_grace(jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_target_valid(jsonb, uuid)
+ALTER FUNCTION yoao_assets_v1._native_pyramid_retirement_target_valid(jsonb, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_page_items(uuid, uuid[])
+ALTER FUNCTION yoao_assets_v1._native_pyramid_retirement_page_items(uuid, uuid[])
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_claimable(uuid)
+ALTER FUNCTION yoao_assets_v1._native_pyramid_retirement_claimable(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_native_pyramid_retirement()
+ALTER FUNCTION yoao_assets_v1.record_native_pyramid_retirement()
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_native_pyramid_retirement_target()
+ALTER FUNCTION yoao_assets_v1.guard_native_pyramid_retirement_target()
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_native_pyramid_retirement_page()
+ALTER FUNCTION yoao_assets_v1.guard_native_pyramid_retirement_page()
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.preserve_native_pyramid_retirement_grace()
+ALTER FUNCTION yoao_assets_v1.preserve_native_pyramid_retirement_grace()
     OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.native_pyramid_read_permits OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.native_pyramid_read_permits OWNER TO :"assets_owner";
 -- The superseding allocator keeps its Images/Assets owner on fresh installs.
-ALTER FUNCTION aap_assets_v1.allocate_native_pyramid_output(
+ALTER FUNCTION yoao_assets_v1.allocate_native_pyramid_output(
     uuid, bigint, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_output_fixture_owned(uuid)
+ALTER FUNCTION yoao_assets_v1._native_pyramid_output_fixture_owned(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.legacy_pyramid_gc_eligible(text, uuid, integer)
+ALTER FUNCTION yoao_assets_v1.legacy_pyramid_gc_eligible(text, uuid, integer)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._image_saved_output_target(uuid, integer, uuid, boolean)
+ALTER FUNCTION yoao_assets_v1._image_saved_output_target(uuid, integer, uuid, boolean)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_native_pyramid_read_permit()
+ALTER FUNCTION yoao_assets_v1.guard_native_pyramid_read_permit()
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_native_pyramid_read(
+ALTER FUNCTION yoao_assets_v1.begin_native_pyramid_read(
     uuid, uuid, uuid, integer, text, uuid, uuid
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.complete_native_pyramid_read(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.complete_native_pyramid_read(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_target_destination(
+ALTER FUNCTION yoao_assets_v1._native_pyramid_target_destination(
     uuid, text, text, text
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.capture_native_pyramid_write_io(
+ALTER FUNCTION yoao_assets_v1.capture_native_pyramid_write_io(
     uuid, uuid, bigint, uuid, text
 ) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.capture_native_pyramid_read_io(uuid, uuid, jsonb)
+ALTER FUNCTION yoao_assets_v1.capture_native_pyramid_read_io(uuid, uuid, jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.capture_native_pyramid_retirement_io(uuid, uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.capture_native_pyramid_retirement_io(uuid, uuid, uuid)
     OWNER TO :"assets_owner";
 DO $$
 DECLARE
@@ -2780,7 +2780,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = proc.pronamespace
-        WHERE namespace.nspname = 'aap_assets_v1'
+        WHERE namespace.nspname = 'yoao_assets_v1'
           AND proc.prokind IN ('f', 'p')
           AND (
               proc.proname LIKE '%image%'
@@ -2792,19 +2792,19 @@ BEGIN
         );
     END LOOP;
 END $$;
-ALTER FUNCTION aap_assets_v1.claim_accepted_input_garbage(uuid, integer, integer)
+ALTER FUNCTION yoao_assets_v1.claim_accepted_input_garbage(uuid, integer, integer)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.complete_accepted_input_garbage(uuid, uuid)
+ALTER FUNCTION yoao_assets_v1.complete_accepted_input_garbage(uuid, uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._accepted_input_garbage_immutable_scope()
+ALTER FUNCTION yoao_assets_v1._accepted_input_garbage_immutable_scope()
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_ids(uuid)
+ALTER FUNCTION yoao_assets_v1.workspace_project_query_dataset_ids(uuid)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_item_count(uuid[])
+ALTER FUNCTION yoao_assets_v1.workspace_project_query_dataset_item_count(uuid[])
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
+ALTER FUNCTION yoao_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
     OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA yoao_labeling_class_query_v1 TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_class_query_v1.class_query_policy() OWNER TO :"labeling_owner";
@@ -2812,51 +2812,51 @@ ALTER FUNCTION yoao_labeling_class_query_v1.class_counts(uuid) OWNER TO :"labeli
 ALTER FUNCTION yoao_labeling_class_query_v1.attribute_rows(uuid) OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA yoao_labeling_class_query_v1 FROM :"labeling_owner";
 
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_original_pointer(uuid,text) OWNER TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.lock_task_original_pointer(uuid,text)
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_task_original_pointer(uuid,text) OWNER TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.lock_task_original_pointer(uuid,text)
     TO :"assets_owner";
-ALTER FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.accept_dataset_task_creation(
+ALTER FUNCTION yoao_labeling_v1.append_dataset_items(uuid, uuid[], uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.accept_dataset_task_creation(
     uuid, uuid, uuid, uuid, uuid, uuid, text, integer
 ) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.read_dataset_task_creation(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.advance_dataset_task_creation(uuid, integer) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.project_task_references(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.delete_project_owned_records(uuid)
+ALTER FUNCTION yoao_labeling_v1.prepare_dataset_task_creation(uuid, jsonb) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.read_dataset_task_creation(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.advance_dataset_task_creation(uuid, integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.project_task_references(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.delete_project_owned_records(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._dataset_unlink_task_snapshot(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1._dataset_unlink_task_snapshot(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.dataset_task_references(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.dataset_task_references(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_dataset_unlink_scope(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.lock_dataset_unlink_scope(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_dataset_unlink(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.guard_dataset_unlink(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.preview_dataset_unlink(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.preview_dataset_unlink(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.delete_dataset_tasks(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.delete_dataset_tasks(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.guard_dataset_source_deletion(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
+ALTER FUNCTION yoao_labeling_v1.detach_deleted_dataset_attribution(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
+ALTER FUNCTION yoao_labeling_v1.project_dataset_task_counts(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_configuration_video_facts(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_configuration_video_facts(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.rename_project_annotation_class(uuid, text, text)
+ALTER FUNCTION yoao_labeling_v1.rename_project_annotation_class(uuid, text, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_configuration_task_count(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_configuration_task_count(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_configuration_annotation_count(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_configuration_annotation_count(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_configuration_tracker_count(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_configuration_tracker_count(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_configuration_video_items(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_configuration_video_items(uuid)
     OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.project_catalog_counters OWNER TO :"labeling_owner";
 DO $$
 DECLARE
     target record;
@@ -2867,7 +2867,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = proc.pronamespace
-        WHERE namespace.nspname = 'aap_labeling_v1'
+        WHERE namespace.nspname = 'yoao_labeling_v1'
           AND proc.prokind IN ('f', 'p')
           AND proc.proname LIKE '%image%'
     LOOP
@@ -2886,7 +2886,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = proc.pronamespace
-        WHERE namespace.nspname = 'aap_labeling_v1'
+        WHERE namespace.nspname = 'yoao_labeling_v1'
           AND proc.prokind = 'f'
           AND (
               proc.proname LIKE '%mask_gc%'
@@ -2903,318 +2903,318 @@ BEGIN
         );
     END LOOP;
 END $$;
-ALTER FUNCTION aap_labeling_v1.attach_annotation_input_source(uuid, uuid, text)
+ALTER FUNCTION yoao_labeling_v1.attach_annotation_input_source(uuid, uuid, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._annotation_input_sources_reply(jsonb, text)
+ALTER FUNCTION yoao_labeling_v1._annotation_input_sources_reply(jsonb, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.copy_annotation_input_sources(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.copy_annotation_input_sources(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._annotation_input_source_immutable()
+ALTER FUNCTION yoao_labeling_v1._annotation_input_source_immutable()
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._inherit_annotation_input_sources()
+ALTER FUNCTION yoao_labeling_v1._inherit_annotation_input_sources()
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._propagate_annotation_input_source()
+ALTER FUNCTION yoao_labeling_v1._propagate_annotation_input_source()
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._video_input_task_source_reply(jsonb, text)
+ALTER FUNCTION yoao_labeling_v1._video_input_task_source_reply(jsonb, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._video_input_task_binding_valid(jsonb)
+ALTER FUNCTION yoao_labeling_v1._video_input_task_binding_valid(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.read_video_input_task_source(uuid, uuid)
+ALTER FUNCTION yoao_labeling_v1.read_video_input_task_source(uuid, uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
+ALTER FUNCTION yoao_labeling_v1.lock_video_input_task_source(uuid, uuid, jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._video_input_selection_reply(jsonb, text)
+ALTER FUNCTION yoao_labeling_v1._video_input_selection_reply(jsonb, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._video_input_manifest_selection_valid(jsonb)
+ALTER FUNCTION yoao_labeling_v1._video_input_manifest_selection_valid(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._video_input_captured_task_valid(jsonb)
+ALTER FUNCTION yoao_labeling_v1._video_input_captured_task_valid(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._video_input_selection_task_access(uuid, uuid, uuid, uuid, text)
+ALTER FUNCTION yoao_labeling_v1._video_input_selection_task_access(uuid, uuid, uuid, uuid, text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.open_video_input_manifest_members(uuid, uuid, jsonb)
+ALTER FUNCTION yoao_labeling_v1.open_video_input_manifest_members(uuid, uuid, jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
+ALTER FUNCTION yoao_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_counters(uuid[])
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_counters(uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_ai_counts(uuid[])
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_ai_counts(uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_annotation_count(uuid[], boolean)
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_annotation_count(uuid[], boolean)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_task_series(uuid[], timestamptz[])
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_task_series(uuid[], timestamptz[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_annotation_series(uuid[], timestamptz[])
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_annotation_series(uuid[], timestamptz[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_linked_task_count(uuid, uuid[])
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_linked_task_count(uuid, uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_task_count(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_task_count(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_batches(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_batches(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
+ALTER FUNCTION yoao_labeling_v1.workspace_project_query_batch_task_counts(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.task_edit_lock_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.task_edit_lock_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.task_workflow_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.task_workflow_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.annotation_statistics_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.annotation_statistics_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.scene_track_domain_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.scene_track_domain_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.annotation_write_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.annotation_write_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.annotation_bulk_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.annotation_bulk_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.video_bbox_editing_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.video_bbox_editing_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.batch_control_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.batch_control_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.prediction_record_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.prediction_record_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.prediction_partition_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.prediction_partition_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.scene_track_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.scene_track_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.cross_frame_write_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.cross_frame_write_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.annotation_prediction_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.annotation_prediction_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.annotation_maintenance_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.annotation_maintenance_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.discussion_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.discussion_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.task_event_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.task_event_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.mask_edit_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.mask_edit_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._acceptance_history(jsonb)
+ALTER FUNCTION yoao_labeling_v1._acceptance_history(jsonb)
     OWNER TO :"labeling_owner";
-REVOKE ALL ON FUNCTION aap_labeling_v1._acceptance_history(jsonb) FROM PUBLIC;
-ALTER FUNCTION aap_labeling_v1.mask_revision_command(jsonb)
+REVOKE ALL ON FUNCTION yoao_labeling_v1._acceptance_history(jsonb) FROM PUBLIC;
+ALTER FUNCTION yoao_labeling_v1.mask_revision_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb)
+ALTER FUNCTION yoao_labeling_v1._mask_revision_canonical_json(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.ai_mask_accept_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.ai_mask_accept_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.scene_read_query(jsonb)
+ALTER FUNCTION yoao_labeling_v1.scene_read_query(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)
+ALTER FUNCTION yoao_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)
+ALTER FUNCTION yoao_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)
+ALTER FUNCTION yoao_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.video_control_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.video_control_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.video_segment_lifecycle_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.video_segment_lifecycle_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.screenshot_operations_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.screenshot_operations_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._fixture_screenshot_project(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._fixture_screenshot_path(uuid,uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._fixture_screenshot_task(uuid,uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._fixture_screenshot_user(uuid,text,text)
+ALTER FUNCTION yoao_labeling_v1._fixture_screenshot_project(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._fixture_screenshot_path(uuid,uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._fixture_screenshot_task(uuid,uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._fixture_screenshot_user(uuid,text,text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.annotation_transfer_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.annotation_transfer_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])
+ALTER FUNCTION yoao_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)
+ALTER FUNCTION yoao_labeling_v1._annotation_transfer_without_track_ids(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._annotation_transfer_without_suffix(text)
+ALTER FUNCTION yoao_labeling_v1._annotation_transfer_without_suffix(text)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)
+ALTER FUNCTION yoao_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
+ALTER FUNCTION yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
+ALTER FUNCTION yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])
+ALTER FUNCTION yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
+ALTER FUNCTION yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.next_batch_display_id()
+ALTER FUNCTION yoao_labeling_v1.next_batch_display_id()
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)
+ALTER FUNCTION yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)
+ALTER FUNCTION yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.mask_qc_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.mask_qc_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.mask_repair_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.mask_repair_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.raster_mask_retention_query(jsonb)
+ALTER FUNCTION yoao_labeling_v1.raster_mask_retention_query(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._quality_exact_keys(jsonb,text[])
+ALTER FUNCTION yoao_labeling_v1._quality_exact_keys(jsonb,text[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._raster_mask_reference_keys()
+ALTER FUNCTION yoao_labeling_v1._raster_mask_reference_keys()
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.spatial_quality_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.spatial_quality_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.task_maintenance_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.task_maintenance_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])
+ALTER FUNCTION yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)
+ALTER FUNCTION yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)
+ALTER FUNCTION yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
+ALTER FUNCTION yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
+ALTER FUNCTION yoao_labeling_v1.e2e_fixture_command(jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb)
+ALTER FUNCTION yoao_labeling_v1.prepare_filtering_rendering(jsonb)
     OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.task_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.batch_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.annotation_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.prediction_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.prediction_meta_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.failed_prediction_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.task_lock_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.task_dataset_item_link_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.annotation_draft_rows OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid) OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.scene_track_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.scene_track_interval_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.video_segment_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.video_tracker_job_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.video_track_quality_run_rows OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
-ALTER VIEW aap_labeling_v1.task_event_facts OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid) OWNER TO :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.task_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.batch_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.annotation_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.prediction_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.prediction_meta_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.failed_prediction_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.task_lock_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.task_dataset_item_link_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.annotation_draft_rows OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid) OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.scene_track_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.scene_track_interval_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.video_segment_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.video_tracker_job_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.video_track_quality_run_rows OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.annotation_comment_facts OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.annotation_feedback_facts OWNER TO :"labeling_owner";
+ALTER VIEW yoao_labeling_v1.task_event_facts OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER VIEW aap_jobs_v1.notification_scope_facts OWNER TO :"jobs_owner";
-ALTER SCHEMA aap_jobs_v1 OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.count_running_registry_predictions(uuid)
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER VIEW yoao_jobs_v1.notification_scope_facts OWNER TO :"jobs_owner";
+ALTER SCHEMA yoao_jobs_v1 OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.count_running_registry_predictions(uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._accepted_image_input_job_reply(jsonb, text)
+ALTER FUNCTION yoao_jobs_v1._accepted_image_input_job_reply(jsonb, text)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_input_job_reply(jsonb, text)
+ALTER FUNCTION yoao_jobs_v1._video_input_job_reply(jsonb, text)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_input_selection_valid(jsonb)
+ALTER FUNCTION yoao_jobs_v1._video_input_selection_valid(jsonb)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean)
+ALTER FUNCTION yoao_jobs_v1.project_video_input_job(uuid, uuid, uuid, uuid, jsonb, text, boolean)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
+ALTER FUNCTION yoao_jobs_v1.project_accepted_image_input_job(uuid, uuid, uuid, boolean)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
+ALTER FUNCTION yoao_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._accepted_image_input_manifest_reply(jsonb, text)
+ALTER FUNCTION yoao_jobs_v1._accepted_image_input_manifest_reply(jsonb, text)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.project_accepted_image_input_manifest_job(
+ALTER FUNCTION yoao_jobs_v1.project_accepted_image_input_manifest_job(
     uuid, uuid, uuid, uuid, jsonb, text, boolean
 ) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.accepted_image_input_manifest_job_consistency(
+ALTER FUNCTION yoao_jobs_v1.accepted_image_input_manifest_job_consistency(
     uuid, uuid, uuid, uuid, jsonb, text
 ) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._task_creation_job_failure(text, text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._task_creation_job_payload_valid(uuid, jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.claim_task_creation_job(uuid, text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.lock_task_creation_job(uuid, uuid, uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.update_task_creation_progress(uuid, uuid, bigint, bigint, bigint) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_task_creation_job(uuid, uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fail_task_creation_job(uuid, uuid, text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.cancel_task_creation_job(uuid, uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.detach_project_references(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.retain_async_job_project_scope() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)
+ALTER FUNCTION yoao_jobs_v1._task_creation_job_failure(text, text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._task_creation_job_payload_valid(uuid, jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.claim_task_creation_job(uuid, text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.lock_task_creation_job(uuid, uuid, uuid, uuid, uuid, uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.update_task_creation_progress(uuid, uuid, bigint, bigint, bigint) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_task_creation_job(uuid, uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fail_task_creation_job(uuid, uuid, text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.cancel_task_creation_job(uuid, uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.detach_project_references(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.retain_async_job_project_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.cancel_dataset_task_creation(uuid, uuid, uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_dataset_source_deletion(uuid)
+ALTER FUNCTION yoao_jobs_v1.guard_dataset_source_deletion(uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.task_creation_execution_active(uuid, uuid)
+ALTER FUNCTION yoao_jobs_v1.task_creation_execution_active(uuid, uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.workspace_project_query_job_status_counts(uuid)
+ALTER FUNCTION yoao_jobs_v1.workspace_project_query_job_status_counts(uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.workspace_project_query_latest_job_status(uuid)
+ALTER FUNCTION yoao_jobs_v1.workspace_project_query_latest_job_status(uuid)
     OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_authority OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_executions OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_route_intents OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_execution_step(text,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_settled(uuid,uuid,text,text,uuid)
+ALTER TABLE yoao_jobs_v1.video_execution_authority OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_executions OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_route_intents OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_execution_step(text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_execution_settled(uuid,uuid,text,text,uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_route_step(text,text)
+ALTER FUNCTION yoao_jobs_v1._video_execution_route_step(text,text)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)
+ALTER FUNCTION yoao_jobs_v1._video_execution_scope_is_current(uuid,boolean)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_claim_view(uuid,uuid)
+ALTER FUNCTION yoao_jobs_v1._video_execution_claim_view(uuid,uuid)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_secret() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_realm() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_exact_keys(jsonb,text[])
+ALTER FUNCTION yoao_jobs_v1._video_execution_secret() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_execution_realm() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_execution_exact_keys(jsonb,text[])
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_uuid(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_reply(jsonb,text) OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_execution_uuid(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_execution_reply(jsonb,text) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 
-GRANT CREATE ON SCHEMA aap_learning_v1 TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid)
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.registry_evaluation_reference_exists(uuid)
     OWNER TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.lock_project_deletion(uuid) OWNER TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.guard_project_deletion(uuid) OWNER TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.delete_project_owned_records(uuid)
+ALTER FUNCTION yoao_learning_v1.lock_project_deletion(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.guard_project_deletion(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.delete_project_owned_records(uuid)
     OWNER TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.guard_dataset_item_deletion(uuid, uuid)
+ALTER FUNCTION yoao_learning_v1.guard_dataset_item_deletion(uuid, uuid)
     OWNER TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.guard_dataset_unlink(uuid, uuid)
+ALTER FUNCTION yoao_learning_v1.guard_dataset_unlink(uuid, uuid)
     OWNER TO :"learning_owner";
-ALTER FUNCTION aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)
+ALTER FUNCTION yoao_learning_v1.guard_dataset_source_deletion(uuid, uuid)
     OWNER TO :"learning_owner";
-REVOKE CREATE ON SCHEMA aap_learning_v1 FROM :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_v1 TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid)
+GRANT CREATE ON SCHEMA yoao_inference_v1 TO :"inference_owner";
+ALTER FUNCTION yoao_inference_v1.ai_mask_pool_reference_row(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_v1.clear_project_ml_backend_pool(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.clear_project_pipelines(uuid)
+ALTER FUNCTION yoao_inference_v1.clear_project_pipelines(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
+ALTER FUNCTION yoao_inference_v1.enable_workspace_project_backend(uuid, uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.workspace_configuration_source_pool(uuid)
+ALTER FUNCTION yoao_inference_v1.workspace_configuration_source_pool(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.workspace_configuration_backend(uuid)
+ALTER FUNCTION yoao_inference_v1.workspace_configuration_backend(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_v1.workspace_project_query_pool(uuid)
+ALTER FUNCTION yoao_inference_v1.workspace_project_query_pool(uuid)
     OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA aap_inference_pipelines_v1 TO :"inference_owner";
-ALTER SCHEMA aap_inference_pipelines_v1 OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_pipelines_v1.operation_states OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_pipelines_v1.operation_attempts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_pipelines_v1.operation_receipts OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._has_exact_keys(jsonb, text[])
+GRANT CREATE ON SCHEMA yoao_inference_pipelines_v1 TO :"inference_owner";
+ALTER SCHEMA yoao_inference_pipelines_v1 OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_pipelines_v1.operation_states OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_pipelines_v1.operation_attempts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_pipelines_v1.operation_receipts OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_pipelines_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._actor_is_valid(jsonb)
+ALTER FUNCTION yoao_inference_pipelines_v1._actor_is_valid(jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._command_is_valid(jsonb)
+ALTER FUNCTION yoao_inference_pipelines_v1._command_is_valid(jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._query_is_valid(jsonb)
+ALTER FUNCTION yoao_inference_pipelines_v1._query_is_valid(jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._pipeline_row_value(public.project_pipelines)
+ALTER FUNCTION yoao_inference_pipelines_v1._pipeline_row_value(public.project_pipelines)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._step_success(uuid, text, text, uuid, uuid, jsonb)
+ALTER FUNCTION yoao_inference_pipelines_v1._step_success(uuid, text, text, uuid, uuid, jsonb)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._step_failure(uuid, text, text, uuid, uuid, integer, jsonb, jsonb, boolean)
+ALTER FUNCTION yoao_inference_pipelines_v1._step_failure(uuid, text, text, uuid, uuid, integer, jsonb, jsonb, boolean)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._guard_unfinished_operation()
+ALTER FUNCTION yoao_inference_pipelines_v1._guard_unfinished_operation()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1._cleanup_unfinished_state()
+ALTER FUNCTION yoao_inference_pipelines_v1._cleanup_unfinished_state()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1.pipeline_policy()
+ALTER FUNCTION yoao_inference_pipelines_v1.pipeline_policy()
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
+ALTER FUNCTION yoao_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)
+ALTER FUNCTION yoao_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)
     OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_pipelines_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_pipelines_v1 FROM :"inference_owner";
 
 GRANT CREATE ON SCHEMA yoao_insights_v1 TO :"insights_owner";
 ALTER FUNCTION yoao_insights_v1.clear_project_task_views(uuid)
@@ -3228,21 +3228,21 @@ ALTER FUNCTION yoao_diagnostics_v1.detach_dataset_task_references(uuid, uuid)
     OWNER TO :"diagnostics_owner";
 REVOKE CREATE ON SCHEMA yoao_diagnostics_v1 FROM :"diagnostics_owner";
 
-GRANT CREATE ON SCHEMA aap_export_v1 TO :"export_owner";
-ALTER TABLE aap_export_v1.executions OWNER TO :"export_owner";
-ALTER TABLE aap_export_v1.execution_deliveries OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.publications_retired(uuid) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.capture_execution_birth() OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.capture_execution_delivery() OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.session_holds_lock(text,uuid,integer) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.enter_execution_io(uuid,uuid) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.quiesce_execution_io(uuid,uuid) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.finish_execution(uuid,uuid) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.retire_execution(uuid,uuid) OWNER TO :"export_owner";
-ALTER FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
+GRANT CREATE ON SCHEMA yoao_export_v1 TO :"export_owner";
+ALTER TABLE yoao_export_v1.executions OWNER TO :"export_owner";
+ALTER TABLE yoao_export_v1.execution_deliveries OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.publications_retired(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.capture_execution_birth() OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.capture_execution_delivery() OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.session_holds_lock(text,uuid,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.begin_execution(uuid,uuid,text,uuid,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.enter_execution_io(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.quiesce_execution_io(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.finish_execution(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.retire_execution(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.clear_project_export_artifacts(uuid)
     OWNER TO :"export_owner";
-REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
+REVOKE CREATE ON SCHEMA yoao_export_v1 FROM :"export_owner";
 
 GRANT CREATE ON SCHEMA public TO :"audit_owner";
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -3297,46 +3297,46 @@ $audit_storage_owner$;
 ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO :"audit_owner";
 -- Concurrent refresh creates transient relations as the fixed MV owner.
 GRANT TEMPORARY ON DATABASE :"expected_database" TO :"audit_owner";
-GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_session_event(
+GRANT CREATE ON SCHEMA yoao_audit_v1 TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.record_identity_session_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_account_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_account_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_recovery_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_recovery_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_group_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_group_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_deactivation_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_deactivation_event(
     text, jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_offboarding_event(
+ALTER FUNCTION yoao_audit_v1.record_identity_offboarding_event(
     jsonb, uuid, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_identity_directory_export(
+ALTER FUNCTION yoao_audit_v1.record_identity_directory_export(
     jsonb, jsonb, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_project_deletion(
+ALTER FUNCTION yoao_audit_v1.record_project_deletion(
     uuid, uuid, uuid, text, text, bigint, bigint, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.valid_request_context(jsonb)
+ALTER FUNCTION yoao_audit_v1.valid_request_context(jsonb)
     OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_dataset_unlink(
+ALTER FUNCTION yoao_audit_v1.record_dataset_unlink(
     uuid, uuid, uuid, uuid, bigint, bigint, uuid[], jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
+ALTER FUNCTION yoao_audit_v1.record_dataset_source_deletion(
     uuid, uuid, uuid, uuid, bigint, bigint, bigint, bigint, bigint, bigint, jsonb
 ) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.append_events(jsonb) OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.query_events(pg_catalog.jsonb) OWNER TO :"audit_owner";
-ALTER VIEW aap_audit_v1.audit_events OWNER TO :"audit_owner";
-ALTER VIEW aap_audit_v1.audit_daily_facts OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.refresh_audit_bi_mv() OWNER TO :"audit_owner";
-ALTER FUNCTION aap_audit_v1.maintenance_command(jsonb) OWNER TO :"audit_owner";
-GRANT EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() TO :"migration_role";
+ALTER FUNCTION yoao_audit_v1.append_events(jsonb) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.query_events(pg_catalog.jsonb) OWNER TO :"audit_owner";
+ALTER VIEW yoao_audit_v1.audit_events OWNER TO :"audit_owner";
+ALTER VIEW yoao_audit_v1.audit_daily_facts OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.refresh_audit_bi_mv() OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.maintenance_command(jsonb) OWNER TO :"audit_owner";
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() TO :"migration_role";
 GRANT USAGE ON SCHEMA yoao_fixture_v1 TO :"audit_owner";
 GRANT SELECT (id, parent_run_id, scope_key, family, state), UPDATE (id)
     ON yoao_fixture_v1.fixture_runs TO :"audit_owner";
@@ -3344,17 +3344,17 @@ GRANT SELECT (run_id, audit_id, audit_created_at)
     ON yoao_fixture_v1.fixture_audit_events TO :"audit_owner";
 GRANT SELECT (run_id, state)
     ON yoao_fixture_v1.fixture_run_admissions TO :"audit_owner";
-REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
+REVOKE CREATE ON SCHEMA yoao_audit_v1 FROM :"audit_owner";
 
 -- Import and spatial helpers stay with their schema owner; runtime roles gain no DDL.
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
-GRANT CREATE ON SCHEMA aap_settings_v1 TO :"settings_owner";
-GRANT CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
-ALTER VIEW aap_notifications_v1.notification_facts OWNER TO :"notifications_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+GRANT CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_audit_v1 TO :"audit_owner";
+GRANT CREATE ON SCHEMA yoao_settings_v1 TO :"settings_owner";
+GRANT CREATE ON SCHEMA yoao_notifications_v1 TO :"notifications_owner";
+ALTER VIEW yoao_notifications_v1.notification_facts OWNER TO :"notifications_owner";
 DO $$
 DECLARE
     capability record;
@@ -3364,13 +3364,13 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace
         JOIN (VALUES
-            ('aap_assets_v1','yoao.assets_owner'),
-            ('aap_labeling_v1','yoao.labeling_owner'),
-            ('aap_workspace_v1','yoao.workspace_owner'),
-            ('aap_jobs_v1','yoao.jobs_owner'),
-            ('aap_audit_v1','yoao.audit_owner'),
-            ('aap_settings_v1','yoao.settings_owner'),
-            ('aap_notifications_v1','yoao.notifications_owner')
+            ('yoao_assets_v1','yoao.assets_owner'),
+            ('yoao_labeling_v1','yoao.labeling_owner'),
+            ('yoao_workspace_v1','yoao.workspace_owner'),
+            ('yoao_jobs_v1','yoao.jobs_owner'),
+            ('yoao_audit_v1','yoao.audit_owner'),
+            ('yoao_settings_v1','yoao.settings_owner'),
+            ('yoao_notifications_v1','yoao.notifications_owner')
         ) AS scopes(schema_name,owner_key) ON scopes.schema_name=ns.nspname
         WHERE proc.prokind='f'
           AND (proc.proname LIKE '%dataset_import%'
@@ -3382,87 +3382,87 @@ BEGIN
                OR proc.proname LIKE '%storage_connection%'
                OR proc.proname LIKE '%operator%'
                OR proc.proname LIKE '%media%'
-               OR (ns.nspname = 'aap_assets_v1' AND proc.proname LIKE '%video_%')
-               OR (ns.nspname = 'aap_labeling_v1' AND proc.proname LIKE '%video_input%')
-               OR (ns.nspname = 'aap_labeling_v1' AND proc.proname LIKE '%video_tracker%')
-               OR ns.nspname IN ('aap_settings_v1','aap_notifications_v1'))
+               OR (ns.nspname = 'yoao_assets_v1' AND proc.proname LIKE '%video_%')
+               OR (ns.nspname = 'yoao_labeling_v1' AND proc.proname LIKE '%video_input%')
+               OR (ns.nspname = 'yoao_labeling_v1' AND proc.proname LIKE '%video_tracker%')
+               OR ns.nspname IN ('yoao_settings_v1','yoao_notifications_v1'))
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
             capability.oid::pg_catalog.regprocedure,
             current_setting(capability.owner_key));
     END LOOP;
 END $$;
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
-REVOKE CREATE ON SCHEMA aap_settings_v1 FROM :"settings_owner";
-REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM :"notifications_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_audit_v1 FROM :"audit_owner";
+REVOKE CREATE ON SCHEMA yoao_settings_v1 FROM :"settings_owner";
+REVOKE CREATE ON SCHEMA yoao_notifications_v1 FROM :"notifications_owner";
 
 -- Cross-owner spatial authority and audit stay behind their owner capabilities.
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER VIEW aap_assets_v1.spatial_item_references OWNER TO :"assets_owner";
-ALTER VIEW aap_assets_v1.spatial_scene_references OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"insights_owner";
-GRANT SELECT ON aap_assets_v1.spatial_item_references,
-    aap_assets_v1.spatial_scene_references
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.spatial_item_references OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.spatial_scene_references OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"insights_owner";
+GRANT SELECT ON yoao_assets_v1.spatial_item_references,
+    yoao_assets_v1.spatial_scene_references
     TO :"labeling_owner", :"insights_owner", :"workflow_role";
-GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_spatial_project_access(uuid,uuid)
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.read_spatial_project_access(uuid,uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.read_media_project_access(uuid,uuid),
-    aap_workspace_v1.lock_media_project_access(uuid,uuid),
-    aap_workspace_v1.read_media_video_collaboration_policy(uuid),
-    aap_workspace_v1.read_media_managed_projects(uuid,uuid[])
+    yoao_workspace_v1.read_media_project_access(uuid,uuid),
+    yoao_workspace_v1.lock_media_project_access(uuid,uuid),
+    yoao_workspace_v1.read_media_video_collaboration_policy(uuid),
+    yoao_workspace_v1.read_media_managed_projects(uuid,uuid[])
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.read_media_source(uuid,uuid,uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.read_media_source(uuid,uuid,uuid)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.read_spatial_camera_roles(uuid[]),
-    aap_labeling_v1.read_spatial_camera_target(uuid,uuid,text),
-    aap_labeling_v1.lock_spatial_camera_authority(uuid,uuid,text,uuid),
-    aap_labeling_v1.lock_spatial_preparation_scope(uuid),
-    aap_labeling_v1.read_spatial_preparation_scope(uuid)
+    yoao_labeling_v1.read_spatial_camera_roles(uuid[]),
+    yoao_labeling_v1.read_spatial_camera_target(uuid,uuid,text),
+    yoao_labeling_v1.lock_spatial_camera_authority(uuid,uuid,text,uuid),
+    yoao_labeling_v1.lock_spatial_preparation_scope(uuid),
+    yoao_labeling_v1.read_spatial_preparation_scope(uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.read_media_project_access(uuid,uuid),
-    aap_workspace_v1.lock_media_project_access(uuid,uuid),
-    aap_workspace_v1.read_media_managed_projects(uuid,uuid[]),
-    aap_labeling_v1.read_media_task_access(uuid,uuid,uuid),
-    aap_labeling_v1.read_media_visible_video_item(uuid,uuid),
-    aap_labeling_v1.lock_media_task_annotation_write(uuid,uuid,uuid),
-    aap_labeling_v1.read_media_failure_context(uuid,uuid[]),
-    aap_settings_v1.read_video_media_preferences()
+    yoao_workspace_v1.read_media_project_access(uuid,uuid),
+    yoao_workspace_v1.lock_media_project_access(uuid,uuid),
+    yoao_workspace_v1.read_media_managed_projects(uuid,uuid[]),
+    yoao_labeling_v1.read_media_task_access(uuid,uuid,uuid),
+    yoao_labeling_v1.read_media_visible_video_item(uuid,uuid),
+    yoao_labeling_v1.lock_media_task_annotation_write(uuid,uuid,uuid),
+    yoao_labeling_v1.read_media_failure_context(uuid,uuid[]),
+    yoao_settings_v1.read_video_media_preferences()
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb),
-    aap_audit_v1.record_storage_connection_change(uuid,uuid,text,uuid,jsonb,jsonb)
+    yoao_audit_v1.record_sensor_calibration_update(uuid,uuid,uuid,uuid,text,integer,text,jsonb),
+    yoao_audit_v1.record_storage_connection_change(uuid,uuid,text,uuid,jsonb,jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.guard_spatial_actor(uuid,text),
-    aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
-    aap_assets_v1.get_spatial_scene(uuid,uuid),
-    aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
-    aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
-    aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
-    aap_assets_v1.read_spatial_pose_pairs(jsonb),
-    aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
-    aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
-    aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
-    aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
-    aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
-    aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
-    aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
-    aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
-    aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
-    aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
-    aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
-    aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
-    aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
-    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
-    aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
+    yoao_assets_v1.guard_spatial_actor(uuid,text),
+    yoao_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
+    yoao_assets_v1.get_spatial_scene(uuid,uuid),
+    yoao_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
+    yoao_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
+    yoao_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
+    yoao_assets_v1.read_spatial_pose_pairs(jsonb),
+    yoao_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
+    yoao_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
+    yoao_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
+    yoao_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    yoao_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
+    yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
+    yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
+    yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
+    yoao_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
+    yoao_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
+    yoao_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
+    yoao_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
+    yoao_assets_v1.read_spatial_camera_target(uuid,uuid,text),
+    yoao_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"workflow_role";
 
 DO $$
@@ -3537,237 +3537,237 @@ BEGIN
 
     IF has_database_privilege(current_setting('yoao.workflow_role'), current_database(), 'CREATE')
        OR has_schema_privilege(current_setting('yoao.workflow_role'), 'public', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_identity_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_workspace_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_assets_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_labeling_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_jobs_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_learning_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_inference_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_identity_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_workspace_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_assets_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_labeling_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_jobs_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_learning_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_inference_v1', 'CREATE')
        OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_insights_v1', 'CREATE')
        OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_diagnostics_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_export_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'aap_audit_v1', 'CREATE') THEN
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_export_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.workflow_role'), 'yoao_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Caller must not hold schema or database CREATE privileges';
     END IF;
 
     IF has_database_privilege(current_setting('yoao.asset_cleanup_role'), current_database(), 'CREATE')
        OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'public', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_identity_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_workspace_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_assets_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_labeling_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_jobs_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_learning_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_inference_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_identity_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_workspace_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_assets_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_labeling_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_jobs_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_learning_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_inference_v1', 'CREATE')
        OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_insights_v1', 'CREATE')
        OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_diagnostics_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_export_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_audit_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_identity_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_workspace_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_labeling_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_jobs_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_learning_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_inference_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_export_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_audit_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_identity_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_workspace_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_labeling_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_jobs_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_learning_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_inference_v1', 'USAGE')
        OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_insights_v1', 'USAGE')
        OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_diagnostics_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_export_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_audit_v1', 'USAGE') THEN
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_export_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_audit_v1', 'USAGE') THEN
         RAISE EXCEPTION 'Asset cleanup role must be confined to the Assets schema';
     END IF;
 
     IF has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.lock_task_creation_job(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE')
+        'yoao_jobs_v1.lock_task_creation_job(uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)', 'EXECUTE')
+        'yoao_jobs_v1.update_task_creation_progress(uuid,uuid,bigint,bigint,bigint)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1._task_creation_job_failure(text,text)', 'EXECUTE')
+        'yoao_jobs_v1._task_creation_job_failure(text,text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)', 'EXECUTE') THEN
+        'yoao_jobs_v1._task_creation_job_payload_valid(uuid,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must not execute Jobs-internal capabilities';
     END IF;
 
     IF has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_identity_v1.lock_active_actor(uuid)', 'EXECUTE')
+        'yoao_identity_v1.lock_active_actor(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_workspace_v1.lock_project_reference(uuid)', 'EXECUTE')
+        'yoao_workspace_v1.lock_project_reference(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.lock_dataset_reference(uuid)', 'EXECUTE')
+        'yoao_assets_v1.lock_dataset_reference(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.lock_current_association(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.lock_current_association(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.lock_append_sources(uuid,uuid[])', 'EXECUTE')
+        'yoao_assets_v1.lock_append_sources(uuid,uuid[])', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.lock_task_creation_items(uuid,uuid[])', 'EXECUTE')
+        'yoao_assets_v1.lock_task_creation_items(uuid,uuid[])', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_identity_v1.lock_audit_actor(uuid)', 'EXECUTE')
+        'yoao_identity_v1.lock_audit_actor(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_workspace_v1._project_delete_failure(text)', 'EXECUTE')
+        'yoao_workspace_v1._project_delete_failure(text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.delete_project_owned_records(uuid)', 'EXECUTE')
+        'yoao_assets_v1.delete_project_owned_records(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.project_task_references(uuid)', 'EXECUTE')
+        'yoao_labeling_v1.project_task_references(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.delete_project_owned_records(uuid)', 'EXECUTE')
+        'yoao_labeling_v1.delete_project_owned_records(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.detach_project_references(uuid)', 'EXECUTE')
+        'yoao_jobs_v1.detach_project_references(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.retain_async_job_project_scope()', 'EXECUTE')
+        'yoao_jobs_v1.retain_async_job_project_scope()', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_learning_v1.lock_project_deletion(uuid)', 'EXECUTE')
+        'yoao_learning_v1.lock_project_deletion(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_learning_v1.guard_project_deletion(uuid)', 'EXECUTE')
+        'yoao_learning_v1.guard_project_deletion(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_learning_v1.delete_project_owned_records(uuid)', 'EXECUTE')
+        'yoao_learning_v1.delete_project_owned_records(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_inference_v1.clear_project_ml_backend_pool(uuid)', 'EXECUTE')
+        'yoao_inference_v1.clear_project_ml_backend_pool(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_inference_v1.clear_project_pipelines(uuid)', 'EXECUTE')
+        'yoao_inference_v1.clear_project_pipelines(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
         'yoao_insights_v1.clear_project_task_views(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
         'yoao_diagnostics_v1.detach_project_references(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_export_v1.clear_project_export_artifacts(uuid)', 'EXECUTE')
+        'yoao_export_v1.clear_project_export_artifacts(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_audit_v1.record_project_deletion(uuid,uuid,uuid,text,text,bigint,bigint,jsonb)', 'EXECUTE') THEN
+        'yoao_audit_v1.record_project_deletion(uuid,uuid,uuid,text,text,bigint,bigint,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must use only the public project deletion capability';
     END IF;
 
     IF has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
+        'yoao_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
+        'yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)', 'EXECUTE')
+        'yoao_jobs_v1.cancel_dataset_task_creation(uuid,uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_audit_v1.valid_request_context(jsonb)', 'EXECUTE')
+        'yoao_audit_v1.valid_request_context(jsonb)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_audit_v1.record_dataset_unlink(uuid,uuid,uuid,uuid,bigint,bigint,uuid[],jsonb)', 'EXECUTE')
+        'yoao_audit_v1.record_dataset_unlink(uuid,uuid,uuid,uuid,bigint,bigint,uuid[],jsonb)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_workspace_v1._dataset_unlink_failure(text,text)', 'EXECUTE')
+        'yoao_workspace_v1._dataset_unlink_failure(text,text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.dataset_item_references(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.dataset_item_references(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.dataset_scene_references(uuid)', 'EXECUTE')
+        'yoao_assets_v1.dataset_scene_references(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)', 'EXECUTE')
+        'yoao_assets_v1.prepare_dataset_unlink_cleanup(uuid,uuid,uuid,text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.remove_dataset_association(uuid,uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
         'yoao_diagnostics_v1.detach_dataset_task_references(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_learning_v1.guard_dataset_item_deletion(uuid,uuid)', 'EXECUTE')
+        'yoao_learning_v1.guard_dataset_item_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_learning_v1.guard_dataset_unlink(uuid,uuid)', 'EXECUTE')
+        'yoao_learning_v1.guard_dataset_unlink(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1._dataset_unlink_task_snapshot(uuid,uuid)', 'EXECUTE')
+        'yoao_labeling_v1._dataset_unlink_task_snapshot(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.dataset_task_references(uuid,uuid)', 'EXECUTE')
+        'yoao_labeling_v1.dataset_task_references(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.lock_dataset_unlink_scope(uuid,uuid)', 'EXECUTE')
+        'yoao_labeling_v1.lock_dataset_unlink_scope(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.guard_dataset_unlink(uuid,uuid)', 'EXECUTE')
+        'yoao_labeling_v1.guard_dataset_unlink(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.preview_dataset_unlink(uuid,uuid)', 'EXECUTE')
+        'yoao_labeling_v1.preview_dataset_unlink(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.delete_dataset_tasks(uuid,uuid)', 'EXECUTE') THEN
+        'yoao_labeling_v1.delete_dataset_tasks(uuid,uuid)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller must use the Workspace dataset-unlink capability';
     END IF;
 
     IF has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._accept_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
+        'yoao_assets_v1._accept_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._finish_dataset_upload(uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
+        'yoao_assets_v1._finish_dataset_upload(uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._dataset_upload_failure(text)', 'EXECUTE')
+        'yoao_assets_v1._dataset_upload_failure(text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._dataset_upload_success(jsonb)', 'EXECUTE')
+        'yoao_assets_v1._dataset_upload_success(jsonb)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._dataset_upload_actor(uuid)', 'EXECUTE')
+        'yoao_assets_v1._dataset_upload_actor(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._dataset_upload_facts(public.dataset_upload_intents)', 'EXECUTE')
+        'yoao_assets_v1._dataset_upload_facts(public.dataset_upload_intents)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._delete_dataset_source(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+        'yoao_assets_v1._delete_dataset_source(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._delete_dataset_source_records(uuid,uuid,uuid,text)', 'EXECUTE')
+        'yoao_assets_v1._delete_dataset_source_records(uuid,uuid,uuid,text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._source_delete_failure(text)', 'EXECUTE')
+        'yoao_assets_v1._source_delete_failure(text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._lock_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1._lock_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1._queue_pyramid_deletions(uuid,uuid[],text)', 'EXECUTE')
+        'yoao_assets_v1._queue_pyramid_deletions(uuid,uuid[],text)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.dataset_association_references(uuid)', 'EXECUTE')
+        'yoao_assets_v1.dataset_association_references(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.guard_dataset_source_deletion(uuid)', 'EXECUTE')
+        'yoao_jobs_v1.guard_dataset_source_deletion(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_jobs_v1.task_creation_execution_active(uuid,uuid)', 'EXECUTE')
+        'yoao_jobs_v1.task_creation_execution_active(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_learning_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
+        'yoao_learning_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
+        'yoao_labeling_v1.guard_dataset_source_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_labeling_v1.detach_deleted_dataset_attribution(uuid)', 'EXECUTE')
+        'yoao_labeling_v1.detach_deleted_dataset_attribution(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_audit_v1.record_dataset_source_deletion(uuid,uuid,uuid,uuid,bigint,bigint,bigint,bigint,bigint,bigint,jsonb)', 'EXECUTE') THEN
+        'yoao_audit_v1.record_dataset_source_deletion(uuid,uuid,uuid,uuid,bigint,bigint,bigint,bigint,bigint,bigint,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Workflow caller must use the public Assets source/upload capabilities';
     END IF;
 
-    IF NOT has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'aap_assets_v1', 'USAGE')
+    IF NOT has_schema_privilege(current_setting('yoao.asset_cleanup_role'), 'yoao_assets_v1', 'USAGE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
+        'yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.complete_storage_deletion(uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')
+        'yoao_assets_v1.claim_image_garbage(uuid,integer,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.complete_image_garbage(uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)', 'EXECUTE')
+        'yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)', 'EXECUTE')
+        'yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)', 'EXECUTE')
+        'yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)', 'EXECUTE')
+        'yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+        'yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
        OR has_function_privilege(current_setting('yoao.asset_cleanup_role'),
-        'aap_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
+        'yoao_assets_v1.pending_storage_deletions(uuid,integer)', 'EXECUTE')
        OR EXISTS (
            SELECT 1
            FROM pg_catalog.pg_proc AS proc
-           WHERE proc.pronamespace = 'aap_assets_v1'::pg_catalog.regnamespace
+           WHERE proc.pronamespace = 'yoao_assets_v1'::pg_catalog.regnamespace
              AND pg_catalog.has_function_privilege(
                  current_setting('yoao.asset_cleanup_role'), proc.oid, 'EXECUTE'
              )
              AND proc.oid NOT IN (
-                 'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_image_garbage(uuid,uuid)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::pg_catalog.regprocedure
+                 'yoao_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.claim_image_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.complete_image_garbage(uuid,uuid)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::pg_catalog.regprocedure,
+                 'yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::pg_catalog.regprocedure
              )
        ) OR EXISTS (
            SELECT 1
            FROM pg_catalog.pg_proc AS proc
            JOIN pg_catalog.pg_namespace AS namespace
              ON namespace.oid = proc.pronamespace
-           WHERE namespace.nspname <> 'aap_assets_v1'
+           WHERE namespace.nspname <> 'yoao_assets_v1'
              AND (pg_catalog.left(namespace.nspname, 4) = 'aap_'
                   OR pg_catalog.left(namespace.nspname, 5) = 'yoao_')
              AND pg_catalog.right(namespace.nspname, 3) = '_v1'
@@ -3779,50 +3779,50 @@ BEGIN
     END IF;
 
     IF NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)', 'EXECUTE') THEN
+        'yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing the public project deletion capability';
     END IF;
     IF NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)', 'EXECUTE')
+        'yoao_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE') THEN
+        'yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing the public dataset-unlink capabilities';
     END IF;
     IF NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+        'yoao_assets_v1.delete_dataset(uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
+        'yoao_assets_v1.delete_dataset_item(uuid,uuid,uuid,uuid,text,jsonb)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text)', 'EXECUTE')
+        'yoao_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)', 'EXECUTE')
+        'yoao_assets_v1.lock_dataset_upload(uuid,uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text)', 'EXECUTE')
+        'yoao_assets_v1.find_dataset_upload_duplicate(uuid,uuid,uuid,text)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
+        'yoao_assets_v1.complete_dataset_upload(uuid,uuid,uuid,uuid,bigint,text,integer,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.discard_dataset_upload(uuid,uuid,uuid,text)', 'EXECUTE')
+        'yoao_assets_v1.discard_dataset_upload(uuid,uuid,uuid,text)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('yoao.workflow_role'),
-        'aap_assets_v1.lock_scene_source_references(uuid[])', 'EXECUTE') THEN
+        'yoao_assets_v1.lock_scene_source_references(uuid[])', 'EXECUTE') THEN
         RAISE EXCEPTION 'Caller is missing a public Assets source or upload capability';
     END IF;
 END $$;
 
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.write_project_counter_projection(uuid, jsonb)
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.write_project_counter_projection(uuid, jsonb)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.decrement_project_review_count(uuid)
+ALTER FUNCTION yoao_labeling_v1.decrement_project_review_count(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.decrement_project_completed_count(uuid)
+ALTER FUNCTION yoao_labeling_v1.decrement_project_completed_count(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.record_project_review_approval(uuid)
+ALTER FUNCTION yoao_labeling_v1.record_project_review_approval(uuid)
     OWNER TO :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 
 -- Durable result data stays with its Jobs/Labeling owner. Cross-owner calls
 -- expose only scoped capabilities; the inference executor receives no tables.
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 DO $$
 DECLARE
     target record;
@@ -3832,106 +3832,106 @@ BEGIN
         SELECT proc.oid::regprocedure AS signature, namespace.nspname
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = proc.pronamespace
-        WHERE namespace.nspname IN ('aap_jobs_v1', 'aap_labeling_v1')
+        WHERE namespace.nspname IN ('yoao_jobs_v1', 'yoao_labeling_v1')
           AND proc.prokind = 'f' AND (proc.proname LIKE '%batch_result%'
               OR proc.proname LIKE '%prediction_retry%')
     LOOP
         owner_name := CASE target.nspname
-            WHEN 'aap_jobs_v1' THEN current_setting('yoao.jobs_owner')
+            WHEN 'yoao_jobs_v1' THEN current_setting('yoao.jobs_owner')
             ELSE current_setting('yoao.labeling_owner') END;
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name);
     END LOOP;
 END $$;
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1._batch_result_scope_valid(jsonb, boolean),
-    aap_jobs_v1.read_batch_result_execution(jsonb),
-    aap_jobs_v1.lock_batch_result_execution(jsonb),
-    aap_jobs_v1.record_batch_result_member(jsonb),
-    aap_jobs_v1.advance_batch_result_member(jsonb),
-    aap_jobs_v1.batch_result_execution_referenced(jsonb),
-    aap_jobs_v1._create_prediction_retry_job(jsonb),
-    aap_jobs_v1._finish_prediction_retry_job(jsonb),
-    aap_jobs_v1.lock_prediction_retry_finish_scope(jsonb)
+    yoao_jobs_v1._batch_result_scope_valid(jsonb, boolean),
+    yoao_jobs_v1.read_batch_result_execution(jsonb),
+    yoao_jobs_v1.lock_batch_result_execution(jsonb),
+    yoao_jobs_v1.record_batch_result_member(jsonb),
+    yoao_jobs_v1.advance_batch_result_member(jsonb),
+    yoao_jobs_v1.batch_result_execution_referenced(jsonb),
+    yoao_jobs_v1._create_prediction_retry_job(jsonb),
+    yoao_jobs_v1._finish_prediction_retry_job(jsonb),
+    yoao_jobs_v1.lock_prediction_retry_finish_scope(jsonb)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.batch_result_commit_proof(jsonb),
-    aap_labeling_v1.batch_result_referenced(jsonb),
-    aap_labeling_v1.retire_batch_results(jsonb),
-    aap_labeling_v1._prediction_retry_no_raw_data(jsonb),
-    aap_labeling_v1._prediction_retry_attempt_scope_valid(jsonb, boolean),
-    aap_labeling_v1._prediction_retry_attempt_exists(uuid),
-    aap_labeling_v1._prediction_retry_member_scope_matches(uuid, uuid, jsonb),
-    aap_labeling_v1._prediction_retry_terminal_matches(uuid, text, jsonb),
-    aap_labeling_v1._abandon_prediction_retry_from_job(uuid, text, text),
-    aap_labeling_v1._retire_prediction_retry_results(uuid),
-    aap_labeling_v1._prediction_retry_job_delete_allowed(uuid)
+    yoao_labeling_v1.batch_result_commit_proof(jsonb),
+    yoao_labeling_v1.batch_result_referenced(jsonb),
+    yoao_labeling_v1.retire_batch_results(jsonb),
+    yoao_labeling_v1._prediction_retry_no_raw_data(jsonb),
+    yoao_labeling_v1._prediction_retry_attempt_scope_valid(jsonb, boolean),
+    yoao_labeling_v1._prediction_retry_attempt_exists(uuid),
+    yoao_labeling_v1._prediction_retry_member_scope_matches(uuid, uuid, jsonb),
+    yoao_labeling_v1._prediction_retry_terminal_matches(uuid, text, jsonb),
+    yoao_labeling_v1._abandon_prediction_retry_from_job(uuid, text, text),
+    yoao_labeling_v1._retire_prediction_retry_results(uuid),
+    yoao_labeling_v1._prediction_retry_job_delete_allowed(uuid)
     TO :"jobs_owner";
 -- Video window journals keep input and Mask retention behind owner capabilities.
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_checkpoint_restore OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_journals OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_window_attempts OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_captures OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_capture_parts OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_windows OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_window_parts OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_execution_span_closures OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_execution_checkpoint_step(text,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_results_complete(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_tracker_input_retention_facts(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_reply(jsonb,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_canonical_json(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_digest(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_integer(jsonb,bigint,bigint) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_digest_valid(text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_plan_identities_complete(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_manifest_valid(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_plan_valid(jsonb,jsonb,uuid,jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_input_facts(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_checkpoint_all_routes_retired(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._video_execution_checkpoint_terminal() OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER TABLE aap_labeling_v1.video_execution_checkpoint_mask_sets OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.video_execution_request_facts(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._mask_gc_root_entry_live(text,text,timestamptz,boolean) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1._mask_gc_release_tracker_running_outputs() OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.video_tracker_input_referenced(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid) OWNER TO :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.video_execution_input_facts(uuid) OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_retired(uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_facts(uuid) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._tracker_scopes_physically_retired(uuid)
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_checkpoint_restore OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_journals OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_window_attempts OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_captures OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_capture_parts OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_windows OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_window_parts OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_execution_span_closures OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_execution_checkpoint_step(text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_results_complete(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_execution_running_mask_roots_live(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_execution_checkpoint_mask_retained(text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_execution_input_retained(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_execution_source_item_retained(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_tracker_input_retention_facts(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_reply(jsonb,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_canonical_json(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_digest(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_integer(jsonb,bigint,bigint) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_digest_valid(text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_plan_identities_complete(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_manifest_valid(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_plan_valid(jsonb,jsonb,uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_input_facts(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_checkpoint_all_routes_retired(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._video_execution_checkpoint_terminal() OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER TABLE yoao_labeling_v1.video_execution_checkpoint_mask_sets OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.video_execution_request_facts(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._mask_gc_root_entry_live(text,text,timestamptz,boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._mask_gc_release_tracker_running_outputs() OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.video_tracker_input_referenced(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.guard_dataset_source_deletion(uuid,uuid) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.video_execution_input_facts(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_inference_routing_v1 TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.video_execution_scope_retired(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.video_execution_scope_facts(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1._tracker_scopes_physically_retired(uuid)
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1._guard_disabled_plugin_tracker_scope()
+ALTER FUNCTION yoao_inference_routing_v1._guard_disabled_plugin_tracker_scope()
     OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_execution_request_facts(uuid) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.video_execution_input_facts(uuid) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.video_execution_scope_retired(uuid) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.video_execution_scope_facts(uuid) TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uuid) TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_tracker_input_retention_facts(uuid,uuid)
+REVOKE CREATE ON SCHEMA yoao_inference_routing_v1 FROM :"inference_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.video_execution_request_facts(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.video_execution_input_facts(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_inference_routing_v1.video_execution_scope_retired(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_inference_routing_v1.video_execution_scope_facts(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_running_mask_roots_live(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_checkpoint_mask_retained(text) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_input_retained(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_source_item_retained(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_tracker_input_retention_facts(uuid,uuid)
     TO :"labeling_owner";
 
 -- Final video publication stays inside the Labeling business transaction.
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER TABLE aap_labeling_v1.video_writer_receipts OWNER TO :"labeling_owner";
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER TABLE yoao_labeling_v1.video_writer_receipts OWNER TO :"labeling_owner";
 DO $video_writer_owners$
 DECLARE
     capability regprocedure;
@@ -3941,7 +3941,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_labeling_v1'
+        WHERE namespace.nspname = 'yoao_labeling_v1'
           AND (function.proname = 'video_writer_step'
                OR pg_catalog.left(function.proname,14) = '_video_writer_')
     LOOP
@@ -3950,17 +3950,17 @@ BEGIN
     END LOOP;
 END
 $video_writer_owners$;
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_writer_authority(text,jsonb) OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_writer_authority(text,jsonb)
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_writer_authority(text,jsonb) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_writer_authority(text,jsonb)
     TO :"labeling_owner";
 
 -- Offline restore coordinates existing owners through one fixed Jobs capability.
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_restore_fence OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.video_restore_authority(text,jsonb) OWNER TO :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_restore_fence OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.video_restore_authority(text,jsonb) OWNER TO :"jobs_owner";
 DO $video_restore_jobs_owners$
 DECLARE
     capability regprocedure;
@@ -3970,7 +3970,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_jobs_v1'
+        WHERE namespace.nspname = 'yoao_jobs_v1'
           AND pg_catalog.left(function.proname,15) = '_video_restore_'
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
@@ -3978,17 +3978,17 @@ BEGIN
     END LOOP;
 END
 $video_restore_jobs_owners$;
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_restore_authority(text,jsonb)
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_restore_authority(text,jsonb)
     TO :"inference_owner";
-GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_records OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_contexts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_scopes OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_attempts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_scope_retirements OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_no_scope_receipts OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.video_restore_function_restore OWNER TO :"inference_owner";
+GRANT CREATE ON SCHEMA yoao_inference_routing_v1 TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_records OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_contexts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_scopes OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_attempts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_scope_retirements OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_no_scope_receipts OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.video_restore_function_restore OWNER TO :"inference_owner";
 DO $video_restore_owners$
 DECLARE
     capability regprocedure;
@@ -3998,7 +3998,7 @@ BEGIN
         FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_inference_routing_v1'
+        WHERE namespace.nspname = 'yoao_inference_routing_v1'
           AND (function.proname = 'video_restore_step'
                OR function.proname = '_video_execution_scope_step_pre_restore'
                OR pg_catalog.left(function.proname,15) = '_video_restore_')
@@ -4008,131 +4008,131 @@ BEGIN
     END LOOP;
 END
 $video_restore_owners$;
-REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_routing_v1 FROM :"inference_owner";
 -- Deletion uses current-run retirement proof without exposing Jobs journals.
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.video_deletion_clearances OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.video_deletion_clearances OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
     OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
+    yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
     TO :"labeling_owner";
-GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_project_video_deletion(uuid)
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.guard_project_video_deletion(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
+ALTER FUNCTION yoao_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
+ALTER FUNCTION yoao_labeling_v1.delete_fixture_project_rows(uuid[])
     OWNER TO :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.guard_project_video_deletion(uuid),
-    aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
+    yoao_labeling_v1.guard_project_video_deletion(uuid),
+    yoao_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
     TO :"workspace_owner";
 -- Jobs owns page and total; cross-owner facts stay fixed capabilities.
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)
+ALTER FUNCTION yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+ALTER FUNCTION yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
     OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
-GRANT USAGE ON SCHEMA aap_identity_v1, aap_workspace_v1,
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_workspace_v1,
     yoao_workspace_project_query_v1 TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid),
-    aap_workspace_v1.actor_project_memberships(uuid),
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid),
+    yoao_workspace_v1.actor_project_memberships(uuid),
     yoao_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"jobs_owner";
-GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[])
+GRANT USAGE ON SCHEMA yoao_workspace_fixture_v1 TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])
     TO :"jobs_owner";
-GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[])
+GRANT USAGE ON SCHEMA yoao_workspace_fixture_v1 TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])
     TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])
+ALTER FUNCTION yoao_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.guard_fixture_project_retry_anchors(uuid[])
+ALTER FUNCTION yoao_labeling_v1.guard_fixture_project_retry_anchors(uuid[])
     OWNER TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[]),
-    aap_labeling_v1.guard_fixture_project_retry_anchors(uuid[])
+    yoao_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[]),
+    yoao_labeling_v1.guard_fixture_project_retry_anchors(uuid[])
     TO :"jobs_owner";
 -- Jobs owns lifecycle writes; existing producers retain their current ACLs.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.async_jobs TO :"jobs_owner";
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER VIEW aap_jobs_v1.async_job_creation OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER VIEW yoao_jobs_v1.async_job_creation OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.delete_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_dataset_jobs(uuid[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)
+ALTER FUNCTION yoao_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_dataset_jobs(uuid[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)
     OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.find_video_retry_job(uuid,uuid,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.lock_video_retry_jobs(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job_for_update(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job_for_share_nowait(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job_for_update_nowait(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.lock_cross_frame_singleflight(uuid,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.active_cross_frame_job(uuid,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.cross_frame_job_page(uuid,text,integer) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.cross_frame_job_count(uuid,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.latest_batch_prediction_times(uuid[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.jobs_by_execution_id(text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.delete_batch_predict_jobs(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1._jobs_lifecycle_integer(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.apply_lifecycle(uuid,jsonb) OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.dispatch_intents OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.prepare_dispatch(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.claim_dispatches(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_dispatch(jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.dispatch_status(uuid) OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.dispatch_publication_attempts OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.dispatch_retry_publications OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.dispatch_publication_retirements OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.publication_job_births OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.publication_intent_births OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_deliveries OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_publication_attempts OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_publication_retirements OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_publication_attempt() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_publication_retirement() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_publication_birth() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.capture_publication_job_birth() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.capture_publication_intent_birth() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.job_publications_retired(uuid,text[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.job_publications_not_sent(uuid,text[]) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.publication_session_owns(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_retired_dispatch() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.retire_job_publications(uuid,text[]) OWNER TO :"jobs_owner";
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.lock_action_idempotency(text,uuid,uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.find_video_retry_job(uuid,uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.lock_video_retry_jobs(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job_for_update(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job_for_share_nowait(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job_for_update_nowait(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.lock_cross_frame_singleflight(uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.active_cross_frame_job(uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.cross_frame_job_page(uuid,text,integer) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.cross_frame_job_count(uuid,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.latest_batch_prediction_times(uuid[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.jobs_by_execution_id(text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.delete_batch_predict_jobs(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._jobs_lifecycle_is_truthy(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._jobs_lifecycle_integer(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.apply_lifecycle(uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.dispatch_intents OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.prepare_dispatch(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.claim_dispatches(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_dispatch(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.dispatch_status(uuid) OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.dispatch_publication_attempts OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.dispatch_retry_publications OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.dispatch_publication_retirements OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.publication_job_births OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.publication_intent_births OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_deliveries OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_publication_attempts OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_publication_retirements OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_publication_attempt() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_publication_retirement() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_publication_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.capture_publication_job_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.capture_publication_intent_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.job_publications_retired(uuid,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.job_publications_not_sent(uuid,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.publication_session_owns(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_retired_dispatch() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.retire_job_publications(uuid,text[]) OWNER TO :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"jobs_owner";
 GRANT SELECT (id, status, job_kind)
-    ON aap_labeling_v1.video_tracker_job_rows TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+    ON yoao_labeling_v1.video_tracker_job_rows TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 -- Complete Inference ownership: public topology/caller capabilities never return credentials.
-GRANT USAGE, CREATE ON SCHEMA aap_inference_topology_v1,
-    aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
+GRANT USAGE, CREATE ON SCHEMA yoao_inference_topology_v1,
+    yoao_inference_backend_endpoint_v1, yoao_inference_gpu_v1,
     yoao_inference_gpu_caller_v1, yoao_inference_gpu_collector_v1 TO :"inference_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.ml_backend_registry,
     public.ml_backend_service_pools, public.ml_backend_pool_members,
@@ -4149,8 +4149,8 @@ BEGIN
         FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname IN (
-            'aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
-            'aap_inference_gpu_v1','yoao_inference_gpu_caller_v1',
+            'yoao_inference_topology_v1','yoao_inference_backend_endpoint_v1',
+            'yoao_inference_gpu_v1','yoao_inference_gpu_caller_v1',
             'yoao_inference_gpu_collector_v1'
         )
     LOOP
@@ -4158,12 +4158,12 @@ BEGIN
     END LOOP;
 END;
 $inference_owner$;
-ALTER TABLE aap_inference_topology_v1.plugin_asset_approvals OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_gpu_v1.installation_control_intents OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_gpu_v1.installation_terminal_intents OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_topology_v1,
-    aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
+ALTER TABLE yoao_inference_topology_v1.plugin_asset_approvals OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_backend_endpoint_v1.endpoint_secret OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_gpu_v1.installation_control_intents OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_gpu_v1.installation_terminal_intents OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_topology_v1,
+    yoao_inference_backend_endpoint_v1, yoao_inference_gpu_v1,
     yoao_inference_gpu_caller_v1, yoao_inference_gpu_collector_v1 FROM :"inference_owner";
 -- Forward main integration: each new capability retains its domain owner.
 GRANT SELECT (avatar_ref), UPDATE (avatar_ref) ON public.users TO :"identity_owner";
@@ -4180,10 +4180,10 @@ GRANT SELECT (execution_snapshot_id), INSERT (execution_snapshot_id)
     ON public.failed_predictions TO :"labeling_owner";
 GRANT SELECT (id, project_id) ON public.prediction_execution_snapshots TO :"jobs_owner";
 GRANT SELECT (id, payload) ON public.prediction_execution_snapshots TO :"inference_owner";
-GRANT USAGE ON SCHEMA aap_inference_pipelines_v1 TO :"jobs_owner", :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)
+GRANT USAGE ON SCHEMA yoao_inference_pipelines_v1 TO :"jobs_owner", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)
     TO :"jobs_owner", :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)
     TO :"jobs_owner";
 GRANT SELECT (execution_snapshot_id), UPDATE (execution_snapshot_id)
     ON public.async_jobs TO :"jobs_owner";
@@ -4238,249 +4238,249 @@ GRANT SELECT (storage_ref) ON public.thumbnail_outputs,
     public.active_learning_rounds, public.training_storage_deletions TO :"assets_owner";
 GRANT SELECT (staging_ref) ON public.mask_format_imports TO :"assets_owner";
 
-GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.storage_connection_revision_bump() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._connector_location_id(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._storage_connection_location_referenced(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_endpoint(text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_prefix(text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_identity(text,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_gate_revision(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_request_valid(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_reply(jsonb,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_facts(public.managed_original_creations) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_proof_valid(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.publish_verified_dataset_original() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_source_gate_active(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.lock_publication_storage_gate(uuid,bigint) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.read_video_derivative_links(uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid) OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"identity_owner", :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_publication_storage_gate(uuid,bigint)
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.storage_connection_revision_bump() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._connector_location_id(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_connection_location_referenced(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_endpoint(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_prefix(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_identity(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_gate_revision(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_request_valid(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_reply(jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_facts(public.managed_original_creations) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_proof_valid(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_verified_dataset_original() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_source_gate_active(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_publication_storage_gate(uuid,bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_video_derivative_links(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"identity_owner", :"workspace_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_publication_storage_gate(uuid,bigint)
     TO :"identity_owner", :"workspace_owner";
 
-GRANT USAGE, CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.retire_project_comment_uploads(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.publish_task_pyramid_thumbnail(uuid,text) OWNER TO :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"assets_owner", :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.retire_project_comment_uploads(uuid)
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.retire_project_comment_uploads(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.publish_task_pyramid_thumbnail(uuid,text) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"assets_owner", :"workspace_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.retire_project_comment_uploads(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.publish_task_pyramid_thumbnail(uuid,text)
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.publish_task_pyramid_thumbnail(uuid,text)
     TO :"assets_owner";
 
-GRANT USAGE, CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_v1.retire_project_uploads(uuid) OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_v1 FROM :"workspace_owner";
-GRANT USAGE, CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job_execution_snapshot(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job_progress(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.read_job_progress_for_update(uuid,text,text) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb) OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.retire_project_uploads(uuid) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM :"workspace_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job_execution_snapshot(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job_progress(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_job_progress_for_update(uuid,text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 
-GRANT USAGE, CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1._notification_is_migration_inventory(uuid) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1._notification_unknown_job_scope(uuid) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1._visible_inbox_rows_scoped(uuid,text) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1.read_state_command_scoped(jsonb) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1.delete_command_scoped(jsonb) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1.inbox_total_count_scoped(uuid,text) OWNER TO :"notifications_owner";
-ALTER FUNCTION aap_notifications_v1.inbox_unread_count_scoped(uuid,text) OWNER TO :"notifications_owner";
-REVOKE CREATE ON SCHEMA aap_notifications_v1 FROM :"notifications_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_notifications_v1 TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1._notification_is_migration_inventory(uuid) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1._notification_unknown_job_scope(uuid) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1.read_state_command_scoped(jsonb) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1.delete_command_scoped(jsonb) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1.inbox_total_count_scoped(uuid,text) OWNER TO :"notifications_owner";
+ALTER FUNCTION yoao_notifications_v1.inbox_unread_count_scoped(uuid,text) OWNER TO :"notifications_owner";
+REVOKE CREATE ON SCHEMA yoao_notifications_v1 FROM :"notifications_owner";
 
-GRANT USAGE, CREATE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_entry_matches(jsonb,uuid,uuid,text,text,integer,timestamptz)
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_configuration_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_entry_matches(jsonb,uuid,uuid,text,text,integer,timestamptz)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_lock_project(uuid,text) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_authority(uuid,uuid) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_storage_gate(uuid,bigint) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1._guide_failure(jsonb,text,integer,text) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb) OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_configuration_v1 FROM :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_lock_project(uuid,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_authority(uuid,uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_storage_gate(uuid,bigint) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1._guide_failure(jsonb,text,integer,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_configuration_v1 FROM :"workspace_owner";
 
-GRANT USAGE, CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
-ALTER FUNCTION aap_identity_v1.read_accepted_api_key_facts(uuid,uuid) OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
-GRANT USAGE, CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)
+GRANT USAGE, CREATE ON SCHEMA yoao_identity_v1 TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid) OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_v1 FROM :"identity_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)
+ALTER FUNCTION yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)
+ALTER FUNCTION yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)
+ALTER FUNCTION yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)
+ALTER FUNCTION yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)
+ALTER FUNCTION yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)
+ALTER FUNCTION yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)
+ALTER FUNCTION yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)
+ALTER FUNCTION yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)
+ALTER FUNCTION yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)
+ALTER FUNCTION yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)
     OWNER TO :"labeling_owner";
-ALTER FUNCTION aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)
+ALTER FUNCTION yoao_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)
     OWNER TO :"labeling_owner";
-REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 GRANT SELECT (id, task_id, project_id, creation_id, sha256, size_bytes)
     ON public.task_originals TO :"assets_owner";
-GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.read_task_original_binding(uuid) OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.read_task_original_binding(uuid)
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_task_original_binding(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.read_task_original_binding(uuid)
     TO :"labeling_owner";
 GRANT DELETE ON public.storage_operations TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)
     TO :"assets_owner";
-GRANT USAGE, CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._dataset_ingest_publication_authority(uuid,uuid,jsonb,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._connection_probe_reply(jsonb,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_ingest_publication_authority(uuid,uuid,jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._connection_probe_reply(jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)
     OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.publish_operator_item_original(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_item_original_facts(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_import_prefix(text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._managed_original_scope_key(text,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._operator_read_permit_purpose(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_operator_auxiliary(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.publish_operator_auxiliary(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_auxiliary_material(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_item_original_material(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_dataset_state(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.operator_scene_state(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.open_operator_storage_operation(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_operator_original_prepared(uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.mark_operator_original_writing(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_operator_original_written(uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_operator_original_verified(uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fail_operator_original(uuid,text,text,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_operator_item_original(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_item_original_facts(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_import_prefix(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_scope_key(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._operator_read_permit_purpose(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_operator_auxiliary(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_operator_auxiliary(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_auxiliary_material(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_item_original_material(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_dataset_state(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.operator_scene_state(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.open_operator_storage_operation(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_operator_original_prepared(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.mark_operator_original_writing(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_operator_original_written(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_operator_original_verified(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean) OWNER TO :"assets_owner";
 GRANT SELECT, INSERT ON public.dataset_auxiliary_originals TO :"assets_owner";
 GRANT DELETE ON public.dataset_asset_locations TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.storage_usage_mutations TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
 
 -- Prediction producers and route retirement retain their distinct Native owners.
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.prediction_mask_producers OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.prediction_mask_producer_objects OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_prediction_job_births OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_prediction_job_datasets OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_worker_job_datasets OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.unsettled_worker_job_deletions OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.retain_unsettled_worker_deletion() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb) TO :"assets_owner";
-ALTER FUNCTION aap_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb) TO :"assets_owner";
-ALTER FUNCTION aap_jobs_v1.worker_job_scope_digest(text,jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_worker_job_dataset_receipt() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.record_worker_job_dataset_scope() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_worker_job_scope_change() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.retry_born_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_retry_born_dataset_scope() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.bind_prediction_retry_attempt_birth() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_prediction_retry_attempt_scope() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_retry_born_authority() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.retry_authority_snapshot_matches(uuid,jsonb,uuid) OWNER TO :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.prediction_mask_producers OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.prediction_mask_producer_objects OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_prediction_job_births OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_prediction_job_datasets OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_worker_job_datasets OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.unsettled_worker_job_deletions OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.retain_unsettled_worker_deletion() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb) TO :"assets_owner";
+ALTER FUNCTION yoao_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb) TO :"assets_owner";
+ALTER FUNCTION yoao_jobs_v1.worker_job_scope_digest(text,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_worker_job_dataset_receipt() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.record_worker_job_dataset_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_worker_job_scope_change() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.retry_born_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_retry_born_dataset_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.bind_prediction_retry_attempt_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_prediction_retry_attempt_scope() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_retry_born_authority() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.retry_authority_snapshot_matches(uuid,jsonb,uuid) OWNER TO :"jobs_owner";
 GRANT SELECT (digest) ON public.prediction_execution_snapshots TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_prediction_dispatch_tombstones OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.bind_prediction_mask_object(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_prediction_mask_producer(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.prediction_mask_object_retained(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.record_fixture_prediction_job_birth() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_prediction_job_datasets() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.prediction_fixture_open(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.preserve_fixture_prediction_dispatches() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid) OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_prediction_dispatch_tombstones OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.bind_prediction_mask_object(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_prediction_mask_producer(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.prediction_mask_object_retained(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.record_fixture_prediction_job_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_prediction_job_datasets() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.prediction_fixture_open(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.preserve_fixture_prediction_dispatches() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT SELECT (id) ON public.raster_mask_objects TO :"jobs_owner";
 GRANT SELECT (job_id,ordinal,raw_complete,prepared_complete)
     ON public.batch_result_bundles TO :"jobs_owner";
 GRANT SELECT, UPDATE (job_id) ON public.prediction_retry_attempts TO :"jobs_owner";
 GRANT SELECT (id,project_id), UPDATE (id) ON public.failed_predictions TO :"jobs_owner";
 GRANT SELECT (id,project_id,dataset_item_id,file_path,file_type)
-    ON aap_labeling_v1.task_rows TO :"assets_owner", :"jobs_owner", :"inference_owner";
-GRANT SELECT (thumbnail_output_id) ON aap_labeling_v1.task_rows TO :"assets_owner";
+    ON yoao_labeling_v1.task_rows TO :"assets_owner", :"jobs_owner", :"inference_owner";
+GRANT SELECT (thumbnail_output_id) ON yoao_labeling_v1.task_rows TO :"assets_owner";
 GRANT SELECT (thumbnail_output_id) ON public.dataset_source_previews TO :"assets_owner";
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_operator_source_receipt() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.require_fixture_operator_manifest() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._cross_frame_scope_uuid(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._cross_frame_scope_int(jsonb) OWNER TO :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_operator_source_receipt() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.require_fixture_operator_manifest() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_task_dataset_scope(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._cross_frame_scope_uuid(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._cross_frame_scope_int(jsonb) OWNER TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb),
-    aap_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb),
-    aap_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb)
+    yoao_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb),
+    yoao_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb),
+    yoao_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_task_dataset_scope(uuid,jsonb)
     TO :"jobs_owner";
-ALTER FUNCTION aap_assets_v1.fixture_original_readers_empty(uuid) OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])
+ALTER FUNCTION yoao_assets_v1.fixture_original_readers_empty(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])
     TO :"jobs_owner", :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_original_readers_empty(uuid)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_original_readers_empty(uuid)
     TO :"migration_role";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.prediction_mask_object_retained(uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.prediction_mask_object_retained(uuid)
     TO :"labeling_owner";
 
 GRANT USAGE ON SCHEMA yoao_fixture_v1 TO :"inference_owner";
 GRANT SELECT ON yoao_fixture_v1.fixture_runs, yoao_fixture_v1.fixture_run_resources
     TO :"inference_owner";
 GRANT UPDATE (id) ON yoao_fixture_v1.fixture_runs TO :"inference_owner";
-GRANT USAGE ON SCHEMA aap_jobs_v1, aap_labeling_v1, aap_assets_v1 TO :"inference_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1, yoao_labeling_v1, yoao_assets_v1 TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1._batch_result_scope_valid(jsonb,boolean),
-    aap_jobs_v1._lock_batch_result_scope(jsonb,boolean,boolean),
-    aap_jobs_v1.prediction_fixture_open(uuid)
+    yoao_jobs_v1._batch_result_scope_valid(jsonb,boolean),
+    yoao_jobs_v1._lock_batch_result_scope(jsonb,boolean,boolean),
+    yoao_jobs_v1.prediction_fixture_open(uuid)
     TO :"inference_owner";
 GRANT SELECT, UPDATE (id) ON public.async_jobs TO :"inference_owner";
 GRANT SELECT, UPDATE (job_id) ON public.batch_result_executions TO :"inference_owner";
-GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.prediction_execution_scopes OWNER TO :"inference_owner";
-ALTER TABLE aap_inference_routing_v1.fixture_prediction_test_scopes OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.prediction_scope_reserve(text) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.prediction_test_scope_reserve(text) OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.guard_prediction_scope_insert() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.guard_prediction_dispatch_start() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.guard_prediction_managed_attempt() OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.fixture_prediction_scope_inventory(uuid,uuid[],uuid[])
+GRANT CREATE ON SCHEMA yoao_inference_routing_v1 TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.prediction_execution_scopes OWNER TO :"inference_owner";
+ALTER TABLE yoao_inference_routing_v1.fixture_prediction_test_scopes OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.prediction_scope_reserve(text) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.prediction_test_scope_reserve(text) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.guard_prediction_scope_insert() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.guard_prediction_dispatch_start() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.guard_prediction_managed_attempt() OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_routing_v1.fixture_prediction_scope_inventory(uuid,uuid[],uuid[])
     OWNER TO :"inference_owner";
-ALTER FUNCTION aap_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])
+ALTER FUNCTION yoao_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])
     OWNER TO :"inference_owner";
-REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_inference_routing_v1 FROM :"inference_owner";
 GRANT SELECT (scope_id,job_id,actor_id,project_id,request_digest,generation,uses_gpu)
-    ON aap_inference_routing_v1.prediction_execution_scopes TO :"jobs_owner";
-GRANT SELECT (scope_id,phase) ON aap_inference_routing_v1.scope_retirements TO :"jobs_owner";
-GRANT SELECT (id,project_id,operation) ON aap_inference_routing_v1.scopes TO :"jobs_owner";
+    ON yoao_inference_routing_v1.prediction_execution_scopes TO :"jobs_owner";
+GRANT SELECT (scope_id,phase) ON yoao_inference_routing_v1.scope_retirements TO :"jobs_owner";
+GRANT SELECT (id,project_id,operation) ON yoao_inference_routing_v1.scopes TO :"jobs_owner";
 
 -- Export execution and physical receipts outlive the removable business Job.
 GRANT USAGE, CREATE ON SCHEMA yoao_fixture_v1 TO :"export_owner";
@@ -4540,351 +4540,351 @@ GRANT EXECUTE ON FUNCTION
     public.fixture_export_retired(uuid,uuid,uuid),
     public.fixture_export_execution_retired(uuid,uuid,uuid)
     TO :"jobs_owner";
-GRANT CREATE ON SCHEMA aap_jobs_v1, yoao_fixture_v1 TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_export_dispatch_receipts OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.preserve_fixture_export_dispatch() OWNER TO :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1, yoao_fixture_v1 TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_export_dispatch_receipts OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.preserve_fixture_export_dispatch() OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_fixture_v1.guard_jobs_anchor() OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_fixture_v1.guard_dataset_job_anchor() OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_fixture_v1.guard_presentation_job_update() OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_fixture_v1.guard_presentation_job_dispatch() OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1, yoao_fixture_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1, yoao_fixture_v1 FROM :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])
+    yoao_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])
     TO :"jobs_owner";
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER TABLE aap_assets_v1.import_original_verifications OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_import_original_verification() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._import_verification_scope(jsonb,boolean) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.reserve_import_original_read(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.cancel_unstarted_import_original_read(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_import_original_verification(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_import_original_read(jsonb,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_import_original_verification(jsonb,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.recover_import_original_verification(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.status_import_original_verification(jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.resume_import_original_verification(jsonb) OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_media_births OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_media_jobs OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_job_evidence() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.capture_fixture_native_media_job() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_admission_current(text,uuid,uuid) OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_media_admissions OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_admission() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_source_lock_held(integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_native_source_admission(text,uuid,bigint,uuid,integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_native_source_admission(uuid) OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_media_executions OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_media_claims OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_execution() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_claim() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_execution_lock_held(integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_native_execution(text,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_native_claim(uuid,integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_claim_allowed(text,uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.consume_fixture_native_claim(text,uuid,bigint,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_native_claim(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_native_execution(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_job_candidates(text) OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_scan_admissions OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_scan_admission() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_native_scan(uuid,uuid,bigint,uuid,integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_native_scan(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_scan_visible(uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_legacy_task_scan_visible(uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_legacy_task_scan_visible(uuid) TO :"labeling_owner";
-ALTER TABLE aap_assets_v1.fixture_native_media_sources OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_cache_targets OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_cache_writes OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_source() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.capture_fixture_native_media_source(text,uuid,bigint,uuid,text,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.settle_fixture_native_media_source() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_cache_target() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text,text,uuid,uuid,bigint) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text,text,uuid,uuid,bigint)
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.import_original_verifications OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_import_original_verification() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_verification_scope(jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reserve_import_original_read(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.cancel_unstarted_import_original_read(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_import_original_read(jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_import_original_verification(jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.recover_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.status_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.resume_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_media_births OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_media_jobs OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_media_job_evidence() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_fixture_native_media_job() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_admission_current(text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_media_admissions OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_media_admission() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_source_lock_held(integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_native_source_admission(text,uuid,bigint,uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_native_source_admission(uuid) OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_media_executions OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_media_claims OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_media_execution() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_media_claim() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_execution_lock_held(integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_native_execution(text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_native_claim(uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_claim_allowed(text,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.consume_fixture_native_claim(text,uuid,bigint,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_native_claim(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_native_execution(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_job_candidates(text) OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_scan_admissions OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_scan_admission() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_native_scan(uuid,uuid,bigint,uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_native_scan(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_scan_visible(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_legacy_task_scan_visible(uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_legacy_task_scan_visible(uuid) TO :"labeling_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_media_sources OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_cache_targets OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_cache_writes OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_media_source() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_fixture_native_media_source(text,uuid,bigint,uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.settle_fixture_native_media_source() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_cache_target() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text,text,uuid,uuid,bigint) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text,text,uuid,uuid,bigint)
     TO :"migration_role";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_cache_write() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_native_cache_write(text,uuid,bigint,uuid,uuid,uuid,text,text,text,text,text,bigint,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.advance_fixture_native_cache_write(uuid,uuid,text,text,text) OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_read_principals OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_cache_reads OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_read_principal() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.register_fixture_native_reader(uuid,name,text) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.register_fixture_native_reader(uuid,name,text) TO :"migration_role";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_cache_read() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_read_lock_held(integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_native_output_read(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_native_output_read(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retire_fixture_native_reader(uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.retire_fixture_native_reader(uuid) TO :"migration_role";
-ALTER FUNCTION aap_assets_v1.fixture_native_reader_identity(uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_native_reader_identity(uuid) TO :"migration_role";
-ALTER TABLE aap_assets_v1.fixture_native_resolver_principals OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_resolver_principal() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.register_fixture_native_resolver(uuid,name) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.resolve_fixture_native_cache(text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retire_fixture_native_resolver(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_resolver_identity(uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_native_resolver_identity(uuid) TO :"migration_role";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_cache_write() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_native_cache_write(text,uuid,bigint,uuid,uuid,uuid,text,text,text,text,text,bigint,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.advance_fixture_native_cache_write(uuid,uuid,text,text,text) OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_read_principals OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_cache_reads OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_read_principal() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.register_fixture_native_reader(uuid,name,text) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.register_fixture_native_reader(uuid,name,text) TO :"migration_role";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_cache_read() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_read_lock_held(integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_native_output_read(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_native_output_read(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_fixture_native_reader(uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.retire_fixture_native_reader(uuid) TO :"migration_role";
+ALTER FUNCTION yoao_assets_v1.fixture_native_reader_identity(uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_native_reader_identity(uuid) TO :"migration_role";
+ALTER TABLE yoao_assets_v1.fixture_native_resolver_principals OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_resolver_principal() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.register_fixture_native_resolver(uuid,name) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.resolve_fixture_native_cache(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_fixture_native_resolver(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_resolver_identity(uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_native_resolver_identity(uuid) TO :"migration_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.register_fixture_native_resolver(uuid,name),
-    aap_assets_v1.retire_fixture_native_resolver(uuid)
+    yoao_assets_v1.register_fixture_native_resolver(uuid,name),
+    yoao_assets_v1.retire_fixture_native_resolver(uuid)
     TO :"migration_role";
-ALTER TABLE aap_assets_v1.fixture_native_cache_retirements OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_scope_retirements OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_scope_retirement() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_cache_retirement() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_retirement_ready(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_retirement_scopes(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_retirement_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.prepare_fixture_native_scope(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_native_scope(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.prepare_fixture_native_retirement(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.advance_fixture_native_retirement(uuid,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_outputs_retired(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_cache_scope_owned(text,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_media_birth_evidence() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_fixture_media_birth() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_media_reference() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_pyramid_generation_owned(uuid,uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_pyramid_attempt_matches(uuid,uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_pyramid_attempt_matches(uuid,uuid,uuid,uuid,integer,uuid,uuid)
+ALTER TABLE yoao_assets_v1.fixture_native_cache_retirements OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_scope_retirements OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_scope_retirement() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_cache_retirement() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_retirement_ready(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_retirement_scopes(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_retirement_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_fixture_native_scope(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_native_scope(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_fixture_native_retirement(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.advance_fixture_native_retirement(uuid,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_outputs_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_cache_scope_owned(text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_media_birth_evidence() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_fixture_media_birth() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_media_reference() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_pyramid_generation_owned(uuid,uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_pyramid_attempt_matches(uuid,uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_pyramid_attempt_matches(uuid,uuid,uuid,uuid,integer,uuid,uuid)
     TO :"jobs_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_child_source_matches(uuid,uuid,uuid,timestamptz,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_owner_exists(text,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_item_in_cutoff(uuid,uuid,uuid,timestamptz) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_video_attempt_scope(uuid,uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_video_attempt_scope(uuid,uuid) TO :"jobs_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_ordinary_gc(text,uuid,integer) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_item_in_cutoff(uuid,uuid,uuid,timestamptz)
+ALTER FUNCTION yoao_assets_v1.fixture_media_child_source_matches(uuid,uuid,uuid,timestamptz,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_owner_exists(text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_item_in_cutoff(uuid,uuid,uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_video_attempt_scope(uuid,uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_video_attempt_scope(uuid,uuid) TO :"jobs_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_ordinary_gc(text,uuid,integer) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_media_item_in_cutoff(uuid,uuid,uuid,timestamptz)
     TO :"jobs_owner";
-ALTER TABLE aap_assets_v1.media_native_stages OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_media_native_stage_tombstone() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.track_media_native_stage() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_media_output_permit() OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_media_versions OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_media_version() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_media_version(text,uuid,uuid,text,uuid,text,text,text,text,bigint,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_fixture_media_version(text,uuid,uuid,uuid,text,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.verify_fixture_media_version(text,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_media_retirement_permits OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_media_version_retirements OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_media_retirement_permit() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.acquire_fixture_media_retirement_permit(uuid,uuid,uuid,text,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.close_fixture_media_retirement_permit() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_retirement_session_clean(uuid,uuid,uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_retirement_session_clean(uuid,uuid,uuid)
+ALTER TABLE yoao_assets_v1.media_native_stages OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_media_native_stage_tombstone() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.track_media_native_stage() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_media_output_permit() OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_media_versions OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_media_version() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_media_version(text,uuid,uuid,text,uuid,text,text,text,text,bigint,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_fixture_media_version(text,uuid,uuid,uuid,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.verify_fixture_media_version(text,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_media_retirement_permits OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_media_version_retirements OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_media_retirement_permit() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.acquire_fixture_media_retirement_permit(uuid,uuid,uuid,text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.close_fixture_media_retirement_permit() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_retirement_session_clean(uuid,uuid,uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_media_retirement_session_clean(uuid,uuid,uuid)
     TO :"jobs_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_media_version_retirement() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.prepare_fixture_media_version_retirement(uuid,uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.advance_fixture_media_version_retirement(uuid,uuid,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_retirement_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_output_inventory(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_output_retirement_done(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_dataset_media_retired(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_media_retirement_complete(uuid,uuid,uuid) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_dataset_media_retired(uuid,uuid)
+ALTER FUNCTION yoao_assets_v1.guard_fixture_media_version_retirement() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_fixture_media_version_retirement(uuid,uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.advance_fixture_media_version_retirement(uuid,uuid,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_retirement_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_output_inventory(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_output_retirement_done(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_dataset_media_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_media_retirement_complete(uuid,uuid,uuid) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_dataset_media_retired(uuid,uuid)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_child_source_matches(uuid,uuid,uuid,timestamptz,jsonb)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_media_child_source_matches(uuid,uuid,uuid,timestamptz,jsonb)
     TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_pyramid_generation_owned(uuid,uuid,uuid,uuid,integer)
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.fixture_pyramid_generation_owned(uuid,uuid,uuid,uuid,integer)
     TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_backfills OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_dispatches OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_executor_principals OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_principal_matches(uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_principal_matches(uuid) TO :"assets_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_children OWNER TO :"jobs_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_pyramid_attempts OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_pyramid_attempt() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.record_fixture_pyramid_attempt(uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_pyramid_attempts_retired(uuid,uuid,uuid,integer,integer) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_pyramid_attempts_retired(uuid,uuid,uuid,integer,integer)
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_backfills OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_dispatches OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_executor_principals OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_principal_matches(uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_media_principal_matches(uuid) TO :"assets_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_children OWNER TO :"jobs_owner";
+ALTER TABLE yoao_jobs_v1.fixture_media_pyramid_attempts OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_pyramid_attempt() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.record_fixture_pyramid_attempt(uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_pyramid_attempts_retired(uuid,uuid,uuid,integer,integer) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_pyramid_attempts_retired(uuid,uuid,uuid,integer,integer)
     TO :"assets_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_video_attempts OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_video_attempt() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.record_fixture_video_attempt(uuid,uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_video_attempt_retired(uuid,uuid,uuid,uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_video_attempt_retired(uuid,uuid,uuid,uuid)
+ALTER TABLE yoao_jobs_v1.fixture_media_video_attempts OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_video_attempt() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.record_fixture_video_attempt(uuid,uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_video_attempt_retired(uuid,uuid,uuid,uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_video_attempt_retired(uuid,uuid,uuid,uuid)
     TO :"assets_owner";
-ALTER TABLE aap_jobs_v1.fixture_media_retirement_sessions OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_retirement_session() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.begin_fixture_media_retirement(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_retirement_authorized(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_fixture_media_retirement(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_retirement_current(uuid,uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_retirement_authorized(uuid,uuid,uuid)
+ALTER TABLE yoao_jobs_v1.fixture_media_retirement_sessions OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_retirement_session() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.begin_fixture_media_retirement(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_retirement_authorized(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_fixture_media_retirement(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_retirement_current(uuid,uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_media_retirement_authorized(uuid,uuid,uuid)
     TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_retirement_current(uuid,uuid)
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_media_retirement_current(uuid,uuid)
     TO :"assets_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_backfill_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)
+ALTER FUNCTION yoao_jobs_v1.fixture_media_backfill_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.delete_fixture_media_backfills(uuid,uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.delete_fixture_media_backfills(uuid,uuid)
     TO :"migration_role";
-ALTER FUNCTION aap_jobs_v1.retire_fixture_media_executor(uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.retire_fixture_media_executor(uuid) TO :"migration_role";
-ALTER FUNCTION aap_jobs_v1.fixture_media_executor_identity(uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_executor_identity(uuid) TO :"migration_role";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_backfill_evidence() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.capture_fixture_media_backfill() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_backfill_route(uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_backfill_job() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_job_reuse() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_dispatch_evidence() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_dispatch() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.capture_fixture_media_dispatch() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_executor_principal() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.register_fixture_media_executor(uuid,name) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.register_fixture_media_executor(uuid,name) TO :"migration_role";
-ALTER FUNCTION aap_jobs_v1.fixture_media_session_owns(text,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_session_authorized(text,uuid,uuid,uuid,uuid,uuid) OWNER TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_session_authorized(text,uuid,uuid,uuid,uuid,uuid)
+ALTER FUNCTION yoao_jobs_v1.retire_fixture_media_executor(uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.retire_fixture_media_executor(uuid) TO :"migration_role";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_executor_identity(uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_media_executor_identity(uuid) TO :"migration_role";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_backfill_evidence() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.capture_fixture_media_backfill() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_backfill_route(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_backfill_job() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_job_reuse() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_dispatch_evidence() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_dispatch() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.capture_fixture_media_dispatch() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_executor_principal() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.register_fixture_media_executor(uuid,name) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.register_fixture_media_executor(uuid,name) TO :"migration_role";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_session_owns(text,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_session_authorized(text,uuid,uuid,uuid,uuid,uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.fixture_media_session_authorized(text,uuid,uuid,uuid,uuid,uuid)
     TO :"assets_owner";
-ALTER FUNCTION aap_jobs_v1.begin_fixture_media_backfill(uuid,text,text,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_fixture_media_backfill(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.guard_fixture_media_child_evidence() OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.prepare_fixture_media_child(uuid,uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.begin_fixture_media_child(uuid,text,uuid,jsonb,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.finish_fixture_media_child(uuid,uuid) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_media_work_exists(text,text) OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.begin_fixture_media_backfill(uuid,text,text,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_fixture_media_backfill(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.guard_fixture_media_child_evidence() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.prepare_fixture_media_child(uuid,uuid,uuid,uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.begin_fixture_media_child(uuid,text,uuid,jsonb,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.finish_fixture_media_child(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_media_work_exists(text,text) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.job_publications_retired(uuid,text[])
+    yoao_jobs_v1.job_publications_retired(uuid,text[])
     TO :"export_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.job_publications_retired(uuid,text[]),
-    aap_jobs_v1.job_publications_not_sent(uuid,text[]),
-    aap_jobs_v1.fixture_media_delivery(uuid),
-    aap_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text),
-    aap_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)
+    yoao_jobs_v1.job_publications_retired(uuid,text[]),
+    yoao_jobs_v1.job_publications_not_sent(uuid,text[]),
+    yoao_jobs_v1.fixture_media_delivery(uuid),
+    yoao_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text),
+    yoao_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb),
-    aap_assets_v1.fixture_independent_source_matches(uuid,uuid,uuid,text,uuid,text,jsonb,jsonb),
-    aap_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)
+    yoao_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb),
+    yoao_assets_v1.fixture_independent_source_matches(uuid,uuid,uuid,text,uuid,text,jsonb,jsonb),
+    yoao_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)
     TO :"jobs_owner";
 
 -- Exact additional bo0446 owners not covered by the existing media/image selectors.
-GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_media_births OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_external_media_jobs OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_external_media_sources OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_pyramid_generations OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_media_executions OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_media_children OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_legacy_birth_admissions OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_screenshot_producer_admissions OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_screenshot_producer_candidates OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_pyramid_bindings OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_pyramid_attempts OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_video_attempts OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_independent_no_start OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_job_retirements OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_video_output_anchors OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_run_no_media_birth_certificates OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_target_retirements OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_native_target_physical_acknowledgements OWNER TO :"assets_owner";
-ALTER TABLE aap_assets_v1.fixture_external_pyramid_reuses OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_original_read_permit() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_dataset_legacy_original_readers_retired(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_task_legacy_original_readers_retired(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.notify_fixture_legacy_original_reader() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_source_matches(uuid,uuid,uuid,text,uuid,text,jsonb,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_location() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_cache_target_binding(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_original() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_binding() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_output() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_connection_alias() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_target_references_retired(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_producer_ready(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_reader_ready(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_pyramid_evidence() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.capture_fixture_native_pyramid() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_pyramid_generation_retired(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_independent_execution() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_session_owns(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_delivery_envelope(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_independent_execution(uuid,uuid,jsonb) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_session_authorized(uuid,uuid,uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_independent_execution(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_legacy_execution_target(text,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.bind_fixture_independent_child(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_legacy_birth_admission() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_legacy_birth_admission(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_legacy_birth_admission(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_legacy_birth_admission_current(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_screenshot_producer_admission() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.begin_fixture_screenshot_producer(uuid,uuid,uuid,uuid,uuid,integer,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_screenshot_producer_current(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_screenshot_producer_target(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.finish_fixture_screenshot_producer(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.reuse_fixture_screenshot_producer(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.record_fixture_independent_pyramid_attempt(uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_pyramid_bindings_retired(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_pyramid_generation_retired(uuid,uuid,uuid,integer,integer) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_screenshot_output_receipt(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_delivery_matches(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retire_fixture_independent_publications(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_independent_deliveries_retired(uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_job_retirement() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_job_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retire_fixture_native_job(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_gate() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.fixture_native_target_receipt(uuid) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.retire_fixture_native_target(uuid,text,text) OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.acknowledge_fixture_native_target_physical_retirement(text,text) OWNER TO :"assets_owner";
-REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
-GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_pyramid_children_retired(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
-ALTER FUNCTION aap_jobs_v1.fixture_pyramid_settled_attempt_count(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
-REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_media_births OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_external_media_jobs OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_external_media_sources OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_pyramid_generations OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_media_executions OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_media_children OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_legacy_birth_admissions OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_screenshot_producer_admissions OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_screenshot_producer_candidates OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_pyramid_bindings OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_pyramid_attempts OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_video_attempts OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_independent_no_start OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_job_retirements OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_video_output_anchors OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_run_no_media_birth_certificates OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_target_retirements OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_native_target_physical_acknowledgements OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.fixture_external_pyramid_reuses OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_original_read_permit() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_dataset_legacy_original_readers_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_task_legacy_original_readers_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.notify_fixture_legacy_original_reader() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_source_matches(uuid,uuid,uuid,text,uuid,text,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_target_location() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_cache_target_binding(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_target_original() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_target_binding() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_target_output() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_target_connection_alias() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_target_references_retired(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_producer_ready(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_reader_ready(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_pyramid_evidence() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_fixture_native_pyramid() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_pyramid_generation_retired(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_independent_execution() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_session_owns(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_delivery_envelope(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_independent_execution(uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_session_authorized(uuid,uuid,uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_independent_execution(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_legacy_execution_target(text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bind_fixture_independent_child(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_legacy_birth_admission() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_legacy_birth_admission(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_legacy_birth_admission(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_legacy_birth_admission_current(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_screenshot_producer_admission() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_fixture_screenshot_producer(uuid,uuid,uuid,uuid,uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_screenshot_producer_current(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_screenshot_producer_target(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_fixture_screenshot_producer(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reuse_fixture_screenshot_producer(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_fixture_independent_pyramid_attempt(uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_pyramid_bindings_retired(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_pyramid_generation_retired(uuid,uuid,uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_screenshot_output_receipt(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_delivery_matches(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_fixture_independent_publications(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_independent_deliveries_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_job_retirement() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_job_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_fixture_native_job(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.guard_fixture_native_target_gate() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_native_target_receipt(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_fixture_native_target(uuid,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.acknowledge_fixture_native_target_physical_retirement(text,text) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_pyramid_children_retired(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.fixture_pyramid_settled_attempt_count(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.fixture_native_cache_target_binding(uuid),
-    aap_assets_v1.fixture_screenshot_output_receipt(uuid,uuid,uuid,text),
-    aap_assets_v1.seal_fixture_run_without_media(uuid),
-    aap_assets_v1.retire_fixture_video_output_anchor(uuid,uuid,uuid),
-    aap_assets_v1.fixture_video_output_disposition(uuid,uuid,uuid),
-    aap_assets_v1.acknowledge_fixture_native_target_physical_retirement(text,text)
+    yoao_assets_v1.fixture_native_cache_target_binding(uuid),
+    yoao_assets_v1.fixture_screenshot_output_receipt(uuid,uuid,uuid,text),
+    yoao_assets_v1.seal_fixture_run_without_media(uuid),
+    yoao_assets_v1.retire_fixture_video_output_anchor(uuid,uuid,uuid),
+    yoao_assets_v1.fixture_video_output_disposition(uuid,uuid,uuid),
+    yoao_assets_v1.acknowledge_fixture_native_target_physical_retirement(text,text)
     TO :"migration_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)
+    yoao_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)
     TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)
+    yoao_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)
     TO :"migration_role";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.fixture_media_execution_run(text,uuid,uuid),
-    aap_jobs_v1.fixture_media_retirement_started(uuid,uuid),
-    aap_jobs_v1.fixture_media_run_retired(uuid),
-    aap_jobs_v1.fixture_pyramid_children_retired(uuid,uuid,uuid,integer),
-    aap_jobs_v1.fixture_pyramid_settled_attempt_count(uuid,uuid,uuid,integer),
-    aap_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)
+    yoao_jobs_v1.fixture_media_execution_run(text,uuid,uuid),
+    yoao_jobs_v1.fixture_media_retirement_started(uuid,uuid),
+    yoao_jobs_v1.fixture_media_run_retired(uuid),
+    yoao_jobs_v1.fixture_pyramid_children_retired(uuid,uuid,uuid,integer),
+    yoao_jobs_v1.fixture_pyramid_settled_attempt_count(uuid,uuid,uuid,integer),
+    yoao_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)
+    yoao_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)
     TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
-    aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
+    yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
     TO :"assets_owner";
 GRANT SELECT (family,run_id,admission_id,operation_id,dataset_id,state,job_id,generation)
     ON yoao_fixture_v1.fixture_native_media_work_intents TO :"assets_owner";
 GRANT SELECT (task_id,dataset_item_id,role)
-    ON aap_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
-GRANT SELECT (run_id) ON aap_jobs_v1.fixture_media_backfills,
-    aap_jobs_v1.fixture_media_children TO :"assets_owner";
+    ON yoao_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
+GRANT SELECT (run_id) ON yoao_jobs_v1.fixture_media_backfills,
+    yoao_jobs_v1.fixture_media_children TO :"assets_owner";
 GRANT SELECT (child_id,asset_id,generation,dataset_id,item_id,delegation)
-    ON aap_jobs_v1.fixture_media_children TO :"assets_owner";
-GRANT SELECT (run_id,state) ON aap_jobs_v1.fixture_media_executor_principals TO :"assets_owner";
+    ON yoao_jobs_v1.fixture_media_children TO :"assets_owner";
+GRANT SELECT (run_id,state) ON yoao_jobs_v1.fixture_media_executor_principals TO :"assets_owner";
 GRANT UPDATE (id) ON yoao_fixture_v1.fixture_run_admissions TO :"assets_owner";
 GRANT UPDATE (run_id) ON yoao_fixture_v1.fixture_run_resources TO :"jobs_owner";
 GRANT DELETE ON public.asset_image_jobs, public.asset_media_jobs TO :"assets_owner";
@@ -4894,7 +4894,7 @@ GRANT SELECT (retired_at), UPDATE (state,retired_at)
     ON public.thumbnail_outputs TO :"assets_owner";
 GRANT UPDATE (state, inventory, updated_at)
     ON public.image_pyramid_outputs TO :"assets_owner";
-GRANT SELECT (original_id) ON aap_labeling_v1.task_rows TO :"assets_owner";
+GRANT SELECT (original_id) ON yoao_labeling_v1.task_rows TO :"assets_owner";
 DO $fixture_owner$
 BEGIN
     IF NOT COALESCE((

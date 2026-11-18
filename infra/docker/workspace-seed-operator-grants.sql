@@ -45,12 +45,12 @@ BEGIN
         RAISE EXCEPTION 'Apply the ordinary Workspace consumer fence first';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
-        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
-        'aap_workspace_v1.write_seed_members(jsonb)',
-        'aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',
-        'aap_workspace_v1.write_seed_project_projection(uuid,jsonb)',
-        'aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)'
+        'yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
+        'yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
+        'yoao_workspace_v1.write_seed_members(jsonb)',
+        'yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',
+        'yoao_workspace_v1.write_seed_project_projection(uuid,jsonb)',
+        'yoao_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner

@@ -11,12 +11,20 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from verify_module_data_boundary import (
+    FROZEN_OWNER_NAMESPACES,
     READ_RELATION_SPECS,
     _assert_read_relation_structure_matches,
     _normalize_read_relation_observations,
     _installed_function_body_sha256,
 )
 import verify_module_data_boundary as verifier
+
+
+def _qualified_namespace(body: bytes) -> bytes:
+    """Model the in-place namespace cutover applied to the installed body."""
+    for current, frozen in FROZEN_OWNER_NAMESPACES.items():
+        body = body.replace(f"{frozen}.".encode(), f"{current}.".encode())
+    return body
 
 
 def test_installed_body_uses_named_function_in_multi_function_resource(
@@ -54,11 +62,11 @@ def test_installed_mask_owner_requires_acceptance_history_dispatch(monkeypatch):
     captured = []
     monkeypatch.setattr(migration, "_apply", captured.append)
     migration._mask_command(history=True)
-    installed = captured[0].split("$function$", 2)[1].encode()
+    installed = _qualified_namespace(captured[0].split("$function$", 2)[1].encode())
     arguments = dict(
         database="owned_test",
         owner_password="fixture-only",
-        signature="aap_labeling_v1.mask_edit_command(jsonb)",
+        signature="yoao_labeling_v1.mask_edit_command(jsonb)",
         sql_name="0348_labeling_mask_edits.sql",
     )
     monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: installed.hex())
@@ -67,7 +75,7 @@ def test_installed_mask_owner_requires_acceptance_history_dispatch(monkeypatch):
     )
     captured.clear()
     migration._mask_command(history=False)
-    old_body = captured[0].split("$function$", 2)[1].encode()
+    old_body = _qualified_namespace(captured[0].split("$function$", 2)[1].encode())
     monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: old_body.hex())
     with pytest.raises(RuntimeError, match="differs from frozen SQL"):
         _installed_function_body_sha256("id", "name", "identity", **arguments)

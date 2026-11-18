@@ -26,9 +26,9 @@ from scripts.video_worker_fence import (
 
 WORKER_DATABASE_SOURCES = {
     "DATABASE_URL": "identity_api_consumer",
-    "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "preannotation_result_client",
-    "INFERENCE_ROUTING_DATABASE_URL": "inference_routing_client",
-    "LABELING_VIDEO_WRITER_DATABASE_URL": "labeling_video_writer_client",
+    "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "yoao_preannotation_result_client",
+    "INFERENCE_ROUTING_DATABASE_URL": "yoao_inference_routing_client",
+    "LABELING_VIDEO_WRITER_DATABASE_URL": "yoao_labeling_video_writer_client",
 }
 _ROLE_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _WORKER_ACCEPTANCE_ID = re.compile(r"[0-9a-f]{20}\Z")

@@ -305,7 +305,7 @@
     "relations": [
       {
         "name": "task_facts",
-        "qualified_name": "aap_labeling_audit_v1.task_facts",
+        "qualified_name": "yoao_labeling_audit_v1.task_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -510,7 +510,7 @@
       },
       {
         "name": "task_batch_facts",
-        "qualified_name": "aap_labeling_audit_v1.task_batch_facts",
+        "qualified_name": "yoao_labeling_audit_v1.task_batch_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -559,7 +559,7 @@
       },
       {
         "name": "annotation_facts",
-        "qualified_name": "aap_labeling_audit_v1.annotation_facts",
+        "qualified_name": "yoao_labeling_audit_v1.annotation_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -629,7 +629,7 @@
       },
       {
         "name": "task_lock_facts",
-        "qualified_name": "aap_labeling_audit_v1.task_lock_facts",
+        "qualified_name": "yoao_labeling_audit_v1.task_lock_facts",
         "kind": "security_barrier_view",
         "columns": [
           {
@@ -653,7 +653,7 @@
       },
       {
         "name": "schema_capabilities",
-        "qualified_name": "aap_labeling_audit_v1.schema_capabilities",
+        "qualified_name": "yoao_labeling_audit_v1.schema_capabilities",
         "kind": "security_barrier_view",
         "columns": [
           {

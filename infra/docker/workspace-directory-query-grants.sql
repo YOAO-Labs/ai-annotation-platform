@@ -69,10 +69,10 @@ DECLARE
         WHERE role.rolname = current_setting('yoao.workspace_directory_query_role')
     );
     identity_function oid := pg_catalog.to_regprocedure(
-        'aap_identity_v1.workspace_directory_superadmins()'
+        'yoao_identity_v1.workspace_directory_superadmins()'
     )::oid;
     account_function oid := pg_catalog.to_regprocedure(
-        'aap_identity_v1.read_workspace_membership_accounts(uuid[])'
+        'yoao_identity_v1.read_workspace_membership_accounts(uuid[])'
     )::oid;
     project_query_function oid := pg_catalog.to_regprocedure(
         'yoao_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamp with time zone, timestamp with time zone, bigint, integer)'
@@ -114,7 +114,7 @@ BEGIN
     ) OR NOT pg_catalog.has_schema_privilege(
         workspace_oid, 'yoao_workspace_project_query_v1', 'USAGE'
     ) OR NOT pg_catalog.has_schema_privilege(
-        workspace_oid, 'aap_identity_v1', 'USAGE'
+        workspace_oid, 'yoao_identity_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, project_query_function, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(

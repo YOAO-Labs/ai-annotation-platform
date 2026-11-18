@@ -1,7 +1,7 @@
 -- Grant only the two Identity provisioning functions to the dedicated LOGIN.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v audit_owner=audit_code
---   -v identity_provisioning_role=identity_provisioning_client
+--   -v identity_provisioning_role=yoao_identity_provisioning_client
 --   -f infra/docker/identity-provisioning-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -26,7 +26,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'identity_provisioning_client'
+    IF role_name <> 'yoao_identity_provisioning_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM unnest(role_names) AS candidate(name)) <> 3 THEN
         RAISE EXCEPTION 'Unexpected Identity provisioning role names';
@@ -74,28 +74,28 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_v1.read_provisioning_account(text)'
+            'yoao_identity_v1.read_provisioning_account(text)'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_v1.create_provisioning_account(jsonb)'
+               'yoao_identity_v1.create_provisioning_account(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_v1._initialize_account_presence()'
+               'yoao_identity_v1._initialize_account_presence()'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)'
+               'yoao_audit_v1.record_identity_bootstrap_admin(uuid,text,text)'
            )::oid) IS DISTINCT FROM audit_oid THEN
         RAISE EXCEPTION 'An Identity provisioning function has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)'
+            'yoao_audit_v1.record_identity_bootstrap_admin(uuid,text,text)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_schema_privilege(
-        identity_oid, 'aap_audit_v1', 'USAGE'
+        identity_oid, 'yoao_audit_v1', 'USAGE'
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.users', 'id', 'SELECT'
     ) OR NOT pg_catalog.has_column_privilege(
@@ -153,11 +153,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"identity_provisioning_role";
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"identity_provisioning_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.create_provisioning_account(jsonb),
-    aap_identity_v1.create_seed_persona_account(jsonb),
-    aap_identity_v1.read_provisioning_account(text)
+    yoao_identity_v1.create_provisioning_account(jsonb),
+    yoao_identity_v1.create_seed_persona_account(jsonb),
+    yoao_identity_v1.read_provisioning_account(text)
     TO :"identity_provisioning_role";
 
 DO $$
@@ -168,9 +168,9 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_v1.create_provisioning_account(jsonb)',
-        'aap_identity_v1.create_seed_persona_account(jsonb)',
-        'aap_identity_v1.read_provisioning_account(text)'
+        'yoao_identity_v1.create_provisioning_account(jsonb)',
+        'yoao_identity_v1.create_seed_persona_account(jsonb)',
+        'yoao_identity_v1.read_provisioning_account(text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -220,9 +220,9 @@ BEGIN
             actual_functions;
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-        role_oid, 'aap_identity_v1', 'USAGE'
+        role_oid, 'yoao_identity_v1', 'USAGE'
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_identity_v1', 'CREATE'
+        role_oid, 'yoao_identity_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(
         role_oid, 'public', 'CREATE'
     ) OR pg_catalog.has_database_privilege(
@@ -233,7 +233,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
-            'pg_catalog', 'information_schema', 'aap_identity_v1', 'public'
+            'pg_catalog', 'information_schema', 'yoao_identity_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'

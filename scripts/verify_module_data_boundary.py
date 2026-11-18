@@ -39,127 +39,177 @@ CONTAINER_LABEL = "org.aap.acceptance"
 CONTAINER_LABEL_VALUE = "module-data-boundary"
 CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
-INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
-INFERENCE_ROUTING_ROLE = "inference_routing_client"
+INFERENCE_REGISTRY_INGRESS_ROLE = "yoao_inference_registry_ingress_client"
+INFERENCE_ROUTING_ROLE = "yoao_inference_routing_client"
 INFERENCE_OWNER_PROFILES = {
-    "INFERENCE_ENDPOINT_SETUP": ("setup", "inference_endpoint_setup_client"),
+    "INFERENCE_ENDPOINT_SETUP": ("setup", "yoao_inference_endpoint_setup_client"),
     "INFERENCE_ENDPOINT_HEALTH_OBSERVATION": (
         "health_observation",
-        "inference_endpoint_health_client",
+        "yoao_inference_endpoint_health_client",
     ),
     "INFERENCE_ENDPOINT_CATALOG_FALLBACK": (
         "catalog_fallback",
-        "inference_endpoint_catalog_client",
+        "yoao_inference_endpoint_catalog_client",
     ),
-    "INFERENCE_ENDPOINT_STATS": ("stats", "inference_endpoint_stats_client"),
+    "INFERENCE_ENDPOINT_STATS": ("stats", "yoao_inference_endpoint_stats_client"),
     "INFERENCE_ENDPOINT_BACKEND_READ": (
         "backend_read",
-        "inference_endpoint_read_client",
+        "yoao_inference_endpoint_read_client",
     ),
     "INFERENCE_ENDPOINT_LIFECYCLE": (
         "lifecycle",
-        "inference_endpoint_lifecycle_client",
+        "yoao_inference_endpoint_lifecycle_client",
     ),
     "INFERENCE_ENDPOINT_EXECUTION": (
         "execution",
-        "inference_endpoint_execution_client",
+        "yoao_inference_endpoint_execution_client",
     ),
-    "INFERENCE_BACKEND_STATS": ("backend_stats", "inference_backend_stats_client"),
+    "INFERENCE_BACKEND_STATS": ("backend_stats", "yoao_inference_backend_stats_client"),
     "INFERENCE_GPU_HEALTH_ENDPOINT": (
         "gpu_health_observation",
-        "inference_gpu_health_endpoint_client",
+        "yoao_inference_gpu_health_endpoint_client",
     ),
     "INFERENCE_GPU_CONTROL_ENDPOINT": (
         "gpu_control",
-        "inference_gpu_control_endpoint_client",
+        "yoao_inference_gpu_control_endpoint_client",
     ),
-    "INFERENCE_GPU": ("gpu_authority", "inference_gpu_authority_client"),
+    "INFERENCE_GPU": ("gpu_authority", "yoao_inference_gpu_authority_client"),
     "INFERENCE_GPU_COLLECTOR": ("gpu_collector", "yoao_inference_gpu_collector_client"),
 }
-VIDEO_EXECUTION_ROLE = "video_execution_client"
+VIDEO_EXECUTION_ROLE = "yoao_video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
-NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
-NOTIFICATION_APPEND_ROLE = "notification_append_client"
-NOTIFICATION_INBOX_ROLE = "notification_inbox_query_client"
-NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
-JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
-JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
-JOBS_DISPATCH_RELAY_ROLE = "jobs_dispatch_relay_client"
-JOBS_PUBLICATION_ROLE = "jobs_publication_client"
-EXPORT_EXECUTION_ROLE = "export_execution_client"
+NOTIFICATION_PREFERENCES_ROLE = "yoao_notification_preferences_client"
+NOTIFICATION_APPEND_ROLE = "yoao_notification_append_client"
+NOTIFICATION_INBOX_ROLE = "yoao_notification_inbox_query_client"
+NOTIFICATION_DELIVERY_READ_ROLE = "yoao_notification_delivery_read_client"
+JOBS_LIST_QUERY_ROLE = "yoao_jobs_list_query_client"
+JOBS_LIFECYCLE_ROLE = "yoao_jobs_lifecycle_client"
+JOBS_DISPATCH_RELAY_ROLE = "yoao_jobs_dispatch_relay_client"
+JOBS_PUBLICATION_ROLE = "yoao_jobs_publication_client"
+EXPORT_EXECUTION_ROLE = "yoao_export_execution_client"
 JOBS_DOMAIN_QUERY_FUNCTIONS = (
-    "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
-    "aap_jobs_v1.active_cross_frame_job(uuid,text)",
-    "aap_jobs_v1.cross_frame_job_page(uuid,text,integer)",
-    "aap_jobs_v1.cross_frame_job_count(uuid,text)",
-    "aap_jobs_v1.latest_batch_prediction_times(uuid[])",
-    "aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)",
+    "yoao_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
+    "yoao_jobs_v1.active_cross_frame_job(uuid,text)",
+    "yoao_jobs_v1.cross_frame_job_page(uuid,text,integer)",
+    "yoao_jobs_v1.cross_frame_job_count(uuid,text)",
+    "yoao_jobs_v1.latest_batch_prediction_times(uuid[])",
+    "yoao_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)",
 )
 JOBS_ROW_LOCK_FUNCTIONS = (
-    "aap_jobs_v1.read_job_for_update(uuid)",
-    "aap_jobs_v1.read_job_for_share_nowait(uuid)",
-    "aap_jobs_v1.read_job_for_update_nowait(uuid)",
+    "yoao_jobs_v1.read_job_for_update(uuid)",
+    "yoao_jobs_v1.read_job_for_share_nowait(uuid)",
+    "yoao_jobs_v1.read_job_for_update_nowait(uuid)",
 )
 JOBS_LIFECYCLE_FUNCTIONS = (
-    "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
-    "aap_jobs_v1.read_job_execution_snapshot(uuid)",
-    "aap_jobs_v1.read_job(uuid)",
-    "aap_jobs_v1.jobs_by_execution_id(text)",
-    "aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
-    "aap_jobs_v1.apply_lifecycle(uuid,jsonb)",
-    "aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)",
-    "aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)",
-    "aap_jobs_v1.delete_batch_predict_jobs(uuid)",
-    "aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])",
+    "yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
+    "yoao_jobs_v1.read_job_execution_snapshot(uuid)",
+    "yoao_jobs_v1.read_job(uuid)",
+    "yoao_jobs_v1.jobs_by_execution_id(text)",
+    "yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
+    "yoao_jobs_v1.apply_lifecycle(uuid,jsonb)",
+    "yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)",
+    "yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)",
+    "yoao_jobs_v1.delete_batch_predict_jobs(uuid)",
+    "yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])",
 )
 JOBS_LIST_QUERY_FUNCTIONS = (
-    "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
-    "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
+    "yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
+    "yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
 )
 NOTIFICATION_DELIVERY_READ_FUNCTIONS = (
-    "aap_notifications_v1.read_notification(uuid)",
-    "aap_notifications_v1.find_terminal_notification(uuid,text,uuid)",
-    "aap_notifications_v1.delivery_job_scopes(uuid[])",
-    "aap_notifications_v1.delivery_member_pairs(jsonb)",
-    "aap_notifications_v1.delivery_reviewer_pairs(jsonb)",
-    "aap_notifications_v1.delivery_owner_pairs(jsonb)",
-    "aap_notifications_v1.delivery_super_pairs(jsonb)",
+    "yoao_notifications_v1.read_notification(uuid)",
+    "yoao_notifications_v1.find_terminal_notification(uuid,text,uuid)",
+    "yoao_notifications_v1.delivery_job_scopes(uuid[])",
+    "yoao_notifications_v1.delivery_member_pairs(jsonb)",
+    "yoao_notifications_v1.delivery_reviewer_pairs(jsonb)",
+    "yoao_notifications_v1.delivery_owner_pairs(jsonb)",
+    "yoao_notifications_v1.delivery_super_pairs(jsonb)",
 )
 NOTIFICATION_INBOX_FUNCTIONS = (
-    "aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
-    "aap_notifications_v1.inbox_total_count_scoped(uuid,text)",
-    "aap_notifications_v1.inbox_unread_count_scoped(uuid,text)",
-    "aap_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
-    "aap_notifications_v1.inbox_total_count(uuid,text)",
-    "aap_notifications_v1.inbox_unread_count(uuid,text)",
+    "yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
+    "yoao_notifications_v1.inbox_total_count_scoped(uuid,text)",
+    "yoao_notifications_v1.inbox_unread_count_scoped(uuid,text)",
+    "yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
+    "yoao_notifications_v1.inbox_total_count(uuid,text)",
+    "yoao_notifications_v1.inbox_unread_count(uuid,text)",
 )
 NOTIFICATION_INBOX_PRIVATE_HELPER = (
-    "aap_notifications_v1._visible_inbox_rows(uuid,text)"
+    "yoao_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 # Qualified owner identities and their audited callers may move; historical SQL may not.
 # Frozen SQL and signed wire identities remain unchanged.
 FROZEN_OWNER_NAMESPACES = {
+    "yoao_assets_v1": "aap_assets_v1",
+    "yoao_audit_v1": "aap_audit_v1",
     "yoao_diagnostics_v1": "aap_diagnostics_v1",
+    "yoao_export_v1": "aap_export_v1",
+    "yoao_identity_accounts_v1": "aap_identity_accounts_v1",
+    "yoao_identity_admin_passwords_v1": "aap_identity_admin_passwords_v1",
     "yoao_identity_briefs_v1": "aap_identity_briefs_v1",
+    "yoao_identity_deactivation_v1": "aap_identity_deactivation_v1",
+    "yoao_identity_deletions_v1": "aap_identity_deletions_v1",
+    "yoao_identity_directory_v1": "aap_identity_directory_v1",
+    "yoao_identity_fixture_v1": "aap_identity_fixture_v1",
+    "yoao_identity_groups_v1": "aap_identity_groups_v1",
+    "yoao_identity_invitations_v1": "aap_identity_invitations_v1",
     "yoao_identity_keys_v1": "aap_identity_keys_v1",
+    "yoao_identity_mail_v2": "aap_identity_mail_v2",
+    "yoao_identity_offboarding_v1": "aap_identity_offboarding_v1",
+    "yoao_identity_platform_roles_v1": "aap_identity_platform_roles_v1",
+    "yoao_identity_recovery_v1": "aap_identity_recovery_v1",
+    "yoao_identity_sessions_v1": "aap_identity_sessions_v1",
+    "yoao_identity_suspensions_v1": "aap_identity_suspensions_v1",
+    "yoao_identity_v1": "aap_identity_v1",
+    "yoao_inference_backend_endpoint_v1": "aap_inference_backend_endpoint_v1",
+    "yoao_inference_backend_probe_v1": "aap_inference_backend_probe_v1",
     "yoao_inference_gpu_caller_v1": "aap_inference_gpu_caller_v1",
     "yoao_inference_gpu_collector_v1": "aap_inference_gpu_collector_v1",
-    "yoao_labeling_class_query_v1": "aap_labeling_class_query_v1",
+    "yoao_inference_gpu_v1": "aap_inference_gpu_v1",
+    "yoao_inference_health_data_v1": "aap_inference_health_data_v1",
+    "yoao_inference_health_observation_v1": "aap_inference_health_observation_v1",
+    "yoao_inference_pipelines_v1": "aap_inference_pipelines_v1",
+    "yoao_inference_registry_ingress_v1": "aap_inference_registry_ingress_v1",
+    "yoao_inference_routing_v1": "aap_inference_routing_v1",
+    "yoao_inference_topology_v1": "aap_inference_topology_v1",
+    "yoao_inference_v1": "aap_inference_v1",
     "yoao_insights_v1": "aap_insights_v1",
+    "yoao_jobs_v1": "aap_jobs_v1",
+    "yoao_labeling_class_query_v1": "aap_labeling_class_query_v1",
+    "yoao_labeling_v1": "aap_labeling_v1",
+    "yoao_learning_v1": "aap_learning_v1",
+    "yoao_notifications_v1": "aap_notifications_v1",
+    "yoao_settings_v1": "aap_settings_v1",
+    "yoao_workspace_configuration_v1": "aap_workspace_configuration_v1",
     "yoao_workspace_directory_query_v1": "aap_workspace_directory_query_v1",
+    "yoao_workspace_fixture_v1": "aap_workspace_fixture_v1",
     "yoao_workspace_project_query_v1": "aap_workspace_project_query_v1",
     "yoao_workspace_template_query_v1": "aap_workspace_template_query_v1",
+    "yoao_workspace_v1": "aap_workspace_v1",
 }
 NAMESPACE_BODY_CALLERS = {
-    "aap_inference_pipelines_v1.pipeline_step",
-    "aap_jobs_v1._async_job_list_rows",
-    "aap_notifications_v1._visible_inbox_rows",
-    "aap_notifications_v1.delivery_owner_pairs",
-    "aap_notifications_v1.delivery_super_pairs",
-    "aap_workspace_configuration_v1._class_rename_project_row",
-    "aap_workspace_configuration_v1._guide_asset_read_project_row",
-    "aap_workspace_v1.delete_project",
-    "aap_workspace_v1.unlink_dataset",
+    "public.capture_fixture_native_export",
+    "public.capture_fixture_native_export_output",
+    "public.fixture_export_execution_retired",
+    "public.fixture_native_export_cleanup_eligible",
+    "public.guard_fixture_export_job_identity",
+    "public.record_fixture_export_execution",
+    "public.retire_fixture_export_execution",
+    "public.sync_gpu_backend_membership",
+    "yoao_fixture_v1.guard_dataset_job_anchor",
+    "yoao_fixture_v1.guard_jobs_anchor",
+    "yoao_fixture_v1.retire_auxiliary_original",
+    "yoao_inference_pipelines_v1.pipeline_step",
+    "yoao_jobs_v1._async_job_list_rows",
+    "yoao_notifications_v1._visible_inbox_rows",
+    "yoao_notifications_v1.delivery_owner_pairs",
+    "yoao_notifications_v1.delivery_super_pairs",
+    "yoao_workspace_configuration_v1._class_rename_project_row",
+    "yoao_workspace_configuration_v1._guide_asset_read_project_row",
+    "yoao_workspace_membership_v1.apply_membership_command",
+    "yoao_workspace_membership_v1.prepare_membership_command",
+    "yoao_workspace_owner_transfer_v1.transfer_project_owner",
+    "yoao_workspace_v1.delete_project",
+    "yoao_workspace_v1.unlink_dataset",
 }
 FUNCTION_BODY_ARTIFACTS = {
     "yoao_identity_briefs_v1._failure()": "0249_identity_briefs.sql",
@@ -171,7 +221,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_labeling_class_query_v1.attribute_rows(uuid)": "0266_labeling_class_query.sql",
     "yoao_labeling_class_query_v1.class_counts(uuid)": "0266_labeling_class_query.sql",
     "yoao_labeling_class_query_v1.class_query_policy()": "0266_labeling_class_query.sql",
-    "aap_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])": "0271_inference_pipelines.sql",
+    "yoao_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])": "0271_inference_pipelines.sql",
     "yoao_workspace_directory_query_v1._has_exact_keys(jsonb,text[])": "0263_workspace_directory_queries.sql",
     "yoao_workspace_directory_query_v1.directory_query_policy()": "0263_workspace_directory_queries.sql",
     "yoao_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)": "0263_workspace_directory_queries.sql",
@@ -187,62 +237,62 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_diagnostics_v1.detach_dataset_task_references(uuid,uuid)": "0203_dataset_unlink_assets.sql",
     "yoao_diagnostics_v1.detach_project_references(uuid)": "0198_project_owned_cleanup_contract.sql",
     "yoao_insights_v1.clear_project_task_views(uuid)": "0198_project_owned_cleanup_contract.sql",
-    "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)": "0300_video_deletion_retirement.sql",
+    "yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)": "0300_video_deletion_retirement.sql",
     **{
         signature: "0463_native_pyramid_retirement.sql"
         for signature in (
-            "aap_assets_v1._native_pyramid_retirement_policy_valid(jsonb)",
-            "aap_assets_v1._native_pyramid_retirement_grace(jsonb)",
-            "aap_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
-            "aap_assets_v1.guard_native_pyramid_retirement_target()",
-            "aap_assets_v1.guard_native_pyramid_retirement_page()",
-            "aap_assets_v1.record_native_pyramid_retirement()",
-            "aap_assets_v1.preserve_native_pyramid_retirement_grace()",
-            "aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
+            "yoao_assets_v1._native_pyramid_retirement_policy_valid(jsonb)",
+            "yoao_assets_v1._native_pyramid_retirement_grace(jsonb)",
+            "yoao_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
+            "yoao_assets_v1.guard_native_pyramid_retirement_target()",
+            "yoao_assets_v1.guard_native_pyramid_retirement_page()",
+            "yoao_assets_v1.record_native_pyramid_retirement()",
+            "yoao_assets_v1.preserve_native_pyramid_retirement_grace()",
+            "yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
         )
     },
     **{
         signature: "0463_native_pyramid_reads_retirement.sql"
         for signature in (
-            "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
-            "aap_assets_v1._cancel_image_source_work(text,uuid,text)",
-            "aap_assets_v1.cancel_image_media(uuid,uuid,uuid)",
-            "aap_assets_v1._image_enqueue(uuid,uuid,jsonb,jsonb,boolean)",
-            "aap_assets_v1._image_pyramid_summary(jsonb)",
+            "yoao_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
+            "yoao_assets_v1._cancel_image_source_work(text,uuid,text)",
+            "yoao_assets_v1.cancel_image_media(uuid,uuid,uuid)",
+            "yoao_assets_v1._image_enqueue(uuid,uuid,jsonb,jsonb,boolean)",
+            "yoao_assets_v1._image_pyramid_summary(jsonb)",
         )
     },
     **{
         signature: "0464_native_pyramid_saved_targets.sql"
         for signature in (
-            "aap_assets_v1._native_pyramid_output_fixture_owned(uuid)",
-            "aap_assets_v1._image_saved_output_target(uuid,integer,uuid,boolean)",
-            "aap_assets_v1._image_saved_output_prefix(uuid,integer,uuid,boolean)",
-            "aap_assets_v1._image_pyramid_projection(jsonb,integer,text)",
-            "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
-            "aap_assets_v1.guard_native_pyramid_read_permit()",
-            "aap_assets_v1.begin_native_pyramid_read(uuid,uuid,uuid,integer,text,uuid,uuid)",
-            "aap_assets_v1.complete_native_pyramid_read(uuid,uuid)",
-            "aap_assets_v1._native_pyramid_retirement_claimable(uuid)",
-            "aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
-            "aap_assets_v1._native_pyramid_retirement_page_items(uuid,uuid[])",
-            "aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
-            "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
-            "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
-            "aap_assets_v1.verify_native_pyramid_member(uuid)",
-            "aap_assets_v1.resolve_fixture_native_cache(text)",
-            "aap_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer)",
+            "yoao_assets_v1._native_pyramid_output_fixture_owned(uuid)",
+            "yoao_assets_v1._image_saved_output_target(uuid,integer,uuid,boolean)",
+            "yoao_assets_v1._image_saved_output_prefix(uuid,integer,uuid,boolean)",
+            "yoao_assets_v1._image_pyramid_projection(jsonb,integer,text)",
+            "yoao_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
+            "yoao_assets_v1.guard_native_pyramid_read_permit()",
+            "yoao_assets_v1.begin_native_pyramid_read(uuid,uuid,uuid,integer,text,uuid,uuid)",
+            "yoao_assets_v1.complete_native_pyramid_read(uuid,uuid)",
+            "yoao_assets_v1._native_pyramid_retirement_claimable(uuid)",
+            "yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
+            "yoao_assets_v1._native_pyramid_retirement_page_items(uuid,uuid[])",
+            "yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
+            "yoao_assets_v1.write_native_pyramid_member(uuid,text,text)",
+            "yoao_assets_v1.abandon_native_pyramid_member(uuid,text)",
+            "yoao_assets_v1.verify_native_pyramid_member(uuid)",
+            "yoao_assets_v1.resolve_fixture_native_cache(text)",
+            "yoao_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer)",
         )
     },
     **{
         signature: "0464_native_storage_capture.sql"
         for signature in (
-            "aap_assets_v1._native_pyramid_target_destination(uuid,text,text,text)",
-            "aap_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)",
-            "aap_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)",
-            "aap_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)",
+            "yoao_assets_v1._native_pyramid_target_destination(uuid,text,text,text)",
+            "yoao_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)",
+            "yoao_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)",
+            "yoao_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)",
         )
     },
-    "aap_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
+    "yoao_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
     "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0467_workspace_membership_namespace.sql",
     **{
         signature: "0467_workspace_membership_namespace.sql"
@@ -252,164 +302,164 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_workspace_membership_v1.apply_membership_command(jsonb)",
         )
     },
-    "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
-    "aap_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
-    "aap_assets_v1.reserve_import_original_read(jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.cancel_unstarted_import_original_read(jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.begin_import_original_verification(jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.record_import_original_read(jsonb,jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.finish_import_original_verification(jsonb,jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.recover_import_original_verification(jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.status_import_original_verification(jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.resume_import_original_verification(jsonb)": "0453_import_original_verification.sql",
-    "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)": "0453_import_original_verification.sql",
-    "aap_jobs_v1.retire_job_publications(uuid,text[])": "0451_jobs_publication_retirement.sql",
-    "aap_inference_routing_v1.video_execution_scope_step(text,text)": "0450_video_candidate_status_restore.sql",
-    "aap_jobs_v1._video_restore_route_snapshot(bytea,text)": "0450_video_candidate_status_restore.sql",
-    "aap_jobs_v1._video_execution_route_step(text,text)": "0405_video_tracker_asset_candidates.sql",
-    "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)": "0449_image_backfill_purpose.sql",
-    "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)": "0449_image_backfill_purpose.sql",
-    "aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)": "0433_project_video_retirement.sql",
-    "aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)": "0424_upload_publication_identity.sql",
-    "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
-    "aap_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
-    "aap_jobs_v1.prepare_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
-    "aap_jobs_v1.claim_dispatches(jsonb)": "0368_jobs_dispatch_ledger.sql",
-    "aap_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
-    "aap_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
-    "aap_jobs_v1._video_execution_settled(uuid,uuid,text,text,uuid)": "0409_video_execution_settlement.sql",
-    "aap_jobs_v1.video_execution_step(text,text)": "0411_video_execution_physical_closure.sql",
-    "aap_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
-    "aap_inference_topology_v1.registry_auth_snapshot(uuid)": "0410_inference_managed_auth.sql",
-    "aap_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)": "0410_inference_managed_auth.sql",
-    "aap_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])": "0386_inference_repair_model_lock.sql",
-    "aap_inference_topology_v1.lock_plugin_registry(uuid)": "0393_plugin_registry_admission_fence.sql",
-    "aap_inference_topology_v1.prepare_plugin_installation(text)": "0388_inference_plugin_installation.sql",
-    "aap_inference_topology_v1.plugin_installation(uuid)": "0388_inference_plugin_installation.sql",
-    "aap_inference_topology_v1.plugin_installations()": "0388_inference_plugin_installation.sql",
-    "aap_inference_topology_v1.plugin_installation_evidence(uuid)": "0388_inference_plugin_installation.sql",
-    "aap_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0412_plugin_tracker_retirement_order.sql",
-    "aap_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0400_plugin_routing_replacement.sql",
-    "aap_inference_routing_v1._tracker_scopes_physically_retired(uuid)": "0412_plugin_tracker_retirement_order.sql",
-    "aap_inference_routing_v1._guard_disabled_plugin_tracker_scope()": "0412_plugin_tracker_retirement_order.sql",
-    "aap_inference_topology_v1.plugin_asset_approval(uuid)": "0403_plugin_asset_approval.sql",
-    "aap_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0403_plugin_asset_approval.sql",
-    "aap_inference_topology_v1.create_manual_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_topology_v1.patch_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_topology_v1.delete_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
-    "aap_inference_registry_ingress_v1.tag_seed_registry_plugin_legacy(uuid,text)": "0457_inference_registry_seed_marker_revision.sql",
-    "aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)": "0389_inference_deployment_usage.sql",
-    "aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)": "0389_labeling_deployment_usage.sql",
-    "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0371_inference_backend_endpoint_auth_revision.sql",
-    "aap_inference_backend_endpoint_v1._endpoint_transport_identity(jsonb)": "0394_endpoint_routing_transport_identity.sql",
-    "aap_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)": "0403_plugin_asset_approval.sql",
-    "aap_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)": "0399_plugin_terminal_hold.sql",
-    "aap_inference_backend_endpoint_v1.backend_endpoint_policy()": "0399_plugin_terminal_hold.sql",
-    "aap_inference_routing_v1._routing_registry_before_change()": "0399_plugin_terminal_hold.sql",
-    "aap_inference_gpu_v1.gpu_authority_step(text,text)": "0399_plugin_terminal_hold.sql",
-    "aap_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb)": "0391_gpu_plugin_transition.sql",
-    "aap_inference_gpu_v1.gpu_plugin_prepared_cancellation_valid(uuid,jsonb)": "0392_plugin_prepared_cancellation.sql",
-    "aap_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
-    "aap_inference_gpu_v1.gpu_plugin_retirement_closure(uuid,text,bigint)": "0395_plugin_gpu_retirement.sql",
+    "yoao_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
+    "yoao_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.reserve_import_original_read(jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.cancel_unstarted_import_original_read(jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.begin_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.record_import_original_read(jsonb,jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.finish_import_original_verification(jsonb,jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.recover_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.status_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.resume_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "yoao_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)": "0453_import_original_verification.sql",
+    "yoao_jobs_v1.retire_job_publications(uuid,text[])": "0451_jobs_publication_retirement.sql",
+    "yoao_inference_routing_v1.video_execution_scope_step(text,text)": "0450_video_candidate_status_restore.sql",
+    "yoao_jobs_v1._video_restore_route_snapshot(bytea,text)": "0450_video_candidate_status_restore.sql",
+    "yoao_jobs_v1._video_execution_route_step(text,text)": "0405_video_tracker_asset_candidates.sql",
+    "yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)": "0449_image_backfill_purpose.sql",
+    "yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)": "0449_image_backfill_purpose.sql",
+    "yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)": "0433_project_video_retirement.sql",
+    "yoao_assets_v1.lock_dataset_upload(uuid,uuid,uuid)": "0424_upload_publication_identity.sql",
+    "yoao_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
+    "yoao_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
+    "yoao_jobs_v1.prepare_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
+    "yoao_jobs_v1.claim_dispatches(jsonb)": "0368_jobs_dispatch_ledger.sql",
+    "yoao_jobs_v1.finish_dispatch(jsonb)": "0368_jobs_dispatch_ledger.sql",
+    "yoao_jobs_v1.dispatch_status(uuid)": "0368_jobs_dispatch_ledger.sql",
+    "yoao_jobs_v1._video_execution_settled(uuid,uuid,text,text,uuid)": "0409_video_execution_settlement.sql",
+    "yoao_jobs_v1.video_execution_step(text,text)": "0411_video_execution_physical_closure.sql",
+    "yoao_inference_topology_v1.registry_facts(uuid)": "0369_inference_topology.sql",
+    "yoao_inference_topology_v1.registry_auth_snapshot(uuid)": "0410_inference_managed_auth.sql",
+    "yoao_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)": "0410_inference_managed_auth.sql",
+    "yoao_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])": "0386_inference_repair_model_lock.sql",
+    "yoao_inference_topology_v1.lock_plugin_registry(uuid)": "0393_plugin_registry_admission_fence.sql",
+    "yoao_inference_topology_v1.prepare_plugin_installation(text)": "0388_inference_plugin_installation.sql",
+    "yoao_inference_topology_v1.plugin_installation(uuid)": "0388_inference_plugin_installation.sql",
+    "yoao_inference_topology_v1.plugin_installations()": "0388_inference_plugin_installation.sql",
+    "yoao_inference_topology_v1.plugin_installation_evidence(uuid)": "0388_inference_plugin_installation.sql",
+    "yoao_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0412_plugin_tracker_retirement_order.sql",
+    "yoao_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0400_plugin_routing_replacement.sql",
+    "yoao_inference_routing_v1._tracker_scopes_physically_retired(uuid)": "0412_plugin_tracker_retirement_order.sql",
+    "yoao_inference_routing_v1._guard_disabled_plugin_tracker_scope()": "0412_plugin_tracker_retirement_order.sql",
+    "yoao_inference_topology_v1.plugin_asset_approval(uuid)": "0403_plugin_asset_approval.sql",
+    "yoao_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0403_plugin_asset_approval.sql",
+    "yoao_inference_topology_v1.create_manual_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_topology_v1.patch_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_topology_v1.delete_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_registry_ingress_v1.tag_seed_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
+    "yoao_inference_registry_ingress_v1.tag_seed_registry_plugin_legacy(uuid,text)": "0457_inference_registry_seed_marker_revision.sql",
+    "yoao_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)": "0389_inference_deployment_usage.sql",
+    "yoao_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)": "0389_labeling_deployment_usage.sql",
+    "yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0371_inference_backend_endpoint_auth_revision.sql",
+    "yoao_inference_backend_endpoint_v1._endpoint_transport_identity(jsonb)": "0394_endpoint_routing_transport_identity.sql",
+    "yoao_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)": "0403_plugin_asset_approval.sql",
+    "yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)": "0399_plugin_terminal_hold.sql",
+    "yoao_inference_backend_endpoint_v1.backend_endpoint_policy()": "0399_plugin_terminal_hold.sql",
+    "yoao_inference_routing_v1._routing_registry_before_change()": "0399_plugin_terminal_hold.sql",
+    "yoao_inference_gpu_v1.gpu_authority_step(text,text)": "0399_plugin_terminal_hold.sql",
+    "yoao_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb)": "0391_gpu_plugin_transition.sql",
+    "yoao_inference_gpu_v1.gpu_plugin_prepared_cancellation_valid(uuid,jsonb)": "0392_plugin_prepared_cancellation.sql",
+    "yoao_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
+    "yoao_inference_gpu_v1.gpu_plugin_retirement_closure(uuid,text,bigint)": "0395_plugin_gpu_retirement.sql",
     "public.sync_gpu_backend_membership()": "0433_gpu_membership_scalar_guard.sql",
     "yoao_inference_gpu_caller_v1.gpu_caller_policy()": "0369_inference_gpu.sql",
     "yoao_inference_gpu_collector_v1.gpu_collector_policy()": "0369_inference_gpu.sql",
     "yoao_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
     "yoao_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0395_plugin_gpu_retirement.sql",
-    "aap_labeling_v1.screenshot_operations_command(jsonb)": "0432_labeling_screenshot_operations.sql",
-    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
-    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
-    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
-    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)": "0364_labeling_scale_seed_operations.sql",
-    "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])": "0361_labeling_compatibility_reads.sql",
-    "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0371_labeling_core_main_integration.sql",
-    "aap_labeling_v1.next_batch_display_id()": "0361_labeling_compatibility_reads.sql",
-    "aap_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)": "0352_labeling_core_read.sql",
-    "aap_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0371_labeling_core_main_integration.sql",
-    "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
-    "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
-    "aap_labeling_v1.video_segment_lifecycle_command(jsonb)": "0360_labeling_video_segment_lifecycle.sql",
-    "aap_labeling_v1.annotation_transfer_command(jsonb)": "0431_labeling_mask_staging.sql",
-    "aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
-    "aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
-    "aap_labeling_v1._annotation_transfer_without_suffix(text)": "0351_labeling_annotation_transfer.sql",
-    "aap_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)": "0351_labeling_annotation_transfer.sql",
-    "aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)": "0371_labeling_core_main_integration.sql",
-    "aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)": "0396_labeling_original_relations.sql",
-    "aap_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
-    "aap_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
-    "aap_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
-    "aap_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)": "0414_export_core_locks.sql",
-    "aap_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)": "0414_export_core_locks.sql",
-    "aap_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
-    "aap_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
-    "aap_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
-    "aap_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
-    "aap_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
-    "aap_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
-    "aap_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
-    "aap_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
-    "aap_labeling_v1.spatial_quality_command(jsonb)": "0354_labeling_spatial_quality.sql",
-    "aap_labeling_v1.task_maintenance_command(jsonb)": "0383_labeling_task_delete_retention.sql",
-    "aap_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
-    "aap_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
-    "aap_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
-    "aap_labeling_v1.mask_revision_command(jsonb)": "0422_mask_revision_digest.sql",
-    "aap_labeling_v1._mask_revision_canonical_json(jsonb)": "0422_mask_revision_digest.sql",
-    "aap_labeling_v1.ai_mask_accept_command(jsonb)": "0406_labeling_mask_decision_lock.sql",
-    "aap_labeling_v1.scene_read_query(jsonb)": "0349_labeling_scene_read.sql",
-    "aap_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
-    "aap_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)": "0349_labeling_scene_read.sql",
-    "aap_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)": "0349_labeling_scene_read.sql",
-    "aap_labeling_v1.prediction_record_command(jsonb)": "0372_prediction_failure_snapshot.sql",
-    "aap_labeling_v1.prediction_partition_command(jsonb)": "0357_labeling_prediction_partitions.sql",
-    "aap_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
-    "aap_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
-    "aap_labeling_v1.annotation_prediction_command(jsonb)": "0345_labeling_annotation_prediction.sql",
-    "aap_labeling_v1.annotation_maintenance_command(jsonb)": "0346_labeling_annotation_maintenance.sql",
-    "aap_labeling_v1.annotation_bulk_command(jsonb)": "0387_labeling_annotation_lineage.sql",
-    "aap_labeling_v1.video_bbox_editing_command(jsonb)": "0340_labeling_video_bbox_editing.sql",
-    "aap_labeling_v1.batch_control_command(jsonb)": "0341_labeling_batch_control.sql",
-    "aap_labeling_v1.annotation_statistics_command(jsonb)": "0336_labeling_annotation_statistics.sql",
-    "aap_labeling_v1.scene_track_domain_command(jsonb)": "0337_labeling_scene_track_domain.sql",
-    "aap_labeling_v1.annotation_write_command(jsonb)": "0338_labeling_annotation_writes.sql",
+    "yoao_labeling_v1.screenshot_operations_command(jsonb)": "0432_labeling_screenshot_operations.sql",
+    "yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
+    "yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
+    "yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
+    "yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)": "0364_labeling_scale_seed_operations.sql",
+    "yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[])": "0361_labeling_compatibility_reads.sql",
+    "yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[])": "0371_labeling_core_main_integration.sql",
+    "yoao_labeling_v1.next_batch_display_id()": "0361_labeling_compatibility_reads.sql",
+    "yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid)": "0352_labeling_core_read.sql",
+    "yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid)": "0371_labeling_core_main_integration.sql",
+    "yoao_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
+    "yoao_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
+    "yoao_labeling_v1.video_segment_lifecycle_command(jsonb)": "0360_labeling_video_segment_lifecycle.sql",
+    "yoao_labeling_v1.annotation_transfer_command(jsonb)": "0431_labeling_mask_staging.sql",
+    "yoao_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
+    "yoao_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "yoao_labeling_v1._annotation_transfer_without_suffix(text)": "0351_labeling_annotation_transfer.sql",
+    "yoao_labeling_v1._annotation_transfer_camera_bbox_valid(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid)": "0371_labeling_core_main_integration.sql",
+    "yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)": "0396_labeling_original_relations.sql",
+    "yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean)": "0352_labeling_core_read.sql",
+    "yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
+    "yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer)": "0414_export_core_locks.sql",
+    "yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer)": "0414_export_core_locks.sql",
+    "yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
+    "yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
+    "yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
+    "yoao_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
+    "yoao_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
+    "yoao_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
+    "yoao_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
+    "yoao_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
+    "yoao_labeling_v1.spatial_quality_command(jsonb)": "0354_labeling_spatial_quality.sql",
+    "yoao_labeling_v1.task_maintenance_command(jsonb)": "0383_labeling_task_delete_retention.sql",
+    "yoao_labeling_v1.discussion_command(jsonb)": "0347_labeling_discussion.sql",
+    "yoao_labeling_v1.task_event_command(jsonb)": "0347_labeling_discussion.sql",
+    "yoao_labeling_v1.mask_edit_command(jsonb)": "0348_labeling_mask_edits.sql",
+    "yoao_labeling_v1.mask_revision_command(jsonb)": "0422_mask_revision_digest.sql",
+    "yoao_labeling_v1._mask_revision_canonical_json(jsonb)": "0422_mask_revision_digest.sql",
+    "yoao_labeling_v1.ai_mask_accept_command(jsonb)": "0406_labeling_mask_decision_lock.sql",
+    "yoao_labeling_v1.scene_read_query(jsonb)": "0349_labeling_scene_read.sql",
+    "yoao_labeling_v1._scene_read_track_json(uuid,uuid,uuid,text,text,text,jsonb,jsonb,integer,timestamptz)": "0349_labeling_scene_read.sql",
+    "yoao_labeling_v1._scene_read_interval_json(uuid,uuid,integer,integer,text,integer)": "0349_labeling_scene_read.sql",
+    "yoao_labeling_v1._scene_read_annotation_json(uuid,uuid,uuid,text,text,text,jsonb,text,uuid,text,text,boolean,boolean,boolean,boolean,integer,timestamptz,integer)": "0349_labeling_scene_read.sql",
+    "yoao_labeling_v1.prediction_record_command(jsonb)": "0372_prediction_failure_snapshot.sql",
+    "yoao_labeling_v1.prediction_partition_command(jsonb)": "0357_labeling_prediction_partitions.sql",
+    "yoao_labeling_v1.scene_track_command(jsonb)": "0343_labeling_scene_track_commands.sql",
+    "yoao_labeling_v1.cross_frame_write_command(jsonb)": "0344_labeling_cross_frame_writes.sql",
+    "yoao_labeling_v1.annotation_prediction_command(jsonb)": "0345_labeling_annotation_prediction.sql",
+    "yoao_labeling_v1.annotation_maintenance_command(jsonb)": "0346_labeling_annotation_maintenance.sql",
+    "yoao_labeling_v1.annotation_bulk_command(jsonb)": "0387_labeling_annotation_lineage.sql",
+    "yoao_labeling_v1.video_bbox_editing_command(jsonb)": "0340_labeling_video_bbox_editing.sql",
+    "yoao_labeling_v1.batch_control_command(jsonb)": "0341_labeling_batch_control.sql",
+    "yoao_labeling_v1.annotation_statistics_command(jsonb)": "0336_labeling_annotation_statistics.sql",
+    "yoao_labeling_v1.scene_track_domain_command(jsonb)": "0337_labeling_scene_track_domain.sql",
+    "yoao_labeling_v1.annotation_write_command(jsonb)": "0338_labeling_annotation_writes.sql",
     "public.capture_mask_annotation_revision()": "0338_labeling_annotation_revision_support.sql",
     "public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)": "0338_labeling_annotation_revision_support.sql",
-    "aap_labeling_v1.task_edit_lock_command(jsonb)": "0466_task_edit_lock_domain.sql",
-    "aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)": "0466_task_edit_lock_domain.sql",
-    "aap_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])": "0466_task_edit_lock_domain.sql",
-    "aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)": "0466_task_edit_lock_domain.sql",
-    "aap_labeling_v1.task_workflow_command(jsonb)": "0427_labeling_actor_batch_share.sql",
-    "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
-    "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
-    "aap_jobs_v1.find_video_retry_job(uuid,uuid,text)": "0407_jobs_video_retry.sql",
-    "aap_jobs_v1.lock_video_retry_jobs(uuid)": "0407_jobs_video_retry.sql",
-    "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0432_jobs_fixture_presentation.sql",
-    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
-    "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)": "0446_fixture_media_backfill_cleanup.sql",
-    "aap_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])": "0432_jobs_fixture_guard.sql",
-    "aap_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])": "0432_labeling_fixture_retry_guard.sql",
-    "aap_labeling_v1.guard_fixture_project_retry_anchors(uuid[])": "0432_labeling_fixture_retry_guard.sql",
-    "aap_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
+    "yoao_labeling_v1.task_edit_lock_command(jsonb)": "0466_task_edit_lock_domain.sql",
+    "yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)": "0466_task_edit_lock_domain.sql",
+    "yoao_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])": "0466_task_edit_lock_domain.sql",
+    "yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)": "0466_task_edit_lock_domain.sql",
+    "yoao_labeling_v1.task_workflow_command(jsonb)": "0427_labeling_actor_batch_share.sql",
+    "yoao_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
+    "yoao_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
+    "yoao_jobs_v1.find_video_retry_job(uuid,uuid,text)": "0407_jobs_video_retry.sql",
+    "yoao_jobs_v1.lock_video_retry_jobs(uuid)": "0407_jobs_video_retry.sql",
+    "yoao_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0432_jobs_fixture_presentation.sql",
+    "yoao_jobs_v1.delete_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "yoao_jobs_v1.delete_fixture_media_backfills(uuid,uuid)": "0446_fixture_media_backfill_cleanup.sql",
+    "yoao_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])": "0432_jobs_fixture_guard.sql",
+    "yoao_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])": "0432_labeling_fixture_retry_guard.sql",
+    "yoao_labeling_v1.guard_fixture_project_retry_anchors(uuid[])": "0432_labeling_fixture_retry_guard.sql",
+    "yoao_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
     **{
         signature: "0329_jobs_domain_queries.sql"
         for signature in JOBS_DOMAIN_QUERY_FUNCTIONS
     },
-    "aap_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)": "0389_learning_deployment_retirement.sql",
+    "yoao_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)": "0389_learning_deployment_retirement.sql",
     **{signature: "0328_jobs_row_locks.sql" for signature in JOBS_ROW_LOCK_FUNCTIONS},
-    "aap_jobs_v1.read_job_for_update_nowait(uuid)": "0415_export_job_nowait.sql",
+    "yoao_jobs_v1.read_job_for_update_nowait(uuid)": "0415_export_job_nowait.sql",
     **{
         signature: "0327_jobs_lifecycle.sql"
         for signature in (
             *JOBS_LIFECYCLE_FUNCTIONS,
             *(
-                "aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[])",
-                "aap_jobs_v1._jobs_lifecycle_is_truthy(jsonb)",
-                "aap_jobs_v1._jobs_lifecycle_integer(jsonb)",
+                "yoao_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[])",
+                "yoao_jobs_v1._jobs_lifecycle_is_truthy(jsonb)",
+                "yoao_jobs_v1._jobs_lifecycle_integer(jsonb)",
             ),
         )
     },
@@ -417,17 +467,17 @@ FUNCTION_BODY_ARTIFACTS = {
         signature: "0326_jobs_list_query.sql"
         for signature in (
             *JOBS_LIST_QUERY_FUNCTIONS,
-            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
+            "yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
         )
     },
     **{
         signature: "0325_notifications_delivery_read.sql"
         for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
     },
-    "aap_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
-    "aap_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
-    "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
-    "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
+    "yoao_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
+    "yoao_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
+    "yoao_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
+    "yoao_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
     **{
         signature: "0324_notifications_inbox_query.sql"
         for signature in (
@@ -435,224 +485,224 @@ FUNCTION_BODY_ARTIFACTS = {
             NOTIFICATION_INBOX_PRIVATE_HELPER,
         )
     },
-    "aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)": "0373_prediction_execution_snapshot_binding.sql",
+    "yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)": "0373_prediction_execution_snapshot_binding.sql",
     **{
         signature: "0371_notifications_main_integration.sql"
         for signature in (
-            "aap_notifications_v1._notification_is_migration_inventory(uuid)",
-            "aap_notifications_v1._visible_inbox_rows_scoped(uuid,text)",
-            "aap_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
-            "aap_notifications_v1.inbox_total_count_scoped(uuid,text)",
-            "aap_notifications_v1.inbox_unread_count_scoped(uuid,text)",
+            "yoao_notifications_v1._notification_is_migration_inventory(uuid)",
+            "yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text)",
+            "yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
+            "yoao_notifications_v1.inbox_total_count_scoped(uuid,text)",
+            "yoao_notifications_v1.inbox_unread_count_scoped(uuid,text)",
         )
     },
     **{
         signature: "0421_notification_job_scope.sql"
         for signature in (
-            "aap_notifications_v1._notification_unknown_job_scope(uuid)",
-            "aap_notifications_v1._visible_inbox_rows(uuid,text)",
-            "aap_notifications_v1.read_state_command(jsonb)",
-            "aap_notifications_v1.read_state_command_scoped(jsonb)",
-            "aap_notifications_v1.delete_command(pg_catalog.jsonb)",
-            "aap_notifications_v1.delete_command_scoped(jsonb)",
+            "yoao_notifications_v1._notification_unknown_job_scope(uuid)",
+            "yoao_notifications_v1._visible_inbox_rows(uuid,text)",
+            "yoao_notifications_v1.read_state_command(jsonb)",
+            "yoao_notifications_v1.read_state_command_scoped(jsonb)",
+            "yoao_notifications_v1.delete_command(pg_catalog.jsonb)",
+            "yoao_notifications_v1.delete_command_scoped(jsonb)",
         )
     },
     **{
         signature: "0374_workspace_guide_publication.sql"
         for signature in (
-            "aap_workspace_configuration_v1._guide_entry_matches(jsonb,uuid,uuid,text,text,integer,timestamptz)",
-            "aap_workspace_configuration_v1._guide_lock_project(uuid,text)",
-            "aap_workspace_configuration_v1._guide_authority(uuid,uuid)",
-            "aap_workspace_configuration_v1._guide_storage_gate(uuid,bigint)",
-            "aap_workspace_configuration_v1._guide_failure(jsonb,text,integer,text)",
-            "aap_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb)",
-            "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])",
+            "yoao_workspace_configuration_v1._guide_entry_matches(jsonb,uuid,uuid,text,text,integer,timestamptz)",
+            "yoao_workspace_configuration_v1._guide_lock_project(uuid,text)",
+            "yoao_workspace_configuration_v1._guide_authority(uuid,uuid)",
+            "yoao_workspace_configuration_v1._guide_storage_gate(uuid,bigint)",
+            "yoao_workspace_configuration_v1._guide_failure(jsonb,text,integer,text)",
+            "yoao_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb)",
+            "yoao_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])",
         )
     },
     **{
         signature: "0375_original_authority_receipts.sql"
         for signature in (
-            "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
-            "aap_jobs_v1.read_job_execution_snapshot(uuid)",
-            "aap_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)",
-            "aap_assets_v1.read_task_original_binding(uuid)",
-            "aap_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)",
-            "aap_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)",
-            "aap_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)",
-            "aap_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)",
+            "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+            "yoao_jobs_v1.read_job_execution_snapshot(uuid)",
+            "yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)",
+            "yoao_assets_v1.read_task_original_binding(uuid)",
+            "yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid)",
+            "yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid)",
+            "yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid)",
+            "yoao_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text)",
         )
     },
     **{
         signature: "0376_assets_connection_runtime.sql"
         for signature in (
-            "aap_assets_v1._connection_probe_reply(jsonb,text)",
-            "aap_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb)",
-            "aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])",
-            "aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)",
-            "aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)",
+            "yoao_assets_v1._connection_probe_reply(jsonb,text)",
+            "yoao_assets_v1._connection_authority_proof(uuid,uuid,text[],jsonb)",
+            "yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])",
+            "yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)",
+            "yoao_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb)",
         )
     },
-    "aap_identity_accounts_v1._lock_current_actor(jsonb,text,text)": "0423_identity_presence_actor.sql",
+    "yoao_identity_accounts_v1._lock_current_actor(jsonb,text,text)": "0423_identity_presence_actor.sql",
     **{
         signature: "0423_identity_presence.sql"
         for signature in (
-            "aap_identity_v1._initialize_account_presence()",
-            "aap_identity_sessions_v1.execute_session_command(jsonb)",
-            "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
-            "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
-            "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
-            "aap_identity_directory_v1.execute_directory_command(jsonb)",
-            "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
-            "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
-            "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
-            "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+            "yoao_identity_v1._initialize_account_presence()",
+            "yoao_identity_sessions_v1.execute_session_command(jsonb)",
+            "yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
+            "yoao_identity_recovery_v1.apply_recovery_command(jsonb)",
+            "yoao_identity_deactivation_v1.process_due_deactivations(jsonb)",
+            "yoao_identity_directory_v1.execute_directory_command(jsonb)",
+            "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
+            "yoao_identity_deletions_v1.execute_deletion_command(jsonb)",
+            "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)",
+            "yoao_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
         )
     },
-    "aap_identity_invitations_v1.apply_invitation_command(jsonb)": "0432_identity_invitation_command.sql",
+    "yoao_identity_invitations_v1.apply_invitation_command(jsonb)": "0432_identity_invitation_command.sql",
     **{
         signature: "0432_identity_fixture_invitations.sql"
         for signature in (
-            "aap_identity_invitations_v1.bind_fixture_invitation()",
-            "aap_identity_invitations_v1.bind_fixture_invitation_birth(uuid,uuid)",
-            "aap_identity_invitations_v1.lock_fixture_invitation_run(uuid)",
-            "aap_identity_invitations_v1.guard_fixture_invitation_acceptance()",
+            "yoao_identity_invitations_v1.bind_fixture_invitation()",
+            "yoao_identity_invitations_v1.bind_fixture_invitation_birth(uuid,uuid)",
+            "yoao_identity_invitations_v1.lock_fixture_invitation_run(uuid)",
+            "yoao_identity_invitations_v1.guard_fixture_invitation_acceptance()",
         )
     },
     **{
         signature: "0425_identity_preferences.sql"
         for signature in (
-            "aap_identity_v1._initialize_account_preferences()",
-            "aap_identity_accounts_v1._account_record(uuid)",
-            "aap_identity_accounts_v1.prepare_account_command(jsonb)",
-            "aap_identity_accounts_v1.apply_account_command(jsonb)",
-            "aap_identity_groups_v1._account_record(uuid)",
-            "aap_identity_deactivation_v1._account_record(uuid)",
-            "aap_identity_invitations_v1._account_record(uuid)",
-            "aap_identity_directory_v1._directory_user(uuid)",
-            "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
-            "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
+            "yoao_identity_v1._initialize_account_preferences()",
+            "yoao_identity_accounts_v1._account_record(uuid)",
+            "yoao_identity_accounts_v1.prepare_account_command(jsonb)",
+            "yoao_identity_accounts_v1.apply_account_command(jsonb)",
+            "yoao_identity_groups_v1._account_record(uuid)",
+            "yoao_identity_deactivation_v1._account_record(uuid)",
+            "yoao_identity_invitations_v1._account_record(uuid)",
+            "yoao_identity_directory_v1._directory_user(uuid)",
+            "yoao_identity_fixture_v1.create_account(uuid,text,text,text,text)",
+            "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)",
         )
     },
     **{
         signature: "0425_identity_provisioning.sql"
         for signature in (
-            "aap_identity_v1.create_provisioning_account(jsonb)",
-            "aap_identity_v1.create_seed_persona_account(jsonb)",
+            "yoao_identity_v1.create_provisioning_account(jsonb)",
+            "yoao_identity_v1.create_seed_persona_account(jsonb)",
         )
     },
     **{
         signature: "0426_image_admission_share.sql"
         for signature in (
-            "aap_labeling_v1.read_image_task_source_share(uuid,uuid,boolean)",
-            "aap_assets_v1._image_labeling_task_share(uuid,uuid,boolean)",
-            "aap_assets_v1._image_owner_source_share(uuid,uuid,uuid,boolean)",
-            "aap_assets_v1._image_accept_source(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,text)",
+            "yoao_labeling_v1.read_image_task_source_share(uuid,uuid,boolean)",
+            "yoao_assets_v1._image_labeling_task_share(uuid,uuid,boolean)",
+            "yoao_assets_v1._image_owner_source_share(uuid,uuid,uuid,boolean)",
+            "yoao_assets_v1._image_accept_source(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,text)",
         )
     },
     **{
         signature: "0377_workspace_project_snapshots.sql"
         for signature in (
             "yoao_workspace_project_query_v1._project_row_json(jsonb,integer,integer,integer,integer,text)",
-            "aap_workspace_configuration_v1._class_rename_project_row(uuid,text)",
-            "aap_workspace_configuration_v1._guide_asset_read_project_row(uuid)",
+            "yoao_workspace_configuration_v1._class_rename_project_row(uuid,text)",
+            "yoao_workspace_configuration_v1._guide_asset_read_project_row(uuid)",
             "yoao_workspace_project_query_v1._project_query_step_impl(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
         )
     },
-    "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)": "0380_labeling_upload_task_retirement.sql",
-    "aap_jobs_v1.read_job_progress(uuid)": "0382_jobs_row_progress_facts.sql",
-    "aap_jobs_v1.read_job_progress_for_update(uuid,text,text)": "0384_jobs_row_progress_write.sql",
-    "aap_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)": "0384_jobs_row_progress_write.sql",
+    "yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)": "0380_labeling_upload_task_retirement.sql",
+    "yoao_jobs_v1.read_job_progress(uuid)": "0382_jobs_row_progress_facts.sql",
+    "yoao_jobs_v1.read_job_progress_for_update(uuid,text,text)": "0384_jobs_row_progress_write.sql",
+    "yoao_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)": "0384_jobs_row_progress_write.sql",
     **{
         signature: "0379_operator_item_locator.sql"
         for signature in (
-            "aap_assets_v1.publish_operator_item_original(jsonb)",
-            "aap_assets_v1.operator_item_original_facts(uuid,uuid)",
-            "aap_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)",
+            "yoao_assets_v1.publish_operator_item_original(jsonb)",
+            "yoao_assets_v1.operator_item_original_facts(uuid,uuid)",
+            "yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)",
         )
     },
     **{
         signature: "0379_operator_auxiliary.sql"
         for signature in (
-            "aap_assets_v1._managed_original_import_prefix(text)",
-            "aap_assets_v1._managed_original_scope_key(text,text)",
-            "aap_assets_v1._operator_read_permit_purpose(uuid)",
+            "yoao_assets_v1._managed_original_import_prefix(text)",
+            "yoao_assets_v1._managed_original_scope_key(text,text)",
+            "yoao_assets_v1._operator_read_permit_purpose(uuid)",
             # begin_operator_auxiliary(jsonb) is superseded by 0459 below.
-            "aap_assets_v1.publish_operator_auxiliary(uuid)",
-            "aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)",
-            "aap_assets_v1.operator_auxiliary_material(uuid,uuid)",
-            "aap_assets_v1.operator_item_original_material(uuid,uuid)",
-            "aap_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)",
-            "aap_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid)",
-            "aap_assets_v1.operator_dataset_state(uuid)",
-            "aap_assets_v1.operator_scene_state(uuid,uuid)",
-            "aap_assets_v1.open_operator_storage_operation(uuid)",
-            "aap_assets_v1.record_operator_original_prepared(uuid,jsonb)",
-            "aap_assets_v1.mark_operator_original_writing(uuid)",
-            "aap_assets_v1.record_operator_original_written(uuid,jsonb)",
-            "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
-            "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
+            "yoao_assets_v1.publish_operator_auxiliary(uuid)",
+            "yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)",
+            "yoao_assets_v1.operator_auxiliary_material(uuid,uuid)",
+            "yoao_assets_v1.operator_item_original_material(uuid,uuid)",
+            "yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)",
+            "yoao_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid)",
+            "yoao_assets_v1.operator_dataset_state(uuid)",
+            "yoao_assets_v1.operator_scene_state(uuid,uuid)",
+            "yoao_assets_v1.open_operator_storage_operation(uuid)",
+            "yoao_assets_v1.record_operator_original_prepared(uuid,jsonb)",
+            "yoao_assets_v1.mark_operator_original_writing(uuid)",
+            "yoao_assets_v1.record_operator_original_written(uuid,jsonb)",
+            "yoao_assets_v1.record_operator_original_verified(uuid,jsonb)",
+            "yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
         )
     },
     **{
         signature: "0459_source_ingest_identity_and_retry.sql"
         for signature in (
-            "aap_assets_v1.begin_operator_auxiliary(jsonb)",
-            "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
-            "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1.begin_operator_auxiliary(jsonb)",
+            "yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
+            "yoao_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
         )
     },
-    "aap_assets_v1.classify_fixture_original_reclaim(uuid,text)": "0432_assets_fixture_reclaim_guard.sql",
-    "aap_assets_v1.is_fixture_original_source(text,text)": "0432_assets_fixture_source_guard.sql",
-    "aap_assets_v1.guard_fixture_operator_source_receipt()": "0432_assets_fixture_source_guard.sql",
-    "aap_assets_v1.require_fixture_operator_manifest()": "0432_assets_fixture_auxiliary.sql",
-    "aap_assets_v1.guard_fixture_auxiliary_intent()": "0432_assets_fixture_auxiliary.sql",
+    "yoao_assets_v1.classify_fixture_original_reclaim(uuid,text)": "0432_assets_fixture_reclaim_guard.sql",
+    "yoao_assets_v1.is_fixture_original_source(text,text)": "0432_assets_fixture_source_guard.sql",
+    "yoao_assets_v1.guard_fixture_operator_source_receipt()": "0432_assets_fixture_source_guard.sql",
+    "yoao_assets_v1.require_fixture_operator_manifest()": "0432_assets_fixture_auxiliary.sql",
+    "yoao_assets_v1.guard_fixture_auxiliary_intent()": "0432_assets_fixture_auxiliary.sql",
     "yoao_fixture_v1.retire_auxiliary_original(uuid,uuid,uuid)": "0440_fixture_auxiliary_retirement.sql",
     "yoao_fixture_v1.guard_auxiliary_retirement()": "0440_fixture_auxiliary_retirement.sql",
-    "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
-    "aap_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
-    "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
-    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0465_worker_job_dataset_scope.sql",
-    "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
-    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0465_worker_job_dataset_scope.sql",
+    "yoao_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
+    "yoao_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
+    "yoao_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "yoao_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0465_worker_job_dataset_scope.sql",
+    "yoao_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
+    "yoao_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0465_worker_job_dataset_scope.sql",
     **{
         signature: "0465_worker_job_dataset_scope.sql"
         for signature in (
-            "aap_jobs_v1.worker_job_scope_digest(text,jsonb)",
-            "aap_jobs_v1.guard_worker_job_dataset_receipt()",
-            "aap_jobs_v1.record_worker_job_dataset_scope()",
-            "aap_jobs_v1.guard_worker_job_scope_change()",
-            "aap_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb)",
-            "aap_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb)",
-            "aap_jobs_v1.retain_unsettled_worker_deletion()",
+            "yoao_jobs_v1.worker_job_scope_digest(text,jsonb)",
+            "yoao_jobs_v1.guard_worker_job_dataset_receipt()",
+            "yoao_jobs_v1.record_worker_job_dataset_scope()",
+            "yoao_jobs_v1.guard_worker_job_scope_change()",
+            "yoao_jobs_v1.cross_frame_job_birth(uuid,uuid,uuid,jsonb)",
+            "yoao_jobs_v1.cross_frame_birth_identity_matches(uuid,uuid,uuid,jsonb)",
+            "yoao_jobs_v1.retain_unsettled_worker_deletion()",
         )
     },
     **{
         signature: "0465_cross_frame_born_dataset_scope.sql"
         for signature in (
-            "aap_assets_v1._cross_frame_scope_uuid(jsonb)",
-            "aap_assets_v1._cross_frame_scope_int(jsonb)",
-            "aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
-            "aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
-            "aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1._cross_frame_scope_uuid(jsonb)",
+            "yoao_assets_v1._cross_frame_scope_int(jsonb)",
+            "yoao_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
+            "yoao_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
         )
     },
     **{
         signature: "0465_retry_born_dataset_scope.sql"
         for signature in (
-            "aap_jobs_v1.bind_prediction_retry_attempt_birth()",
-            "aap_jobs_v1.guard_prediction_retry_attempt_scope()",
-            "aap_jobs_v1.guard_retry_born_authority()",
-            "aap_jobs_v1.guard_retry_born_dataset_scope()",
-            "aap_jobs_v1.retry_authority_snapshot_matches(uuid,jsonb,uuid)",
-            "aap_jobs_v1.retry_born_dataset_scope(uuid,uuid,uuid,jsonb)",
-            "aap_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb)",
-            "aap_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb)",
+            "yoao_jobs_v1.bind_prediction_retry_attempt_birth()",
+            "yoao_jobs_v1.guard_prediction_retry_attempt_scope()",
+            "yoao_jobs_v1.guard_retry_born_authority()",
+            "yoao_jobs_v1.guard_retry_born_dataset_scope()",
+            "yoao_jobs_v1.retry_authority_snapshot_matches(uuid,jsonb,uuid)",
+            "yoao_jobs_v1.retry_born_dataset_scope(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1.retry_task_dataset_scope(uuid,uuid,uuid,text,text,uuid,jsonb)",
+            "yoao_assets_v1.retry_authority_binding_matches(uuid,uuid,uuid,text,text,text,text,jsonb)",
         )
     },
-    "aap_jobs_v1.record_fixture_prediction_job_birth()": "0456_prediction_dataset_scope.sql",
-    "aap_jobs_v1.guard_fixture_prediction_job_datasets()": "0456_prediction_dataset_scope.sql",
-    "aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)": "0456_prediction_dataset_scope.sql",
-    "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
+    "yoao_jobs_v1.record_fixture_prediction_job_birth()": "0456_prediction_dataset_scope.sql",
+    "yoao_jobs_v1.guard_fixture_prediction_job_datasets()": "0456_prediction_dataset_scope.sql",
+    "yoao_assets_v1.fixture_task_dataset_scope(uuid,jsonb)": "0456_prediction_dataset_scope.sql",
+    "yoao_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
     "yoao_fixture_v1.guard_jobs_anchor()": "0436_fixture_jobs_join.sql",
     "yoao_fixture_v1.guard_dataset_job_anchor()": "0446_fixture_media_dataset_guards.sql",
     **{
@@ -688,36 +738,36 @@ FUNCTION_BODY_ARTIFACTS = {
     **{
         signature: "0432_labeling_screenshot_operations.sql"
         for signature in (
-            "aap_labeling_v1._fixture_screenshot_project(uuid)",
-            "aap_labeling_v1._fixture_screenshot_path(uuid,uuid)",
-            "aap_labeling_v1._fixture_screenshot_task(uuid,uuid)",
-            "aap_labeling_v1._fixture_screenshot_user(uuid,text,text)",
+            "yoao_labeling_v1._fixture_screenshot_project(uuid)",
+            "yoao_labeling_v1._fixture_screenshot_path(uuid,uuid)",
+            "yoao_labeling_v1._fixture_screenshot_task(uuid,uuid)",
+            "yoao_labeling_v1._fixture_screenshot_user(uuid,text,text)",
         )
     },
     **{
         signature: "0434_prediction_execution_routing.sql"
         for signature in (
-            "aap_inference_routing_v1.prediction_scope_reserve(text)",
-            "aap_inference_routing_v1.prediction_test_scope_reserve(text)",
-            "aap_inference_routing_v1.guard_prediction_scope_insert()",
-            "aap_inference_routing_v1.guard_prediction_dispatch_start()",
-            "aap_inference_routing_v1.guard_prediction_managed_attempt()",
-            "aap_inference_routing_v1.fixture_prediction_scope_inventory(uuid,uuid[],uuid[])",
-            "aap_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])",
+            "yoao_inference_routing_v1.prediction_scope_reserve(text)",
+            "yoao_inference_routing_v1.prediction_test_scope_reserve(text)",
+            "yoao_inference_routing_v1.guard_prediction_scope_insert()",
+            "yoao_inference_routing_v1.guard_prediction_dispatch_start()",
+            "yoao_inference_routing_v1.guard_prediction_managed_attempt()",
+            "yoao_inference_routing_v1.fixture_prediction_scope_inventory(uuid,uuid[],uuid[])",
+            "yoao_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])",
         )
     },
     **{
         signature: "0434_prediction_output_ownership.sql"
         for signature in (
-            "aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid)",
-            "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid)",
-            "aap_jobs_v1.finish_prediction_mask_producer(uuid)",
-            "aap_jobs_v1.prediction_mask_object_retained(uuid)",
-            "aap_jobs_v1.prediction_fixture_open(uuid)",
-            "aap_jobs_v1.preserve_fixture_prediction_dispatches()",
-            "aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid)",
-            "aap_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid)",
-            "aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])",
+            "yoao_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid)",
+            "yoao_jobs_v1.bind_prediction_mask_object(uuid,uuid)",
+            "yoao_jobs_v1.finish_prediction_mask_producer(uuid)",
+            "yoao_jobs_v1.prediction_mask_object_retained(uuid)",
+            "yoao_jobs_v1.prediction_fixture_open(uuid)",
+            "yoao_jobs_v1.preserve_fixture_prediction_dispatches()",
+            "yoao_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid)",
+            "yoao_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid)",
+            "yoao_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])",
         )
     },
     "public.guard_fixture_export_retention()": "0435_fixture_export_retention.sql",
@@ -767,205 +817,205 @@ FUNCTION_BODY_ARTIFACTS = {
     **{
         signature: "0447_export_execution.sql"
         for signature in (
-            "aap_export_v1.publications_retired(uuid)",
-            "aap_export_v1.capture_execution_birth()",
-            "aap_export_v1.capture_execution_delivery()",
-            "aap_export_v1.session_holds_lock(text,uuid,integer)",
-            "aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer)",
-            "aap_export_v1.enter_execution_io(uuid,uuid)",
-            "aap_export_v1.quiesce_execution_io(uuid,uuid)",
-            "aap_export_v1.finish_execution(uuid,uuid)",
-            "aap_export_v1.retire_execution(uuid,uuid)",
+            "yoao_export_v1.publications_retired(uuid)",
+            "yoao_export_v1.capture_execution_birth()",
+            "yoao_export_v1.capture_execution_delivery()",
+            "yoao_export_v1.session_holds_lock(text,uuid,integer)",
+            "yoao_export_v1.begin_execution(uuid,uuid,text,uuid,integer)",
+            "yoao_export_v1.enter_execution_io(uuid,uuid)",
+            "yoao_export_v1.quiesce_execution_io(uuid,uuid)",
+            "yoao_export_v1.finish_execution(uuid,uuid)",
+            "yoao_export_v1.retire_execution(uuid,uuid)",
         )
     },
     **{
         signature: "0447_jobs_publication_execution.sql"
         for signature in (
-            "aap_jobs_v1.guard_publication_attempt()",
-            "aap_jobs_v1.guard_publication_retirement()",
-            "aap_jobs_v1.guard_publication_birth()",
-            "aap_jobs_v1.capture_publication_job_birth()",
-            "aap_jobs_v1.capture_publication_intent_birth()",
-            "aap_jobs_v1.job_publications_retired(uuid,text[])",
-            "aap_jobs_v1.job_publications_not_sent(uuid,text[])",
-            "aap_jobs_v1.publication_session_owns(uuid)",
-            "aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)",
-            "aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)",
-            "aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid)",
-            "aap_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb)",
-            "aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)",
-            "aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)",
-            "aap_jobs_v1.guard_retired_dispatch()",
+            "yoao_jobs_v1.guard_publication_attempt()",
+            "yoao_jobs_v1.guard_publication_retirement()",
+            "yoao_jobs_v1.guard_publication_birth()",
+            "yoao_jobs_v1.capture_publication_job_birth()",
+            "yoao_jobs_v1.capture_publication_intent_birth()",
+            "yoao_jobs_v1.job_publications_retired(uuid,text[])",
+            "yoao_jobs_v1.job_publications_not_sent(uuid,text[])",
+            "yoao_jobs_v1.publication_session_owns(uuid)",
+            "yoao_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "yoao_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "yoao_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "yoao_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb)",
+            "yoao_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)",
+            "yoao_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)",
+            "yoao_jobs_v1.guard_retired_dispatch()",
         )
     },
     **{
         signature: "0447_jobs_fixture_media_publication.sql"
         for signature in (
-            "aap_jobs_v1.guard_fixture_media_publication_record()",
-            "aap_jobs_v1.guard_fixture_media_publication_attempt()",
-            "aap_jobs_v1.lock_fixture_media_run(uuid,boolean)",
-            "aap_jobs_v1.fixture_media_publisher_owns(uuid)",
-            "aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)",
-            "aap_jobs_v1.fixture_media_delivery(uuid)",
-            "aap_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text)",
-            "aap_jobs_v1.begin_fixture_media_publication(uuid,uuid)",
-            "aap_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)",
-            "aap_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)",
-            "aap_jobs_v1.fixture_media_publication_retired(uuid,uuid,text)",
-            "aap_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)",
-            "aap_jobs_v1.prepare_media_delivery(jsonb)",
+            "yoao_jobs_v1.guard_fixture_media_publication_record()",
+            "yoao_jobs_v1.guard_fixture_media_publication_attempt()",
+            "yoao_jobs_v1.lock_fixture_media_run(uuid,boolean)",
+            "yoao_jobs_v1.fixture_media_publisher_owns(uuid)",
+            "yoao_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)",
+            "yoao_jobs_v1.fixture_media_delivery(uuid)",
+            "yoao_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text)",
+            "yoao_jobs_v1.begin_fixture_media_publication(uuid,uuid)",
+            "yoao_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)",
+            "yoao_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)",
+            "yoao_jobs_v1.fixture_media_publication_retired(uuid,uuid,text)",
+            "yoao_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)",
+            "yoao_jobs_v1.prepare_media_delivery(jsonb)",
         )
     },
-    "aap_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0436_fixture_jobs_join.sql",
-    "aap_jobs_v1.preserve_fixture_export_dispatch()": "0436_fixture_jobs_join.sql",
+    "yoao_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0436_fixture_jobs_join.sql",
+    "yoao_jobs_v1.preserve_fixture_export_dispatch()": "0436_fixture_jobs_join.sql",
     **{
         signature: "0432_assets_media_source_read.sql"
         for signature in (
-            "aap_assets_v1._managed_reclaim_json_string(text)",
-            "aap_assets_v1._managed_reclaim_lock_identity(text,text)",
+            "yoao_assets_v1._managed_reclaim_json_string(text)",
+            "yoao_assets_v1._managed_reclaim_lock_identity(text,text)",
         )
     },
     **{
         signature: "0432_assets_media_source_admission.sql"
-        for signature in ("aap_assets_v1._begin_media_original_read(uuid,uuid,text)",)
+        for signature in ("yoao_assets_v1._begin_media_original_read(uuid,uuid,text)",)
     },
-    "aap_assets_v1._finish_media_original_read(uuid,uuid)": "0445_assets_fixture_reader_completion.sql",
-    "aap_assets_v1.fixture_original_readers_empty(uuid)": "0446_fixture_original_readers.sql",
+    "yoao_assets_v1._finish_media_original_read(uuid,uuid)": "0445_assets_fixture_reader_completion.sql",
+    "yoao_assets_v1.fixture_original_readers_empty(uuid)": "0446_fixture_original_readers.sql",
     **{
         signature: "0432_assets_spatial_original_admission.sql"
         for signature in (
-            "aap_assets_v1.is_fixture_spatial_dataset(uuid)",
-            "aap_assets_v1.begin_spatial_calibration_original(uuid,uuid,text)",
-            "aap_assets_v1.finish_spatial_calibration_original(uuid,uuid)",
+            "yoao_assets_v1.is_fixture_spatial_dataset(uuid)",
+            "yoao_assets_v1.begin_spatial_calibration_original(uuid,uuid,text)",
+            "yoao_assets_v1.finish_spatial_calibration_original(uuid,uuid)",
         )
     },
     **{
         signature: "0432_assets_media_source_authority.sql"
         for signature in (
-            "aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)",
-            "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
-            "aap_assets_v1.begin_media_original_system(uuid,text,text)",
-            "aap_assets_v1.finish_media_original_read(uuid,uuid)",
-            "aap_assets_v1.finish_media_original_worker(uuid,uuid)",
-            "aap_assets_v1.finish_media_original_system(uuid,uuid)",
+            "yoao_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)",
+            "yoao_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+            "yoao_assets_v1.begin_media_original_system(uuid,text,text)",
+            "yoao_assets_v1.finish_media_original_read(uuid,uuid)",
+            "yoao_assets_v1.finish_media_original_worker(uuid,uuid)",
+            "yoao_assets_v1.finish_media_original_system(uuid,uuid)",
         )
     },
     **{
         signature: "0432_assets_images_source_authority.sql"
         for signature in (
-            "aap_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)",
-            "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
-            "aap_assets_v1.begin_image_original_system(text,uuid,text,text)",
-            "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
-            "aap_assets_v1.finish_image_original_read(uuid,uuid)",
-            "aap_assets_v1.finish_image_original_worker(uuid,uuid)",
-            "aap_assets_v1.finish_image_original_system(uuid,uuid)",
+            "yoao_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)",
+            "yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+            "yoao_assets_v1.begin_image_original_system(text,uuid,text,text)",
+            "yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
+            "yoao_assets_v1.finish_image_original_read(uuid,uuid)",
+            "yoao_assets_v1.finish_image_original_worker(uuid,uuid)",
+            "yoao_assets_v1.finish_image_original_system(uuid,uuid)",
         )
     },
     **{
         signature: "0432_assets_inputs_source_authority.sql"
         for signature in (
-            "aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
-            "aap_assets_v1.finish_accepted_image_original(uuid,uuid)",
+            "yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
+            "yoao_assets_v1.finish_accepted_image_original(uuid,uuid)",
         )
     },
     **{
         signature: "0432_assets_video_inputs_source_authority.sql"
         for signature in (
-            "aap_assets_v1._begin_video_input_original(uuid,bigint,uuid,text)",
-            "aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
-            "aap_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
-            "aap_assets_v1.finish_accepted_video_original(uuid,uuid)",
-            "aap_assets_v1.finish_tracker_video_original(uuid,uuid)",
+            "yoao_assets_v1._begin_video_input_original(uuid,bigint,uuid,text)",
+            "yoao_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
+            "yoao_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
+            "yoao_assets_v1.finish_accepted_video_original(uuid,uuid)",
+            "yoao_assets_v1.finish_tracker_video_original(uuid,uuid)",
         )
     },
     **{
         signature: "0432_assets_video_inputs_control_source.sql"
         for signature in (
-            "aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
-            "aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
-            "aap_assets_v1.finish_video_control_original(uuid,uuid)",
+            "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
+            "yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
+            "yoao_assets_v1.finish_video_control_original(uuid,uuid)",
         )
     },
     **{
         signature: "0432_assets_tracker_control_source.sql"
         for signature in (
-            "aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
-            "aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
-            "aap_assets_v1.finish_tracker_control_original(uuid,uuid)",
+            "yoao_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
+            "yoao_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
+            "yoao_assets_v1.finish_tracker_control_original(uuid,uuid)",
         )
     },
     **{
         signature: "0446_fixture_native_media_sources.sql"
         for signature in (
-            "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
-            "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+            "yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+            "yoao_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
         )
     },
-    "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)": "0446_fixture_native_media_backfill_source.sql",
+    "yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)": "0446_fixture_native_media_backfill_source.sql",
     **{
         signature: "0446_fixture_native_media_scans.sql"
         for signature in (
-            "aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
-            "aap_assets_v1.scan_video_backfill(jsonb,uuid,integer)",
-            "aap_assets_v1._media_backfill_snapshot(jsonb,timestamptz)",
-            "aap_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)",
-            "aap_labeling_v1.scan_image_task_sources(jsonb,uuid,integer)",
+            "yoao_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
+            "yoao_assets_v1.scan_video_backfill(jsonb,uuid,integer)",
+            "yoao_assets_v1._media_backfill_snapshot(jsonb,timestamptz)",
+            "yoao_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)",
+            "yoao_labeling_v1.scan_image_task_sources(jsonb,uuid,integer)",
         )
     },
     **{
         signature: "0446_fixture_native_media_claims.sql"
         for signature in (
-            "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
-            "aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])",
+            "yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+            "yoao_assets_v1.claim_video_media(uuid,uuid,integer,text[])",
         )
     },
     **{
         signature: "0446_fixture_native_media_garbage.sql"
         for signature in (
-            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
-            "aap_assets_v1.claim_video_media_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "yoao_assets_v1.claim_video_media_garbage(uuid,integer,integer)",
         )
     },
     **{
         signature: "0448_fixture_external_pyramid_reuse.sql"
         for signature in (
-            "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
-            "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
-            "aap_assets_v1.fixture_external_image_attempt_sources_settled(uuid,uuid,uuid,uuid,bigint,uuid)",
-            "aap_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,integer)",
-            "aap_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer)",
-            "aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)",
+            "yoao_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
+            "yoao_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
+            "yoao_assets_v1.fixture_external_image_attempt_sources_settled(uuid,uuid,uuid,uuid,bigint,uuid)",
+            "yoao_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,integer)",
+            "yoao_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer)",
+            "yoao_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)",
         )
     },
     **{
         signature: "0455_images_output_ownership.sql"
         for signature in (
-            "aap_assets_v1._accept_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb,text)",
-            "aap_assets_v1.prepare_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
-            "aap_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
-            "aap_assets_v1.guard_image_pyramid_native_attempt()",
-            "aap_assets_v1.guard_image_pyramid_native_member()",
+            "yoao_assets_v1._accept_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb,text)",
+            "yoao_assets_v1.prepare_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+            "yoao_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+            "yoao_assets_v1.guard_image_pyramid_native_attempt()",
+            "yoao_assets_v1.guard_image_pyramid_native_member()",
             "guard_image_pyramid_inputs()",
-            "aap_assets_v1._image_garbage_prefix_valid(text)",
-            "aap_assets_v1._native_pyramid_attempt(uuid,boolean)",
-            "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
-            "aap_assets_v1.submit_native_pyramid_member(uuid)",
-            "aap_assets_v1._native_pyramid_fixture_scope(uuid)",
-            "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
-            "aap_assets_v1.record_fixture_media_birth()",
+            "yoao_assets_v1._image_garbage_prefix_valid(text)",
+            "yoao_assets_v1._native_pyramid_attempt(uuid,boolean)",
+            "yoao_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
+            "yoao_assets_v1.submit_native_pyramid_member(uuid)",
+            "yoao_assets_v1._native_pyramid_fixture_scope(uuid)",
+            "yoao_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
+            "yoao_assets_v1.record_fixture_media_birth()",
         )
     },
 }
-AUDIT_APPEND_ROLE = "audit_append_client"
-AUDIT_QUERY_ROLE = "audit_query_client"
-NOTIFICATION_READ_ROLE = "notification_read_client"
-AUDIT_READ_ROLE = "audit_read_client"
-AUDIT_DAILY_REFRESH_ROLE = "audit_daily_refresh_client"
-AUDIT_MAINTENANCE_ROLE = "audit_maintenance_client"
-JOBS_NOTIFICATION_SCOPE_ROLE = "jobs_notification_scope_client"
+AUDIT_APPEND_ROLE = "yoao_audit_append_client"
+AUDIT_QUERY_ROLE = "yoao_audit_query_client"
+NOTIFICATION_READ_ROLE = "yoao_notification_read_client"
+AUDIT_READ_ROLE = "yoao_audit_read_client"
+AUDIT_DAILY_REFRESH_ROLE = "yoao_audit_daily_refresh_client"
+AUDIT_MAINTENANCE_ROLE = "yoao_audit_maintenance_client"
+JOBS_NOTIFICATION_SCOPE_ROLE = "yoao_jobs_notification_scope_client"
 READ_RELATION_SPECS = {
-    "aap_labeling_v1.scene_track_rows": {
+    "yoao_labeling_v1.scene_track_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -984,7 +1034,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.scene_track_interval_rows": {
+    "yoao_labeling_v1.scene_track_interval_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1000,7 +1050,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.video_segment_rows": {
+    "yoao_labeling_v1.video_segment_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1018,7 +1068,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.video_tracker_job_rows": {
+    "yoao_labeling_v1.video_tracker_job_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1051,7 +1101,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.video_track_quality_run_rows": {
+    "yoao_labeling_v1.video_track_quality_run_rows": {
         "sql": "0428_video_export_core_reads.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1078,7 +1128,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.task_rows": {
+    "yoao_labeling_v1.task_rows": {
         "sql": "0371_labeling_core_main_integration.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1132,7 +1182,7 @@ READ_RELATION_SPECS = {
             ("original_id", "uuid"),
         ],
     },
-    "aap_labeling_v1.batch_rows": {
+    "yoao_labeling_v1.batch_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1165,7 +1215,7 @@ READ_RELATION_SPECS = {
             ("admin_locked_by", "uuid"),
         ],
     },
-    "aap_labeling_v1.annotation_rows": {
+    "yoao_labeling_v1.annotation_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1204,7 +1254,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.prediction_rows": {
+    "yoao_labeling_v1.prediction_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1224,7 +1274,7 @@ READ_RELATION_SPECS = {
             ("created_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.prediction_meta_rows": {
+    "yoao_labeling_v1.prediction_meta_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1243,7 +1293,7 @@ READ_RELATION_SPECS = {
             ("created_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.failed_prediction_rows": {
+    "yoao_labeling_v1.failed_prediction_rows": {
         "sql": "0371_labeling_core_main_integration.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1263,7 +1313,7 @@ READ_RELATION_SPECS = {
             ("execution_snapshot_id", "uuid"),
         ],
     },
-    "aap_labeling_v1.task_lock_rows": {
+    "yoao_labeling_v1.task_lock_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1275,7 +1325,7 @@ READ_RELATION_SPECS = {
             ("created_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.task_dataset_item_link_rows": {
+    "yoao_labeling_v1.task_dataset_item_link_rows": {
         "sql": "0352_labeling_core_read.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1287,7 +1337,7 @@ READ_RELATION_SPECS = {
             ("created_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.annotation_draft_rows": {
+    "yoao_labeling_v1.annotation_draft_rows": {
         "sql": "0361_labeling_compatibility_reads.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1295,7 +1345,7 @@ READ_RELATION_SPECS = {
             ("task_id", "uuid"),
         ],
     },
-    "aap_assets_v1.labeling_dataset_item_facts": {
+    "yoao_assets_v1.labeling_dataset_item_facts": {
         "sql": "0361_labeling_compatibility_reads.sql",
         "owner": "assets_code",
         "columns": [
@@ -1309,7 +1359,7 @@ READ_RELATION_SPECS = {
             ("height", "integer"),
         ],
     },
-    "aap_assets_v1.fixture_screenshot_item_facts": {
+    "yoao_assets_v1.fixture_screenshot_item_facts": {
         "sql": "0432_assets_screenshot_facts.sql",
         "owner": "assets_code",
         "columns": [
@@ -1320,7 +1370,7 @@ READ_RELATION_SPECS = {
             ("relative_path", "text"),
         ],
     },
-    "aap_assets_v1.scale_seed_dataset_item_facts": {
+    "yoao_assets_v1.scale_seed_dataset_item_facts": {
         "sql": "0364_labeling_scale_seed_operations.sql",
         "owner": "assets_code",
         "columns": [
@@ -1329,7 +1379,7 @@ READ_RELATION_SPECS = {
             ("file_name", "character varying(500)"),
         ],
     },
-    "aap_assets_v1.video_chapter_facts": {
+    "yoao_assets_v1.video_chapter_facts": {
         "sql": "0354_labeling_spatial_quality.sql",
         "owner": "assets_code",
         "columns": [
@@ -1340,7 +1390,7 @@ READ_RELATION_SPECS = {
             ("end_frame", "integer"),
         ],
     },
-    "aap_notifications_v1.notification_facts": {
+    "yoao_notifications_v1.notification_facts": {
         "sql": "0319_notifications_read_relations.sql",
         "owner": "notifications_code",
         "columns": [
@@ -1354,7 +1404,7 @@ READ_RELATION_SPECS = {
             ("created_at", "timestamp with time zone"),
         ],
     },
-    "aap_audit_v1.audit_events": {
+    "yoao_audit_v1.audit_events": {
         "sql": "0320_audit_read_relations.sql",
         "owner": "audit_code",
         "columns": [
@@ -1374,7 +1424,7 @@ READ_RELATION_SPECS = {
             ("created_at", "timestamp with time zone"),
         ],
     },
-    "aap_audit_v1.audit_daily_facts": {
+    "yoao_audit_v1.audit_daily_facts": {
         "sql": "0322_audit_daily_projection.sql",
         "owner": "audit_code",
         "columns": [
@@ -1386,7 +1436,7 @@ READ_RELATION_SPECS = {
             ("event_count", "bigint"),
         ],
     },
-    "aap_jobs_v1.notification_scope_facts": {
+    "yoao_jobs_v1.notification_scope_facts": {
         "sql": "0323_jobs_notification_scope_facts.sql",
         "owner": "jobs_code",
         "columns": [
@@ -1395,7 +1445,7 @@ READ_RELATION_SPECS = {
             ("scope_project_id", "uuid"),
         ],
     },
-    "aap_labeling_v1.annotation_comment_facts": {
+    "yoao_labeling_v1.annotation_comment_facts": {
         "sql": "0347_labeling_discussion.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1414,7 +1464,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.annotation_feedback_facts": {
+    "yoao_labeling_v1.annotation_feedback_facts": {
         "sql": "0347_labeling_discussion.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1441,7 +1491,7 @@ READ_RELATION_SPECS = {
             ("updated_at", "timestamp with time zone"),
         ],
     },
-    "aap_labeling_v1.task_event_facts": {
+    "yoao_labeling_v1.task_event_facts": {
         "sql": "0347_labeling_discussion.sql",
         "owner": "labeling_code",
         "columns": [
@@ -1464,67 +1514,67 @@ READ_RELATION_SPECS = {
     },
 }
 IDENTITY_CLIENT_ROLES = {
-    "INFERENCE_POOL_REFERENCE": "inference_pool_reference_client",
-    "LABELING_VIDEO_CONTROL": "labeling_video_control_client",
-    "LABELING_ANNOTATION_TRANSFER": "labeling_annotation_transfer_client",
-    "LABELING_CORE_READ": "labeling_core_read_client",
-    "LABELING_MASK_QUALITY": "labeling_mask_quality_client",
-    "LABELING_SPATIAL_QUALITY": "labeling_spatial_quality_client",
-    "LABELING_TASK_MAINTENANCE": "labeling_task_maintenance_client",
-    "AUTH": "identity_auth_client",
-    "ACTOR_STATUS": "identity_actor_status_client",
-    "COMMAND": "identity_command_client",
-    "FENCE": "identity_fence_client",
-    "OPERATOR": "identity_session_operator",
+    "INFERENCE_POOL_REFERENCE": "yoao_inference_pool_reference_client",
+    "LABELING_VIDEO_CONTROL": "yoao_labeling_video_control_client",
+    "LABELING_ANNOTATION_TRANSFER": "yoao_labeling_annotation_transfer_client",
+    "LABELING_CORE_READ": "yoao_labeling_core_read_client",
+    "LABELING_MASK_QUALITY": "yoao_labeling_mask_quality_client",
+    "LABELING_SPATIAL_QUALITY": "yoao_labeling_spatial_quality_client",
+    "LABELING_TASK_MAINTENANCE": "yoao_labeling_task_maintenance_client",
+    "AUTH": "yoao_identity_auth_client",
+    "ACTOR_STATUS": "yoao_identity_actor_status_client",
+    "COMMAND": "yoao_identity_command_client",
+    "FENCE": "yoao_identity_fence_client",
+    "OPERATOR": "yoao_identity_session_operator",
     "KEYS": "yoao_identity_key_client",
-    "SESSIONS": "identity_session_client",
-    "ACCOUNTS": "identity_account_client",
-    "GROUP": "identity_group_client",
-    "INVITATION": "identity_invitation_client",
-    "DEACTIVATION": "identity_deactivation_client",
-    "DEACTIVATION_OPERATOR": "identity_deactivation_operator",
-    "NOTIFICATION_PUBLISH": "notification_publish_client",
-    "PRESENCE": "identity_presence_client",
-    "RECOVERY": "identity_recovery_client",
-    "MAIL": "identity_mail_client",
-    "MAIL_V2": "identity_mail_v2_client",
-    "MAIL_SETTINGS": "identity_mail_settings_client",
-    "ADMIN_PASSWORD": "identity_admin_password_client",
-    "PLATFORM_ROLE": "identity_platform_role_client",
-    "SUSPENSION": "identity_suspension_client",
-    "DELETION": "identity_deletion_client",
-    "OFFBOARDING": "identity_offboarding_client",
-    "DIRECTORY": "identity_directory_client",
+    "SESSIONS": "yoao_identity_session_client",
+    "ACCOUNTS": "yoao_identity_account_client",
+    "GROUP": "yoao_identity_group_client",
+    "INVITATION": "yoao_identity_invitation_client",
+    "DEACTIVATION": "yoao_identity_deactivation_client",
+    "DEACTIVATION_OPERATOR": "yoao_identity_deactivation_operator",
+    "NOTIFICATION_PUBLISH": "yoao_notification_publish_client",
+    "PRESENCE": "yoao_identity_presence_client",
+    "RECOVERY": "yoao_identity_recovery_client",
+    "MAIL": "yoao_identity_mail_client",
+    "MAIL_V2": "yoao_identity_mail_v2_client",
+    "MAIL_SETTINGS": "yoao_identity_mail_settings_client",
+    "ADMIN_PASSWORD": "yoao_identity_admin_password_client",
+    "PLATFORM_ROLE": "yoao_identity_platform_role_client",
+    "SUSPENSION": "yoao_identity_suspension_client",
+    "DELETION": "yoao_identity_deletion_client",
+    "OFFBOARDING": "yoao_identity_offboarding_client",
+    "DIRECTORY": "yoao_identity_directory_client",
     "BRIEFS": "yoao_identity_briefs_client",
-    "PROVISIONING": "identity_provisioning_client",
+    "PROVISIONING": "yoao_identity_provisioning_client",
     "WORKSPACE_MEMBERSHIP": "yoao_workspace_membership_client",
     "WORKSPACE_OWNER_TRANSFER": "yoao_workspace_owner_transfer_client",
-    "WORKSPACE_PROJECT_MAINTENANCE": "workspace_project_maintenance_client",
-    "WORKSPACE_PROJECT_DELETION": "workspace_project_deletion_client",
-    "WORKSPACE_DATASET_UNLINK": "workspace_dataset_unlink_client",
-    "WORKSPACE_CONFIGURATION": "workspace_configuration_client",
+    "WORKSPACE_PROJECT_MAINTENANCE": "yoao_workspace_project_maintenance_client",
+    "WORKSPACE_PROJECT_DELETION": "yoao_workspace_project_deletion_client",
+    "WORKSPACE_DATASET_UNLINK": "yoao_workspace_dataset_unlink_client",
+    "WORKSPACE_CONFIGURATION": "yoao_workspace_configuration_client",
     "WORKSPACE_TEMPLATE_QUERY": "yoao_workspace_template_query_client",
     "WORKSPACE_PROJECT_QUERY": "yoao_workspace_project_query_client",
     "WORKSPACE_DIRECTORY_QUERY": "yoao_workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "yoao_labeling_class_query_client",
-    "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
-    "LABELING_TASK_CONTROL": "labeling_task_control_client",
-    "LABELING_ANNOTATION_WRITE": "labeling_annotation_write_client",
-    "LABELING_EDITING": "labeling_editing_client",
-    "LABELING_BATCH_CONTROL": "labeling_batch_control_client",
-    "LABELING_PREDICTION": "labeling_prediction_client",
-    "LABELING_SCENE_TRACK_COMMAND": "labeling_scene_track_command_client",
-    "LABELING_CROSS_FRAME": "labeling_cross_frame_client",
-    "LABELING_ANNOTATION_MAINTENANCE": "labeling_annotation_maintenance_client",
-    "LABELING_DISCUSSION": "labeling_discussion_client",
-    "LABELING_MASK_EDIT": "labeling_mask_edit_client",
-    "LABELING_SCENE_READ": "labeling_scene_read_client",
-    "VIDEO_RESTORE": "video_restore_operator_client",
-    "INFERENCE_PIPELINES": "inference_pipelines_client",
-    "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
-    "INFERENCE_HEALTH_OBSERVATION": "inference_health_observation_client",
-    "INFERENCE_HEALTH_ORIGIN": "inference_health_origin_client",
-    "INFERENCE_HEALTH_DATA": "inference_health_data_client",
+    "LABELING_VIDEO_WRITER": "yoao_labeling_video_writer_client",
+    "LABELING_TASK_CONTROL": "yoao_labeling_task_control_client",
+    "LABELING_ANNOTATION_WRITE": "yoao_labeling_annotation_write_client",
+    "LABELING_EDITING": "yoao_labeling_editing_client",
+    "LABELING_BATCH_CONTROL": "yoao_labeling_batch_control_client",
+    "LABELING_PREDICTION": "yoao_labeling_prediction_client",
+    "LABELING_SCENE_TRACK_COMMAND": "yoao_labeling_scene_track_command_client",
+    "LABELING_CROSS_FRAME": "yoao_labeling_cross_frame_client",
+    "LABELING_ANNOTATION_MAINTENANCE": "yoao_labeling_annotation_maintenance_client",
+    "LABELING_DISCUSSION": "yoao_labeling_discussion_client",
+    "LABELING_MASK_EDIT": "yoao_labeling_mask_edit_client",
+    "LABELING_SCENE_READ": "yoao_labeling_scene_read_client",
+    "VIDEO_RESTORE": "yoao_video_restore_operator_client",
+    "INFERENCE_PIPELINES": "yoao_inference_pipelines_client",
+    "INFERENCE_BACKEND_PROBE": "yoao_inference_backend_probe_client",
+    "INFERENCE_HEALTH_OBSERVATION": "yoao_inference_health_observation_client",
+    "INFERENCE_HEALTH_ORIGIN": "yoao_inference_health_origin_client",
+    "INFERENCE_HEALTH_DATA": "yoao_inference_health_data_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -1540,19 +1590,19 @@ MODULE_ROLES = (
     "audit_code",
     "settings_code",
     "notifications_code",
-    "append_client",
-    "asset_cleanup_client",
+    "yoao_append_client",
+    "yoao_asset_cleanup_client",
     INFERENCE_REGISTRY_INGRESS_ROLE,
     INFERENCE_ROUTING_ROLE,
-    "asset_catalog_client",
-    "asset_source_client",
-    "asset_import_client",
-    "asset_operator_client",
-    "asset_media_control_client",
-    "asset_media_worker_client",
-    "asset_image_worker_client",
-    "labeling_mask_gc_client",
-    "preannotation_result_client",
+    "yoao_asset_catalog_client",
+    "yoao_asset_source_client",
+    "yoao_asset_import_client",
+    "yoao_asset_operator_client",
+    "yoao_asset_media_control_client",
+    "yoao_asset_media_worker_client",
+    "yoao_asset_image_worker_client",
+    "yoao_labeling_mask_gc_client",
+    "yoao_preannotation_result_client",
     VIDEO_EXECUTION_ROLE,
     NOTIFICATION_PREFERENCES_ROLE,
     NOTIFICATION_APPEND_ROLE,
@@ -5565,9 +5615,9 @@ def _verify_inference_project_grant_reapplication(
                 "'registry_select',pg_catalog.has_table_privilege("
                 "'inference_code','public.ml_backend_registry','SELECT'),"
                 "'project_lock',pg_catalog.has_function_privilege("
-                "'inference_code','aap_workspace_v1.lock_project_reference(uuid)','EXECUTE'),"
+                "'inference_code','yoao_workspace_v1.lock_project_reference(uuid)','EXECUTE'),"
                 "'binding_clear',pg_catalog.has_function_privilege("
-                "'inference_code','aap_workspace_v1.clear_primary_backend_bindings(uuid)','EXECUTE'));"
+                "'inference_code','yoao_workspace_v1.clear_primary_backend_bindings(uuid)','EXECUTE'));"
             )
         )
 
@@ -5657,14 +5707,19 @@ def _installed_function_body_sha256(
     }.get(sql_name, sql_name)
     if (
         signature
-        == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)"
+        == "yoao_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)"
     ):
         base_sql_name = "0214_dataset_import_core.sql"
     source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
     current_name = signature.split("(", 1)[0]
-    schema, function = current_name.split(".", 1)
-    frozen_schema = FROZEN_OWNER_NAMESPACES.get(schema, schema)
-    function_name = re.escape(f"{frozen_schema}.{function}")
+    if "." in current_name:
+        schema, function = current_name.split(".", 1)
+        frozen_schema = FROZEN_OWNER_NAMESPACES.get(schema, schema)
+        function_name = re.escape(f"{frozen_schema}.{function}")
+    else:
+        schema = ""
+        frozen_schema = ""
+        function_name = re.escape(current_name)
     match = re.search(
         rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
         r".*?\bAS\s+\$function\$(.*?)\$function\$;",
@@ -5710,7 +5765,7 @@ def _installed_function_body_sha256(
             if expected.count(before) != 1 or after in expected:
                 raise RuntimeError(f"frozen SQL patch source differs: {signature}")
             expected = expected.replace(before, after, 1)
-    if signature == "aap_labeling_v1.mask_edit_command(jsonb)":
+    if signature == "yoao_labeling_v1.mask_edit_command(jsonb)":
         # Revision bo0430 derives the installed owner from this frozen body.
         marker = "    v_operation := p_request ->> 'operation';\n"
         if expected.count(marker) != 1:
@@ -5719,7 +5774,7 @@ def _installed_function_body_sha256(
             marker,
             marker
             + "    IF v_operation = 'acceptance_history' THEN\n"
-            + "        RETURN aap_labeling_v1._acceptance_history(p_request);\n"
+            + "        RETURN yoao_labeling_v1._acceptance_history(p_request);\n"
             + "    END IF;\n",
             1,
         )
@@ -5783,8 +5838,8 @@ def _verify_audit_daily_projection_boundary(
     execute(
         "owner",
         owner_password,
-        f'GRANT USAGE ON SCHEMA aap_audit_v1 TO "{AUDIT_DAILY_REFRESH_ROLE}"; '
-        f'GRANT EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() TO "{AUDIT_DAILY_REFRESH_ROLE}";',
+        f'GRANT USAGE ON SCHEMA yoao_audit_v1 TO "{AUDIT_DAILY_REFRESH_ROLE}"; '
+        f'GRANT EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() TO "{AUDIT_DAILY_REFRESH_ROLE}";',
     )
 
     async def verify_refresh_login() -> None:
@@ -5796,7 +5851,7 @@ def _verify_audit_daily_projection_boundary(
         try:
             await verify_function_only_role(
                 connection,
-                schema="aap_audit_v1",
+                schema="yoao_audit_v1",
                 functions={("refresh_audit_bi_mv", "")},
                 role=AUDIT_DAILY_REFRESH_ROLE,
             )
@@ -5815,13 +5870,13 @@ def _verify_audit_daily_projection_boundary(
             "'definer',refresh.prosecdef,"
             "'owner_temp',has_database_privilege('audit_code',current_database(),'TEMP'),"
             "'owner_public_create',has_schema_privilege('audit_code','public','CREATE'),"
-            "'owner_audit_create',has_schema_privilege('audit_code','aap_audit_v1','CREATE'),"
+            "'owner_audit_create',has_schema_privilege('audit_code','yoao_audit_v1','CREATE'),"
             "'refresh_temp',has_database_privilege("
             f"'{AUDIT_DAILY_REFRESH_ROLE}',current_database(),'TEMP')) "
             "FROM pg_class AS mv,pg_class AS facts,pg_proc AS refresh "
             "WHERE mv.oid='public.mv_audit_bi_daily'::regclass "
-            "AND facts.oid='aap_audit_v1.audit_daily_facts'::regclass "
-            "AND refresh.oid='aap_audit_v1.refresh_audit_bi_mv()'::regprocedure;",
+            "AND facts.oid='yoao_audit_v1.audit_daily_facts'::regclass "
+            "AND refresh.oid='yoao_audit_v1.refresh_audit_bi_mv()'::regprocedure;",
         )
     )
     if ownership != {
@@ -5848,12 +5903,12 @@ def _verify_audit_daily_projection_boundary(
     execute(
         AUDIT_DAILY_REFRESH_ROLE,
         refresh_password,
-        "BEGIN; SELECT aap_audit_v1.refresh_audit_bi_mv(); COMMIT;",
+        "BEGIN; SELECT yoao_audit_v1.refresh_audit_bi_mv(); COMMIT;",
     )
     projected_count = execute(
         AUDIT_READ_ROLE,
         read_password,
-        "SELECT event_count::text FROM aap_audit_v1.audit_daily_facts "
+        "SELECT event_count::text FROM yoao_audit_v1.audit_daily_facts "
         f"WHERE action='{action}' AND status_family=2;",
     ).strip()
     if projected_count != "1":
@@ -5867,7 +5922,7 @@ def _verify_audit_daily_projection_boundary(
             runtime_password,
             (
                 "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
-                "SELECT aap_audit_v1.refresh_audit_bi_mv()",
+                "SELECT yoao_audit_v1.refresh_audit_bi_mv()",
             ),
         ),
         (
@@ -5875,7 +5930,7 @@ def _verify_audit_daily_projection_boundary(
             read_password,
             (
                 "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
-                "SELECT aap_audit_v1.refresh_audit_bi_mv()",
+                "SELECT yoao_audit_v1.refresh_audit_bi_mv()",
             ),
         ),
         (
@@ -5884,7 +5939,7 @@ def _verify_audit_daily_projection_boundary(
             (
                 "SELECT * FROM public.audit_logs LIMIT 1",
                 "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
-                "SELECT * FROM aap_audit_v1.audit_daily_facts LIMIT 1",
+                "SELECT * FROM yoao_audit_v1.audit_daily_facts LIMIT 1",
             ),
         ),
     ):
@@ -5937,7 +5992,7 @@ def _verify_audit_maintenance_boundary(
             username="owner",
             password=owner_password,
             database=database,
-            sql="SELECT aap_audit_v1.maintenance_command('"
+            sql="SELECT yoao_audit_v1.maintenance_command('"
             + request.replace("'", "''")
             + "'::jsonb);",
         )
@@ -5951,7 +6006,7 @@ def _verify_audit_maintenance_boundary(
         try:
             await verify_function_only_role(
                 connection,
-                schema="aap_audit_v1",
+                schema="yoao_audit_v1",
                 functions={("maintenance_command", "jsonb")},
                 role=AUDIT_MAINTENANCE_ROLE,
             )
@@ -5984,9 +6039,9 @@ def _verify_audit_maintenance_boundary(
                 "'maintenance_no_create_or_temp', NOT pg_catalog.has_database_privilege("
                 f"'{AUDIT_MAINTENANCE_ROLE}',current_database(),'CREATE,TEMP'),"
                 "'maintenance_schema_usage_only', pg_catalog.has_schema_privilege("
-                f"'{AUDIT_MAINTENANCE_ROLE}','aap_audit_v1','USAGE') AND NOT "
+                f"'{AUDIT_MAINTENANCE_ROLE}','yoao_audit_v1','USAGE') AND NOT "
                 "pg_catalog.has_schema_privilege("
-                f"'{AUDIT_MAINTENANCE_ROLE}','aap_audit_v1','CREATE'),"
+                f"'{AUDIT_MAINTENANCE_ROLE}','yoao_audit_v1','CREATE'),"
                 "'maintenance_owns_no_objects', NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class "
                 f"WHERE relowner='{AUDIT_MAINTENANCE_ROLE}'::pg_catalog.regrole) "
                 "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace "
@@ -6058,7 +6113,7 @@ def _verify_audit_maintenance_boundary(
             "SELECT pg_catalog.nextval(pg_catalog.pg_get_serial_sequence("
             "'public.audit_logs','id')::pg_catalog.regclass)",
             "CREATE TABLE public.audit_maintenance_denied_probe(id integer)",
-            "CREATE TABLE aap_audit_v1.audit_maintenance_denied_probe(id integer)",
+            "CREATE TABLE yoao_audit_v1.audit_maintenance_denied_probe(id integer)",
             "ALTER TABLE public.audit_logs ADD COLUMN audit_maintenance_denied_probe integer",
         )
         if username == AUDIT_MAINTENANCE_ROLE:
@@ -6464,43 +6519,43 @@ def _create_module_roles(
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             "CREATE ROLE notifications_code NOLOGIN NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE append_client LOGIN "
+            "CREATE ROLE yoao_append_client LOGIN "
             f"PASSWORD '{append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_cleanup_client LOGIN "
+            "CREATE ROLE yoao_asset_cleanup_client LOGIN "
             f"PASSWORD '{cleanup_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_catalog_client LOGIN "
+            "CREATE ROLE yoao_asset_catalog_client LOGIN "
             f"PASSWORD '{catalog_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_source_client LOGIN "
+            "CREATE ROLE yoao_asset_source_client LOGIN "
             f"PASSWORD '{source_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_import_client LOGIN "
+            "CREATE ROLE yoao_asset_import_client LOGIN "
             f"PASSWORD '{import_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_operator_client LOGIN "
+            "CREATE ROLE yoao_asset_operator_client LOGIN "
             f"PASSWORD '{operator_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_media_control_client LOGIN "
+            "CREATE ROLE yoao_asset_media_control_client LOGIN "
             f"PASSWORD '{media_control_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_media_worker_client LOGIN "
+            "CREATE ROLE yoao_asset_media_worker_client LOGIN "
             f"PASSWORD '{media_worker_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE asset_image_worker_client LOGIN "
+            "CREATE ROLE yoao_asset_image_worker_client LOGIN "
             f"PASSWORD '{image_worker_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE labeling_mask_gc_client LOGIN "
+            "CREATE ROLE yoao_labeling_mask_gc_client LOGIN "
             f"PASSWORD '{mask_gc_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE preannotation_result_client LOGIN "
+            "CREATE ROLE yoao_preannotation_result_client LOGIN "
             f"PASSWORD '{result_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE notification_preferences_client LOGIN "
+            "CREATE ROLE yoao_notification_preferences_client LOGIN "
             f"PASSWORD '{preference_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE notification_append_client LOGIN "
+            "CREATE ROLE yoao_notification_append_client LOGIN "
             f"PASSWORD '{notification_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             f"CREATE ROLE {NOTIFICATION_INBOX_ROLE} LOGIN "
@@ -6509,16 +6564,16 @@ def _create_module_roles(
             f"CREATE ROLE {NOTIFICATION_DELIVERY_READ_ROLE} LOGIN "
             f"PASSWORD '{notification_delivery_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE audit_append_client LOGIN "
+            "CREATE ROLE yoao_audit_append_client LOGIN "
             f"PASSWORD '{audit_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE audit_query_client LOGIN "
+            "CREATE ROLE yoao_audit_query_client LOGIN "
             f"PASSWORD '{audit_query_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE notification_read_client LOGIN "
+            "CREATE ROLE yoao_notification_read_client LOGIN "
             f"PASSWORD '{notification_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
-            "CREATE ROLE audit_read_client LOGIN "
+            "CREATE ROLE yoao_audit_read_client LOGIN "
             f"PASSWORD '{audit_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             f"CREATE ROLE {AUDIT_DAILY_REFRESH_ROLE} LOGIN "
@@ -6559,12 +6614,12 @@ def _create_module_roles(
                     if role
                     not in {
                         "audit_code",
-                        "asset_operator_client",
-                        "asset_media_control_client",
-                        "asset_media_worker_client",
-                        "asset_image_worker_client",
-                        "labeling_mask_gc_client",
-                        "preannotation_result_client",
+                        "yoao_asset_operator_client",
+                        "yoao_asset_media_control_client",
+                        "yoao_asset_media_worker_client",
+                        "yoao_asset_image_worker_client",
+                        "yoao_labeling_mask_gc_client",
+                        "yoao_preannotation_result_client",
                         NOTIFICATION_PREFERENCES_ROLE,
                         NOTIFICATION_APPEND_ROLE,
                         NOTIFICATION_INBOX_ROLE,
@@ -6641,120 +6696,120 @@ def _install_and_rollback_frozen_sql(
         "BEGIN;\n"
         "SELECT 1 / (current_database() = :'expected_database')::integer;\n"
         f"{install_sql}\n"
-        "SELECT aap_identity_accounts_v1.account_policy();\n"
-        "SELECT aap_identity_accounts_v1.prepare_account_command(NULL::jsonb);\n"
-        "SELECT aap_identity_accounts_v1.apply_account_command(NULL::jsonb);\n"
-        "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline('2000-01-01T00:00:00Z'::timestamptz);\n"
-        "SELECT aap_identity_recovery_v1.recovery_policy();\n"
-        "SELECT aap_identity_recovery_v1.prepare_recovery_command(NULL::jsonb);\n"
-        "SELECT aap_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
-        "SELECT aap_identity_recovery_v1.mail_policy();\n"
-        "SELECT aap_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
-        "SELECT aap_identity_directory_v1.directory_policy();\n"
-        "SELECT aap_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
-        "SELECT aap_identity_admin_passwords_v1.admin_password_policy();\n"
-        "SELECT aap_identity_admin_passwords_v1.execute_admin_password_command('{}'::jsonb);\n"
-        "SELECT aap_identity_platform_roles_v1.platform_role_policy();\n"
-        "SELECT aap_identity_platform_roles_v1.execute_platform_role_command('{}'::jsonb);\n"
-        "SELECT aap_identity_suspensions_v1.suspension_policy();\n"
-        "SELECT aap_identity_suspensions_v1.execute_suspension_command('{}'::jsonb);\n"
-        "SELECT aap_identity_deletions_v1.deletion_policy();\n"
-        "SELECT aap_identity_deletions_v1.execute_deletion_command('{}'::jsonb);\n"
-        "SELECT aap_identity_offboarding_v1.offboarding_policy();\n"
-        "SELECT aap_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
-        "SELECT aap_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
-        "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
-        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
-        "SELECT aap_identity_v1.create_provisioning_account(jsonb_build_object("
+        "SELECT yoao_identity_accounts_v1.account_policy();\n"
+        "SELECT yoao_identity_accounts_v1.prepare_account_command(NULL::jsonb);\n"
+        "SELECT yoao_identity_accounts_v1.apply_account_command(NULL::jsonb);\n"
+        "SELECT yoao_identity_accounts_v1.mark_inactive_accounts_offline('2000-01-01T00:00:00Z'::timestamptz);\n"
+        "SELECT yoao_identity_recovery_v1.recovery_policy();\n"
+        "SELECT yoao_identity_recovery_v1.prepare_recovery_command(NULL::jsonb);\n"
+        "SELECT yoao_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
+        "SELECT yoao_identity_recovery_v1.mail_policy();\n"
+        "SELECT yoao_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_directory_v1.directory_policy();\n"
+        "SELECT yoao_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_admin_passwords_v1.admin_password_policy();\n"
+        "SELECT yoao_identity_admin_passwords_v1.execute_admin_password_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_platform_roles_v1.platform_role_policy();\n"
+        "SELECT yoao_identity_platform_roles_v1.execute_platform_role_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_suspensions_v1.suspension_policy();\n"
+        "SELECT yoao_identity_suspensions_v1.execute_suspension_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_deletions_v1.deletion_policy();\n"
+        "SELECT yoao_identity_deletions_v1.execute_deletion_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_offboarding_v1.offboarding_policy();\n"
+        "SELECT yoao_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
+        "SELECT yoao_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
+        "SELECT yoao_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT yoao_identity_v1.create_provisioning_account(jsonb_build_object("
         "'schema','aap-identity-provisioning/v1',"
         "'mode','bootstrap_admin','account_id',:'provisioning_id',"
         "'email',:'provisioning_email','name','Provisioning probe',"
         "'password_hash','probe-only-hash','now','2026-10-21T00:00:00+00:00',"
         "'request_id',:'provisioning_request'));\n"
-        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
-        "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
-        "SELECT aap_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
-        "SELECT aap_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT yoao_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT yoao_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT yoao_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
+        "SELECT yoao_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
         "SELECT yoao_identity_briefs_v1.briefs_policy();\n"
         "SELECT yoao_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
-        "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
-        "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
-        "SELECT aap_identity_deactivation_v1.due_policy();\n"
-        "SELECT aap_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
-        "SELECT aap_notifications_v1.identity_delivery_policy();\n"
-        "SELECT aap_notifications_v1.delete_command(NULL::pg_catalog.jsonb);\n"
-        "SELECT aap_identity_groups_v1.group_policy();\n"
-        "SELECT aap_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
-        "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
-        "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_assets_v1.lock_task_creation_items(NULL::uuid, NULL::uuid[]);\n"
-        "SELECT aap_jobs_v1.create_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_jobs_v1.find_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_jobs_v1.claim_task_creation_job(NULL::uuid, NULL::text);\n"
-        "SELECT aap_jobs_v1.lock_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_jobs_v1.finish_task_creation_job(NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_jobs_v1.fail_task_creation_job(NULL::uuid, NULL::uuid, NULL::text);\n"
-        "SELECT aap_jobs_v1.cancel_task_creation_job(NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_labeling_v1.accept_dataset_task_creation(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::integer);\n"
-        "SELECT aap_labeling_v1.prepare_dataset_task_creation(NULL::uuid, NULL::jsonb);\n"
-        "SELECT aap_labeling_v1.read_dataset_task_creation(NULL::uuid);\n"
-        "SELECT aap_labeling_v1.advance_dataset_task_creation(NULL::uuid, NULL::integer);\n"
-        "SELECT aap_identity_v1.lock_audit_actor(NULL::uuid);\n"
-        "SELECT aap_learning_v1.guard_project_deletion(NULL::uuid);\n"
-        "SELECT aap_workspace_v1.delete_project(NULL::uuid, NULL::uuid, NULL::uuid, NULL::jsonb);\n"
-        "SELECT aap_learning_v1.guard_dataset_item_deletion(NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_learning_v1.guard_dataset_unlink(NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_workspace_v1.preview_dataset_unlink(NULL::uuid, NULL::uuid, NULL::uuid);\n"
-        "SELECT aap_workspace_v1.unlink_dataset(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::jsonb);\n"
-        "SELECT aap_assets_v1.reserve_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text);\n"
-        "SELECT aap_assets_v1.delete_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
-        "SELECT count(*) FROM aap_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,100);\n"
-        "SELECT aap_assets_v1.list_catalog_datasets(NULL::uuid,NULL::text,NULL::text,NULL::boolean,50,0::bigint);\n"
-        "SELECT aap_assets_v1.get_catalog_dataset(NULL::uuid,NULL::uuid);\n"
-        "SELECT aap_assets_v1.list_catalog_items(NULL::uuid,NULL::uuid,50,0::bigint);\n"
-        "SELECT aap_assets_v1.create_catalog_dataset(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.update_catalog_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.list_dataset_projects(NULL::uuid,NULL::uuid);\n"
-        "SELECT aap_assets_v1.list_project_datasets(NULL::uuid,NULL::uuid);\n"
-        "SELECT aap_assets_v1.lock_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid);\n"
-        "SELECT aap_assets_v1.complete_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::text,NULL::integer,NULL::integer);\n"
-        "SELECT aap_assets_v1.begin_dataset_ingest(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer);\n"
-        "SELECT aap_assets_v1.guard_spatial_actor(NULL::uuid,NULL::text);\n"
-        "SELECT aap_assets_v1.list_spatial_scenes(NULL::uuid,NULL::uuid,NULL::timestamp with time zone,NULL::uuid,NULL::integer);\n"
-        "SELECT aap_assets_v1.get_spatial_scene(NULL::uuid,NULL::uuid);\n"
-        "SELECT aap_assets_v1.read_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::integer);\n"
-        "SELECT aap_assets_v1.read_spatial_items(NULL::uuid,NULL::uuid[],NULL::uuid,NULL::integer);\n"
-        "SELECT aap_assets_v1.read_spatial_poses(NULL::uuid,NULL::uuid,NULL::integer,NULL::integer);\n"
-        "SELECT aap_assets_v1.read_spatial_pose_pairs(NULL::jsonb);\n"
-        "SELECT aap_assets_v1.read_spatial_calibrations(NULL::uuid[],NULL::boolean,NULL::uuid,NULL::integer,NULL::integer);\n"
-        "SELECT aap_assets_v1.lock_spatial_calibration_facts(NULL::uuid,NULL::uuid,NULL::text,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.mutate_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.apply_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.read_spatial_layout_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean);\n"
-        "SELECT aap_assets_v1.upsert_spatial_poses(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.create_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::jsonb,NULL::uuid);\n"
-        "SELECT aap_assets_v1.assign_spatial_items(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.set_spatial_scene_source(NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.update_spatial_calibration(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::integer,NULL::text,NULL::jsonb,NULL::text,NULL::text,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.read_pointcloud_preparation(NULL::uuid,NULL::uuid,NULL::integer);\n"
-        "SELECT aap_assets_v1.apply_pointcloud_preparation(NULL::uuid,NULL::jsonb,NULL::jsonb,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.read_spatial_camera_target(NULL::uuid,NULL::uuid,NULL::text);\n"
-        "SELECT aap_assets_v1.record_spatial_calibration_provenance(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
-        "SELECT aap_assets_v1.set_spatial_dataset_axis(NULL::uuid,NULL::uuid,NULL::text);\n"
-        "SELECT aap_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
-        "SELECT aap_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
-        "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
-        "SELECT aap_inference_v1.clear_project_ml_backend_pool(:'project_id'::uuid);\n"
-        "SELECT aap_inference_v1.clear_project_pipelines(:'project_id'::uuid);\n"
+        "SELECT yoao_identity_deactivation_v1.deactivation_policy();\n"
+        "SELECT yoao_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
+        "SELECT yoao_identity_deactivation_v1.due_policy();\n"
+        "SELECT yoao_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
+        "SELECT yoao_notifications_v1.identity_delivery_policy();\n"
+        "SELECT yoao_notifications_v1.delete_command(NULL::pg_catalog.jsonb);\n"
+        "SELECT yoao_identity_groups_v1.group_policy();\n"
+        "SELECT yoao_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
+        "SELECT yoao_identity_v1.lock_active_actor(NULL::uuid);\n"
+        "SELECT yoao_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_assets_v1.lock_task_creation_items(NULL::uuid, NULL::uuid[]);\n"
+        "SELECT yoao_jobs_v1.create_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_jobs_v1.find_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_jobs_v1.claim_task_creation_job(NULL::uuid, NULL::text);\n"
+        "SELECT yoao_jobs_v1.lock_task_creation_job(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_jobs_v1.finish_task_creation_job(NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_jobs_v1.fail_task_creation_job(NULL::uuid, NULL::uuid, NULL::text);\n"
+        "SELECT yoao_jobs_v1.cancel_task_creation_job(NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_labeling_v1.accept_dataset_task_creation(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::integer);\n"
+        "SELECT yoao_labeling_v1.prepare_dataset_task_creation(NULL::uuid, NULL::jsonb);\n"
+        "SELECT yoao_labeling_v1.read_dataset_task_creation(NULL::uuid);\n"
+        "SELECT yoao_labeling_v1.advance_dataset_task_creation(NULL::uuid, NULL::integer);\n"
+        "SELECT yoao_identity_v1.lock_audit_actor(NULL::uuid);\n"
+        "SELECT yoao_learning_v1.guard_project_deletion(NULL::uuid);\n"
+        "SELECT yoao_workspace_v1.delete_project(NULL::uuid, NULL::uuid, NULL::uuid, NULL::jsonb);\n"
+        "SELECT yoao_learning_v1.guard_dataset_item_deletion(NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_learning_v1.guard_dataset_unlink(NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_workspace_v1.preview_dataset_unlink(NULL::uuid, NULL::uuid, NULL::uuid);\n"
+        "SELECT yoao_workspace_v1.unlink_dataset(NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, NULL::text, NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.reserve_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text);\n"
+        "SELECT yoao_assets_v1.delete_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
+        "SELECT count(*) FROM yoao_assets_v1.pending_storage_deletions_v2('cache-bucket',NULL::timestamptz,NULL::uuid,NULL::uuid,100);\n"
+        "SELECT yoao_assets_v1.list_catalog_datasets(NULL::uuid,NULL::text,NULL::text,NULL::boolean,50,0::bigint);\n"
+        "SELECT yoao_assets_v1.get_catalog_dataset(NULL::uuid,NULL::uuid);\n"
+        "SELECT yoao_assets_v1.list_catalog_items(NULL::uuid,NULL::uuid,50,0::bigint);\n"
+        "SELECT yoao_assets_v1.create_catalog_dataset(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.update_catalog_dataset(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.list_dataset_projects(NULL::uuid,NULL::uuid);\n"
+        "SELECT yoao_assets_v1.list_project_datasets(NULL::uuid,NULL::uuid);\n"
+        "SELECT yoao_assets_v1.lock_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid);\n"
+        "SELECT yoao_assets_v1.complete_legacy_dataset_upload(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::text,NULL::integer,NULL::integer);\n"
+        "SELECT yoao_assets_v1.begin_dataset_ingest(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.claim_dataset_source_ingest_delivery(NULL::uuid,NULL::integer);\n"
+        "SELECT yoao_assets_v1.guard_spatial_actor(NULL::uuid,NULL::text);\n"
+        "SELECT yoao_assets_v1.list_spatial_scenes(NULL::uuid,NULL::uuid,NULL::timestamp with time zone,NULL::uuid,NULL::integer);\n"
+        "SELECT yoao_assets_v1.get_spatial_scene(NULL::uuid,NULL::uuid);\n"
+        "SELECT yoao_assets_v1.read_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::integer);\n"
+        "SELECT yoao_assets_v1.read_spatial_items(NULL::uuid,NULL::uuid[],NULL::uuid,NULL::integer);\n"
+        "SELECT yoao_assets_v1.read_spatial_poses(NULL::uuid,NULL::uuid,NULL::integer,NULL::integer);\n"
+        "SELECT yoao_assets_v1.read_spatial_pose_pairs(NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.read_spatial_calibrations(NULL::uuid[],NULL::boolean,NULL::uuid,NULL::integer,NULL::integer);\n"
+        "SELECT yoao_assets_v1.lock_spatial_calibration_facts(NULL::uuid,NULL::uuid,NULL::text,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.mutate_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.apply_spatial_layout(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.read_spatial_layout_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::boolean);\n"
+        "SELECT yoao_assets_v1.upsert_spatial_poses(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.create_spatial_scene(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::text,NULL::jsonb,NULL::uuid);\n"
+        "SELECT yoao_assets_v1.assign_spatial_items(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.set_spatial_scene_source(NULL::uuid,NULL::uuid,NULL::text,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.update_spatial_calibration(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,NULL::integer,NULL::text,NULL::jsonb,NULL::text,NULL::text,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.read_pointcloud_preparation(NULL::uuid,NULL::uuid,NULL::integer);\n"
+        "SELECT yoao_assets_v1.apply_pointcloud_preparation(NULL::uuid,NULL::jsonb,NULL::jsonb,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.read_spatial_camera_target(NULL::uuid,NULL::uuid,NULL::text);\n"
+        "SELECT yoao_assets_v1.record_spatial_calibration_provenance(NULL::uuid,NULL::uuid,NULL::jsonb);\n"
+        "SELECT yoao_assets_v1.set_spatial_dataset_axis(NULL::uuid,NULL::uuid,NULL::text);\n"
+        "SELECT yoao_learning_v1.lock_project_deletion(:'project_id'::uuid);\n"
+        "SELECT yoao_learning_v1.guard_project_deletion(:'project_id'::uuid);\n"
+        "SELECT yoao_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT yoao_inference_v1.clear_project_ml_backend_pool(:'project_id'::uuid);\n"
+        "SELECT yoao_inference_v1.clear_project_pipelines(:'project_id'::uuid);\n"
         "SELECT yoao_insights_v1.clear_project_task_views(:'project_id'::uuid);\n"
         "SELECT yoao_diagnostics_v1.detach_project_references(:'project_id'::uuid);\n"
-        "SELECT aap_export_v1.clear_project_export_artifacts(:'project_id'::uuid);\n"
-        "SELECT aap_jobs_v1.detach_project_references(:'project_id'::uuid);\n"
-        "SELECT aap_learning_v1.delete_project_owned_records(:'project_id'::uuid);\n"
-        "SELECT aap_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
-        "SELECT aap_labeling_v1.append_dataset_items("
+        "SELECT yoao_export_v1.clear_project_export_artifacts(:'project_id'::uuid);\n"
+        "SELECT yoao_jobs_v1.detach_project_references(:'project_id'::uuid);\n"
+        "SELECT yoao_learning_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT yoao_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
+        "SELECT yoao_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
         "SELECT 'AAP_READ_RELATIONS_FROZEN=' || ("
         f"{_read_relation_evidence_expression()}"
@@ -8590,7 +8645,7 @@ def main(
         evidence["migrations"]["runtime_grants_reapplied"] = True
         append_url = URL.create(
             "postgresql+asyncpg",
-            username="append_client",
+            username="yoao_append_client",
             password=append_password,
             host="127.0.0.1",
             port=port,
@@ -8598,7 +8653,7 @@ def main(
         ).render_as_string(hide_password=False)
         cleanup_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_cleanup_client",
+            username="yoao_asset_cleanup_client",
             password=cleanup_password,
             host="127.0.0.1",
             port=port,
@@ -8606,7 +8661,7 @@ def main(
         ).render_as_string(hide_password=False)
         catalog_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_catalog_client",
+            username="yoao_asset_catalog_client",
             password=catalog_password,
             host="127.0.0.1",
             port=port,
@@ -8614,7 +8669,7 @@ def main(
         ).render_as_string(hide_password=False)
         source_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_source_client",
+            username="yoao_asset_source_client",
             password=source_password,
             host="127.0.0.1",
             port=port,
@@ -8622,7 +8677,7 @@ def main(
         ).render_as_string(hide_password=False)
         import_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_import_client",
+            username="yoao_asset_import_client",
             password=import_password,
             host="127.0.0.1",
             port=port,
@@ -8630,7 +8685,7 @@ def main(
         ).render_as_string(hide_password=False)
         operator_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_operator_client",
+            username="yoao_asset_operator_client",
             password=operator_password,
             host="127.0.0.1",
             port=port,
@@ -8638,7 +8693,7 @@ def main(
         ).render_as_string(hide_password=False)
         media_control_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_media_control_client",
+            username="yoao_asset_media_control_client",
             password=media_control_password,
             host="127.0.0.1",
             port=port,
@@ -8646,7 +8701,7 @@ def main(
         ).render_as_string(hide_password=False)
         media_worker_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_media_worker_client",
+            username="yoao_asset_media_worker_client",
             password=media_worker_password,
             host="127.0.0.1",
             port=port,
@@ -8654,7 +8709,7 @@ def main(
         ).render_as_string(hide_password=False)
         image_worker_url = URL.create(
             "postgresql+asyncpg",
-            username="asset_image_worker_client",
+            username="yoao_asset_image_worker_client",
             password=image_worker_password,
             host="127.0.0.1",
             port=port,
@@ -8862,7 +8917,7 @@ def main(
             password=owner_password,
             database=database,
             sql=(
-                "CREATE ROLE inference_registry_ingress_client LOGIN "
+                "CREATE ROLE yoao_inference_registry_ingress_client LOGIN "
                 f"PASSWORD '{inference_registry_ingress_password}' "
                 "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
                 "NOREPLICATION NOBYPASSRLS;\n"
@@ -8877,7 +8932,7 @@ def main(
             password=owner_password,
             database=database,
             sql=(
-                "CREATE ROLE inference_routing_client LOGIN "
+                "CREATE ROLE yoao_inference_routing_client LOGIN "
                 f"PASSWORD '{inference_routing_password}' "
                 "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
                 "NOREPLICATION NOBYPASSRLS;\n"
@@ -8914,9 +8969,9 @@ def main(
             "audit_owner": "audit_code",
             "settings_owner": "settings_code",
             "notifications_owner": "notifications_code",
-            "workflow_role": "append_client",
-            "asset_cleanup_role": "asset_cleanup_client",
-            "mask_gc_role": "labeling_mask_gc_client",
+            "workflow_role": "yoao_append_client",
+            "asset_cleanup_role": "yoao_asset_cleanup_client",
+            "mask_gc_role": "yoao_labeling_mask_gc_client",
             "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
             "inference_routing_role": INFERENCE_ROUTING_ROLE,
         }
@@ -9155,7 +9210,7 @@ def main(
                     "migration_role": "owner",
                     "audit_owner": "audit_code",
                     "api_role": "legacy_runtime",
-                    "append_client": AUDIT_APPEND_ROLE,
+                    "yoao_append_client": AUDIT_APPEND_ROLE,
                 },
             )
 
@@ -9269,7 +9324,7 @@ def main(
                 (
                     jobs_publication_url,
                     JOBS_PUBLICATION_ROLE,
-                    "aap_jobs_v1",
+                    "yoao_jobs_v1",
                     {
                         (
                             "begin_dispatch_publication",
@@ -9296,7 +9351,7 @@ def main(
                 (
                     export_execution_url,
                     EXPORT_EXECUTION_ROLE,
-                    "aap_export_v1",
+                    "yoao_export_v1",
                     {
                         ("begin_execution", "uuid, uuid, text, uuid, integer"),
                         ("enter_execution_io", "uuid, uuid"),
@@ -9331,9 +9386,9 @@ def main(
                     + _READER_FUNCTIONS
                     + _RESOLVER_FUNCTIONS
                     + (
-                        "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)",
-                        "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
-                        "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
+                        "yoao_jobs_v1.delete_fixture_media_backfills(uuid,uuid)",
+                        "yoao_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
+                        "yoao_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
                     )
                 )
                 if await connection.fetchval(
@@ -9353,17 +9408,17 @@ def main(
                     for role, schemas, signatures in (
                         (
                             "fixture_media_acl_probe",
-                            ("aap_jobs_v1", "aap_assets_v1"),
+                            ("yoao_jobs_v1", "yoao_assets_v1"),
                             _JOBS + _ASSETS,
                         ),
                         (
                             "fixture_reader_acl_probe",
-                            ("aap_assets_v1",),
+                            ("yoao_assets_v1",),
                             _READER_FUNCTIONS,
                         ),
                         (
                             "fixture_resolver_acl_probe",
-                            ("aap_assets_v1",),
+                            ("yoao_assets_v1",),
                             _RESOLVER_FUNCTIONS,
                         ),
                     ):
@@ -9388,8 +9443,8 @@ def main(
                         if any(
                             row["owner"]
                             != {
-                                "aap_assets_v1": "assets_code",
-                                "aap_jobs_v1": "jobs_code",
+                                "yoao_assets_v1": "assets_code",
+                                "yoao_jobs_v1": "jobs_code",
                             }.get(row["nspname"])
                             for row in expected
                         ):
@@ -9462,7 +9517,7 @@ def main(
             try:
                 await verify_function_only_role(
                     connection,
-                    schema="aap_notifications_v1",
+                    schema="yoao_notifications_v1",
                     functions={
                         (
                             signature.split(".", 1)[1].split("(", 1)[0],
@@ -9491,7 +9546,7 @@ def main(
             try:
                 await verify_function_only_role(
                     connection,
-                    schema="aap_notifications_v1",
+                    schema="yoao_notifications_v1",
                     functions={
                         (
                             signature.split(".", 1)[1].split("(", 1)[0],
@@ -9633,7 +9688,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.preference_command("
+                "SELECT yoao_notifications_v1.preference_command("
                 f"'{api_get_request}'::jsonb) ->> 'ok';"
             ),
         )
@@ -9679,16 +9734,16 @@ def main(
             "DELETE FROM public.notification_delivery_outbox WHERE false",
         )
         notification_fact_read_statement = (
-            "SELECT id FROM aap_notifications_v1.notification_facts LIMIT 1"
+            "SELECT id FROM yoao_notifications_v1.notification_facts LIMIT 1"
         )
         notification_fact_write_statements = (
-            "INSERT INTO aap_notifications_v1.notification_facts "
+            "INSERT INTO yoao_notifications_v1.notification_facts "
             "(id,user_id,type,target_type,target_id,payload) "
             "SELECT pg_catalog.gen_random_uuid(),pg_catalog.gen_random_uuid(),"
             "'task.approved','task',pg_catalog.gen_random_uuid(),'{}'::jsonb WHERE false",
-            "UPDATE aap_notifications_v1.notification_facts "
+            "UPDATE yoao_notifications_v1.notification_facts "
             "SET read_at=pg_catalog.now() WHERE false",
-            "DELETE FROM aap_notifications_v1.notification_facts WHERE false",
+            "DELETE FROM yoao_notifications_v1.notification_facts WHERE false",
         )
         for statement in notification_private_statements:
             _assert_psql_permission_denied(
@@ -9708,7 +9763,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.preference_command("
+                "SELECT yoao_notifications_v1.preference_command("
                 f"'{api_get_request}'::jsonb) ->> 'ok';"
             ),
         )
@@ -9739,7 +9794,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.append_notification("
+                "SELECT yoao_notifications_v1.append_notification("
                 f"'{notification_append_request}'::jsonb) ->> 'ok';"
             ),
         )
@@ -9766,7 +9821,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.append_job_terminal_notification("
+                "SELECT yoao_notifications_v1.append_job_terminal_notification("
                 f"'{terminal_append_request}'::jsonb) -> 'data' ->> 'created';"
             ),
         )
@@ -9818,7 +9873,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.read_state_command("
+                "SELECT yoao_notifications_v1.read_state_command("
                 f"'{notification_read_state_request}'::jsonb) -> 'data' ->> 'updated';"
             ),
         )
@@ -9858,7 +9913,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.delete_command("
+                "SELECT yoao_notifications_v1.delete_command("
                 f"CAST('{notification_delete_request}' AS pg_catalog.jsonb)) "
                 "-> 'data' ->> 'deleted';"
             ),
@@ -9905,7 +9960,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.append_notification("
+                "SELECT yoao_notifications_v1.append_notification("
                 f"'{read_relation_append_request}'::jsonb) "
                 "-> 'data' -> 'notification' ->> 'id';"
             ),
@@ -9920,7 +9975,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT count(*) FROM aap_notifications_v1.read_notification("
+                "SELECT count(*) FROM yoao_notifications_v1.read_notification("
                 f"'{read_relation_notification_id}'::uuid) "
                 f"WHERE user_id='{notification_preference_user_id}'::uuid "
                 f"AND id='{read_relation_notification_id}'::uuid "
@@ -9946,15 +10001,15 @@ def main(
         evidence["notification_read_relations"]["api_relation_select_denied"] = True
         evidence["notification_delivery_read"]["api_fact_select_denied"] = True
         for statement in (
-            "SELECT aap_notifications_v1.preference_command('{}'::jsonb)",
-            "SELECT aap_notifications_v1.append_notification('{}'::jsonb)",
-            "SELECT aap_notifications_v1.append_job_terminal_notification('{}'::jsonb)",
-            "SELECT aap_notifications_v1.read_state_command('{}'::jsonb)",
-            "SELECT aap_notifications_v1.delete_command('{}'::jsonb)",
-            "SELECT aap_notifications_v1.identity_delivery_policy()",
-            "SELECT aap_notifications_v1.claim_identity_deliveries('{}'::jsonb)",
-            "SELECT aap_notifications_v1.finish_identity_delivery('{}'::jsonb)",
-            "SELECT aap_notifications_v1.create_identity_deactivation_notifications("
+            "SELECT yoao_notifications_v1.preference_command('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.append_notification('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.append_job_terminal_notification('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.read_state_command('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.delete_command('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.identity_delivery_policy()",
+            "SELECT yoao_notifications_v1.claim_identity_deliveries('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.finish_identity_delivery('{}'::jsonb)",
+            "SELECT yoao_notifications_v1.create_identity_deactivation_notifications("
             "NULL::uuid,NULL::text,NULL::jsonb,NULL::uuid[])",
         ):
             _assert_psql_permission_denied(
@@ -9987,7 +10042,7 @@ def main(
                 "SELECT count(*) FROM pg_catalog.pg_proc AS function "
                 "JOIN pg_catalog.pg_namespace AS namespace "
                 "ON namespace.oid=function.pronamespace "
-                "WHERE namespace.nspname='aap_notifications_v1' "
+                "WHERE namespace.nspname='yoao_notifications_v1' "
                 "AND pg_catalog.has_function_privilege("
                 f"'{NOTIFICATION_READ_ROLE}', function.oid, 'EXECUTE');"
             ),
@@ -10027,7 +10082,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_audit_v1.append_events("
+                "SELECT yoao_audit_v1.append_events("
                 f"'{audit_append_request}'::jsonb) -> 'data' -> 'events' -> 0 ->> 'id';"
             ),
         )
@@ -10095,7 +10150,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT aap_audit_v1.query_events("
+                "SELECT yoao_audit_v1.query_events("
                 f"CAST('{audit_query_request}' AS pg_catalog.jsonb)) "
                 "-> 'data' ->> 'operation';"
             ),
@@ -10111,17 +10166,17 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                "SELECT count(*) FROM yoao_audit_v1.audit_events "
                 f"WHERE id='{audit_append_id}'::bigint;"
             ),
         )
         if api_audit_fact.strip() != "1":
             raise RuntimeError("API LOGIN could not read Audit event facts")
         audit_fact_write_statements = (
-            "INSERT INTO aap_audit_v1.audit_events (action) "
+            "INSERT INTO yoao_audit_v1.audit_events (action) "
             "SELECT 'audit.read_relation.denied' WHERE false",
-            "UPDATE aap_audit_v1.audit_events SET action='audit.denied' WHERE false",
-            "DELETE FROM aap_audit_v1.audit_events WHERE false",
+            "UPDATE yoao_audit_v1.audit_events SET action='audit.denied' WHERE false",
+            "DELETE FROM yoao_audit_v1.audit_events WHERE false",
         )
         for statement in audit_fact_write_statements:
             _assert_psql_permission_denied(
@@ -10315,7 +10370,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT count(*)=1 FROM aap_notifications_v1.inbox_page("
+                "SELECT count(*)=1 FROM yoao_notifications_v1.inbox_page("
                 f"'{notification_preference_user_id}'::uuid,'employee',false,100,0) "
                 f"WHERE id='{read_relation_notification_id}'::uuid;"
             ),
@@ -10335,7 +10390,7 @@ def main(
                 password=password,
                 database=database,
                 statement=(
-                    "SELECT * FROM aap_notifications_v1._visible_inbox_rows("
+                    "SELECT * FROM yoao_notifications_v1._visible_inbox_rows("
                     f"'{notification_preference_user_id}'::uuid,'employee')"
                 ),
             )
@@ -10391,7 +10446,7 @@ def main(
             password=runtime_password,
             database=database,
             sql=(
-                "SELECT row_to_json(fact) FROM aap_jobs_v1.notification_scope_facts AS fact "
+                "SELECT row_to_json(fact) FROM yoao_jobs_v1.notification_scope_facts AS fact "
                 f"WHERE id='{jobs_scope_id}'::uuid;"
             ),
         )
@@ -10511,7 +10566,7 @@ WITH original AS (
     DELETE FROM public.async_jobs AS job USING original
     WHERE job.id = original.id
       AND NOT EXISTS (
-          SELECT 1 FROM aap_jobs_v1.dispatch_intents AS intent
+          SELECT 1 FROM yoao_jobs_v1.dispatch_intents AS intent
           WHERE intent.job_id = job.id
       )
     RETURNING job.id
@@ -10542,7 +10597,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "mask_gc_role": "labeling_mask_gc_client",
+                "mask_gc_role": "yoao_labeling_mask_gc_client",
             },
         )
 
@@ -10560,7 +10615,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "jobs_owner": "jobs_code",
                 "labeling_owner": "labeling_code",
-                "result_role": "preannotation_result_client",
+                "result_role": "yoao_preannotation_result_client",
             },
         )
 
@@ -10593,7 +10648,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "labeling_video_writer_role": "labeling_video_writer_client",
+                "labeling_video_writer_role": "yoao_labeling_video_writer_client",
             },
         )
         phase = "install-labeling-task-control-grants"
@@ -10609,7 +10664,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "task_control_role": "labeling_task_control_client",
+                "task_control_role": "yoao_labeling_task_control_client",
             },
         )
         phase = "install-labeling-annotation-writes-grants"
@@ -10625,7 +10680,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "annotation_write_role": "labeling_annotation_write_client",
+                "annotation_write_role": "yoao_labeling_annotation_write_client",
             },
         )
         phase = "install-labeling-editing-grants"
@@ -10641,7 +10696,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "editing_role": "labeling_editing_client",
+                "editing_role": "yoao_labeling_editing_client",
             },
         )
         phase = "install-labeling-batch-control-grants"
@@ -10657,7 +10712,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "batch_control_role": "labeling_batch_control_client",
+                "batch_control_role": "yoao_labeling_batch_control_client",
             },
         )
         phase = "install-labeling-prediction-grants"
@@ -10673,7 +10728,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "prediction_role": "labeling_prediction_client",
+                "prediction_role": "yoao_labeling_prediction_client",
             },
         )
         phase = "install-labeling-scene-track-commands-grants"
@@ -10689,7 +10744,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "scene_track_command_role": "labeling_scene_track_command_client",
+                "scene_track_command_role": "yoao_labeling_scene_track_command_client",
             },
         )
         phase = "install-labeling-cross-frame-grants"
@@ -10705,7 +10760,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "cross_frame_role": "labeling_cross_frame_client",
+                "cross_frame_role": "yoao_labeling_cross_frame_client",
             },
         )
         phase = "install-labeling-annotation-maintenance-grants"
@@ -10721,7 +10776,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "annotation_maintenance_role": "labeling_annotation_maintenance_client",
+                "annotation_maintenance_role": "yoao_labeling_annotation_maintenance_client",
             },
         )
         phase = "install-labeling-discussion-grants"
@@ -10737,7 +10792,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "discussion_role": "labeling_discussion_client",
+                "discussion_role": "yoao_labeling_discussion_client",
             },
         )
         phase = "install-labeling-mask-edit-grants"
@@ -10753,7 +10808,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "mask_edit_role": "labeling_mask_edit_client",
+                "mask_edit_role": "yoao_labeling_mask_edit_client",
             },
         )
         phase = "install-labeling-scene-read-grants"
@@ -10769,7 +10824,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "scene_read_role": "labeling_scene_read_client",
+                "scene_read_role": "yoao_labeling_scene_read_client",
             },
         )
         phase = "install-labeling-video-control-grants"
@@ -10785,7 +10840,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "video_control_role": "labeling_video_control_client",
+                "video_control_role": "yoao_labeling_video_control_client",
             },
         )
         phase = "install-labeling-annotation-transfer-grants"
@@ -10801,7 +10856,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "annotation_transfer_role": "labeling_annotation_transfer_client",
+                "annotation_transfer_role": "yoao_labeling_annotation_transfer_client",
             },
         )
         phase = "install-labeling-core-read-grants"
@@ -10817,7 +10872,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "core_read_role": "labeling_core_read_client",
+                "core_read_role": "yoao_labeling_core_read_client",
             },
         )
         phase = "install-labeling-mask-quality-grants"
@@ -10833,7 +10888,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "quality_role": "labeling_mask_quality_client",
+                "quality_role": "yoao_labeling_mask_quality_client",
             },
         )
         phase = "install-labeling-spatial-quality-grants"
@@ -10849,7 +10904,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "spatial_quality_role": "labeling_spatial_quality_client",
+                "spatial_quality_role": "yoao_labeling_spatial_quality_client",
             },
         )
         phase = "install-labeling-task-maintenance-grants"
@@ -10865,7 +10920,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "labeling_owner": "labeling_code",
-                "task_maintenance_role": "labeling_task_maintenance_client",
+                "task_maintenance_role": "yoao_labeling_task_maintenance_client",
             },
         )
         phase = "install-inference-pool-reference-grants"
@@ -10881,7 +10936,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "inference_owner": "inference_code",
-                "pool_reference_role": "inference_pool_reference_client",
+                "pool_reference_role": "yoao_inference_pool_reference_client",
             },
         )
         phase = "install-video-restore-grants"
@@ -10897,7 +10952,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "inference_owner": "inference_code",
-                "video_restore_operator_role": "video_restore_operator_client",
+                "video_restore_operator_role": "yoao_video_restore_operator_client",
             },
         )
         phase = "install-identity-grants"
@@ -10950,7 +11005,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
-                "identity_session_role": "identity_session_client",
+                "identity_session_role": "yoao_identity_session_client",
             },
         )
         phase = "install-identity-account-grants"
@@ -10966,8 +11021,8 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
-                "identity_account_role": "identity_account_client",
-                "identity_presence_role": "identity_presence_client",
+                "identity_account_role": "yoao_identity_account_client",
+                "identity_presence_role": "yoao_identity_presence_client",
             },
         )
         phase = "install-identity-group-grants"
@@ -10985,7 +11040,7 @@ SELECT id FROM removed;
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "audit_owner": "audit_code",
-                "identity_group_role": "identity_group_client",
+                "identity_group_role": "yoao_identity_group_client",
             },
         )
         phase = "install-identity-deactivation-grants"
@@ -11003,9 +11058,9 @@ SELECT id FROM removed;
                 "identity_owner": "identity_code",
                 "audit_owner": "audit_code",
                 "notifications_owner": "notifications_code",
-                "identity_deactivation_role": "identity_deactivation_client",
-                "identity_deactivation_operator_role": "identity_deactivation_operator",
-                "notification_publish_role": "notification_publish_client",
+                "identity_deactivation_role": "yoao_identity_deactivation_client",
+                "identity_deactivation_operator_role": "yoao_identity_deactivation_operator",
+                "notification_publish_role": "yoao_notification_publish_client",
             },
         )
         publisher_role = IDENTITY_CLIENT_ROLES["NOTIFICATION_PUBLISH"]
@@ -11029,7 +11084,7 @@ SELECT id FROM removed;
             password=identity_passwords[publisher_role],
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.identity_delivery_policy() ->> 'policy';"
+                "SELECT yoao_notifications_v1.identity_delivery_policy() ->> 'policy';"
             ),
         )
         if publisher_policy.strip() != "aap-notifications-delivery/v1":
@@ -11042,7 +11097,7 @@ SELECT id FROM removed;
             password=identity_passwords[publisher_role],
             database=database,
             sql=(
-                "BEGIN; SELECT aap_notifications_v1.claim_identity_deliveries("
+                "BEGIN; SELECT yoao_notifications_v1.claim_identity_deliveries("
                 "pg_catalog.jsonb_build_object("
                 "'schema','aap-notifications-delivery/v1',"
                 f"'worker_id','{publisher_worker_id}'::uuid,"
@@ -11061,7 +11116,7 @@ SELECT id FROM removed;
             password=identity_passwords[publisher_role],
             database=database,
             sql=(
-                "SELECT aap_notifications_v1.finish_identity_delivery("
+                "SELECT yoao_notifications_v1.finish_identity_delivery("
                 f"'{publisher_finish_request}'::jsonb) -> 'data' ->> 'accepted';"
             ),
         )
@@ -11095,9 +11150,9 @@ SELECT id FROM removed;
                 "identity_owner": "identity_code",
                 "audit_owner": "audit_code",
                 "settings_owner": "settings_code",
-                "identity_recovery_role": "identity_recovery_client",
-                "identity_mail_role": "identity_mail_client",
-                "identity_mail_settings_role": "identity_mail_settings_client",
+                "identity_recovery_role": "yoao_identity_recovery_client",
+                "identity_mail_role": "yoao_identity_mail_client",
+                "identity_mail_settings_role": "yoao_identity_mail_settings_client",
             },
         )
         phase = "install-identity-invitation-grants"
@@ -11117,8 +11172,8 @@ SELECT id FROM removed;
                 "labeling_owner": "labeling_code",
                 "settings_owner": "settings_code",
                 "audit_owner": "audit_code",
-                "identity_invitation_role": "identity_invitation_client",
-                "identity_mail_v2_role": "identity_mail_v2_client",
+                "identity_invitation_role": "yoao_identity_invitation_client",
+                "identity_mail_v2_role": "yoao_identity_mail_v2_client",
             },
         )
         phase = "install-identity-directory-grants"
@@ -11137,7 +11192,7 @@ SELECT id FROM removed;
                 "workspace_owner": "workspace_code",
                 "labeling_owner": "labeling_code",
                 "audit_owner": "audit_code",
-                "identity_directory_role": "identity_directory_client",
+                "identity_directory_role": "yoao_identity_directory_client",
             },
         )
         phase = "install-identity-admin-password-grants"
@@ -11155,7 +11210,7 @@ SELECT id FROM removed;
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "audit_owner": "audit_code",
-                "identity_admin_password_role": "identity_admin_password_client",
+                "identity_admin_password_role": "yoao_identity_admin_password_client",
             },
         )
         phase = "install-identity-platform-role-grants"
@@ -11174,7 +11229,7 @@ SELECT id FROM removed;
                 "workspace_owner": "workspace_code",
                 "labeling_owner": "labeling_code",
                 "audit_owner": "audit_code",
-                "identity_platform_role_role": "identity_platform_role_client",
+                "identity_platform_role_role": "yoao_identity_platform_role_client",
             },
         )
         phase = "install-identity-suspension-grants"
@@ -11192,7 +11247,7 @@ SELECT id FROM removed;
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "audit_owner": "audit_code",
-                "identity_suspension_role": "identity_suspension_client",
+                "identity_suspension_role": "yoao_identity_suspension_client",
             },
         )
         phase = "install-identity-deletion-grants"
@@ -11211,7 +11266,7 @@ SELECT id FROM removed;
                 "workspace_owner": "workspace_code",
                 "labeling_owner": "labeling_code",
                 "audit_owner": "audit_code",
-                "identity_deletion_role": "identity_deletion_client",
+                "identity_deletion_role": "yoao_identity_deletion_client",
             },
         )
         phase = "install-identity-offboarding-grants"
@@ -11230,7 +11285,7 @@ SELECT id FROM removed;
                 "workspace_owner": "workspace_code",
                 "labeling_owner": "labeling_code",
                 "audit_owner": "audit_code",
-                "identity_offboarding_role": "identity_offboarding_client",
+                "identity_offboarding_role": "yoao_identity_offboarding_client",
             },
         )
         phase = "install-identity-briefs-grants"
@@ -11264,7 +11319,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "audit_owner": "audit_code",
-                "identity_provisioning_role": "identity_provisioning_client",
+                "identity_provisioning_role": "yoao_identity_provisioning_client",
             },
         )
         phase = "install-workspace-membership-grants"
@@ -11316,7 +11371,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "workspace_owner": "workspace_code",
-                "workspace_project_maintenance_role": "workspace_project_maintenance_client",
+                "workspace_project_maintenance_role": "yoao_workspace_project_maintenance_client",
             },
         )
         phase = "install-workspace-project-deletion-grants"
@@ -11332,7 +11387,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "workspace_owner": "workspace_code",
-                "workspace_project_deletion_role": "workspace_project_deletion_client",
+                "workspace_project_deletion_role": "yoao_workspace_project_deletion_client",
             },
         )
         phase = "install-workspace-dataset-unlink-grants"
@@ -11348,7 +11403,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "workspace_owner": "workspace_code",
-                "workspace_dataset_unlink_role": "workspace_dataset_unlink_client",
+                "workspace_dataset_unlink_role": "yoao_workspace_dataset_unlink_client",
             },
         )
         phase = "install-workspace-configuration-grants"
@@ -11365,7 +11420,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
-                "workspace_configuration_role": "workspace_configuration_client",
+                "workspace_configuration_role": "yoao_workspace_configuration_client",
             },
         )
         phase = "install-inference-pipelines-grants"
@@ -11383,7 +11438,7 @@ SELECT id FROM removed;
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "inference_owner": "inference_code",
-                "inference_pipelines_role": "inference_pipelines_client",
+                "inference_pipelines_role": "yoao_inference_pipelines_client",
             },
         )
         phase = "install-inference-backend-probe-grants"
@@ -11399,7 +11454,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "inference_owner": "inference_code",
-                "inference_backend_probe_role": "inference_backend_probe_client",
+                "inference_backend_probe_role": "yoao_inference_backend_probe_client",
             },
         )
         for label, grant_sql, variable, role in (
@@ -11407,19 +11462,19 @@ SELECT id FROM removed;
                 "observation",
                 inference_health_observation_grant_sql,
                 "inference_health_observation_role",
-                "inference_health_observation_client",
+                "yoao_inference_health_observation_client",
             ),
             (
                 "origin",
                 inference_health_origin_grant_sql,
                 "inference_health_origin_role",
-                "inference_health_origin_client",
+                "yoao_inference_health_origin_client",
             ),
             (
                 "data",
                 inference_health_data_grant_sql,
                 "inference_health_data_role",
-                "inference_health_data_client",
+                "yoao_inference_health_data_client",
             ),
         ):
             phase = "install-inference-health-" + label + "-grants"
@@ -11581,7 +11636,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "assets_owner": "assets_code",
-                "asset_catalog_role": "asset_catalog_client",
+                "asset_catalog_role": "yoao_asset_catalog_client",
             },
         )
         phase = "install-source-grants"
@@ -11597,7 +11652,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "assets_owner": "assets_code",
-                "asset_source_role": "asset_source_client",
+                "asset_source_role": "yoao_asset_source_client",
             },
         )
         phase = "install-import-grants"
@@ -11613,7 +11668,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "assets_owner": "assets_code",
-                "asset_import_role": "asset_import_client",
+                "asset_import_role": "yoao_asset_import_client",
             },
         )
         phase = "install-operator-grants"
@@ -11629,7 +11684,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "assets_owner": "assets_code",
-                "asset_operator_role": "asset_operator_client",
+                "asset_operator_role": "yoao_asset_operator_client",
             },
         )
         phase = "install-media-grants"
@@ -11645,8 +11700,8 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "assets_owner": "assets_code",
-                "asset_media_control_role": "asset_media_control_client",
-                "asset_media_worker_role": "asset_media_worker_client",
+                "asset_media_control_role": "yoao_asset_media_control_client",
+                "asset_media_worker_role": "yoao_asset_media_worker_client",
             },
         )
         phase = "install-image-worker-grants"
@@ -11662,7 +11717,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "assets_owner": "assets_code",
-                "asset_image_worker_role": "asset_image_worker_client",
+                "asset_image_worker_role": "yoao_asset_image_worker_client",
             },
         )
         phase = "install-identity-api-consumer-broad-grants"
@@ -11678,7 +11733,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "application_role": IDENTITY_API_CONSUMER_ROLE,
                 "migration_role": "owner",
-                "asset_cleanup_role": "asset_cleanup_client",
+                "asset_cleanup_role": "yoao_asset_cleanup_client",
             },
         )
         phase = "install-identity-api-consumer-fence-last"
@@ -11705,7 +11760,7 @@ SELECT id FROM removed;
             password=identity_api_consumer_password,
             database=database,
             sql=(
-                "SELECT count(*) FROM aap_notifications_v1.read_notification("
+                "SELECT count(*) FROM yoao_notifications_v1.read_notification("
                 f"'{read_relation_notification_id}'::uuid) "
                 f"WHERE user_id='{notification_preference_user_id}'::uuid "
                 f"AND id='{read_relation_notification_id}'::uuid "
@@ -11724,12 +11779,12 @@ SELECT id FROM removed;
             password=identity_api_consumer_password,
             database=database,
             sql=(
-                "SELECT EXISTS(SELECT FROM aap_notifications_v1.inbox_page("
+                "SELECT EXISTS(SELECT FROM yoao_notifications_v1.inbox_page("
                 f"'{notification_preference_user_id}'::uuid,'employee',false,100,0) "
                 f"WHERE id='{read_relation_notification_id}'::uuid) "
-                "AND aap_notifications_v1.inbox_total_count("
+                "AND yoao_notifications_v1.inbox_total_count("
                 f"'{notification_preference_user_id}'::uuid,'employee')>=1 "
-                "AND aap_notifications_v1.inbox_unread_count("
+                "AND yoao_notifications_v1.inbox_unread_count("
                 f"'{notification_preference_user_id}'::uuid,'employee')>=0;"
             ),
         )
@@ -11747,7 +11802,7 @@ SELECT id FROM removed;
             password=identity_api_consumer_password,
             database=database,
             sql=(
-                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                "SELECT count(*) FROM yoao_audit_v1.audit_events "
                 f"WHERE id='{audit_append_id}'::bigint;"
             ),
         )
@@ -11873,7 +11928,7 @@ SELECT id FROM removed;
                     "OR pg_catalog.has_any_column_privilege(current_user,"
                     "'public.projects','SELECT,INSERT,UPDATE,REFERENCES'),"
                     "pg_catalog.has_function_privilege(current_user,"
-                    "'aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',"
+                    "'yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)',"
                     "'EXECUTE');"
                 ),
             ).strip()
@@ -12020,15 +12075,15 @@ SELECT id FROM removed;
                         database=database,
                         sql="""
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.begin_operator_auxiliary(jsonb),
-    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
-    aap_assets_v1.mark_operator_original_writing(uuid),
-    aap_assets_v1.record_operator_original_written(uuid,jsonb),
-    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
-    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
-    aap_assets_v1.publish_operator_item_original(jsonb),
-    aap_assets_v1.open_operator_storage_operation(uuid),
-    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
+    yoao_assets_v1.begin_operator_auxiliary(jsonb),
+    yoao_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    yoao_assets_v1.mark_operator_original_writing(uuid),
+    yoao_assets_v1.record_operator_original_written(uuid,jsonb),
+    yoao_assets_v1.record_operator_original_verified(uuid,jsonb),
+    yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    yoao_assets_v1.publish_operator_item_original(jsonb),
+    yoao_assets_v1.open_operator_storage_operation(uuid),
+    yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
     TO legacy_runtime;
 """,
                     )
@@ -12097,8 +12152,8 @@ GRANT EXECUTE ON FUNCTION
                 # The ordinary API role does not receive these trusted capabilities.
                 provisioning_grants = """
     GRANT EXECUTE ON FUNCTION
-        aap_identity_v1.read_provisioning_account(text),
-        aap_identity_v1.create_provisioning_account(jsonb)
+        yoao_identity_v1.read_provisioning_account(text),
+        yoao_identity_v1.create_provisioning_account(jsonb)
         TO legacy_runtime;
     """
                 _psql(
@@ -12125,8 +12180,8 @@ GRANT EXECUTE ON FUNCTION
                         ).hexdigest(),
                     },
                     "provisioning_capabilities": [
-                        "aap_identity_v1.read_provisioning_account(text)",
-                        "aap_identity_v1.create_provisioning_account(jsonb)",
+                        "yoao_identity_v1.read_provisioning_account(text)",
+                        "yoao_identity_v1.create_provisioning_account(jsonb)",
                     ],
                     "provisioning_grants_sha256": hashlib.sha256(
                         provisioning_grants.encode()
@@ -12205,35 +12260,35 @@ SELECT pg_catalog.jsonb_build_object(
     'views', pg_catalog.jsonb_build_object(
         'account_profiles', pg_catalog.has_table_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.account_profiles', 'SELECT'),
+            'yoao_identity_v1.account_profiles', 'SELECT'),
         'invitation_audit_targets', pg_catalog.has_table_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.invitation_audit_targets', 'SELECT')),
+            'yoao_identity_v1.invitation_audit_targets', 'SELECT')),
     'functions', pg_catalog.jsonb_build_object(
         'read_actor_facts', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.read_actor_facts(uuid)', 'EXECUTE'),
+            'yoao_identity_v1.read_actor_facts(uuid)', 'EXECUTE'),
         'lock_accounts_share', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.lock_accounts_share(uuid[],boolean)', 'EXECUTE'),
+            'yoao_identity_v1.lock_accounts_share(uuid[],boolean)', 'EXECUTE'),
         'lock_accounts_update', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.lock_accounts_update(uuid[],boolean)', 'EXECUTE'),
+            'yoao_identity_v1.lock_accounts_update(uuid[],boolean)', 'EXECUTE'),
         'lock_accounts_key_share', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
+            'yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
         'check_accepted_api_key', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
+            'yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
         'read_accepted_api_key_facts', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)', 'EXECUTE'),
+            'yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)', 'EXECUTE'),
         'is_jti_revoked', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.is_jti_revoked(uuid)', 'EXECUTE'),
+            'yoao_identity_v1.is_jti_revoked(uuid)', 'EXECUTE'),
         'get_credential_generation', pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1.get_credential_generation(uuid)', 'EXECUTE')),
+            'yoao_identity_v1.get_credential_generation(uuid)', 'EXECUTE')),
     'presence_private', NOT (
         pg_catalog.has_table_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_presence',
@@ -12243,7 +12298,7 @@ SELECT pg_catalog.jsonb_build_object(
             'SELECT,INSERT,UPDATE,REFERENCES')
         OR pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1._initialize_account_presence()', 'EXECUTE')
+            'yoao_identity_v1._initialize_account_presence()', 'EXECUTE')
     ),
     'preferences_private', NOT (
         pg_catalog.has_table_privilege(
@@ -12254,7 +12309,7 @@ SELECT pg_catalog.jsonb_build_object(
             'SELECT,INSERT,UPDATE,REFERENCES')
         OR pg_catalog.has_function_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}',
-            'aap_identity_v1._initialize_account_preferences()', 'EXECUTE')
+            'yoao_identity_v1._initialize_account_preferences()', 'EXECUTE')
     )
 )::text;
 """,
@@ -12668,7 +12723,7 @@ SELECT pg_catalog.jsonb_build_object(
                 ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL": URL.create(
                     "postgresql+asyncpg",
-                    username="preannotation_result_client",
+                    username="yoao_preannotation_result_client",
                     password=result_password,
                     host="127.0.0.1",
                     port=port,
@@ -12684,7 +12739,7 @@ SELECT pg_catalog.jsonb_build_object(
                 ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_LABELING_MASK_GC_URL": URL.create(
                     "postgresql+asyncpg",
-                    username="labeling_mask_gc_client",
+                    username="yoao_labeling_mask_gc_client",
                     password=mask_gc_password,
                     host="127.0.0.1",
                     port=port,
@@ -12908,19 +12963,19 @@ SELECT pg_catalog.jsonb_build_object(
                 private_fixture_statements = (
                     "SELECT * FROM yoao_fixture_v1.fixture_runs LIMIT 1",
                     "SELECT * FROM yoao_fixture_v1.fixture_native_media_work_intents LIMIT 1",
-                    "SELECT aap_assets_v1.fixture_native_admission_current('media',NULL::uuid,NULL::uuid)",
-                    "SELECT aap_assets_v1.fixture_screenshot_output_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text)",
-                    "SELECT * FROM aap_assets_v1.fixture_screenshot_item_facts LIMIT 1",
-                    "SELECT aap_labeling_v1.screenshot_operations_command('{}'::jsonb)",
-                    "SELECT aap_identity_invitations_v1.bind_fixture_invitation_birth(NULL::uuid,NULL::uuid)",
-                    "SELECT aap_identity_invitations_v1.lock_fixture_invitation_run(NULL::uuid)",
-                    "SELECT aap_labeling_v1._fixture_screenshot_user(NULL::uuid,NULL::text,NULL::text)",
-                    "SELECT aap_labeling_v1.create_scale_seed_tasks(NULL::text,NULL::uuid,NULL::uuid)",
-                    "SELECT aap_jobs_v1.delete_fixture_project_jobs(ARRAY[]::uuid[])",
-                    "SELECT aap_jobs_v1.delete_fixture_media_backfills(NULL::uuid,NULL::uuid)",
-                    "SELECT aap_jobs_v1.delete_fixture_presentation_jobs(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
-                    "SELECT aap_labeling_v1.guard_fixture_presentation_failures(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
-                    "SELECT aap_labeling_v1.guard_fixture_project_retry_anchors(ARRAY[]::uuid[])",
+                    "SELECT yoao_assets_v1.fixture_native_admission_current('media',NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_assets_v1.fixture_screenshot_output_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text)",
+                    "SELECT * FROM yoao_assets_v1.fixture_screenshot_item_facts LIMIT 1",
+                    "SELECT yoao_labeling_v1.screenshot_operations_command('{}'::jsonb)",
+                    "SELECT yoao_identity_invitations_v1.bind_fixture_invitation_birth(NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_identity_invitations_v1.lock_fixture_invitation_run(NULL::uuid)",
+                    "SELECT yoao_labeling_v1._fixture_screenshot_user(NULL::uuid,NULL::text,NULL::text)",
+                    "SELECT yoao_labeling_v1.create_scale_seed_tasks(NULL::text,NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_jobs_v1.delete_fixture_project_jobs(ARRAY[]::uuid[])",
+                    "SELECT yoao_jobs_v1.delete_fixture_media_backfills(NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_jobs_v1.delete_fixture_presentation_jobs(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
+                    "SELECT yoao_labeling_v1.guard_fixture_presentation_failures(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
+                    "SELECT yoao_labeling_v1.guard_fixture_project_retry_anchors(ARRAY[]::uuid[])",
                 )
                 for statement in (
                     *notification_private_statements,
@@ -12951,7 +13006,7 @@ SELECT pg_catalog.jsonb_build_object(
                     database=database,
                     sql=(
                         "SELECT count(*) FROM "
-                        "aap_notifications_v1.read_notification("
+                        "yoao_notifications_v1.read_notification("
                         f"'{read_relation_notification_id}'::uuid) "
                         f"WHERE id='{read_relation_notification_id}'::uuid "
                         "AND payload = '{\"read_relation\": true}'::jsonb;"
@@ -12965,7 +13020,7 @@ SELECT pg_catalog.jsonb_build_object(
                     password=runtime_password,
                     database=database,
                     sql=(
-                        "SELECT count(*) FROM aap_audit_v1.audit_events "
+                        "SELECT count(*) FROM yoao_audit_v1.audit_events "
                         f"WHERE id='{audit_append_id}'::bigint;"
                     ),
                 )

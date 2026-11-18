@@ -2,7 +2,7 @@
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
---   -v inference_backend_probe_role=inference_backend_probe_client
+--   -v inference_backend_probe_role=yoao_inference_backend_probe_client
 --   -f infra/docker/inference-backend-probe-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -21,7 +21,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'inference_backend_probe_client' OR role_name = owner_name THEN
+    IF role_name <> 'yoao_inference_backend_probe_client' OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected Inference backend probe roles';
     END IF;
     FOR candidate IN SELECT * FROM (VALUES (role_name,true),(owner_name,false)) AS required(name,login)
@@ -52,12 +52,12 @@ DECLARE
     function_oid oid;
 BEGIN
     IF (SELECT relowner FROM pg_catalog.pg_class WHERE oid=pg_catalog.to_regclass(
-        'aap_inference_backend_probe_v1.probe_secret')) IS DISTINCT FROM owner_oid THEN
+        'yoao_inference_backend_probe_v1.probe_secret')) IS DISTINCT FROM owner_oid THEN
         RAISE EXCEPTION 'Backend probe key has an unexpected owner';
     END IF;
     FOR required IN SELECT * FROM (VALUES
-        ('aap_inference_backend_probe_v1.backend_probe_policy()','jsonb'),
-        ('aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)','text')
+        ('yoao_inference_backend_probe_v1.backend_probe_policy()','jsonb'),
+        ('yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)','text')
     ) AS capability(signature,result_type)
     LOOP
         function_oid := pg_catalog.to_regprocedure(required.signature)::oid;
@@ -95,9 +95,9 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"inference_backend_probe_role";
-GRANT EXECUTE ON FUNCTION aap_inference_backend_probe_v1.backend_probe_policy(),
-    aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)
+GRANT USAGE ON SCHEMA yoao_inference_backend_probe_v1 TO :"inference_backend_probe_role";
+GRANT EXECUTE ON FUNCTION yoao_inference_backend_probe_v1.backend_probe_policy(),
+    yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)
     TO :"inference_backend_probe_role";
 
 DO $$
@@ -108,8 +108,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_inference_backend_probe_v1.backend_probe_policy()',
-        'aap_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)'
+        'yoao_inference_backend_probe_v1.backend_probe_policy()',
+        'yoao_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -161,14 +161,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_inference_backend_probe_v1', 'public'
+            'yoao_inference_backend_probe_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_inference_backend_probe_v1', 'CREATE'
+        role_oid, 'yoao_inference_backend_probe_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

@@ -54,7 +54,7 @@ BEGIN
         SELECT 1
         FROM pg_class AS relation
         JOIN pg_roles AS owner ON owner.oid=relation.relowner
-        WHERE relation.oid='aap_workspace_fixture_v1.templates'::regclass
+        WHERE relation.oid='yoao_workspace_fixture_v1.templates'::regclass
           AND relation.relkind='v'
           AND owner.rolname=v_workspace
           AND COALESCE(relation.reloptions @> ARRAY['security_barrier=true'], false)
@@ -70,16 +70,16 @@ BEGIN
         RAISE EXCEPTION 'Unexpected Workspace E2E template read relation';
     END IF;
 
-    EXECUTE format('GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO %I', v_consumer);
+    EXECUTE format('GRANT USAGE ON SCHEMA yoao_workspace_fixture_v1 TO %I', v_consumer);
     EXECUTE format(
-        'GRANT SELECT ON aap_workspace_fixture_v1.templates TO %I', v_consumer
+        'GRANT SELECT ON yoao_workspace_fixture_v1.templates TO %I', v_consumer
     );
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_workspace_fixture_v1.create_project(jsonb)',
-        'aap_workspace_fixture_v1.create_templates(jsonb)',
-        'aap_workspace_fixture_v1.guard_project_cleanup(uuid[])',
-        'aap_workspace_fixture_v1.delete_projects(uuid[])',
-        'aap_workspace_fixture_v1.delete_templates(boolean,text[])'
+        'yoao_workspace_fixture_v1.create_project(jsonb)',
+        'yoao_workspace_fixture_v1.create_templates(jsonb)',
+        'yoao_workspace_fixture_v1.guard_project_cleanup(uuid[])',
+        'yoao_workspace_fixture_v1.delete_projects(uuid[])',
+        'yoao_workspace_fixture_v1.delete_templates(boolean,text[])'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1

@@ -2,7 +2,7 @@
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
---   -v inference_health_data_role=inference_health_data_client
+--   -v inference_health_data_role=yoao_inference_health_data_client
 --   -f infra/docker/inference-health-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -21,7 +21,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'inference_health_data_client' OR role_name = owner_name THEN
+    IF role_name <> 'yoao_inference_health_data_client' OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected Inference health data roles';
     END IF;
     FOR candidate IN SELECT * FROM (VALUES (role_name,true),(owner_name,false)) AS required(name,login)
@@ -52,17 +52,17 @@ DECLARE
     function_oid oid;
 BEGIN
     FOR required IN SELECT * FROM (VALUES
-        ('aap_inference_health_data_v1.health_data_policy()','jsonb'),
-        ('aap_inference_health_data_v1.backend_row(uuid,boolean)','record'),
-        ('aap_inference_health_data_v1.membership_row(uuid,text,boolean)','record'),
-        ('aap_inference_health_data_v1.observation_clock()','timestamp with time zone'),
-        ('aap_inference_health_data_v1.lock_resource(text)','void'),
-        ('aap_inference_health_data_v1.try_promotion()','boolean'),
-        ('aap_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean)','integer'),
-        ('aap_inference_health_data_v1.member_pool(uuid)','uuid'),
-        ('aap_inference_health_data_v1.pool_row(uuid,uuid)','record'),
-        ('aap_inference_health_data_v1.member_row(uuid)','record'),
-        ('aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)','record')
+        ('yoao_inference_health_data_v1.health_data_policy()','jsonb'),
+        ('yoao_inference_health_data_v1.backend_row(uuid,boolean)','record'),
+        ('yoao_inference_health_data_v1.membership_row(uuid,text,boolean)','record'),
+        ('yoao_inference_health_data_v1.observation_clock()','timestamp with time zone'),
+        ('yoao_inference_health_data_v1.lock_resource(text)','void'),
+        ('yoao_inference_health_data_v1.try_promotion()','boolean'),
+        ('yoao_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean)','integer'),
+        ('yoao_inference_health_data_v1.member_pool(uuid)','uuid'),
+        ('yoao_inference_health_data_v1.pool_row(uuid,uuid)','record'),
+        ('yoao_inference_health_data_v1.member_row(uuid)','record'),
+        ('yoao_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)','record')
     ) AS capability(signature,result_type)
     LOOP
         function_oid := pg_catalog.to_regprocedure(required.signature)::oid;
@@ -100,18 +100,18 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_inference_health_data_v1 TO :"inference_health_data_role";
-GRANT EXECUTE ON FUNCTION aap_inference_health_data_v1.health_data_policy(),
-    aap_inference_health_data_v1.backend_row(uuid,boolean),
-    aap_inference_health_data_v1.membership_row(uuid,text,boolean),
-    aap_inference_health_data_v1.observation_clock(),
-    aap_inference_health_data_v1.lock_resource(text),
-    aap_inference_health_data_v1.try_promotion(),
-    aap_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean),
-    aap_inference_health_data_v1.member_pool(uuid),
-    aap_inference_health_data_v1.pool_row(uuid,uuid),
-    aap_inference_health_data_v1.member_row(uuid),
-    aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)
+GRANT USAGE ON SCHEMA yoao_inference_health_data_v1 TO :"inference_health_data_role";
+GRANT EXECUTE ON FUNCTION yoao_inference_health_data_v1.health_data_policy(),
+    yoao_inference_health_data_v1.backend_row(uuid,boolean),
+    yoao_inference_health_data_v1.membership_row(uuid,text,boolean),
+    yoao_inference_health_data_v1.observation_clock(),
+    yoao_inference_health_data_v1.lock_resource(text),
+    yoao_inference_health_data_v1.try_promotion(),
+    yoao_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean),
+    yoao_inference_health_data_v1.member_pool(uuid),
+    yoao_inference_health_data_v1.pool_row(uuid,uuid),
+    yoao_inference_health_data_v1.member_row(uuid),
+    yoao_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)
     TO :"inference_health_data_role";
 
 DO $$
@@ -122,17 +122,17 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_inference_health_data_v1.apply_reconciliation(uuid, uuid, text, text, text, bigint, text, text)',
-        'aap_inference_health_data_v1.backend_row(uuid, boolean)',
-        'aap_inference_health_data_v1.health_data_policy()',
-        'aap_inference_health_data_v1.lock_resource(text)',
-        'aap_inference_health_data_v1.member_pool(uuid)',
-        'aap_inference_health_data_v1.member_row(uuid)',
-        'aap_inference_health_data_v1.membership_row(uuid, text, boolean)',
-        'aap_inference_health_data_v1.observation_clock()',
-        'aap_inference_health_data_v1.pool_row(uuid, uuid)',
-        'aap_inference_health_data_v1.try_promotion()',
-        'aap_inference_health_data_v1.write_backend(uuid, text, timestamp with time zone, text, boolean, boolean)'
+        'yoao_inference_health_data_v1.apply_reconciliation(uuid, uuid, text, text, text, bigint, text, text)',
+        'yoao_inference_health_data_v1.backend_row(uuid, boolean)',
+        'yoao_inference_health_data_v1.health_data_policy()',
+        'yoao_inference_health_data_v1.lock_resource(text)',
+        'yoao_inference_health_data_v1.member_pool(uuid)',
+        'yoao_inference_health_data_v1.member_row(uuid)',
+        'yoao_inference_health_data_v1.membership_row(uuid, text, boolean)',
+        'yoao_inference_health_data_v1.observation_clock()',
+        'yoao_inference_health_data_v1.pool_row(uuid, uuid)',
+        'yoao_inference_health_data_v1.try_promotion()',
+        'yoao_inference_health_data_v1.write_backend(uuid, text, timestamp with time zone, text, boolean, boolean)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -184,14 +184,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_inference_health_data_v1', 'public'
+            'yoao_inference_health_data_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_inference_health_data_v1', 'CREATE'
+        role_oid, 'yoao_inference_health_data_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

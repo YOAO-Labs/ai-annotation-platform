@@ -1579,7 +1579,7 @@ async def retire_native_run_target(run_id: uuid.UUID, control_url):
                 async with engine.begin() as connection:
                     acknowledged = await connection.scalar(
                         text(
-                            "SELECT aap_assets_v1."
+                            "SELECT yoao_assets_v1."
                             "acknowledge_fixture_native_target_physical_retirement(:receipt,:sha256)"
                         ),
                         {"receipt": serialized, "sha256": digest},

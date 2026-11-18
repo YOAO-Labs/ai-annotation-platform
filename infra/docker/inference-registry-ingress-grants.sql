@@ -2,7 +2,7 @@
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
---   -v inference_registry_ingress_role=inference_registry_ingress_client
+--   -v inference_registry_ingress_role=yoao_inference_registry_ingress_client
 --   -f infra/docker/inference-registry-ingress-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -20,7 +20,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'inference_registry_ingress_client'
+    IF role_name <> 'yoao_inference_registry_ingress_client'
        OR owner_name <> 'inference_code'
        OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected Registry ingress roles';
@@ -58,27 +58,27 @@ DECLARE
     function_oid oid;
 BEGIN
     IF (SELECT nspowner FROM pg_catalog.pg_namespace
-        WHERE nspname = 'aap_inference_registry_ingress_v1') IS DISTINCT FROM owner_oid
+        WHERE nspname = 'yoao_inference_registry_ingress_v1') IS DISTINCT FROM owner_oid
        OR (SELECT relowner FROM pg_catalog.pg_class AS relation
            JOIN pg_catalog.pg_namespace AS namespace
              ON namespace.oid = relation.relnamespace
-           WHERE namespace.nspname = 'aap_inference_registry_ingress_v1'
+           WHERE namespace.nspname = 'yoao_inference_registry_ingress_v1'
              AND relation.relname = 'env_sync_receipts'
              AND relation.relkind = 'r') IS DISTINCT FROM owner_oid THEN
         RAISE EXCEPTION 'Registry ingress private objects have unexpected owners';
     END IF;
     FOR required IN SELECT * FROM (VALUES
-        ('aap_inference_registry_ingress_v1.registry_ingress_policy()','jsonb'),
-        ('aap_inference_registry_ingress_v1.registry_by_url(text)','record'),
-        ('aap_inference_registry_ingress_v1.registry_candidates(text)','record'),
-        ('aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)','record'),
-        ('aap_inference_registry_ingress_v1.singleton_pool(uuid)','record'),
-        ('aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)','record'),
-        ('aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)','timestamp with time zone'),
-        ('aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)','timestamp with time zone'),
-        ('aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)','record'),
-        ('aap_inference_registry_ingress_v1.sync_result(uuid,text)','jsonb'),
-        ('aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)','jsonb')
+        ('yoao_inference_registry_ingress_v1.registry_ingress_policy()','jsonb'),
+        ('yoao_inference_registry_ingress_v1.registry_by_url(text)','record'),
+        ('yoao_inference_registry_ingress_v1.registry_candidates(text)','record'),
+        ('yoao_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)','record'),
+        ('yoao_inference_registry_ingress_v1.singleton_pool(uuid)','record'),
+        ('yoao_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)','record'),
+        ('yoao_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)','timestamp with time zone'),
+        ('yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)','timestamp with time zone'),
+        ('yoao_inference_registry_ingress_v1.tag_seed_registry(uuid,text)','record'),
+        ('yoao_inference_registry_ingress_v1.sync_result(uuid,text)','jsonb'),
+        ('yoao_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)','jsonb')
     ) AS capability(signature,result_type)
     LOOP
         function_oid := pg_catalog.to_regprocedure(required.signature)::oid;
@@ -116,20 +116,20 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_inference_registry_ingress_v1
+GRANT USAGE ON SCHEMA yoao_inference_registry_ingress_v1
     TO :"inference_registry_ingress_role";
 GRANT EXECUTE ON FUNCTION
-    aap_inference_registry_ingress_v1.registry_ingress_policy(),
-    aap_inference_registry_ingress_v1.registry_by_url(text),
-    aap_inference_registry_ingress_v1.registry_candidates(text),
-    aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text),
-    aap_inference_registry_ingress_v1.singleton_pool(uuid),
-    aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text),
-    aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text),
-    aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text),
-    aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text),
-    aap_inference_registry_ingress_v1.sync_result(uuid,text),
-    aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)
+    yoao_inference_registry_ingress_v1.registry_ingress_policy(),
+    yoao_inference_registry_ingress_v1.registry_by_url(text),
+    yoao_inference_registry_ingress_v1.registry_candidates(text),
+    yoao_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text),
+    yoao_inference_registry_ingress_v1.singleton_pool(uuid),
+    yoao_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text),
+    yoao_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text),
+    yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid,text),
+    yoao_inference_registry_ingress_v1.tag_seed_registry(uuid,text),
+    yoao_inference_registry_ingress_v1.sync_result(uuid,text),
+    yoao_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)
     TO :"inference_registry_ingress_role";
 
 DO $$
@@ -140,17 +140,17 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_inference_registry_ingress_v1.apply_observation(uuid, text, text, text, boolean, text, timestamp with time zone, text, boolean, text)',
-        'aap_inference_registry_ingress_v1.create_registry(uuid, text, text, text, boolean, text)',
-        'aap_inference_registry_ingress_v1.create_singleton_pool(uuid, uuid, uuid, text, text, text)',
-        'aap_inference_registry_ingress_v1.disconnect_env_registry(uuid, text)',
-        'aap_inference_registry_ingress_v1.record_sync_result(uuid, text, integer)',
-        'aap_inference_registry_ingress_v1.registry_by_url(text)',
-        'aap_inference_registry_ingress_v1.registry_candidates(text)',
-        'aap_inference_registry_ingress_v1.registry_ingress_policy()',
-        'aap_inference_registry_ingress_v1.singleton_pool(uuid)',
-        'aap_inference_registry_ingress_v1.sync_result(uuid, text)',
-        'aap_inference_registry_ingress_v1.tag_seed_registry(uuid, text)'
+        'yoao_inference_registry_ingress_v1.apply_observation(uuid, text, text, text, boolean, text, timestamp with time zone, text, boolean, text)',
+        'yoao_inference_registry_ingress_v1.create_registry(uuid, text, text, text, boolean, text)',
+        'yoao_inference_registry_ingress_v1.create_singleton_pool(uuid, uuid, uuid, text, text, text)',
+        'yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid, text)',
+        'yoao_inference_registry_ingress_v1.record_sync_result(uuid, text, integer)',
+        'yoao_inference_registry_ingress_v1.registry_by_url(text)',
+        'yoao_inference_registry_ingress_v1.registry_candidates(text)',
+        'yoao_inference_registry_ingress_v1.registry_ingress_policy()',
+        'yoao_inference_registry_ingress_v1.singleton_pool(uuid)',
+        'yoao_inference_registry_ingress_v1.sync_result(uuid, text)',
+        'yoao_inference_registry_ingress_v1.tag_seed_registry(uuid, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -198,14 +198,14 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
-            'pg_catalog','information_schema','aap_inference_registry_ingress_v1','public'
+            'pg_catalog','information_schema','yoao_inference_registry_ingress_v1','public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid,namespace.oid,'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid,namespace.oid,'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid,'aap_inference_registry_ingress_v1','CREATE'
+        role_oid,'yoao_inference_registry_ingress_v1','CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid,'public','CREATE')
       OR EXISTS (
           SELECT 1

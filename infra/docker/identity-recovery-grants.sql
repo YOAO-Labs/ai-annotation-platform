@@ -3,9 +3,9 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v identity_owner=identity_code -v audit_owner=audit_code \
 --   -v settings_owner=settings_code \
---   -v identity_recovery_role=identity_recovery_client \
---   -v identity_mail_role=identity_mail_client \
---   -v identity_mail_settings_role=identity_mail_settings_client \
+--   -v identity_recovery_role=yoao_identity_recovery_client \
+--   -v identity_mail_role=yoao_identity_mail_client \
+--   -v identity_mail_settings_role=yoao_identity_mail_settings_client \
 --   -f infra/docker/identity-recovery-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -27,16 +27,16 @@ DECLARE
     audit_oid oid;
     settings_oid oid;
     audit_function oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.record_identity_recovery_event(text,jsonb,jsonb,jsonb)'
+        'yoao_audit_v1.record_identity_recovery_event(text,jsonb,jsonb,jsonb)'
     )::oid;
     audit_context_function oid := pg_catalog.to_regprocedure(
-        'aap_audit_v1.valid_request_context(jsonb)'
+        'yoao_audit_v1.valid_request_context(jsonb)'
     )::oid;
     recovery_settings_function oid := pg_catalog.to_regprocedure(
-        'aap_settings_v1.identity_recovery_policy(jsonb)'
+        'yoao_settings_v1.identity_recovery_policy(jsonb)'
     )::oid;
     mail_settings_function oid := pg_catalog.to_regprocedure(
-        'aap_settings_v1.mail_delivery_policy(jsonb)'
+        'yoao_settings_v1.mail_delivery_policy(jsonb)'
     )::oid;
     role_names text[] := ARRAY[
         current_setting('yoao.identity_owner'),
@@ -61,9 +61,9 @@ BEGIN
        OR current_setting('yoao.migration_role') = ANY(role_names) THEN
         RAISE EXCEPTION 'Migration, Identity, Audit, Settings and client roles must be distinct';
     END IF;
-    IF current_setting('yoao.identity_recovery_role') <> 'identity_recovery_client'
-       OR current_setting('yoao.identity_mail_role') <> 'identity_mail_client'
-       OR current_setting('yoao.identity_mail_settings_role') <> 'identity_mail_settings_client' THEN
+    IF current_setting('yoao.identity_recovery_role') <> 'yoao_identity_recovery_client'
+       OR current_setting('yoao.identity_mail_role') <> 'yoao_identity_mail_client'
+       OR current_setting('yoao.identity_mail_settings_role') <> 'yoao_identity_mail_settings_client' THEN
         RAISE EXCEPTION 'Recovery and credential mail must use their fixed LOGIN roles';
     END IF;
 
@@ -114,7 +114,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_identity_recovery_v1'
+        WHERE namespace.nspname = 'yoao_identity_recovery_v1'
           AND namespace.nspowner = migration_oid
     ) THEN
         RAISE EXCEPTION 'Identity recovery schema must remain owned by the migration role';
@@ -122,7 +122,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-        WHERE namespace.nspname = 'aap_identity_recovery_v1'
+        WHERE namespace.nspname = 'yoao_identity_recovery_v1'
           AND function.prokind = 'f' AND function.proowner <> owner_oid
     ) THEN
         RAISE EXCEPTION 'Identity recovery functions must be owned by the Identity code owner';
@@ -189,22 +189,22 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_recovery_v1
+GRANT USAGE ON SCHEMA yoao_identity_recovery_v1
     TO :"identity_recovery_role", :"identity_mail_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_recovery_v1.recovery_policy(),
-    aap_identity_recovery_v1.prepare_recovery_command(jsonb),
-    aap_identity_recovery_v1.apply_recovery_command(jsonb),
-    aap_identity_recovery_v1.read_registration_status(jsonb)
+    yoao_identity_recovery_v1.recovery_policy(),
+    yoao_identity_recovery_v1.prepare_recovery_command(jsonb),
+    yoao_identity_recovery_v1.apply_recovery_command(jsonb),
+    yoao_identity_recovery_v1.read_registration_status(jsonb)
     TO :"identity_recovery_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_recovery_v1.mail_policy(),
-    aap_identity_recovery_v1.claim_mail(jsonb),
-    aap_identity_recovery_v1.renew_mail(jsonb),
-    aap_identity_recovery_v1.finish_mail(jsonb)
+    yoao_identity_recovery_v1.mail_policy(),
+    yoao_identity_recovery_v1.claim_mail(jsonb),
+    yoao_identity_recovery_v1.renew_mail(jsonb),
+    yoao_identity_recovery_v1.finish_mail(jsonb)
     TO :"identity_mail_role";
-GRANT USAGE ON SCHEMA aap_settings_v1 TO :"identity_mail_settings_role";
-GRANT EXECUTE ON FUNCTION aap_settings_v1.mail_delivery_policy(jsonb)
+GRANT USAGE ON SCHEMA yoao_settings_v1 TO :"identity_mail_settings_role";
+GRANT EXECUTE ON FUNCTION yoao_settings_v1.mail_delivery_policy(jsonb)
     TO :"identity_mail_settings_role";
 
 DO $$
@@ -212,8 +212,8 @@ DECLARE
     role_entry record;
     role_oid oid;
     callable_count integer;
-    recovery_schema oid := pg_catalog.to_regnamespace('aap_identity_recovery_v1');
-    settings_schema oid := pg_catalog.to_regnamespace('aap_settings_v1');
+    recovery_schema oid := pg_catalog.to_regnamespace('yoao_identity_recovery_v1');
+    settings_schema oid := pg_catalog.to_regnamespace('yoao_settings_v1');
 BEGIN
     IF recovery_schema IS NULL OR settings_schema IS NULL THEN
         RAISE EXCEPTION 'Identity recovery or Settings schema is missing';
@@ -223,28 +223,28 @@ BEGIN
         FROM (VALUES
             (
                 current_setting('yoao.identity_recovery_role'),
-                'aap_identity_recovery_v1'::text,
+                'yoao_identity_recovery_v1'::text,
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.recovery_policy()')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.prepare_recovery_command(jsonb)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.apply_recovery_command(jsonb)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.read_registration_status(jsonb)')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.recovery_policy()')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.prepare_recovery_command(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.apply_recovery_command(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.read_registration_status(jsonb)')::oid
                 ]::oid[]
             ),
             (
                 current_setting('yoao.identity_mail_role'),
-                'aap_identity_recovery_v1'::text,
+                'yoao_identity_recovery_v1'::text,
                 ARRAY[
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.mail_policy()')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.claim_mail(jsonb)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.renew_mail(jsonb)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.finish_mail(jsonb)')::oid
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.mail_policy()')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.claim_mail(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.renew_mail(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('yoao_identity_recovery_v1.finish_mail(jsonb)')::oid
                 ]::oid[]
             ),
             (
                 current_setting('yoao.identity_mail_settings_role'),
-                'aap_settings_v1'::text,
-                ARRAY[pg_catalog.to_regprocedure('aap_settings_v1.mail_delivery_policy(jsonb)')::oid]::oid[]
+                'yoao_settings_v1'::text,
+                ARRAY[pg_catalog.to_regprocedure('yoao_settings_v1.mail_delivery_policy(jsonb)')::oid]::oid[]
             )
         ) AS expected(role_name, allowed_schema, allowed_functions)
     LOOP

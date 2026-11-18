@@ -1,7 +1,7 @@
 -- Grant the isolated Mask GC worker only its six Labeling operation functions.
 -- The role must be provisioned as a LOGIN with no memberships before this runs.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v labeling_owner=labeling_code -v mask_gc_role=labeling_mask_gc_client
+--   -v labeling_owner=labeling_code -v mask_gc_role=yoao_labeling_mask_gc_client
 --   -f infra/docker/labeling-mask-gc-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -39,19 +39,19 @@ END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"mask_gc_role";
-REVOKE ALL ON SCHEMA public, aap_labeling_v1 FROM :"mask_gc_role";
+REVOKE ALL ON SCHEMA public, yoao_labeling_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"mask_gc_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"mask_gc_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public, aap_labeling_v1 FROM :"mask_gc_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_labeling_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"mask_gc_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public, yoao_labeling_v1 FROM :"mask_gc_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_labeling_v1 FROM PUBLIC;
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"mask_gc_role";
 GRANT EXECUTE ON FUNCTION
-    aap_labeling_v1.claim_mask_gc_sweep(jsonb),
-    aap_labeling_v1.stage_mask_gc_page(jsonb),
-    aap_labeling_v1.claim_mask_gc_deletes(jsonb),
-    aap_labeling_v1.finish_mask_gc_delete(jsonb),
-    aap_labeling_v1.read_mask_gc_progress(jsonb),
-    aap_labeling_v1.inspect_mask_gc_page(jsonb)
+    yoao_labeling_v1.claim_mask_gc_sweep(jsonb),
+    yoao_labeling_v1.stage_mask_gc_page(jsonb),
+    yoao_labeling_v1.claim_mask_gc_deletes(jsonb),
+    yoao_labeling_v1.finish_mask_gc_delete(jsonb),
+    yoao_labeling_v1.read_mask_gc_progress(jsonb),
+    yoao_labeling_v1.inspect_mask_gc_page(jsonb)
     TO :"mask_gc_role";
 
 DO $$
@@ -60,7 +60,7 @@ DECLARE
     v_callable integer;
 BEGIN
     IF has_schema_privilege(role_name, 'public', 'CREATE')
-       OR has_schema_privilege(role_name, 'aap_labeling_v1', 'CREATE') THEN
+       OR has_schema_privilege(role_name, 'yoao_labeling_v1', 'CREATE') THEN
         RAISE EXCEPTION 'The Labeling Mask GC role has direct schema access';
     END IF;
     IF EXISTS (
@@ -87,18 +87,18 @@ BEGIN
     FROM pg_catalog.pg_proc AS proc
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = proc.pronamespace
-    WHERE namespace.nspname = 'aap_labeling_v1'
+    WHERE namespace.nspname = 'yoao_labeling_v1'
       AND proc.prokind = 'f'
       AND has_function_privilege(role_name, proc.oid, 'EXECUTE');
     IF v_callable <> 6
        OR has_function_privilege(
-            role_name, 'aap_labeling_v1.read_mask_write_epochs(jsonb)', 'EXECUTE'
+            role_name, 'yoao_labeling_v1.read_mask_write_epochs(jsonb)', 'EXECUTE'
        )
        OR has_function_privilege(
-            role_name, 'aap_labeling_v1.begin_mask_content_write(jsonb)', 'EXECUTE'
+            role_name, 'yoao_labeling_v1.begin_mask_content_write(jsonb)', 'EXECUTE'
        )
        OR has_function_privilege(
-            role_name, 'aap_labeling_v1.lock_mask_write_epochs(jsonb)', 'EXECUTE'
+            role_name, 'yoao_labeling_v1.lock_mask_write_epochs(jsonb)', 'EXECUTE'
        ) THEN
         RAISE EXCEPTION 'The Labeling Mask GC role must execute only the six GC operations';
     END IF;

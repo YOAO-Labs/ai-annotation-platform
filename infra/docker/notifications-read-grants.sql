@@ -18,7 +18,7 @@ DECLARE
     v_owner_oid oid;
     v_api_oid oid;
     v_relation_oid oid := pg_catalog.to_regclass(
-        'aap_notifications_v1.notification_facts'
+        'yoao_notifications_v1.notification_facts'
     )::oid;
     v_columns text[];
 BEGIN
@@ -87,15 +87,15 @@ REVOKE ALL PRIVILEGES ON TABLE public.notifications FROM :"api_role", PUBLIC;
 REVOKE ALL PRIVILEGES (
     id, user_id, type, target_type, target_id, payload, read_at, created_at
 ) ON TABLE public.notifications FROM :"api_role", PUBLIC;
-REVOKE ALL ON aap_notifications_v1.notification_facts FROM :"api_role", PUBLIC;
-GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"api_role";
-GRANT SELECT ON aap_notifications_v1.notification_facts TO :"api_role";
+REVOKE ALL ON yoao_notifications_v1.notification_facts FROM :"api_role", PUBLIC;
+GRANT USAGE ON SCHEMA yoao_notifications_v1 TO :"api_role";
+GRANT SELECT ON yoao_notifications_v1.notification_facts TO :"api_role";
 
 DO $verify$
 DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
                   WHERE rolname = current_setting('yoao.api_role'));
-    v_facts oid := 'aap_notifications_v1.notification_facts'::pg_catalog.regclass;
+    v_facts oid := 'yoao_notifications_v1.notification_facts'::pg_catalog.regclass;
 BEGIN
     IF pg_catalog.has_table_privilege(
            v_api, 'public.notifications', 'SELECT'
@@ -118,7 +118,7 @@ BEGIN
            v_api, v_facts, 'INSERT,UPDATE,REFERENCES'
        )
        OR pg_catalog.has_schema_privilege(
-           v_api, 'aap_notifications_v1', 'CREATE'
+           v_api, 'yoao_notifications_v1', 'CREATE'
        ) THEN
         RAISE EXCEPTION 'Notifications API relation access exceeds SELECT-only contract';
     END IF;

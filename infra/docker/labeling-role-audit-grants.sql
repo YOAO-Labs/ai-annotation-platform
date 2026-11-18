@@ -117,7 +117,7 @@ BEGIN
        OR v_labeling = v_migration
        OR v_consumer IN (
             v_migration, v_labeling, 'identity_api_consumer',
-            'workspace_api_consumer', 'labeling_core_read_client'
+            'workspace_api_consumer', 'yoao_labeling_core_read_client'
        ) THEN
         RAISE EXCEPTION 'Invalid or overlapping Labeling audit roles';
     END IF;
@@ -363,14 +363,14 @@ BEGIN
 
     SELECT namespace.oid INTO v_schema_oid
     FROM pg_catalog.pg_namespace AS namespace
-    WHERE namespace.nspname = 'aap_labeling_audit_v1';
+    WHERE namespace.nspname = 'yoao_labeling_audit_v1';
     IF v_schema_oid IS NULL THEN
         EXECUTE pg_catalog.format(
-            'CREATE SCHEMA aap_labeling_audit_v1 AUTHORIZATION %I', v_labeling
+            'CREATE SCHEMA yoao_labeling_audit_v1 AUTHORIZATION %I', v_labeling
         );
         SELECT namespace.oid INTO v_schema_oid
         FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_labeling_audit_v1';
+        WHERE namespace.nspname = 'yoao_labeling_audit_v1';
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
@@ -383,34 +383,34 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_proc AS routine
         WHERE routine.pronamespace = v_schema_oid
     ) THEN
-        RAISE EXCEPTION 'aap_labeling_audit_v1 has a foreign owner or unexpected object';
+        RAISE EXCEPTION 'yoao_labeling_audit_v1 has a foreign owner or unexpected object';
     END IF;
 
     FOR v_index IN 1..5 LOOP
         v_view_name := v_view_names[v_index];
         v_view_oid := pg_catalog.to_regclass(
-            pg_catalog.format('aap_labeling_audit_v1.%I', v_view_name)
+            pg_catalog.format('yoao_labeling_audit_v1.%I', v_view_name)
         );
         IF v_view_oid IS NULL THEN
             IF NOT pg_catalog.has_schema_privilege(v_migration_oid, v_schema_oid, 'CREATE')
                AND NOT v_granted_create THEN
                 EXECUTE pg_catalog.format(
-                    'GRANT CREATE ON SCHEMA aap_labeling_audit_v1 TO %I', v_migration
+                    'GRANT CREATE ON SCHEMA yoao_labeling_audit_v1 TO %I', v_migration
                 );
                 v_granted_create := true;
             END IF;
             v_view_definition := pg_catalog.pg_get_viewdef(v_reference_oids[v_index], true);
             EXECUTE pg_catalog.format(
-                'CREATE VIEW aap_labeling_audit_v1.%I '
+                'CREATE VIEW yoao_labeling_audit_v1.%I '
                 'WITH (security_barrier = true) AS %s',
                 v_view_name, v_view_definition
             );
             EXECUTE pg_catalog.format(
-                'ALTER VIEW aap_labeling_audit_v1.%I OWNER TO %I',
+                'ALTER VIEW yoao_labeling_audit_v1.%I OWNER TO %I',
                 v_view_name, v_labeling
             );
             v_view_oid := pg_catalog.to_regclass(
-                pg_catalog.format('aap_labeling_audit_v1.%I', v_view_name)
+                pg_catalog.format('yoao_labeling_audit_v1.%I', v_view_name)
             );
         END IF;
         IF NOT EXISTS (
@@ -420,7 +420,7 @@ BEGIN
               AND COALESCE(relation.reloptions, ARRAY[]::text[])
                   @> ARRAY['security_barrier=true']
         ) THEN
-            RAISE EXCEPTION 'aap_labeling_audit_v1.% has an unexpected owner, kind, or security option',
+            RAISE EXCEPTION 'yoao_labeling_audit_v1.% has an unexpected owner, kind, or security option',
                 v_view_name;
         END IF;
         SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attnum),
@@ -468,30 +468,30 @@ BEGIN
         v_view_definition := pg_catalog.pg_get_viewdef(v_reference_oids[v_index], true);
         IF v_columns IS DISTINCT FROM v_expected_columns
            OR v_column_types IS DISTINCT FROM v_expected_types THEN
-            RAISE EXCEPTION 'aap_labeling_audit_v1.% has an unexpected shape', v_view_name;
+            RAISE EXCEPTION 'yoao_labeling_audit_v1.% has an unexpected shape', v_view_name;
         END IF;
         IF pg_catalog.pg_get_viewdef(v_view_oid, true) IS DISTINCT FROM v_view_definition THEN
             IF v_index = 1
                AND (v_has_annotation_ids OR v_has_review_ids OR v_has_review_submitter)
                AND pg_catalog.pg_get_viewdef(v_view_oid, true) IS DISTINCT FROM
                    pg_catalog.pg_get_viewdef(v_legacy_task_reference, true) THEN
-                RAISE EXCEPTION 'aap_labeling_audit_v1.% has an unexpected definition',
+                RAISE EXCEPTION 'yoao_labeling_audit_v1.% has an unexpected definition',
                     v_view_name;
             END IF;
             IF v_index <> 1
                OR NOT (v_has_annotation_ids OR v_has_review_ids OR v_has_review_submitter) THEN
-                RAISE EXCEPTION 'aap_labeling_audit_v1.% has an unexpected definition',
+                RAISE EXCEPTION 'yoao_labeling_audit_v1.% has an unexpected definition',
                     v_view_name;
             END IF;
             IF NOT pg_catalog.has_schema_privilege(v_migration_oid, v_schema_oid, 'CREATE')
                AND NOT v_granted_create THEN
                 EXECUTE pg_catalog.format(
-                    'GRANT CREATE ON SCHEMA aap_labeling_audit_v1 TO %I', v_migration
+                    'GRANT CREATE ON SCHEMA yoao_labeling_audit_v1 TO %I', v_migration
                 );
                 v_granted_create := true;
             END IF;
             EXECUTE pg_catalog.format(
-                'CREATE OR REPLACE VIEW aap_labeling_audit_v1.task_facts '
+                'CREATE OR REPLACE VIEW yoao_labeling_audit_v1.task_facts '
                 'WITH (security_barrier = true) AS %s',
                 v_view_definition
             );
@@ -499,13 +499,13 @@ BEGIN
     END LOOP;
     IF v_granted_create THEN
         EXECUTE pg_catalog.format(
-            'REVOKE CREATE ON SCHEMA aap_labeling_audit_v1 FROM %I', v_migration
+            'REVOKE CREATE ON SCHEMA yoao_labeling_audit_v1 FROM %I', v_migration
         );
     END IF;
 
-    EXECUTE 'REVOKE ALL ON SCHEMA aap_labeling_audit_v1 FROM PUBLIC';
+    EXECUTE 'REVOKE ALL ON SCHEMA yoao_labeling_audit_v1 FROM PUBLIC';
     EXECUTE pg_catalog.format(
-        'REVOKE ALL ON SCHEMA aap_labeling_audit_v1 FROM %I', v_consumer
+        'REVOKE ALL ON SCHEMA yoao_labeling_audit_v1 FROM %I', v_consumer
     );
     FOR v_index IN 1..4 LOOP
         v_source_name := v_source_names[v_index];
@@ -528,7 +528,7 @@ BEGIN
     FOR v_index IN 1..5 LOOP
         v_view_name := v_view_names[v_index];
         v_view_oid := pg_catalog.to_regclass(
-            pg_catalog.format('aap_labeling_audit_v1.%I', v_view_name)
+            pg_catalog.format('yoao_labeling_audit_v1.%I', v_view_name)
         );
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ', '
                                      ORDER BY attribute.attnum)
@@ -537,27 +537,27 @@ BEGIN
         WHERE attribute.attrelid = v_view_oid
           AND attribute.attnum > 0 AND NOT attribute.attisdropped;
         EXECUTE pg_catalog.format(
-            'REVOKE ALL ON TABLE aap_labeling_audit_v1.%I FROM PUBLIC', v_view_name
+            'REVOKE ALL ON TABLE yoao_labeling_audit_v1.%I FROM PUBLIC', v_view_name
         );
         EXECUTE pg_catalog.format(
-            'REVOKE ALL (%s) ON TABLE aap_labeling_audit_v1.%I FROM PUBLIC',
+            'REVOKE ALL (%s) ON TABLE yoao_labeling_audit_v1.%I FROM PUBLIC',
             v_view_columns, v_view_name
         );
         EXECUTE pg_catalog.format(
-            'REVOKE ALL ON TABLE aap_labeling_audit_v1.%I FROM %I',
+            'REVOKE ALL ON TABLE yoao_labeling_audit_v1.%I FROM %I',
             v_view_name, v_consumer
         );
         EXECUTE pg_catalog.format(
-            'REVOKE ALL (%s) ON TABLE aap_labeling_audit_v1.%I FROM %I',
+            'REVOKE ALL (%s) ON TABLE yoao_labeling_audit_v1.%I FROM %I',
             v_view_columns, v_view_name, v_consumer
         );
         EXECUTE pg_catalog.format(
-            'GRANT SELECT ON TABLE aap_labeling_audit_v1.%I TO %I',
+            'GRANT SELECT ON TABLE yoao_labeling_audit_v1.%I TO %I',
             v_view_name, v_consumer
         );
     END LOOP;
     EXECUTE pg_catalog.format(
-        'GRANT USAGE ON SCHEMA aap_labeling_audit_v1 TO %I', v_consumer
+        'GRANT USAGE ON SCHEMA yoao_labeling_audit_v1 TO %I', v_consumer
     );
 
     IF pg_catalog.has_table_privilege(v_consumer_oid, v_tasks_oid,
@@ -595,7 +595,7 @@ BEGIN
     FOR v_index IN 1..5 LOOP
         v_view_name := v_view_names[v_index];
         v_view_oid := pg_catalog.to_regclass(
-            pg_catalog.format('aap_labeling_audit_v1.%I', v_view_name)
+            pg_catalog.format('yoao_labeling_audit_v1.%I', v_view_name)
         );
         IF NOT pg_catalog.has_table_privilege(v_consumer_oid, v_view_oid, 'SELECT')
            OR pg_catalog.has_table_privilege(
@@ -623,7 +623,7 @@ BEGIN
         ) AS privilege
         WHERE namespace.oid = v_schema_oid AND privilege.grantee = 0
     ) THEN
-        RAISE EXCEPTION 'PUBLIC retains access to aap_labeling_audit_v1';
+        RAISE EXCEPTION 'PUBLIC retains access to yoao_labeling_audit_v1';
     END IF;
 END
 $install$;

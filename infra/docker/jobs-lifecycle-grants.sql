@@ -2,7 +2,7 @@
 -- Run after migration 0327 and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v api_role=api_runtime \
---   -v lifecycle_client=jobs_lifecycle_client \
+--   -v lifecycle_client=yoao_jobs_lifecycle_client \
 --   -f infra/docker/jobs-lifecycle-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -50,17 +50,17 @@ BEGIN
     END IF;
     FOR v_function IN
         SELECT * FROM (VALUES
-            ('aap_jobs_v1.read_job(uuid)','record',true,'s'),
-            ('aap_jobs_v1.read_job_execution_snapshot(uuid)','uuid',false,'s'),
-            ('aap_jobs_v1.read_job_progress(uuid)','record',true,'s'),
-            ('aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)','boolean',false,'v'),
-            ('aap_jobs_v1.jobs_by_execution_id(text)','record',true,'s'),
-            ('aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)','boolean',false,'v'),
-            ('aap_jobs_v1.apply_lifecycle(uuid,jsonb)','record',true,'v'),
-            ('aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)','boolean',false,'v'),
-            ('aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)','uuid[]',false,'v'),
-            ('aap_jobs_v1.delete_batch_predict_jobs(uuid)','uuid[]',false,'v'),
-            ('aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])','uuid[]',false,'v')
+            ('yoao_jobs_v1.read_job(uuid)','record',true,'s'),
+            ('yoao_jobs_v1.read_job_execution_snapshot(uuid)','uuid',false,'s'),
+            ('yoao_jobs_v1.read_job_progress(uuid)','record',true,'s'),
+            ('yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)','boolean',false,'v'),
+            ('yoao_jobs_v1.jobs_by_execution_id(text)','record',true,'s'),
+            ('yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)','boolean',false,'v'),
+            ('yoao_jobs_v1.apply_lifecycle(uuid,jsonb)','record',true,'v'),
+            ('yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)','boolean',false,'v'),
+            ('yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)','uuid[]',false,'v'),
+            ('yoao_jobs_v1.delete_batch_predict_jobs(uuid)','uuid[]',false,'v'),
+            ('yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])','uuid[]',false,'v')
         ) AS expected(signature, return_type, returns_set, volatility)
     LOOP
         IF NOT EXISTS (
@@ -73,7 +73,7 @@ BEGIN
               AND function.prorettype=pg_catalog.to_regtype(v_function.return_type)
               AND function.proretset=v_function.returns_set
               AND function.proconfig=CASE
-                  WHEN v_function.signature='aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)'
+                  WHEN v_function.signature='yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)'
                   THEN ARRAY['search_path=pg_catalog, pg_temp','TimeZone=UTC']::text[]
                   ELSE ARRAY['search_path=pg_catalog, pg_temp']::text[]
               END
@@ -88,7 +88,7 @@ DO $view_guard$
 BEGIN
     IF NOT EXISTS (
         SELECT FROM pg_catalog.pg_class AS relation
-        WHERE relation.oid='aap_jobs_v1.async_job_creation'::regclass
+        WHERE relation.oid='yoao_jobs_v1.async_job_creation'::regclass
           AND relation.relkind='v'
           AND relation.relowner=current_setting('yoao.jobs_owner')::regrole
           AND relation.reloptions @> ARRAY['check_option=local']::text[]
@@ -98,9 +98,9 @@ BEGIN
 END;
 $view_guard$;
 
-REVOKE ALL ON SCHEMA aap_jobs_v1 FROM :"lifecycle_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_jobs_v1 FROM :"lifecycle_client";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_jobs_v1, public FROM :"lifecycle_client";
+REVOKE ALL ON SCHEMA yoao_jobs_v1 FROM :"lifecycle_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_jobs_v1 FROM :"lifecycle_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_jobs_v1, public FROM :"lifecycle_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"lifecycle_client";
 DO $revoke_columns$
 DECLARE
@@ -112,7 +112,7 @@ BEGIN
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid=relation.relnamespace
-        WHERE namespace.nspname IN ('public', 'aap_jobs_v1')
+        WHERE namespace.nspname IN ('public', 'yoao_jobs_v1')
           AND relation.relkind IN ('r','p','v','m','f')
     LOOP
         SELECT pg_catalog.string_agg(
@@ -134,34 +134,34 @@ BEGIN
 END;
 $revoke_columns$;
 REVOKE ALL ON FUNCTION
-    aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
-    aap_jobs_v1.read_job_execution_snapshot(uuid),
-    aap_jobs_v1.read_job_progress(uuid),
-    aap_jobs_v1.read_job(uuid),
-    aap_jobs_v1.jobs_by_execution_id(text),
-    aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
-    aap_jobs_v1.apply_lifecycle(uuid,jsonb),
-    aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
-    aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
-    aap_jobs_v1.delete_batch_predict_jobs(uuid),
-    aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
+    yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
+    yoao_jobs_v1.read_job_execution_snapshot(uuid),
+    yoao_jobs_v1.read_job_progress(uuid),
+    yoao_jobs_v1.read_job(uuid),
+    yoao_jobs_v1.jobs_by_execution_id(text),
+    yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
+    yoao_jobs_v1.apply_lifecycle(uuid,jsonb),
+    yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
+    yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
+    yoao_jobs_v1.delete_batch_predict_jobs(uuid),
+    yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
     FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"lifecycle_client";
-GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"api_role", :"lifecycle_client";
-GRANT SELECT, INSERT ON aap_jobs_v1.async_job_creation
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"api_role", :"lifecycle_client";
+GRANT SELECT, INSERT ON yoao_jobs_v1.async_job_creation
     TO :"api_role", :"lifecycle_client";
 GRANT EXECUTE ON FUNCTION
-    aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
-    aap_jobs_v1.read_job_execution_snapshot(uuid),
-    aap_jobs_v1.read_job_progress(uuid),
-    aap_jobs_v1.read_job(uuid),
-    aap_jobs_v1.jobs_by_execution_id(text),
-    aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
-    aap_jobs_v1.apply_lifecycle(uuid,jsonb),
-    aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
-    aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
-    aap_jobs_v1.delete_batch_predict_jobs(uuid),
-    aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
+    yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
+    yoao_jobs_v1.read_job_execution_snapshot(uuid),
+    yoao_jobs_v1.read_job_progress(uuid),
+    yoao_jobs_v1.read_job(uuid),
+    yoao_jobs_v1.jobs_by_execution_id(text),
+    yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text),
+    yoao_jobs_v1.apply_lifecycle(uuid,jsonb),
+    yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text),
+    yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz),
+    yoao_jobs_v1.delete_batch_predict_jobs(uuid),
+    yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])
     TO :"api_role", :"lifecycle_client";
 
 DO $verify$
@@ -173,17 +173,17 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                      WHERE rolname=current_setting('yoao.lifecycle_client'));
     v_allowed oid[] := ARRAY[
-        'aap_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)'::regprocedure::oid,
-        'aap_jobs_v1.read_job_execution_snapshot(uuid)'::regprocedure::oid,
-        'aap_jobs_v1.read_job_progress(uuid)'::regprocedure::oid,
-        'aap_jobs_v1.read_job(uuid)'::regprocedure::oid,
-        'aap_jobs_v1.jobs_by_execution_id(text)'::regprocedure::oid,
-        'aap_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)'::regprocedure::oid,
-        'aap_jobs_v1.apply_lifecycle(uuid,jsonb)'::regprocedure::oid,
-        'aap_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)'::regprocedure::oid,
-        'aap_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)'::regprocedure::oid,
-        'aap_jobs_v1.delete_batch_predict_jobs(uuid)'::regprocedure::oid,
-        'aap_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])'::regprocedure::oid
+        'yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)'::regprocedure::oid,
+        'yoao_jobs_v1.read_job_execution_snapshot(uuid)'::regprocedure::oid,
+        'yoao_jobs_v1.read_job_progress(uuid)'::regprocedure::oid,
+        'yoao_jobs_v1.read_job(uuid)'::regprocedure::oid,
+        'yoao_jobs_v1.jobs_by_execution_id(text)'::regprocedure::oid,
+        'yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)'::regprocedure::oid,
+        'yoao_jobs_v1.apply_lifecycle(uuid,jsonb)'::regprocedure::oid,
+        'yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)'::regprocedure::oid,
+        'yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)'::regprocedure::oid,
+        'yoao_jobs_v1.delete_batch_predict_jobs(uuid)'::regprocedure::oid,
+        'yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])'::regprocedure::oid
     ];
 BEGIN
     IF EXISTS (
@@ -195,10 +195,10 @@ BEGIN
     END IF;
     IF pg_catalog.has_table_privilege(v_client,'public.async_jobs','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
        OR pg_catalog.has_any_column_privilege(v_client,'public.async_jobs','SELECT,INSERT,UPDATE,REFERENCES')
-       OR pg_catalog.has_table_privilege(v_client,'aap_jobs_v1.async_job_creation','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-       OR pg_catalog.has_any_column_privilege(v_client,'aap_jobs_v1.async_job_creation','UPDATE,REFERENCES')
-       OR NOT pg_catalog.has_table_privilege(v_client,'aap_jobs_v1.async_job_creation','SELECT')
-       OR NOT pg_catalog.has_table_privilege(v_client,'aap_jobs_v1.async_job_creation','INSERT')
+       OR pg_catalog.has_table_privilege(v_client,'yoao_jobs_v1.async_job_creation','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_client,'yoao_jobs_v1.async_job_creation','UPDATE,REFERENCES')
+       OR NOT pg_catalog.has_table_privilege(v_client,'yoao_jobs_v1.async_job_creation','SELECT')
+       OR NOT pg_catalog.has_table_privilege(v_client,'yoao_jobs_v1.async_job_creation','INSERT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP') THEN
         RAISE EXCEPTION 'Jobs lifecycle profile exposes private writes or unsafe creation';
     END IF;
@@ -220,7 +220,7 @@ BEGIN
         WHERE namespace.nspname NOT IN ('pg_catalog','information_schema')
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
-          AND relation.oid <> 'aap_jobs_v1.async_job_creation'::regclass
+          AND relation.oid <> 'yoao_jobs_v1.async_job_creation'::regclass
           AND ((relation.relkind IN ('r','p','v','m','f')
                 AND (pg_catalog.has_table_privilege(
                          v_client,relation.oid,
@@ -237,7 +237,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_jobs_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_jobs_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Jobs lifecycle client has unrelated data or schema privileges';

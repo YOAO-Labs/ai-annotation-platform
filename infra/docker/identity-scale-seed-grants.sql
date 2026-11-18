@@ -49,9 +49,9 @@ BEGIN
         RAISE EXCEPTION 'Apply the ordinary Identity consumer fence first';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_identity_v1.read_scale_seed_super_admin()',
-        'aap_identity_v1.read_scale_seed_annotator(uuid[])',
-        'aap_identity_v1.read_first_seed_account()'
+        'yoao_identity_v1.read_scale_seed_super_admin()',
+        'yoao_identity_v1.read_scale_seed_annotator(uuid[])',
+        'yoao_identity_v1.read_first_seed_account()'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner

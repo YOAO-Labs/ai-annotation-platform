@@ -1,7 +1,7 @@
 -- Give the Video restore operator LOGIN exactly one Inference Native function.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
---   -v inference_owner=inference_code -v video_restore_operator_role=video_restore_operator_client
+--   -v inference_owner=inference_code -v video_restore_operator_role=yoao_video_restore_operator_client
 --   -f infra/docker/video-restore-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -19,7 +19,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'video_restore_operator_client' OR owner_name <> 'inference_code'
+    IF role_name <> 'yoao_video_restore_operator_client' OR owner_name <> 'inference_code'
        OR role_name = owner_name THEN
         RAISE EXCEPTION 'Unexpected Video restore operator roles';
     END IF;
@@ -56,14 +56,14 @@ DECLARE
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname = 'aap_inference_routing_v1'
+        WHERE namespace.nspname = 'yoao_inference_routing_v1'
     ) OR NOT pg_catalog.has_schema_privilege(
-        owner_oid, 'aap_inference_routing_v1', 'USAGE'
+        owner_oid, 'yoao_inference_routing_v1', 'USAGE'
     ) THEN
         RAISE EXCEPTION 'Video restore operator Native schema or function is unavailable';
     END IF;
     FOREACH signature IN ARRAY ARRAY[
-        'aap_inference_routing_v1.video_restore_step(text,text)'
+        'yoao_inference_routing_v1.video_restore_step(text,text)'
     ] LOOP
     function_oid := pg_catalog.to_regprocedure(signature);
     IF function_oid IS NULL OR EXISTS (
@@ -100,8 +100,8 @@ BEGIN
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',namespace.nspname,role_name);
     END LOOP;
 END $$;
-GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"video_restore_operator_role";
-GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.video_restore_step(text,text)
+GRANT USAGE ON SCHEMA yoao_inference_routing_v1 TO :"video_restore_operator_role";
+GRANT EXECUTE ON FUNCTION yoao_inference_routing_v1.video_restore_step(text,text)
     TO :"video_restore_operator_role";
 
 DO $$
@@ -112,7 +112,7 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_inference_routing_v1.video_restore_step(text, text)'
+        'yoao_inference_routing_v1.video_restore_step(text, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(

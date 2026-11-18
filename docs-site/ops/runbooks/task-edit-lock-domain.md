@@ -23,15 +23,15 @@ last_reviewed: 2026-11-18
 
 以下入口共同使用该域，必须在同一次切换中更新：
 
-- Labeling `aap_labeling_v1.task_edit_lock_command(jsonb)`：API 编辑锁、审批、
+- Labeling `yoao_labeling_v1.task_edit_lock_command(jsonb)`：API 编辑锁、审批、
   视频预测采纳、Mask 编辑与最终写入围栏。
 - API active-learning 候选编辑围栏：通过同一 `TaskLockService` 取当前域。
-- 视频选集 `aap_labeling_v1.lock_video_input_manifest_member(...)`。
-- Identity 离职处理 `aap_labeling_v1.lock_identity_offboarding_work(...)`。
-- Workspace 成员变更 `aap_labeling_v1.lock_membership_work(...)`。
+- 视频选集 `yoao_labeling_v1.lock_video_input_manifest_member(...)`。
+- Identity 离职处理 `yoao_labeling_v1.lock_identity_offboarding_work(...)`。
+- Workspace 成员变更 `yoao_labeling_v1.lock_membership_work(...)`。
 
 这些函数签名与授权保持不变。迁移不新增函数、不新增角色、不扩大 EXECUTE；只替换
-`aap_labeling_v1` 中这四个函数的正文。
+`yoao_labeling_v1` 中这四个函数的正文。
 
 ## 前置条件 {#前置条件}
 
@@ -59,10 +59,10 @@ SELECT p.oid::regprocedure,
          / pg_catalog.length('''task-edit-lock:''') AS current_occurrences
 FROM pg_catalog.pg_proc AS p
 WHERE p.oid IN (
-  'aap_labeling_v1.task_edit_lock_command(jsonb)'::regprocedure,
-  'aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)'::regprocedure,
-  'aap_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])'::regprocedure,
-  'aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'::regprocedure
+  'yoao_labeling_v1.task_edit_lock_command(jsonb)'::regprocedure,
+  'yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)'::regprocedure,
+  'yoao_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])'::regprocedure,
+  'yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'::regprocedure
 )
 ORDER BY p.oid::regprocedure::text;
 ```
@@ -81,13 +81,13 @@ WHERE a.pid <> pg_catalog.pg_backend_pid()
   AND a.usesysid IS NOT NULL
   AND (
     pg_catalog.has_function_privilege(a.usesysid,
-      'aap_labeling_v1.task_edit_lock_command(jsonb)', 'EXECUTE')
+      'yoao_labeling_v1.task_edit_lock_command(jsonb)', 'EXECUTE')
     OR pg_catalog.has_function_privilege(a.usesysid,
-      'aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)', 'EXECUTE')
+      'yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)', 'EXECUTE')
     OR pg_catalog.has_function_privilege(a.usesysid,
-      'aap_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])', 'EXECUTE')
+      'yoao_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])', 'EXECUTE')
     OR pg_catalog.has_function_privilege(a.usesysid,
-      'aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)', 'EXECUTE')
+      'yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)', 'EXECUTE')
   )
 ORDER BY a.pid;
 ```
@@ -126,10 +126,10 @@ SELECT p.oid::regprocedure,
          AS acquires_legacy
 FROM pg_catalog.pg_proc AS p
 WHERE p.oid IN (
-  'aap_labeling_v1.task_edit_lock_command(jsonb)'::regprocedure,
-  'aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)'::regprocedure,
-  'aap_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])'::regprocedure,
-  'aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'::regprocedure
+  'yoao_labeling_v1.task_edit_lock_command(jsonb)'::regprocedure,
+  'yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)'::regprocedure,
+  'yoao_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])'::regprocedure,
+  'yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)'::regprocedure
 )
 ORDER BY p.oid::regprocedure::text;
 ```

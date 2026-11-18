@@ -3,7 +3,7 @@
 -- Run after module-data-grants.sql and notification-preferences-grants.sql as migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v notifications_owner=notifications_code -v api_role=legacy_runtime \
---   -v append_role=notification_append_client \
+--   -v append_role=yoao_notification_append_client \
 --   -f infra/docker/notification-append-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -22,25 +22,25 @@ DECLARE
     v_api_oid oid;
     v_client_oid oid;
     v_append_oid oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.append_notification(jsonb)'
+        'yoao_notifications_v1.append_notification(jsonb)'
     )::oid;
     v_terminal_oid oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.append_job_terminal_notification(jsonb)'
+        'yoao_notifications_v1.append_job_terminal_notification(jsonb)'
     )::oid;
     v_preference_oid oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.preference_command(jsonb)'
+        'yoao_notifications_v1.preference_command(jsonb)'
     )::oid;
     v_read_state_oid oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.read_state_command(jsonb)'
+        'yoao_notifications_v1.read_state_command(jsonb)'
     )::oid;
     v_delete_oid oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.delete_command(pg_catalog.jsonb)'
+        'yoao_notifications_v1.delete_command(pg_catalog.jsonb)'
     )::oid;
 BEGIN
     IF current_database() <> current_setting('yoao.expected_database')
        OR current_user <> current_setting('yoao.migration_role')
        OR v_owner <> 'notifications_code'
-       OR v_client <> 'notification_append_client'
+       OR v_client <> 'yoao_notification_append_client'
        OR v_owner = v_api OR v_owner = v_client OR v_api = v_client THEN
         RAISE EXCEPTION 'Unexpected Notifications append grant target';
     END IF;
@@ -128,7 +128,7 @@ BEGIN
        ) OR pg_catalog.has_any_column_privilege(
             v_client_oid, 'public.notification_preferences',
             'SELECT,INSERT,UPDATE,REFERENCES'
-       ) OR pg_catalog.has_schema_privilege(v_client_oid, 'aap_notifications_v1', 'CREATE')
+       ) OR pg_catalog.has_schema_privilege(v_client_oid, 'yoao_notifications_v1', 'CREATE')
        OR pg_catalog.has_database_privilege(
             v_client_oid, current_database(), 'CREATE,TEMP'
        ) THEN
@@ -146,22 +146,22 @@ REVOKE UPDATE (
     id, user_id, type, target_type, target_id, payload, read_at, created_at
 ) ON TABLE public.notifications FROM :"api_role", PUBLIC;
 REVOKE DELETE ON TABLE public.notifications FROM :"api_role", PUBLIC;
-REVOKE ALL ON SCHEMA aap_notifications_v1 FROM :"append_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_notifications_v1 FROM :"append_role";
+REVOKE ALL ON SCHEMA yoao_notifications_v1 FROM :"append_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_notifications_v1 FROM :"append_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"append_role";
-GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"api_role", :"append_role";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_notification(jsonb)
+GRANT USAGE ON SCHEMA yoao_notifications_v1 TO :"api_role", :"append_role";
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.append_notification(jsonb)
     TO :"api_role", :"append_role";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_job_terminal_notification(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.append_job_terminal_notification(jsonb)
     TO :"api_role", :"append_role";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.read_state_command_scoped(jsonb),
-    aap_notifications_v1.delete_command_scoped(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.read_state_command_scoped(jsonb),
+    yoao_notifications_v1.delete_command_scoped(jsonb)
     TO :"api_role", :"append_role";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.read_state_command(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.read_state_command(jsonb)
     TO :"api_role", :"append_role";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.delete_command(pg_catalog.jsonb)
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.delete_command(pg_catalog.jsonb)
     TO :"api_role", :"append_role";
-GRANT EXECUTE ON FUNCTION aap_notifications_v1.preference_command(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_notifications_v1.preference_command(jsonb)
     TO :"append_role";
 
 DO $verify$
@@ -171,25 +171,25 @@ DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles
                   WHERE rolname = current_setting('yoao.api_role'));
     v_allowed oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.append_notification(jsonb)'
+        'yoao_notifications_v1.append_notification(jsonb)'
     )::oid;
     v_terminal oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.append_job_terminal_notification(jsonb)'
+        'yoao_notifications_v1.append_job_terminal_notification(jsonb)'
     )::oid;
     v_preference oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.preference_command(jsonb)'
+        'yoao_notifications_v1.preference_command(jsonb)'
     )::oid;
     v_read_state oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.read_state_command(jsonb)'
+        'yoao_notifications_v1.read_state_command(jsonb)'
     )::oid;
     v_delete oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.delete_command(pg_catalog.jsonb)'
+        'yoao_notifications_v1.delete_command(pg_catalog.jsonb)'
     )::oid;
     v_scoped_read_state oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.read_state_command_scoped(jsonb)'
+        'yoao_notifications_v1.read_state_command_scoped(jsonb)'
     )::oid;
     v_scoped_delete oid := pg_catalog.to_regprocedure(
-        'aap_notifications_v1.delete_command_scoped(jsonb)'
+        'yoao_notifications_v1.delete_command_scoped(jsonb)'
     )::oid;
 BEGIN
     IF v_allowed IS NULL OR v_terminal IS NULL OR v_preference IS NULL OR v_read_state IS NULL
@@ -211,7 +211,7 @@ BEGIN
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid = function.pronamespace
-            WHERE namespace.nspname = 'aap_notifications_v1'
+            WHERE namespace.nspname = 'yoao_notifications_v1'
               AND pg_catalog.has_function_privilege(v_client, function.oid, 'EXECUTE')
               AND function.oid NOT IN (
                   v_allowed, v_terminal, v_preference, v_read_state, v_delete,

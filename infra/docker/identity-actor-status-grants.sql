@@ -3,7 +3,7 @@
 -- The status LOGIN receives no table, column, or second function capability.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v identity_owner=identity_code \
---   -v status_role=identity_actor_status_client \
+--   -v status_role=yoao_identity_actor_status_client \
 --   -f infra/docker/identity-actor-status-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -19,7 +19,7 @@ DECLARE
     v_status oid := (SELECT oid FROM pg_catalog.pg_roles
                      WHERE rolname=current_setting('yoao.status_role'));
     v_function oid := pg_catalog.to_regprocedure(
-        'aap_identity_v1.read_actor_facts(uuid)'
+        'yoao_identity_v1.read_actor_facts(uuid)'
     );
 BEGIN
     IF current_database()<>current_setting('yoao.expected_database')
@@ -90,8 +90,8 @@ BEGIN
 END;
 $revoke$;
 
-GRANT USAGE ON SCHEMA aap_identity_v1 TO :"status_role";
-GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"status_role";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid)
     TO :"status_role";
 
 DO $verify$
@@ -99,7 +99,7 @@ DECLARE
     v_status oid := (SELECT oid FROM pg_catalog.pg_roles
                      WHERE rolname=current_setting('yoao.status_role'));
     v_allowed oid := pg_catalog.to_regprocedure(
-        'aap_identity_v1.read_actor_facts(uuid)'
+        'yoao_identity_v1.read_actor_facts(uuid)'
     );
     v_relation record;
 BEGIN
@@ -142,13 +142,13 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname NOT IN ('pg_catalog','information_schema','public','aap_identity_v1')
+        WHERE namespace.nspname NOT IN ('pg_catalog','information_schema','public','yoao_identity_v1')
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_status,namespace.oid,'USAGE')
                OR pg_catalog.has_schema_privilege(v_status,namespace.oid,'CREATE'))
     ) OR pg_catalog.has_schema_privilege(v_status,'public','CREATE')
-      OR pg_catalog.has_schema_privilege(v_status,'aap_identity_v1','CREATE') THEN
+      OR pg_catalog.has_schema_privilege(v_status,'yoao_identity_v1','CREATE') THEN
         RAISE EXCEPTION 'Identity actor-status LOGIN has foreign schema privileges';
     END IF;
     FOR v_relation IN

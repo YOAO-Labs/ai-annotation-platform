@@ -44,7 +44,7 @@ BEGIN
     END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_class c JOIN pg_roles owner ON owner.oid=c.relowner
-        WHERE c.oid='aap_identity_fixture_v1.account_profiles'::regclass
+        WHERE c.oid='yoao_identity_fixture_v1.account_profiles'::regclass
           AND c.relkind='v' AND owner.rolname=v_identity
           AND COALESCE(c.reloptions @> ARRAY['security_barrier=true'],false)
           AND ARRAY(SELECT a.attname::text FROM pg_attribute a
@@ -53,16 +53,16 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Unexpected E2E account read relation';
     END IF;
-    EXECUTE format('GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO %I',v_consumer);
-    EXECUTE format('GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO %I',v_consumer);
+    EXECUTE format('GRANT USAGE ON SCHEMA yoao_identity_fixture_v1 TO %I',v_consumer);
+    EXECUTE format('GRANT SELECT ON yoao_identity_fixture_v1.account_profiles TO %I',v_consumer);
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_identity_fixture_v1.create_account(uuid,text,text,text,text)',
-        'aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)',
-        'aap_identity_fixture_v1.create_invitations(jsonb)',
-        'aap_identity_fixture_v1.delete_accounts(boolean,text[])',
-        'aap_identity_fixture_v1.delete_reset_tokens(uuid[])',
-        'aap_identity_fixture_v1.delete_invitations(uuid[])',
-        'aap_identity_fixture_v1.delete_organization_members(uuid[])'
+        'yoao_identity_fixture_v1.create_account(uuid,text,text,text,text)',
+        'yoao_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)',
+        'yoao_identity_fixture_v1.create_invitations(jsonb)',
+        'yoao_identity_fixture_v1.delete_accounts(boolean,text[])',
+        'yoao_identity_fixture_v1.delete_reset_tokens(uuid[])',
+        'yoao_identity_fixture_v1.delete_invitations(uuid[])',
+        'yoao_identity_fixture_v1.delete_organization_members(uuid[])'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner

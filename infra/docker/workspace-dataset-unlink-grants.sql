@@ -1,7 +1,7 @@
 -- Grant the Workspace dataset-unlink LOGIN only its two coordinator functions.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v workspace_owner=workspace_code
---   -v workspace_dataset_unlink_role=workspace_dataset_unlink_client
+--   -v workspace_dataset_unlink_role=yoao_workspace_dataset_unlink_client
 --   -f infra/docker/workspace-dataset-unlink-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -24,7 +24,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'workspace_dataset_unlink_client'
+    IF role_name <> 'yoao_workspace_dataset_unlink_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 2 THEN
         RAISE EXCEPTION 'Unexpected Workspace dataset-unlink role names';
@@ -61,8 +61,8 @@ DECLARE
 BEGIN
     IF EXISTS (
         SELECT 1 FROM (VALUES
-            ('aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)'),
-            ('aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)')
+            ('yoao_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid)'),
+            ('yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)')
         ) AS expected(signature)
         WHERE NOT EXISTS (
             SELECT 1 FROM pg_catalog.pg_proc AS function
@@ -77,7 +77,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Wrong Workspace dataset-unlink coordinator owner or shape';
     END IF;
-    IF NOT pg_catalog.has_schema_privilege(owner_oid, 'aap_workspace_v1', 'USAGE')
+    IF NOT pg_catalog.has_schema_privilege(owner_oid, 'yoao_workspace_v1', 'USAGE')
        OR NOT pg_catalog.has_column_privilege(owner_oid, 'public.projects', 'id', 'SELECT')
        OR NOT pg_catalog.has_any_column_privilege(owner_oid, 'public.projects', 'UPDATE')
        OR EXISTS (
@@ -128,11 +128,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_workspace_v1
+GRANT USAGE ON SCHEMA yoao_workspace_v1
     TO :"workspace_dataset_unlink_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid),
-    aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)
+    yoao_workspace_v1.preview_dataset_unlink(uuid,uuid,uuid),
+    yoao_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)
     TO :"workspace_dataset_unlink_role";
 
 DO $$
@@ -143,8 +143,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)',
-        'aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)'
+        'yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid)',
+        'yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -196,14 +196,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_workspace_v1', 'public'
+            'yoao_workspace_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_workspace_v1', 'CREATE'
+        role_oid, 'yoao_workspace_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

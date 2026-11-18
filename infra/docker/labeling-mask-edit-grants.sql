@@ -1,7 +1,7 @@
 -- Grant a Labeling Mask edit data LOGIN exactly three owner commands.
 -- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v mask_edit_role=labeling_mask_edit_client \
+--   -v labeling_owner=labeling_code -v mask_edit_role=yoao_labeling_mask_edit_client \
 --   -f infra/docker/labeling-mask-edit-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -51,9 +51,9 @@ BEGIN
         RAISE EXCEPTION 'Labeling owner and caller LOGIN have unsafe membership';
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
-        'aap_labeling_v1.mask_edit_command(jsonb)',
-        'aap_labeling_v1.mask_revision_command(jsonb)',
-        'aap_labeling_v1.ai_mask_accept_command(jsonb)'
+        'yoao_labeling_v1.mask_edit_command(jsonb)',
+        'yoao_labeling_v1.mask_revision_command(jsonb)',
+        'yoao_labeling_v1.ai_mask_accept_command(jsonb)'
     ] LOOP
     v_function := pg_catalog.to_regprocedure(v_signature);
     IF v_function IS NULL OR NOT EXISTS (
@@ -74,7 +74,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function
         WHERE function.oid=pg_catalog.to_regprocedure(
-            'aap_labeling_v1._mask_revision_canonical_json(jsonb)'
+            'yoao_labeling_v1._mask_revision_canonical_json(jsonb)'
         )
           AND function.proowner=v_owner AND function.prosecdef
           AND function.provolatile='i' AND function.prokind='f'
@@ -112,16 +112,16 @@ BEGIN
 END;
 $revoke$;
 
-REVOKE ALL ON FUNCTION aap_labeling_v1._mask_revision_canonical_json(jsonb)
+REVOKE ALL ON FUNCTION yoao_labeling_v1._mask_revision_canonical_json(jsonb)
     FROM :"mask_edit_role", PUBLIC;
-REVOKE ALL ON FUNCTION aap_labeling_v1.mask_edit_command(jsonb),
-    aap_labeling_v1.mask_revision_command(jsonb),
-    aap_labeling_v1.ai_mask_accept_command(jsonb)
+REVOKE ALL ON FUNCTION yoao_labeling_v1.mask_edit_command(jsonb),
+    yoao_labeling_v1.mask_revision_command(jsonb),
+    yoao_labeling_v1.ai_mask_accept_command(jsonb)
     FROM :"mask_edit_role", PUBLIC;
-GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"mask_edit_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.mask_edit_command(jsonb),
-    aap_labeling_v1.mask_revision_command(jsonb),
-    aap_labeling_v1.ai_mask_accept_command(jsonb)
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"mask_edit_role";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.mask_edit_command(jsonb),
+    yoao_labeling_v1.mask_revision_command(jsonb),
+    yoao_labeling_v1.ai_mask_accept_command(jsonb)
     TO :"mask_edit_role";
 
 DO $verify$
@@ -129,17 +129,17 @@ DECLARE
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles
                           WHERE rolname=current_setting('yoao.mask_edit_role'));
     v_allowed oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_labeling_v1.mask_edit_command(jsonb)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.mask_revision_command(jsonb)'),
-        pg_catalog.to_regprocedure('aap_labeling_v1.ai_mask_accept_command(jsonb)')
+        pg_catalog.to_regprocedure('yoao_labeling_v1.mask_edit_command(jsonb)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.mask_revision_command(jsonb)'),
+        pg_catalog.to_regprocedure('yoao_labeling_v1.ai_mask_accept_command(jsonb)')
     ];
     v_relation record;
 BEGIN
     IF pg_catalog.array_position(v_allowed,NULL) IS NOT NULL
        OR NOT pg_catalog.has_database_privilege(v_client,current_database(),'CONNECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP')
-       OR NOT pg_catalog.has_schema_privilege(v_client,'aap_labeling_v1','USAGE')
-       OR pg_catalog.has_schema_privilege(v_client,'aap_labeling_v1','CREATE')
+       OR NOT pg_catalog.has_schema_privilege(v_client,'yoao_labeling_v1','USAGE')
+       OR pg_catalog.has_schema_privilege(v_client,'yoao_labeling_v1','CREATE')
        OR pg_catalog.has_schema_privilege(v_client,'public','CREATE')
        OR EXISTS (
            SELECT FROM pg_catalog.unnest(v_allowed) AS capability(oid)
@@ -185,7 +185,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_labeling_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_labeling_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) THEN
         RAISE EXCEPTION 'Labeling Mask edit data LOGIN has foreign schema privileges';

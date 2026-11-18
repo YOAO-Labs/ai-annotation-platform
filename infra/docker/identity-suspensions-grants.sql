@@ -3,7 +3,7 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v audit_owner=audit_code
---   -v identity_suspension_role=identity_suspension_client
+--   -v identity_suspension_role=yoao_identity_suspension_client
 --   -f infra/docker/identity-suspensions-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -30,7 +30,7 @@ BEGIN
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'identity_suspension_client'
+    IF role_name <> 'yoao_identity_suspension_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM unnest(role_names) AS candidate(name)) <> 4 THEN
         RAISE EXCEPTION 'Unexpected Identity suspension role names';
@@ -83,29 +83,29 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_suspensions_v1.suspension_policy()'
+            'yoao_identity_suspensions_v1.suspension_policy()'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_suspensions_v1.execute_suspension_command(jsonb)'
+               'yoao_identity_suspensions_v1.execute_suspension_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_v1.lock_identity_suspension_scope(uuid,uuid,text)'
+               'yoao_workspace_v1.lock_identity_suspension_scope(uuid,uuid,text)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_audit_v1.record_identity_suspension_event(text,jsonb,uuid,jsonb,jsonb)'
+               'yoao_audit_v1.record_identity_suspension_event(text,jsonb,uuid,jsonb,jsonb)'
            )::oid) IS DISTINCT FROM audit_oid THEN
         RAISE EXCEPTION 'An Identity suspension capability has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_workspace_v1.lock_identity_suspension_scope(uuid,uuid,text)'
+            'yoao_workspace_v1.lock_identity_suspension_scope(uuid,uuid,text)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_function_privilege(
         identity_oid, pg_catalog.to_regprocedure(
-            'aap_audit_v1.record_identity_suspension_event(text,jsonb,uuid,jsonb,jsonb)'
+            'yoao_audit_v1.record_identity_suspension_event(text,jsonb,uuid,jsonb,jsonb)'
         )::oid, 'EXECUTE'
     ) OR NOT pg_catalog.has_column_privilege(
         identity_oid, 'public.identity_suspension_operation_receipts',
@@ -193,11 +193,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_suspensions_v1
+GRANT USAGE ON SCHEMA yoao_identity_suspensions_v1
     TO :"identity_suspension_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_suspensions_v1.suspension_policy(),
-    aap_identity_suspensions_v1.execute_suspension_command(jsonb)
+    yoao_identity_suspensions_v1.suspension_policy(),
+    yoao_identity_suspensions_v1.execute_suspension_command(jsonb)
     TO :"identity_suspension_role";
 
 DO $$
@@ -208,8 +208,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_suspensions_v1.execute_suspension_command(jsonb)',
-        'aap_identity_suspensions_v1.suspension_policy()'
+        'yoao_identity_suspensions_v1.execute_suspension_command(jsonb)',
+        'yoao_identity_suspensions_v1.suspension_policy()'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -254,9 +254,9 @@ BEGIN
         RAISE EXCEPTION 'Identity suspension LOGIN has unexpected functions: %', actual_functions;
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-           role_oid, 'aap_identity_suspensions_v1', 'USAGE'
+           role_oid, 'yoao_identity_suspensions_v1', 'USAGE'
        ) OR pg_catalog.has_schema_privilege(
-           role_oid, 'aap_identity_suspensions_v1', 'CREATE'
+           role_oid, 'yoao_identity_suspensions_v1', 'CREATE'
        ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
        OR pg_catalog.has_database_privilege(
            role_oid, current_database(), 'CREATE,TEMP'
@@ -264,7 +264,7 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
                   'pg_catalog', 'information_schema',
-                  'aap_identity_suspensions_v1', 'public'
+                  'yoao_identity_suspensions_v1', 'public'
               )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'

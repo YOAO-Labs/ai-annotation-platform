@@ -2,8 +2,8 @@
 -- Run after module-data-grants.sql; neither LOGIN receives private table access.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v export_owner=export_code \
---   -v jobs_publication_role=jobs_publication_client \
---   -v export_execution_role=export_execution_client \
+--   -v jobs_publication_role=yoao_jobs_publication_client \
+--   -v export_execution_role=yoao_export_execution_client \
 --   -f infra/docker/module-execution-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -38,22 +38,22 @@ BEGIN
     END IF;
     FOR profile IN SELECT * FROM (VALUES
         (current_setting('yoao.jobs_publication_role'), current_setting('yoao.jobs_owner'),
-         'aap_jobs_v1', ARRAY[
-            'aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)',
-            'aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)',
-            'aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid)',
-            'aap_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb)',
-            'aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)',
-            'aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)',
-            'aap_jobs_v1.begin_fixture_media_publication(uuid,uuid)',
-            'aap_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)'
+         'yoao_jobs_v1', ARRAY[
+            'yoao_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)',
+            'yoao_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)',
+            'yoao_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid)',
+            'yoao_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb)',
+            'yoao_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)',
+            'yoao_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)',
+            'yoao_jobs_v1.begin_fixture_media_publication(uuid,uuid)',
+            'yoao_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)'
          ]::text[]),
         (current_setting('yoao.export_execution_role'), current_setting('yoao.export_owner'),
-         'aap_export_v1', ARRAY[
-            'aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer)',
-            'aap_export_v1.enter_execution_io(uuid,uuid)',
-            'aap_export_v1.quiesce_execution_io(uuid,uuid)',
-            'aap_export_v1.finish_execution(uuid,uuid)'
+         'yoao_export_v1', ARRAY[
+            'yoao_export_v1.begin_execution(uuid,uuid,text,uuid,integer)',
+            'yoao_export_v1.enter_execution_io(uuid,uuid)',
+            'yoao_export_v1.quiesce_execution_io(uuid,uuid)',
+            'yoao_export_v1.finish_execution(uuid,uuid)'
          ]::text[])
     ) AS profiles(client_name, owner_name, schema_name, signatures)
     LOOP

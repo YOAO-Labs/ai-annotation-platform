@@ -81,7 +81,7 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_v1.lock_accounts_update(uuid[],boolean)'
+            'yoao_identity_v1.lock_accounts_update(uuid[],boolean)'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = policy_oid) IS DISTINCT FROM workspace_oid
@@ -96,10 +96,10 @@ BEGIN
     IF NOT pg_catalog.has_schema_privilege(
         workspace_oid, 'yoao_workspace_owner_transfer_v1', 'USAGE'
     ) OR NOT pg_catalog.has_schema_privilege(
-        workspace_oid, 'aap_identity_v1', 'USAGE'
+        workspace_oid, 'yoao_identity_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid,
-        pg_catalog.to_regprocedure('aap_identity_v1.lock_accounts_update(uuid[],boolean)'),
+        pg_catalog.to_regprocedure('yoao_identity_v1.lock_accounts_update(uuid[],boolean)'),
         'EXECUTE'
     ) OR NOT pg_catalog.has_column_privilege(
         workspace_oid, 'public.projects', 'id', 'SELECT'

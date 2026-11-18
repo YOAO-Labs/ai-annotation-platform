@@ -2,7 +2,7 @@
 -- Run after current migrations and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v notifications_owner=notifications_code -v api_role=api_runtime \
---   -v query_client=notification_delivery_read_client \
+--   -v query_client=yoao_notification_delivery_read_client \
 --   -f infra/docker/notification-delivery-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -45,13 +45,13 @@ BEGIN
     END IF;
     FOR v_function IN
         SELECT * FROM (VALUES
-            ('aap_notifications_v1.read_notification(uuid)', 'aap_notifications_v1.notification_facts', true),
-            ('aap_notifications_v1.find_terminal_notification(uuid,text,uuid)', 'uuid', false),
-            ('aap_notifications_v1.delivery_job_scopes(uuid[])', 'record', true),
-            ('aap_notifications_v1.delivery_member_pairs(jsonb)', 'record', true),
-            ('aap_notifications_v1.delivery_reviewer_pairs(jsonb)', 'record', true),
-            ('aap_notifications_v1.delivery_owner_pairs(jsonb)', 'record', true),
-            ('aap_notifications_v1.delivery_super_pairs(jsonb)', 'record', true)
+            ('yoao_notifications_v1.read_notification(uuid)', 'yoao_notifications_v1.notification_facts', true),
+            ('yoao_notifications_v1.find_terminal_notification(uuid,text,uuid)', 'uuid', false),
+            ('yoao_notifications_v1.delivery_job_scopes(uuid[])', 'record', true),
+            ('yoao_notifications_v1.delivery_member_pairs(jsonb)', 'record', true),
+            ('yoao_notifications_v1.delivery_reviewer_pairs(jsonb)', 'record', true),
+            ('yoao_notifications_v1.delivery_owner_pairs(jsonb)', 'record', true),
+            ('yoao_notifications_v1.delivery_super_pairs(jsonb)', 'record', true)
         ) AS expected(signature, return_type, returns_set)
     LOOP
         IF NOT EXISTS (
@@ -69,9 +69,9 @@ BEGIN
 END;
 $guard$;
 
-REVOKE ALL ON SCHEMA aap_notifications_v1 FROM :"query_client";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_notifications_v1 FROM :"query_client";
-REVOKE ALL ON ALL TABLES IN SCHEMA aap_notifications_v1, public FROM :"query_client";
+REVOKE ALL ON SCHEMA yoao_notifications_v1 FROM :"query_client";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_notifications_v1 FROM :"query_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_notifications_v1, public FROM :"query_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"query_client";
 DO $revoke_columns$
 DECLARE
@@ -82,7 +82,7 @@ BEGIN
         SELECT relation.oid, namespace.nspname, relation.relname
         FROM pg_catalog.pg_class AS relation
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=relation.relnamespace
-        WHERE namespace.nspname IN ('public','aap_notifications_v1')
+        WHERE namespace.nspname IN ('public','yoao_notifications_v1')
           AND relation.relkind IN ('r','p','v','m','f')
     LOOP
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname), ',' ORDER BY attnum)
@@ -96,28 +96,28 @@ BEGIN
     END LOOP;
 END;
 $revoke_columns$;
-REVOKE ALL ON aap_notifications_v1.notification_facts FROM :"api_role", PUBLIC;
+REVOKE ALL ON yoao_notifications_v1.notification_facts FROM :"api_role", PUBLIC;
 REVOKE ALL (id,user_id,type,target_type,target_id,payload,read_at,created_at)
-    ON aap_notifications_v1.notification_facts FROM :"api_role", PUBLIC;
+    ON yoao_notifications_v1.notification_facts FROM :"api_role", PUBLIC;
 REVOKE EXECUTE ON FUNCTION
-    aap_notifications_v1.read_notification(uuid),
-    aap_notifications_v1.find_terminal_notification(uuid,text,uuid),
-    aap_notifications_v1.delivery_job_scopes(uuid[]),
-    aap_notifications_v1.delivery_member_pairs(jsonb),
-    aap_notifications_v1.delivery_reviewer_pairs(jsonb),
-    aap_notifications_v1.delivery_owner_pairs(jsonb),
-    aap_notifications_v1.delivery_super_pairs(jsonb)
+    yoao_notifications_v1.read_notification(uuid),
+    yoao_notifications_v1.find_terminal_notification(uuid,text,uuid),
+    yoao_notifications_v1.delivery_job_scopes(uuid[]),
+    yoao_notifications_v1.delivery_member_pairs(jsonb),
+    yoao_notifications_v1.delivery_reviewer_pairs(jsonb),
+    yoao_notifications_v1.delivery_owner_pairs(jsonb),
+    yoao_notifications_v1.delivery_super_pairs(jsonb)
     FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"query_client";
-GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"query_client", :"api_role";
+GRANT USAGE ON SCHEMA yoao_notifications_v1 TO :"query_client", :"api_role";
 GRANT EXECUTE ON FUNCTION
-    aap_notifications_v1.read_notification(uuid),
-    aap_notifications_v1.find_terminal_notification(uuid,text,uuid),
-    aap_notifications_v1.delivery_job_scopes(uuid[]),
-    aap_notifications_v1.delivery_member_pairs(jsonb),
-    aap_notifications_v1.delivery_reviewer_pairs(jsonb),
-    aap_notifications_v1.delivery_owner_pairs(jsonb),
-    aap_notifications_v1.delivery_super_pairs(jsonb)
+    yoao_notifications_v1.read_notification(uuid),
+    yoao_notifications_v1.find_terminal_notification(uuid,text,uuid),
+    yoao_notifications_v1.delivery_job_scopes(uuid[]),
+    yoao_notifications_v1.delivery_member_pairs(jsonb),
+    yoao_notifications_v1.delivery_reviewer_pairs(jsonb),
+    yoao_notifications_v1.delivery_owner_pairs(jsonb),
+    yoao_notifications_v1.delivery_super_pairs(jsonb)
     TO :"query_client", :"api_role";
 
 DO $verify$
@@ -126,13 +126,13 @@ DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('yoao.query_client'));
     v_allowed oid[] := ARRAY[
-        'aap_notifications_v1.read_notification(uuid)'::regprocedure::oid,
-        'aap_notifications_v1.find_terminal_notification(uuid,text,uuid)'::regprocedure::oid,
-        'aap_notifications_v1.delivery_job_scopes(uuid[])'::regprocedure::oid,
-        'aap_notifications_v1.delivery_member_pairs(jsonb)'::regprocedure::oid,
-        'aap_notifications_v1.delivery_reviewer_pairs(jsonb)'::regprocedure::oid,
-        'aap_notifications_v1.delivery_owner_pairs(jsonb)'::regprocedure::oid,
-        'aap_notifications_v1.delivery_super_pairs(jsonb)'::regprocedure::oid
+        'yoao_notifications_v1.read_notification(uuid)'::regprocedure::oid,
+        'yoao_notifications_v1.find_terminal_notification(uuid,text,uuid)'::regprocedure::oid,
+        'yoao_notifications_v1.delivery_job_scopes(uuid[])'::regprocedure::oid,
+        'yoao_notifications_v1.delivery_member_pairs(jsonb)'::regprocedure::oid,
+        'yoao_notifications_v1.delivery_reviewer_pairs(jsonb)'::regprocedure::oid,
+        'yoao_notifications_v1.delivery_owner_pairs(jsonb)'::regprocedure::oid,
+        'yoao_notifications_v1.delivery_super_pairs(jsonb)'::regprocedure::oid
     ];
     v_function oid;
     v_private text;
@@ -152,9 +152,9 @@ BEGIN
         RAISE EXCEPTION 'PUBLIC retains delivery read EXECUTE';
     END IF;
     IF pg_catalog.has_table_privilege(v_api,
-            'aap_notifications_v1.notification_facts','SELECT')
+            'yoao_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_any_column_privilege(v_api,
-            'aap_notifications_v1.notification_facts','SELECT')
+            'yoao_notifications_v1.notification_facts','SELECT')
        OR pg_catalog.has_database_privilege(v_client,current_database(),'CREATE,TEMP') THEN
         RAISE EXCEPTION 'Delivery read grants expose direct API fact reads';
     END IF;
@@ -189,7 +189,7 @@ BEGIN
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(v_client,namespace.oid,'CREATE')
-               OR (namespace.nspname NOT IN ('public','aap_notifications_v1')
+               OR (namespace.nspname NOT IN ('public','yoao_notifications_v1')
                    AND pg_catalog.has_schema_privilege(v_client,namespace.oid,'USAGE')))
     ) OR EXISTS (
         SELECT FROM pg_catalog.pg_class AS relation

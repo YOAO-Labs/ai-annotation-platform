@@ -2,7 +2,7 @@
 -- Run after migrations and module-data/media grants.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v assets_owner=assets_code
---   -v asset_image_worker_role=asset_image_worker_client
+--   -v asset_image_worker_role=yoao_asset_image_worker_client
 --   -f infra/docker/assets-image-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -96,31 +96,31 @@ BEGIN
     END LOOP;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_image_worker_role";
-GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_image_worker_role";
+REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_image_worker_role";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_image_worker_role";
 GRANT EXECUTE ON FUNCTION
-    aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text),
-    aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text),
-    aap_assets_v1.finish_image_original_worker(uuid,uuid),
-    aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid),
-    aap_assets_v1.finish_accepted_image_original(uuid,uuid),
-    aap_assets_v1.claim_image_media(uuid,uuid,integer,text[]),
-    aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer),
-    aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb),
-    aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text),
-    aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb),
-    aap_assets_v1.reconcile_image_media(jsonb,integer),
-    aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer),
-    aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint),
-    aap_assets_v1.submit_native_pyramid_member(uuid),
-    aap_assets_v1.write_native_pyramid_member(uuid,text,text),
-    aap_assets_v1.verify_native_pyramid_member(uuid),
-    aap_assets_v1.abandon_native_pyramid_member(uuid,text),
-    aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb),
-    aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer),
-    aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer),
-    aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb),
-    aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)
+    yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text),
+    yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text),
+    yoao_assets_v1.finish_image_original_worker(uuid,uuid),
+    yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid),
+    yoao_assets_v1.finish_accepted_image_original(uuid,uuid),
+    yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[]),
+    yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer),
+    yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb),
+    yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text),
+    yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb),
+    yoao_assets_v1.reconcile_image_media(jsonb,integer),
+    yoao_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer),
+    yoao_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint),
+    yoao_assets_v1.submit_native_pyramid_member(uuid),
+    yoao_assets_v1.write_native_pyramid_member(uuid,text,text),
+    yoao_assets_v1.verify_native_pyramid_member(uuid),
+    yoao_assets_v1.abandon_native_pyramid_member(uuid,text),
+    yoao_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb),
+    yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer),
+    yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer),
+    yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb),
+    yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)
     TO :"asset_image_worker_role";
 
 DO $$
@@ -130,30 +130,30 @@ DECLARE
         WHERE role.rolname = current_setting('yoao.asset_image_worker_role')
     );
     worker_functions oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_image_original_worker(uuid,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.reconcile_image_media(jsonb,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.submit_native_pyramid_member(uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.write_native_pyramid_member(uuid,text,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.verify_native_pyramid_member(uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.abandon_native_pyramid_member(uuid,text)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)')::oid
+        pg_catalog.to_regprocedure('yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.finish_image_original_worker(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.reconcile_image_media(jsonb,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.submit_native_pyramid_member(uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.write_native_pyramid_member(uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.verify_native_pyramid_member(uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.abandon_native_pyramid_member(uuid,text)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)')::oid
     ];
     accepted_input_worker_functions oid[] := ARRAY[
-        pg_catalog.to_regprocedure('aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_image_original(uuid,uuid)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)')::oid
+        pg_catalog.to_regprocedure('yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.finish_accepted_image_original(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)')::oid
     ];
 BEGIN
     IF pg_catalog.has_database_privilege(role_oid, current_database(), 'CREATE')
@@ -163,7 +163,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
-          AND ns.nspname <> 'aap_assets_v1'
+          AND ns.nspname <> 'yoao_assets_v1'
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Image worker LOGIN has access to a foreign module schema';
