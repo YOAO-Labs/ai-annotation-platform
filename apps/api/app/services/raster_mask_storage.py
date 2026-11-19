@@ -477,7 +477,7 @@ def resolve_mask_reference_objects(
         digest = reference.get("sha256")
         rle = mask_objects.get(str(digest))
         if rle is None:
-            raise ValueError(f"AAP mask_objects missing sha256 {digest}")
+            raise ValueError(f"mask_objects missing sha256 {digest}")
         validate_reference_for_rle(reference, rle)
         resolved.setdefault(str(reference["object_key"]), (reference, rle))
     return list(resolved.values())
@@ -569,7 +569,7 @@ async def _store_resolved_mask_objects(db, resolved) -> None:
         else:
             stored = await store_coco_rle(rle, db=db)
         if stored["object_key"] != reference.get("object_key"):
-            raise ValueError("AAP mask object storage does not match reference")
+            raise ValueError("stored mask object does not match reference")
 
 
 async def store_mask_reference_objects(
@@ -1415,7 +1415,7 @@ async def load_coco_rle(
 
 
 def validate_reference_for_rle(reference: dict[str, Any], rle: dict[str, Any]) -> None:
-    """Validate portable AAP object metadata independent of storage encoding."""
+    """Validate portable mask object metadata independent of storage encoding."""
     data = canonical_rle_bytes(rle)
     digest = hashlib.sha256(data).hexdigest()
     height, width, counts = validate_coco_rle(rle)
@@ -1433,4 +1433,4 @@ def validate_reference_for_rle(reference: dict[str, Any], rle: dict[str, Any]) -
         or reference.get("runs") != len(counts)
         or reference.get("bytes") != len(data)
     ):
-        raise ValueError(f"AAP mask object metadata mismatch for sha256 {digest}")
+        raise ValueError(f"mask object metadata mismatch for sha256 {digest}")

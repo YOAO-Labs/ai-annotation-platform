@@ -11,7 +11,7 @@ last_reviewed: 2026-10-24
 
 图片项目、批次和 Data Manager 显式任务导出支持原地引用与托管图片混合。含引用的任务在排队时固定实际 Task 清单、任务版本及 Item/Asset/SHA；API Key 还须具备 `tasks:read`，后台持续验证同一个 Key 的身份与权限。原图经统一引用 reader 捕获严格快照，完整核对 SHA-256 后写入 ZIP；实际读取来源时要求真实 worker 的锚点。完整原图缓存的读取边界见[严格内容读取](verified-content.md#完整原图缓存的接入状态)；来源停用或内容绑定变化仍拒绝，不回退预览或按来源路径猜测平台桶。
 
-引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO `file_name`、AAP `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目的预签名 URL 指向完整核验后的独立交付副本，清单保存真实 SHA、大小和共同截止。`fetch_images.py` 核对包内图片、已有文件及实际下载字节；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
+引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO 的 `file_name`、原生 JSON 的 `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目的预签名 URL 指向完整核验后的独立交付副本，清单保存真实 SHA、大小和共同截止。`fetch_images.py` 核对包内图片、已有文件及实际下载字节；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
 
 引用包不跨 job 复用缓存。上传后的最终短事务重新检查原发起人、项目权限、原 Key、固定内容、显式选择的批次可见性与来源，并与取消串行；通过后才一起提交产物索引、下载链接和完成通知。失败或取消的 Job 不提供下载链接，也不返回部分包；真实 I/O 收尾后关闭快照、清理本任务临时 ZIP，独立 pending 归属和未确认对象保留待核对，不因失败推断可删除。到期已发布 Output 由 durable 退休账本重试清理，pending 不按年龄自动回收。已下载的包及已签发的七天 bearer URL 无法承诺随撤权立即回收。
 
@@ -29,7 +29,7 @@ last_reviewed: 2026-10-24
 
 ## 图片独立媒体交付
 
-项目、批次和 Data Manager 选中任务的异步图片导出，在入队事务固定准确范围、Task 顺序、类别／属性／工具、标注、AAP 预测与相关轨迹、尺寸、坐标约定和原件身份。后台序列化使用冻结视图；物理读取与发布前继续核对准确原请求、当前来源和完整输入。新托管图片使用 `images/tasks/<task UUID>/<安全文件名>`，YOLO 标签使用相同层级；同一原件可共享一个交付副本，但每个 Task 的绑定独立验证。
+项目、批次和 Data Manager 选中任务的异步图片导出，在入队事务固定准确范围、Task 顺序、类别／属性／工具、标注、原生 JSON 所需的预测与相关轨迹、尺寸、坐标约定和原件身份。后台序列化使用冻结视图；物理读取与发布前继续核对准确原请求、当前来源和完整输入。新托管图片使用 `images/tasks/<task UUID>/<安全文件名>`，YOLO 标签使用相同层级；同一原件可共享一个交付副本，但每个 Task 的绑定独立验证。
 
 图片 Job 写入前先冻结实际来源 Dataset 集合，并在同一事务绑定 Job、bundle、项目和发起人；worker 只接受这个出生时建立的绑定，不从当前项目内容反推旧作业的来源。准入与来源清理竞争时返回 `409 image_export_inputs_busy`；私有测试来源已经封闭时返回 `409 fixture_run_closed`，不会留下半创建的 Job 或范围记录。缺少此绑定的旧未完成图片 Job 须重新发起，不补写归属或接管旧 ID；已发布产物及其保存期限不因此改写。
 
@@ -45,7 +45,7 @@ last_reviewed: 2026-10-24
 
 原件可来自已登记 Dataset 或独立 `TaskOriginal`。HTTP 只核对身份、关系及范围形状，不下载视频，也不使用旧 `Item.metadata.video` 判断实际帧数。Worker 从保存位置完整核对 SHA-256、大小与条件读取，再在同一临时文件上运行受限 `ffprobe -count_frames`，取得实际解码帧数、fps、尺寸及可用时长。探测失败、实际范围越界或标注帧越界时作业失败，不以最大标注帧补长、不裁短范围，也不替换成播放转码。
 
-每个视频的 `metadata_receipt` 包含 `probe_contract=1`、探测得到的 `video`、原件 `sha256` 与 `size_bytes`；ZIP manifest、Video JSON 的 `source` 和 AAP 视频来源均保存该回执。此探测只服务本次导出，不更新业务元数据或视频派生 generation。Worker 从冻结视图序列化，物理读取和最终发布前重核原请求凭据、完整输入、分段及质检关联；中途变化不发布部分包。
+每个视频的 `metadata_receipt` 包含 `probe_contract=1`、探测得到的 `video`、原件 `sha256` 与 `size_bytes`；ZIP manifest、Video JSON 的 `source` 和原生 JSON 的视频来源均保存该回执。此探测只服务本次导出，不更新业务元数据或视频派生 generation。Worker 从冻结视图序列化，物理读取和最终发布前重核原请求凭据、完整输入、分段及质检关联；中途变化不发布部分包。
 
 完整核验的原视频字节写入独立交付副本，与预分配 ZIP 配对发布，共用首次 bundle 登记起168小时截止和一次3600秒 claim；重复投递、缓存命中或恢复均不续期。相同 canonical 身份可共用一次物理复制，各 Task 绑定仍分别复核。缓存完整核验保存位置的 ZIP 和全部媒体，未知旧原件不按当前桶接管；缺少私有 `video_media` 证明的旧未完成 Job 须重新发起。该证明不出现在公开 Job DTO。
 
@@ -79,9 +79,9 @@ last_reviewed: 2026-10-24
 
 新 ZIP 包含 `data_contract.json`，单文档 JSON 在自身保留等价元数据。每个目标分别记录 `task`、`media_type`、`format`、可用任务和来源；多目标 ZIP 的 `contracts[]` 不能简化成全局单一任务。普通标注导出标记 `training_qualified=false`，训练仍须经过专门的数据预检与严格几何桥接。
 
-AAP 的格式标识为 `aap`；视觉任务使用 `detect`、`segment`、`classify`、`pose`、`obb`。混合 AAP 保留全部原标注，`task` 可为空、`available_tasks` 列出候选；存在尚未映射的工具时不能将整个包声明成单一检测任务。COCO 的原生 `segmentation`、`keypoints` 等字段不改名。
+原生 JSON 的导出目标是 `native_json`，在 `data_contract.json` 中对应 `format: "yoao"`。当前原生文件使用 `schema_version: "2.0"`，`format` 与 `exported_from.platform` 均为 `yoao`；`aap` 是[历史 1.x 文件的身份](./import#aap-json-格式)，不是当前导出目标。视觉任务使用 `detect`、`segment`、`classify`、`pose`、`obb`。混合工具的项目不会被强行归为检测：`task` 可为空，`available_tasks` 列出可识别的任务。COCO 的 `segmentation`、`keypoints` 等字段不改名。
 
-视频 JSON 的任务 `source`、AAP 的视频块和 ZIP manifest 保留原项目 `video_sampling`/`video_collaboration`、原始源 key、可空 DatasetItem 身份、原件完整摘要／大小、`metadata_receipt`、`resolved_step`、绝对 `source_frame_indices` 和逐帧 `source_sample_ids`。帧网格始终锚定源视频第 0 帧，范围导出只裁网格，不从范围起点重编号。标签展开方式与采样网格相互独立。
+视频 JSON 的任务 `source`、原生 JSON 的视频块和 ZIP manifest 保留原项目 `video_sampling`/`video_collaboration`、原始源 key、可空 DatasetItem 身份、原件完整摘要／大小、`metadata_receipt`、`resolved_step`、绝对 `source_frame_indices` 和逐帧 `source_sample_ids`。帧网格始终锚定源视频第 0 帧，范围导出只裁网格，不从范围起点重编号。标签展开方式与采样网格相互独立。
 
 ## 触发导出
 
@@ -146,7 +146,7 @@ Segment 模式把 `selection` 改为
 | **yolo-det**          | YOLO 检测 txt（矩形框）+ classes.txt，每图一文件                                                   |
 | **yolo-obb**          | YOLO 旋转框 txt（rotated_bbox 四角）                                                               |
 | **yolo-seg**          | YOLO 分割 txt（polygon / mask 归一化多边形）                                                       |
-| **native_json**       | 平台原生无损中间格式（双数组 annotations / predictions）                                           |
+| **native_json**       | 原生 JSON：分别保存正式标注 `annotations[]` 与待审预测 `predictions[]`，导入时按入口读取           |
 | **yolo-frames-det**   | `video-track` 专用逐帧 YOLO 检测集，按采样网格抽帧，合并 `video_bbox` 与 `video_track_bbox` 摊平框 |
 | **yolo-frames-seg**   | 视频逐帧 polygon 分割标签；bbox / polyline / mask 跳过                                             |
 | **coco-frames-seg**   | 视频标准 COCO instance segmentation；polygon 与 RLE mask                                           |
@@ -204,7 +204,7 @@ COCO / YOLO 会按各自能消费的几何映射。COCO 对图片 `raster_mask` 
 
 `include_attributes=false` 时，视频 JSON 不输出 `project.attribute_schema`，也不输出 track / legacy `video_bbox` 的 `attributes`。
 
-部分导出只读取一个 task：单帧 geometry 按闭区间过滤，track 保留范围内原始关键帧与 outside，并在可见区间边界补齐可解析状态。Video JSON 顶层、AAP task 的 `video` 字段和 ZIP `manifest.json` 都写入规范化后的 `export_scope`。逐帧格式保持项目的全局采样相位，再把选中帧密集编号；`grid_source_frames` 保存输出帧到源帧的映射。
+部分导出只读取一个 task：单帧 geometry 按闭区间过滤，track 保留范围内原始关键帧与 outside，并在可见边界补齐可解析状态。Video JSON 顶层、原生 JSON 每个任务的 `video` 字段和 ZIP `manifest.json` 都写入规范化后的 `export_scope`。逐帧格式保持项目的全局采样相位，再把选中帧密集编号；`grid_source_frames` 保存输出帧到源帧的映射。
 
 单帧 OBB 与关键点同样写入兼容字段 `video_bbox`：OBB 行保留 `type/frame_index/cx/cy/w/h/angle`，关键点行保留 `type/frame_index/points[{x,y,v}]`。原生 JSON 使用原始 geometry。专业视频目标没有这两种单帧几何的表示时，预检返回 `unsupported_geometry`，不会把 OBB 退化成外接框或丢弃关键点。
 

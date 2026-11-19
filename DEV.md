@@ -2082,7 +2082,7 @@ HTTP API 统一挂载在 `/api/v1`，而 WebSocket 单独挂载在 `/ws/...`。�
 
 ## Grounded-SAM-2 ML Backend
 
-Grounded-SAM-2 与 SAM3 的实现和镜像由独立 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供。Compose 使用已审核的不可变镜像，不从平台源码构建；原生安装和 Compose 管理是独立的所有权路径，不会互相接管。
+Grounded-SAM-2 与 SAM3 的源码和镜像构建说明由独立 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护。Compose 使用从获准渠道取得并经摘要核验的不可变镜像，不从平台源码构建；公开源码或 Python wheel 不代表已有公开 OCI 镜像。原生安装和 Compose 管理是独立的所有权路径，不会互相接管。
 
 ### 起 / 停
 

@@ -12,7 +12,7 @@
 复用策略（见汇报）：
 - YOLO：不复用 export_yolo 的扁平 ZIP 写法（它把 label 路径写死成叶子名），改在此处用
   ExportService 内部加载结果 + geometry helper 自己写镜像目录。
-- COCO / AAP JSON：是单文档格式（无 per-image label 文件），直接调 ExportService 现有方法拿
+- COCO / 原生 JSON：是单文档格式（无 per-image label 文件），直接调 ExportService 现有方法拿
   JSON 字符串落包根，COCO 额外传入 dataset_items 让坐标用真值。
 """
 
@@ -965,7 +965,7 @@ async def build_export_zip(
                     )
 
             zf.writestr("fetch_images.py", _FETCH_IMAGES_TEMPLATE)
-            # 单 YOLO 目标根 data.yaml 已在上面写；纯 COCO/AAP 单目标补一份（兼容旧包结构）。
+            # 单个非 YOLO 图片目标也在包根提供 data.yaml，保留原有目录布局。
             if not multi and not has_yolo:
                 zf.writestr("data.yaml", _build_data_yaml(classes_list))
 
@@ -1011,7 +1011,7 @@ def _build_data_yaml(classes_list: list[str]) -> str:
     """YOLO 训练入口：images/ 与 labels/ 平行（fetch_images.py 把图拉到 images/）。"""
     names = "\n".join(f"  {i}: {name}" for i, name in enumerate(classes_list))
     return (
-        "# YOLO 数据集入口（由 AAP 导出生成）\n"
+        "# YOLO 数据集入口（由 YOAO 导出）\n"
         "# images/ 由 fetch_images.py 按 images_manifest.json 回源；labels/ 已在包内。\n"
         "path: .\n"
         "train: images\n"
@@ -1026,7 +1026,7 @@ def _build_video_yolo_data_yaml(classes_list: list[str]) -> str:
     """视频逐帧 YOLO 训练入口：fetch_frames.py 把帧抽到 images/。"""
     names = "\n".join(f"  {i}: {name}" for i, name in enumerate(classes_list))
     return (
-        "# 视频逐帧 YOLO 数据集入口（由 AAP 导出生成）\n"
+        "# 视频逐帧 YOLO 数据集入口（由 YOAO 导出）\n"
         "# images/ 由 fetch_frames.py 按 manifest.json 抽帧；labels/ 已在包内。\n"
         "path: .\n"
         "train: images\n"
@@ -1146,7 +1146,7 @@ def _kitti_calib_text(calib: SensorCalibration) -> str:
 
 def _lidar_readme(target: str) -> str:
     common = (
-        "AAP LiDAR export\n"
+        "YOAO LiDAR export\n"
         "Images and point clouds are referenced by presigned manifests; run the "
         "fetch scripts before training if local media is needed.\n"
         "point_mask_3d labels index the point order of the fetched point cloud.\n"
@@ -1162,7 +1162,7 @@ def _lidar_readme(target: str) -> str:
         return common + "\nPointmask labels are little-endian uint32 class ids.\n"
     if target == "nuscenes":
         return (
-            "AAP trusted nuScenes keyframe export\n\n"
+            "YOAO nuScenes keyframe export\n\n"
             "This package is compatible with the official nuscenes-devkit load/query "
             "contract after running fetch_nuscenes_media.py. It is not an official "
             "detection/tracking benchmark split and does not map project categories to "
@@ -1173,7 +1173,7 @@ def _lidar_readme(target: str) -> str:
         )
     if target == "coco-multicamera":
         return (
-            "AAP trusted multi-camera COCO export\n\n"
+            "YOAO multi-camera COCO export\n\n"
             "annotations.json contains only persistent manual camera bounding boxes; "
             "it never fills missing labels from 3D projections. Every linked camera "
             "image is included, so images without annotations remain valid negative "

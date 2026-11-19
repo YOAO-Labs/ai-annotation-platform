@@ -104,7 +104,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 开发流程复用现有入口，不新增统一安装包或命令包装层：
 
-- `yoao-plugin` 负责创建、开发、检查和构建推理插件；默认作者示例不安装官方模型、Torch 或权重，复杂服务仍可直接实现 HTTP 契约，见[推理插件接入](/dev/tutorials/ml-backend-starter)。
+- `yoao-plugin` 负责创建、开发、检查和构建推理插件；默认作者示例不安装官方模型、Torch 或权重，见[推理插件接入](/dev/ml-backend/starter)。复杂服务仍可直接实现 HTTP 契约。
 - API SDK／`yoao` 负责连接平台与管理安装、启停和退役，见[安装生命周期](/user-guide/superadmin/ml-backend-registry)。安装不等于项目启用或模型发布。
 - 联调环境可同时安装两套工具；插件运行镜像不因此默认包含 API SDK。独立安装验收需分别证明 API 客户端不依赖插件运行时、插件开发不依赖平台源码或管理员凭据。
 
@@ -112,7 +112,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 从可信来源取得经核验的候选 SDK、运行时、Mask 工具和契约 wheel；历史发布仅证明对应旧制品，不代表新发行名已经发布。获取接口接受显式 `--manifest PATH_OR_URL`、`--sha256 EXPECTED_MANIFEST_SHA256` 和 `--output DIRECTORY`，可重复使用 `--package DIST` 筛选；平台将核验后的作者运行时和 Mask wheel 暂存于 `.artifacts/python/plugin-sdk`。完整依赖 wheelhouse、第三方依赖许可、模型权重及 OCI 镜像均须另行提供和核验。
 
-完整候选构建器由独立插件仓库的 `scripts/build-libreyolo-candidate.py` 维护，从固定插件提交与契约制品生成完整 hash-locked wheelhouse。具体命令、资产准备与安装见 [YOAO-Plugins README](https://github.com/YOAO-Labs/YOAO-Plugins#readme)；通用接入见[推理插件接入](/dev/tutorials/ml-backend-starter)。公开发布不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们分别保留许可和分发门禁，不因第一方源码公开而自动获得授权。
+完整 LibreYOLO 候选由插件仓库的 `scripts/build-libreyolo-candidate.py` 构建。以候选源码**同一修订**的 README 为准：构建器要求指定插件提交，以及 SDK、平台契约各自的 manifest 和 SHA-256；公开历史版本的构建参数和 wheel 不适用于当前候选。自定义模型作者参阅[推理插件接入](/dev/ml-backend/starter)。公开第一方制品不包含第三方 wheelhouse、模型权重、真实数据集或 OCI 镜像；它们各自需要许可和分发批准。
 
 取回后先用可信独立记录中的 SHA256 核验，再解包或安装；随包 checksum 不能单独证明发布者身份。完整候选可用 `pip --no-index --require-hashes` 离线安装，不能把第一方 wheel 发布等同于完整离线分发或 OCI 资格。
 

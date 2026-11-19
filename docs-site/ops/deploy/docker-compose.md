@@ -652,7 +652,7 @@ URL 改动、探测失败或快照过期后都按 unknown 保守报告，不会�
 
 五个官方推理插件分别使用独立 overlay；`docker-compose.ml.yml` 保留截图 stub，可在不设置插件变量时使用。服务 profile 与核心 infra 无 depends_on，可单独启用或并存。
 
-官方实现和镜像由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供。启用对应 overlay 前配置 `GSAM2_IMAGE`、`SAM3_IMAGE`、`YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`，使用已审核的仓库、manifest digest 和镜像内生命周期源码摘要，而非 image ID。未启用的插件无需配置。Compose 和原生插件安装的所有权不同，不会自动接管彼此。
+官方插件的源码与镜像构建说明由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护；OCI 镜像需从获准渠道另行取得。启用对应 overlay 前配置 `GSAM2_IMAGE`、`SAM3_IMAGE`、`YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`，使用已审核的仓库、manifest digest 和镜像内生命周期源码摘要，而非 image ID。未启用的插件无需配置。Compose 和原生插件安装的所有权不同，不会自动接管彼此。
 
 管理员按插件目录与资产 catalog 审核许可和文件身份后，预先准备模型。Grounded-SAM-2 的 `gsam2_checkpoints:/app/checkpoints` 包含所需 SAM、DINO 和 `bert-base-uncased/{config.json,tokenizer.json,tokenizer_config.json,vocab.txt,model.safetensors}`；SAM3 的 `sam3_checkpoints:/app/checkpoints` 包含 image/PVS 的 `sam3.pt` 和 multiplex 的 `sam3.1_multiplex.pt`。两者不在启动时下载；SAM3 的两个 gated 仓库须各自取得授权，持有文件或 token 不代表许可。缓存卷仍保留供现有部署迁移。ONNXTools 与 RapidOCR 使用各自已审核的只读宿主目录，YOLO 保留 checkpoint 卷与只读模型资产。
 

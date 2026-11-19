@@ -70,7 +70,7 @@ last_reviewed: 2026-10-24
   - `classify`（图像分类）
   - `pose`（关键点估计）
   - `obb`（旋转目标框）
-- **格式与序列化**：统一规范 AAP、COCO、Ultralytics YOLO 等格式转换。能力由 API registry 管理，前端名称及历史别名均由其快照生成。
+- **格式与序列化**：统一规范原生 JSON、COCO、Ultralytics YOLO 等格式转换。能力由 API registry 管理，前端名称及历史别名均由其快照生成。
 - **多边形几何约束**：新简单多边形实例分割采用 `schema 3`（历史 `schema 2` 继续读取），由 `training_contract.dataset` 校验简单多边形：
   - 强制使用规范起点与闭合方向，拒绝存在自相交、顶点重复或有损降采样的几何。
   - 严格限制顶点总数与每图实例数量，每一行保留来源标注版本的精确映射。

@@ -1,10 +1,10 @@
-# YOAO 产品语言与命名优化计划草案
+# YOAO 产品语言与命名优化计划
 
-> 状态：N1–N3、N4 四个切片、N6-K 已完成限定验收；**N5 已完成**，最后一批前向迁移与实库验收见 §16.13。T1／T2 尚未通过联合验收，J1、依赖 J1 的 N6-S／N6-E 采用及 J2 仍未放行。这不是生产切换或正式发布批准。
+> 状态：**计划未完成。** N0 首批命名决策已冻结；N1–N3、N4 四个切片及 N6-K 已完成限定验收；N5 已完成前向迁移与实库验收（§16.13）。冻结候选 `3d45da957` 的默认 T1／T2 联合验收已退出 1：3,336 项中 3,052 通过、205 失败、29 错误、1 跳过、49 未运行。J1 未放行；N6-S（存储分配）、N6-E（环境采用）还各需专项批准，J2 未放行。没有切换日常／生产环境或批准正式发布。
 >
-> N7 已在独立分支完成两项定向验收：CLI 导入／清理的预览与执行回执；原生 JSON 的预测／标注导入说明与字段诊断。后者已用同一文件核对预览、实际写入和数据库读回。见[验收账本](evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)；均不计入 T1／T2 或发布资格。
+> N7 已定向验收 CLI 预览／执行回执、原生 JSON 预测／标注导入。导出产物及作者入口的补漏也已复验：点云 ZIP 夹具改用实际冻结数据转换，原先失败的 11 项全部通过，相关两份测试共 31/31。Plugin-SDK 和 YOAO-Plugins 本地作者说明已纠正；从修改后的 SDK wheel 构建、安装并运行了自定义 CPU 插件。公开默认分支和 Release 仍使用旧名，不能替代当前候选。上述证据不放行 N7 整体或联合验收，详见[验收账本](evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)。
 >
-> 日期：2026-10-29。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
+> 制定：2026-10-29；最近核对：2026-11-19。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
 >
 > 核心原则：**业务内部名称去品牌前缀；跨项目、跨进程或对外分发的必要命名空间使用 `yoao`；历史事实与安全身份不因品牌变化而重写。** 不做全仓 `AAP → YOAO` 替换，不以搜索结果清零作为目标。
 
@@ -39,7 +39,7 @@
 | ------------------ | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
 | 用户可见品牌       | README、登录／注册、顶栏、HTML／PWA、文档站仍使用 AI Annotation Platform 或“标注中心”                  | 应改为 YOAO，业务界面不用反复加产品名前缀                  |
 | 冗余内部符号       | `AAPTaskMatch`、`AAPAnnotationEntry`、`AAP_SCHEMA_VERSION`；session info 与 ContextVar 中也有 aap 名称 | 优先去前缀，模块已提供上下文；先核对是否泄漏为公共 schema  |
-| 对外包和命令       | `ai-annotation-sdk`、`ai_annotation`、`aap`、`aap-inference-plugin-sdk`、`aap-plugin`                  | 需要统一的产品命名空间，不能直接改成泛化的 `sdk`／`plugin` |
+| 对外包和命令       | `ai-annotation-sdk`、`ai_annotation`、`aap`、`aap-inference-plugin-sdk`、`aap-inference-plugin`        | 需要统一的产品命名空间，不能直接改成泛化的 `sdk`／`plugin` |
 | 显示名与机器值混合 | UI 的“AAP JSON”，API 的 `aap_json`，文件的 `format: "aap"`                                             | 三层分别迁移；改显示名不等于修改协议                       |
 | 持久状态           | 训练草稿前缀、`_aap_managed` 对象路径、`__aap_reference__`、冻结 Jobs 信封                             | 不能文本替换，必须保持所有权、请求身份和精确引用           |
 | 安全身份           | Identity issuer 参与密钥派生；数据库 grants、worktree 标签按 aap 名称做归属验证                        | 不得为了品牌清理降低检查或使旧资源失去保护                 |
@@ -138,15 +138,15 @@
 
 ### 6.1 SDK、CLI 与独立发行包
 
-| 当前                                                             | 目标                                                                | 使用者／约束                                              |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------- |
-| `ai-annotation-sdk`／`ai_annotation`／`aap`                      | `yoao-sdk`／`yoao`／`yoao`                                          | 平台客户端、管理员 CLI 与 TUI；公共 API 使用者需要迁移    |
-| `aap-inference-plugin-sdk`／`aap_inference_plugin`／`aap-plugin` | `yoao-inference-plugin-sdk`／`yoao_inference_plugin`／`yoao-plugin` | 模型作者；当前窄检测 SDK，不宣传为全任务万能 SDK          |
-| `aap-libreyolo-plugin`／`aap_libreyolo_plugin`                   | `yoao-libreyolo-plugin`／`yoao_libreyolo_plugin`                    | 自有包装包改名，上游 LibreYOLO 名称不改                   |
-| `aap-libreyolo`／`aap-libreyolo-evidence`                        | `yoao-libreyolo`／`yoao-libreyolo-evidence`                         | 独立安装工具；仍区分证据采集和平台批准                    |
-| `aap-jobs`／`aap_jobs` 等实际跨包模块                            | `yoao-jobs`／`yoao_jobs`                                            | 包名防冲突，包内 `QueueClient` 等名称不补品牌             |
-| `aap-backend-runtime`、`aap-…-contract` 等跨仓发行名             | 对应 `yoao-…`                                                       | 按现有依赖图迁移，不复制 schema，也不把平台权威搬到插件仓 |
-| `aap-jobs-queue` 等独立可执行入口                                | `yoao-jobs-queue` 等                                                | shell 全局命令需要产品归属；迁移启动器与镜像入口          |
+| 当前                                                                       | 目标                                                                | 使用者／约束                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------- |
+| `ai-annotation-sdk`／`ai_annotation`／`aap`                                | `yoao-sdk`／`yoao`／`yoao`                                          | 平台客户端、管理员 CLI 与 TUI；公共 API 使用者需要迁移    |
+| `aap-inference-plugin-sdk`／`aap_inference_plugin`／`aap-inference-plugin` | `yoao-inference-plugin-sdk`／`yoao_inference_plugin`／`yoao-plugin` | 模型作者；当前窄检测 SDK，不宣传为全任务万能 SDK          |
+| `aap-libreyolo-plugin`／`aap_libreyolo_plugin`                             | `yoao-libreyolo-plugin`／`yoao_libreyolo_plugin`                    | 自有包装包改名，上游 LibreYOLO 名称不改                   |
+| `aap-libreyolo`／`aap-libreyolo-evidence`                                  | `yoao-libreyolo`／`yoao-libreyolo-evidence`                         | 独立安装工具；仍区分证据采集和平台批准                    |
+| `aap-jobs`／`aap_jobs` 等实际跨包模块                                      | `yoao-jobs`／`yoao_jobs`                                            | 包名防冲突，包内 `QueueClient` 等名称不补品牌             |
+| `aap-backend-runtime`、`aap-…-contract` 等跨仓发行名                       | 对应 `yoao-…`                                                       | 按现有依赖图迁移，不复制 schema，也不把平台权威搬到插件仓 |
+| `aap-jobs-queue` 等独立可执行入口                                          | `yoao-jobs-queue` 等                                                | shell 全局命令需要产品归属；迁移启动器与镜像入口          |
 
 `yoao plugins` 是平台管理员操作；`yoao-plugin` 是作者开发工具。保持两者安装依赖和权限分离，不为了命令统一让客户端核心依赖 Torch，也不把核心 Inference owner 与推理插件合并。
 
@@ -386,7 +386,7 @@ UI 验证使用实际构建和隔离环境；文档／计划阶段不虚构浏�
 | `app/schemas/aap_json.py`、`AAPJsonV1Envelope`、`AAP*Entry`、`import_aap_json*`             | `native_json.py`、`NativeJsonEnvelope`、领域类型及 `import_native_json*`；删除单纯转发的 mask 包装 | API 导入／导出、mask adapter、测试与动态 monkeypatch 消费者       | Python 单一实现；OpenAPI 从 API 重新导出                       | 导入与往返行为、真实动态消费者回归；无旧 import、alias 或 re-export。语言服务器引用／重命名能力不可用，使用结构化 AST 改名并核对消费者 |
 | `AAPImportResult`／`AAPImportErrorEntry`                                                    | `ImportResult`／`ImportErrorEntry`                                                                 | HTTP 响应 schema、OpenAPI、生成 Web 类型与 API 指南               | `openapi.snapshot.json` 与现有客户端生成器                     | 单独审阅组件名称和 `$ref` 差异；响应 JSON 字段不变，不与 SDK 既有独立结果类型混并                                                      |
 | 私有 SDK 基类 `_AAPModel`                                                                   | `_SDKModel`                                                                                        | SDK 模型定义和全部内部继承／导入模块                              | 仅进程内 Python 名称，不是发行包或公共异常名                   | SDK 全套现有行为用例；公共包 `ai_annotation`、命令 `aap`、`AAPError` 与发行元数据仍属 N3，本批不增加双入口                             |
-| 公共客户端命令、包和版本元数据                                                              | KEEP：`aap`、`ai_annotation`、`aap-plugin` 及既有版本标识；发行名切换属于 N3                       | 已安装 CLI／SDK、作者 SDK、制品与自动化消费者                     | 公共入口和发行元数据                                           | 本机实际 `aap --version` 仍为 `aap 0.20.0@AAP0.26.1`；帮助产品名可更新，不能借品牌工作擅自 bump 或改变公开发行身份                     |
+| 公共客户端命令、包和版本元数据                                                              | KEEP：`aap`、`ai_annotation`、`aap-inference-plugin` 及既有版本标识；发行名切换属于 N3             | 已安装 CLI／SDK、作者 SDK、制品与自动化消费者                     | 公共入口和发行元数据                                           | 本机实际 `aap --version` 仍为 `aap 0.20.0@AAP0.26.1`；帮助产品名可更新，不能借品牌工作擅自 bump 或改变公开发行身份                     |
 | 私有 `@anno/web`／`@anno/docs-site` 与根 workspace                                          | `web`／`docs-site`／`yoao`                                                                         | pnpm filters、根脚本、CI、启动器、hooks、当前开发文档及单一指令源 | 私有 package manifests；当前 lockfile 与依赖目标核对           | 实际 build、codegen、docs 和 worktree 入口；不通过共享 node_modules 链接安装，不改公开 Python 包                                       |
 | Session receipt key、ContextVar、document 事件                                              | `assets_verified_receipts`、领域 ContextVar、`shell:popover-open`                                  | 同请求／事务缓存、路由上下文和同 document 的发送／订阅双方        | 不跨重启持久化；事务结束清理规则不变                           | 缓存、提交／回滚及页面行为；不把持久训练草稿作为同类局部字符串处理                                                                     |
 | 调用自有 `aap-content-` 等临时前缀                                                          | 用途前缀，不加新品牌                                                                               | API、资产／媒体组件与调用方清理                                   | 本调用生命周期；不是受控存储路径                               | 现有内容与清理用例；`aap-reference-` 的外部清理消费者、调用方持有的 `aap-export-` 工件保留，不能在本批猜测退役                         |

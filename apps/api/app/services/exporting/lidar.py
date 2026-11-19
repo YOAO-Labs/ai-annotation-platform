@@ -278,7 +278,7 @@ def build_multicamera_coco(
 
     document = {
         "info": {
-            "description": "AAP trusted multi-camera manual bbox export",
+            "description": "YOAO multi-camera export of manual bounding boxes",
             "version": "1",
         },
         "licenses": [],
@@ -538,7 +538,7 @@ def build_nuscenes_frame_records(
         {
             "token": category_tokens[name],
             "name": name,
-            "description": f"AAP project category {name}",
+            "description": f"Project category: {name}",
             "index": index,
         }
         for index, name in enumerate(category_names, start=1)

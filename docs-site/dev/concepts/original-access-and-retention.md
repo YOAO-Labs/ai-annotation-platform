@@ -119,7 +119,7 @@ SDK 每步单次尝试，真实成功响应先独立持久化，再按真实非 
 
 #### 视频冻结输入与交付
 
-视频异步导出使用输入 `schema4`（单件原件 5 GiB、最多 1000 Task、唯一原件 20 GiB）、私有 `video_media` 证明和同一 `ExportMediaBundle` 生命周期，覆盖十种视频目标。Worker 沿保存位置完整核对条件读取、SHA 与大小，在同一受许可保护的 stage FD 上运行本地受限 `ffprobe -count_frames`，形成 `metadata_receipt` 随 ZIP manifest、Video JSON 和 AAP 来源保存。
+视频异步导出使用输入 `schema4`（单件原件 5 GiB、最多 1000 Task、唯一原件 20 GiB）、私有 `video_media` 证明和同一 `ExportMediaBundle` 生命周期，覆盖十种视频目标。Worker 沿保存位置完整核对条件读取、SHA 与大小，在同一受许可保护的 stage FD 上运行本地受限 `ffprobe -count_frames`，形成 `metadata_receipt` 随 ZIP manifest、Video JSON 和原生 JSON 的视频来源保存。
 
 ### 媒体缓存与同源交付（迁移 0232、0233、0252）
 
