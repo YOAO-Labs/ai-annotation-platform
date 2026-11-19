@@ -664,3 +664,8 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - **N6-E：旧工具只读盘点。** 在 `test-optimization` 用现有 `worktree_env.load_identity(create=False)` 核对：没有 `.worktree/identity.json`，也没有 `dev/test/e2e` 模式目录；`.worktree/t1-current` 和日志原样保留。这仅说明本 checkout 没有可据以操作的旧 owner，不证明宿主没有资源。`.env`／`.env.local` 不存在；根和 Web 的 Node 依赖、API 虚拟环境均为真实目录，未改动。另用两个临时目录产生旧工具身份，六组 checkout × mode 推导出互异的 6 个数据库名、6 个 Redis 名、60 个桶名、6 个 owner 和确认值；两次交叉身份校验均拒绝。临时目录已移除，没有创建数据库、Redis 或桶。该核对不能替代新环境普通进程、状态恢复及邻居保护。
 
 **放行条件：** `feat/backend-opt` 须交付同一候选的默认终局、逐节点 JUnit 对账和正常退役结果；若换候选，重新绑定其制品与迁移 head。主进程随后在同一集成基线上执行普通 worker／安装消费者导出、三类真实草稿恢复、精确清理后的邻居存活和 Workspace owner-transfer 权限／重放／恢复。只有这个组合门通过才从该提交并行实施两项 N6。J2 需在二者的集成提交上实跑新写、旧读、恢复和邻居保护；本次没有切换存储、迁移状态、采用日常环境或批准发布。
+
+### 旧资源归属：退役归档的离线核对
+
+- **N6-S：两个清单不能用作旧受管导出的夹具。** `retired-environments/20261112/minio/object-inventory.json` 覆盖 309 个退役存储实例（SHA256 `18d346c83e76d6ff5b61808787e4a54ea4dbb667d2cab1621c0f521fe1093bb7`）；`t1-gate-1-retirement/fixture-object-versions.json` 带有 61 条 `Key`＋`VersionId`（SHA256 `e7ef3400058465d5d26bc72016d4c2368d1435d5f6f3f75689bf527af1868993`）。两份原始清单均不含 `_aap_managed/export/`，不能把其他键的版本配给历史 ZIP。这只描述这两份清单，不推断其他存储中没有旧对象。
+- **N6-E：真实旧 manifest 可作为切换时的对照。** 从 `retired-environments/20261112/worktrees/worktree-state.tar.gz`（24 个 e2e）和 `t1-gate-1-retirement/runtime-state.tar.gz`（1 个 test）直接配对读取 `identity.json` 与 `resources.json`，不解包到工作树、不连接服务。旧 `worktree_env.topology` 在各自保存的 root 上逐字段复现 25/25 份资源清单；换成本 checkout 的 root 后，25/25 个身份均被拒绝。25 个数据库名、25 个 Redis 名和 250 个桶名在各自类别内无重复。按 `(id, mode, root)` 排序、对 `resources` 数组作紧凑 JSON 编码（ASCII、键排序、无尾换行）所得 SHA256 为 `fe286e5844276890ad8e32a54334b3bb631eb04697c7670952d6fe5f708cb7df`。这可校验历史对照字节，不授予恢复或清理这些归档实例的权限。
