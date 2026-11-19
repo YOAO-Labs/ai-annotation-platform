@@ -2833,6 +2833,8 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_workspace_import_cli_live.py": "workspace-import",
     # This worker commits unscoped Jobs that fixture teardown must not ignore.
     "tests/test_workspace_video_tracker_worker_live.py": "workspace-video-tracker",
+    # These HTTP cases deliberately retain cancellation Jobs after deleting their Tasks.
+    "tests/test_video_deletion_retirement_http_native.py": "video-deletion-http",
     "tests/test_native_pyramid_lifecycle_live.py": "native-lifecycle",
     # These destructive fixtures advance the whole store's retention cutoff.
     "tests/test_mask_gc_collection_live.py": "mask-gc-collection",

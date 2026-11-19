@@ -3638,8 +3638,8 @@ async def test_import_notification_reaches_channel_and_image_work_is_accepted(
         worker = _start_importer(stack, "delivery")
         await _wait_healthy(worker)
         facts = await _wait_job(stack, job)
-        notification_id = str(
-            next(target for kind, target in facts.deliveries if kind == "notification")
+        (notification_id,) = (
+            str(target) for kind, target in facts.deliveries if kind == "notification"
         )
         client = aioredis.from_url(settings.redis_url, socket_timeout=5)
         try:
@@ -3647,7 +3647,8 @@ async def test_import_notification_reaches_channel_and_image_work_is_accepted(
                 await channel.subscribe(f"notify:{stack.world.actor_id}")
                 await channel.get_message(timeout=2)
                 totals = await _relay_pending()
-                assert totals["delivered"] == 1 and totals["deferred"] == 0
+                # The relay drains both shared queues, not just this import.
+                assert totals["deferred"] == 0
                 async with asyncio.timeout(5):
                     while True:
                         notification = await channel.get_message(
@@ -3683,14 +3684,19 @@ async def test_import_notification_reaches_channel_and_image_work_is_accepted(
                 assert len(image_jobs) == 1
                 assert image_jobs[0].kind == "thumbnail"
                 assert image_jobs[0].status in {"pending", "running", "ready"}
-                assert (
-                    await db.scalar(
+                deliveries = (
+                    await db.execute(
                         text(
-                            "SELECT count(*) FROM public.dataset_import_deliveries WHERE job_id=:id AND delivered_at IS NOT NULL"
+                            "SELECT kind, target_id::text, delivered_at IS NOT NULL "
+                            "FROM public.dataset_import_deliveries "
+                            "WHERE job_id=:id ORDER BY kind"
                         ),
                         {"id": job},
                     )
-                    == 2
-                )
+                ).all()
+                assert deliveries == [
+                    ("notification", notification_id, True),
+                    ("thumbnail", str(item["id"]), True),
+                ]
         finally:
             await client.aclose()
