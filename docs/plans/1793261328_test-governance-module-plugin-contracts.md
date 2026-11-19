@@ -838,6 +838,8 @@ Web 录制与媒体工具已从仅本地命令接入 `Frontend verification`。�
 
 筛选控件的 28 项源码断言已移出 Vitest，改由 Web lint 核对 JSX 对共享导入的实际引用；只剩注释的页面不再通过。筛选组件与数据集页的 15 项交互用例由 Vitest 单独计数，不拿静态检查充作行为验收。两组结果均见上方运行账本。
 
+工作台 Shell 的问题弹窗使用真实组件，经 HTTP 替身验证像素锚点、服务拒绝后保留输入、原样重提及关闭回调。视频时间轴不再读取 CSS 文本判断布局；三个场景在 Chromium 的桌面亮色、暗色和窄屏项目中实测几何、减少动态效果以及拖选反馈，共九项通过。遮住现有循环区间时，同一浏览器用例明确失败；不证明视频解码、像素或后端持久化。
+
 ### 12.16 G1／G2／G7：独立 Python 套件的报告和站点 Agent 夹具
 
 echo、mock-v2、站点 Agent 和训练执行器保留各自环境与 CI 入口，JUnit 分开上传；一个示例测试失败不会遮蔽另一个示例的结果。站点 Agent 已解除测试模块互相导入和直接导入 `conftest` 的依赖，CI 使用 pytest 的 `importlib` 模式。各套件的实际结果和限制见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)，命令见[测试指南](../../docs-site/dev/testing.md)。组件结果不替代独立网络部署或 GPU 资格。
@@ -1271,6 +1273,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 八个批准门中 F0、N4-F、N5-S、N5-W 已获批准；N6-S、N6-E、J1、J2 四项仍未开放。批准实施不等于资格通过。阶段 F 集成线已作为 `c60d8c734` 合入 `feat/backend-opt`，这是 Git 集成，不是 J1 判定，也不改变上表未完成任务的验收状态。
 
 2026-11-12 用户暂停阶段 F（不推进整体计划）。全部保留的阶段 F 测试环境、旧验收镜像、`/tmp` 根和 83 个干净工作树已在导出证据后整实例退役，回执、数据库 dump 与对象清单见 Run 私有目录 `retired-environments/20261112/README.md`；这是强制整实例退役，不是产品清理资格，也不关闭 §16.7 的任何一项。日常／生产／F0 保护资源、本 checkout 的 `yoao-stage-f-*-074930` 私有基础设施及最新 18 个制品镜像保留。保留规则改为“保留失败证据，不保留失败现场”，见 runtime 技能的[环境保留规则](../../.agents/skills/yoao-runtime/references/environment-retention.md)。
+
+当前分工：T1／T2 联合验收只在 `feat/backend-opt` 进行。本工作树继续独立的测试治理，不重复启动联合环境、不合并两树的 JUnit，也不凭单项通过开放 J1、N6-S、N6-E 或 J2。
 
 ### 16.7 未关闭问题
 

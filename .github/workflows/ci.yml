@@ -296,6 +296,22 @@ jobs:
         env:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm build
+      - name: Test timeline layout in Chromium
+        id: timeline-layout
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.xml
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.json
+        run: |
+          pnpm --filter web exec playwright install --with-deps --only-shell chromium
+          pnpm --filter web test:e2e:layout video-playback-overlay.spec.ts --reporter=list,junit,json
+          E2E_REQUIRE_ALL_TESTS=1 node scripts/summarize-e2e-results.mjs timeline-layout success "$PLAYWRIGHT_JSON_OUTPUT_NAME"
+      - name: Upload timeline layout results
+        if: ${{ !cancelled() && steps.timeline-layout.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-video-timeline-layout
+          path: ${{ runner.temp }}/video-timeline-layout.*
+          if-no-files-found: error
       # bundle size budget 守护：超过 .size-limit.json 阈值即阻断 PR。
       - name: Bundle size check
         working-directory: apps/web

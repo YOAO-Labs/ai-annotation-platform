@@ -1,7 +1,5 @@
 import { act, fireEvent, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { ComponentProps } from "react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -16,11 +14,6 @@ import { resolveVideoTimelineRangePurpose } from "../state/useWorkbenchShellMode
 import { buildFrameTimebase } from "./frameTimebase";
 import type { VideoTimelineDensityBin, VideoTrackTimeline } from "./videoTrackTimeline";
 import type { VideoTimelineWindowControls } from "./videoStageControls";
-
-const overlayCss = readFileSync(
-  resolve(process.cwd(), "src/pages/Workbench/stage/VideoPlaybackOverlay.module.css"),
-  "utf8",
-);
 
 const timebase = buildFrameTimebase({
   duration_ms: 1000,
@@ -257,11 +250,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(within(bottomBar).getByTestId("video-timeline-navigator")).toBeInTheDocument();
     expect(within(playbackControls).queryByTestId("video-timeline-zoom-in")).toBeNull();
     expect(zoomControls.nextElementSibling).toBe(toggle);
-    expect(overlayCss).toMatch(
-      /\.(?:expandedControls \.controlButton|zoomControls \.controlButton)[^{]*\{[^}]*width:\s*24px;[^}]*height:\s*24px;/s,
-    );
-    expect(overlayCss).not.toMatch(/\.expandedControls\s*\{[^}]*background:/s);
-    expect(overlayCss).toMatch(/\.overlayExpanded\s*\{[^}]*bottom:\s*12px;/s);
   });
 
   it("uses a view transition for expand and collapse when motion is allowed", () => {
@@ -285,8 +273,6 @@ describe("VideoPlaybackOverlay", () => {
 
       expect(startViewTransition).toHaveBeenCalledOnce();
       expect(getByTestId("video-playback-overlay")).toHaveAttribute("data-state", "expanded");
-      expect(overlayCss).toMatch(/view-transition-name:\s*video-timeline-overlay/);
-      expect(overlayCss).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
     } finally {
       Reflect.deleteProperty(document, "startViewTransition");
     }
@@ -363,15 +349,6 @@ describe("VideoPlaybackOverlay", () => {
       "true",
     );
     expect(getByTestId("video-timeline-window-readout")).toHaveTextContent("窗口：全部 · F0–100");
-  });
-
-  it("keeps collapsed metadata on a separate row so the timeline remains dominant", () => {
-    expect(overlayCss).toMatch(
-      /\.overlayCollapsed\s*\{[^}]*grid-template-areas:\s*"play timeline toggle"\s*"status status status"/s,
-    );
-    expect(overlayCss).toMatch(
-      /\.collapsedTimelineShell\s*\{[^}]*grid-area:\s*timeline;[^}]*min-width:\s*280px;/s,
-    );
   });
 
   it("keeps manual and prediction density visible when a track is selected", () => {
@@ -906,17 +883,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(onRangeSelect).toHaveBeenCalledWith("propagate-range", { startFrame: 2, endFrame: 7 });
     expect(onSeekReviewFrame).not.toHaveBeenCalled();
     expect(getByTestId("timeline-tracker-review-scope")).toHaveTextContent("F2–F7");
-  });
-
-  it("does not hide collapsed active-range feedback in CSS", () => {
-    const hiddenSelectors = [...overlayCss.matchAll(/([^{}]+)\{[^{}]*display:\s*none;?[^{}]*\}/g)]
-      .map((match) => match[1])
-      .filter((selectors) => selectors.includes(".overlayCollapsed"))
-      .join(",");
-
-    expect(hiddenSelectors).not.toMatch(
-      /\.(loopRegion|propagateRegion|chapterDraftRegion|propagateDraftRegion)\b/,
-    );
   });
 
   // v0.21.13 WS4 · 时间轴章节条 hover 上报 + 受控高亮 (与侧栏行双向联动)。

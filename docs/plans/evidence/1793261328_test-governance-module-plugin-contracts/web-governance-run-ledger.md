@@ -23,3 +23,12 @@
 - 在一次性副本中用空的 `<div>` 代替数据集页面，只在注释里留下共享组件的导入路径和 `<FilterGroup>`。旧 Vitest 仍然 **28/28 通过**（`before-comment-only.xml`）；它证明的是文字匹配，不是筛选行为。
 - `pnpm --filter web lint:filters` 现在核对 28 个界面的 JSX 标签是否绑定到指定的共享导入，已接入 Web lint。实际源码通过（`current.log`）；仅注释、同名本地组件、遮蔽导入三个对照分别退出 1，且只报告数据集页；具名导入改名和通过相对路径限定的命名空间导入通过（`static-controls.json`）。这 28 项不再计入 Vitest。
 - `FilterControls`、`FilterPanel` 与真实 `DatasetsPage` 的 Vitest/jsdom 选集分别为 **5、2、8 项通过**，无跳过（`filter-interactions.xml`）。页面场景覆盖恢复已归档筛选和第 40 项偏移后，清除筛选回到起始页。该证据不代表 28 个页面各自的运行时交互、真实浏览器或后端查询资格。
+
+## 2026-11-19：Workbench 问题弹窗与时间轴布局
+
+证据目录：`.artifacts/test-results/workbench-ui-governance/`。
+
+- Shell 不再用假弹窗、按钮、图标或骨架占位节点证明行为。真实弹窗经客户端向 MSW 提交带项目、任务、像素坐标的 Issue；503 后保留输入、不触发关闭，同一内容重提收到 201 后才回调。`components.xml`：Shell 10、弹窗 26、覆盖层 46 通过；增强拒绝与重提断言后的 `shell-final.xml`：Shell 10 通过。后者不另加到总数；服务答复为受控 HTTP，不证明落库。
+- 删除两条只读 CSS 的 Vitest 用例以及混在交互用例中的 CSS 正则；组件的展开、聚焦、帧定位与已有回调断言保留。浏览器布局入口挂载真实 `VideoPlaybackOverlay`，检查轨道与元数据分行、收展后底边、可点击的逐帧按钮和减弱动态效果；真实拖出章节／传播区间，核对松手前的可见范围与最终提交的 F30–60。
+- 三个场景 × 三个 Chromium 项目（1440×900 亮／暗色，390×844 窄屏），**9 通过，无跳过或重试**。JUnit、日志和 trace 在 `timeline-final*`，三个项目截图保存在证据目录。独立 Vite 只在提供样式时将折叠态循环区间改为 `visibility: hidden`，旧 `display: none` 文字检查仍接受；同一 Chromium 场景因 `video-loop-region` 不可见而失败（`hidden-loop.xml`、`hidden-loop-control.json`）。未修改生产组件／样式，也未运行产品 E2E、后端、解码器或 GPU。
+- 同一 CI 命令生成 JUnit 和 Playwright JSON，现有严格报告检查记录首次通过 9、重试／跳过／未运行／全局错误均为 0（`ci/required-report.txt`）。这是本地命令验收，未触发远端 Actions。
