@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -761,72 +761,49 @@ async def test_real_runner_continues_after_a_failed_member_and_publishes_durable
         )
 
 
-async def test_legacy_delivery_without_job_id_resumes_the_same_captured_job(
-    test_engine,
-    monkeypatch,
+async def test_only_an_admitted_job_can_resume_its_captured_result(
+    test_engine, monkeypatch
 ):
     from dataclasses import replace
-    from app.application import durable_preannotation as workflow
+    from unittest.mock import AsyncMock
+
     from app.application import preannotation_execution as execution
-    from sqlalchemy import inspect as sa_inspect
 
-    from yoao_inference.backend_transport import PredictionResult
-    from tests.inference_execution_test_ports import pipeline_output
-
-    async with _world(test_engine, staged=False, result_count=1) as world:
+    async with _world(test_engine, result_count=1) as world:
         _runtime_connections(monkeypatch, world)
-        async with world.owner_factory.begin() as owner:
-            await owner.execute(
-                delete(AsyncJob).where(AsyncJob.id == world.execution.scope["job_id"])
-            )
-        request = replace(world.request, async_job_id=None)
-        delivery = f"legacy-delivery-{uuid4()}"
-        calls = []
-
-        async def infer(task, *_args, **_kwargs):
-            task_id = sa_inspect(task).identity[0]
-            calls.append(task_id)
-            return pipeline_output(
-                [
-                    PredictionResult(
-                        task_id=str(task_id),
-                        result=[],
-                        score=0.7,
-                        model_version="legacy-resume",
-                        inference_time_ms=1,
-                    )
-                ],
-                instance_id=world.backend_id,
-                pool_id=world.pool_id,
-            )
-
-        original_apply = workflow._apply_ready_result
-
-        async def blocked(*_args, **_kwargs):
-            raise PreannotationResultDeferred("task_busy")
-
+        _, _, requests = await _ready(world)
+        await world.execution.close()
+        model = AsyncMock(side_effect=AssertionError("already captured"))
         monkeypatch.setattr(
             execution, "_model_execution_port", lambda *_args, **_kwargs: object()
         )
-        monkeypatch.setattr(execution, "_run_task_pipeline", infer)
-        monkeypatch.setattr(workflow, "_apply_ready_result", blocked)
-        with pytest.raises(PreannotationResultDeferred, match="task_busy"):
-            await execution.run_preannotation(request, execution_id=delivery)
-        monkeypatch.setattr(workflow, "_apply_ready_result", original_apply)
-        await execution.run_preannotation(request, execution_id=delivery)
-        assert calls == [world.task_id]
-        assert await _counts(world) == (1, 1, 0, 1)
-        async with world.owner_factory() as owner:
-            jobs = list(
-                (
-                    await owner.scalars(
-                        select(AsyncJob).where(
-                            AsyncJob.celery_task_id == delivery,
-                        )
-                    )
-                ).all()
+        monkeypatch.setattr(execution, "_run_task_pipeline", model)
+        job_id = world.execution.scope["job_id"]
+        # The broker delivery identifies the existing job but cannot authorize it.
+        with pytest.raises(ValueError, match="admitted Job"):
+            await execution.run_preannotation(
+                replace(world.request, async_job_id=None), execution_id=str(job_id)
             )
-            assert len(jobs) == 1 and jobs[0].status == "completed"
+        assert await _counts(world) == (0, 0, 0, 0)
+        async with world.owner_factory() as db:
+            result = await db.scalars(
+                select(AsyncJob.id).where(AsyncJob.project_id == world.project_id)
+            )
+            assert list(result) == [job_id]
+            assert (await db.get(AsyncJob, job_id)).status == "running"
+
+        await execution.run_preannotation(world.request, execution_id=str(job_id))
+        await execution.run_preannotation(world.request, execution_id=str(job_id))
+        model.assert_not_awaited()
+        assert await _counts(world) == (1, 1, 0, 1)
+        async with world.owner_factory() as db:
+            assert (
+                await db.scalar(
+                    select(Prediction.id).where(Prediction.task_id == world.task_id)
+                )
+                == requests[0].batch_result_identity.prediction_id
+            )
+            assert (await db.get(AsyncJob, job_id)).status == "completed"
 
 
 async def test_large_failed_batch_has_a_bounded_summary_and_complete_paged_retry_history(
@@ -868,18 +845,30 @@ async def test_large_failed_batch_has_a_bounded_summary_and_complete_paged_retry
         ]
 
 
-@pytest.mark.parametrize("captured", [False, True])
-async def test_cancelled_redelivery_applies_the_captured_member_then_stops(
+@pytest.mark.parametrize("checkpoint", ["unpublished", "prepared", "committed"])
+async def test_cancelled_redelivery_preserves_only_committed_predictions(
     test_engine,
     monkeypatch,
-    captured,
+    checkpoint,
 ):
     from app.application import preannotation_execution as execution
     from unittest.mock import AsyncMock
 
     async with _world(test_engine, result_count=1) as world:
-        if captured:
-            await _ready(world)
+        if checkpoint != "unpublished":
+            member, result, requests = await _ready(world)
+            if checkpoint == "committed":
+                async with world.writers() as db:
+                    assert await _apply_ready_result(
+                        world.execution,
+                        db,
+                        PredictionService(db),
+                        member,
+                        result,
+                        requests,
+                        request=world.request,
+                        manifest_backed=False,
+                    )
         await world.execution.close()
         async with world.owner_factory.begin() as owner:
             await owner.execute(
@@ -900,12 +889,13 @@ async def test_cancelled_redelivery_applies_the_captured_member_then_stops(
             world.request, execution_id="cancelled-redelivery"
         )
         model.assert_not_awaited()
-        assert await _counts(world) == ((1, 1, 0, 1) if captured else (0, 0, 0, 0))
+        committed = int(checkpoint == "committed")
+        assert await _counts(world) == (committed, committed, 0, committed)
         async with world.owner_factory() as owner:
             job = await owner.get(AsyncJob, world.execution.scope["job_id"])
             assert job.status == "cancelled"
             assert (
-                job.result["success_count"] == int(captured)
+                job.result["success_count"] == committed
                 and job.result["failed_count"] == 0
             )
 

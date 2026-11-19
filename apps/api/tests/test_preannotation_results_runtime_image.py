@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from yoao_preannotation_results import contract as c
-from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_asset_storage_cleanup_runtime import _container_database_url
 from tests.test_batch_result_consumers_native import _ready, _world
 
 
@@ -37,7 +37,10 @@ def _docker(*args, **options):
         **options,
     )
     if result.returncode:
-        pytest.fail("owned result-runtime container command failed", pytrace=False)
+        pytest.fail(
+            f"owned result-runtime docker {args[0]} exited {result.returncode}",
+            pytrace=False,
+        )
     return result.stdout.strip()
 
 
@@ -75,7 +78,7 @@ def _run_owned_image(
     if python:
         options.extend(("--entrypoint=python", "--network=none"))
     elif retry:
-        options.append("--entrypoint=aap-prediction-retries")
+        options.append("--entrypoint=yoao-prediction-retries")
     container_id = _docker(*options, details["Id"], *arguments)
     assert len(container_id) == 64 and all(
         char in "0123456789abcdef" for char in container_id
@@ -127,12 +130,9 @@ async def test_installed_read_only_runtime_claims_and_reads_the_saved_bundle(
         url.username == "yoao_preannotation_result_client"
         and url.database == test_engine.url.database
     )
-    _verify_postgres(url)
     secret = Path(tmp_path / "result-dsn").resolve()
     secret.write_text(
-        url.set(drivername="postgresql", host="host.docker.internal").render_as_string(
-            hide_password=False
-        ),
+        _container_database_url(url),
         encoding="utf-8",
     )
     secret.chmod(0o444)
@@ -203,12 +203,9 @@ async def test_installed_retry_cli_reads_and_publishes_with_only_executor_capabi
         url.username == "yoao_preannotation_result_client"
         and url.database == test_engine.url.database
     )
-    _verify_postgres(url)
     secret = Path(tmp_path / "retry-dsn").resolve()
     secret.write_text(
-        url.set(drivername="postgresql", host="host.docker.internal").render_as_string(
-            hide_password=False
-        ),
+        _container_database_url(url),
         encoding="utf-8",
     )
     secret.chmod(0o444)

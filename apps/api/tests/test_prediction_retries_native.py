@@ -641,12 +641,14 @@ async def test_pending_input_has_a_visible_job_without_model_count_or_started_no
             raise FrozenInputRetryDeferred("input_not_ready")
             yield
 
-        monkeypatch.setattr(worker, "_prepare_retry_input", pending)
-        with pytest.raises(PreannotationResultDeferred, match="input_not_ready"):
-            await _run(world)
+        with monkeypatch.context() as wait:
+            wait.setattr(worker, "_prepare_retry_input", pending)
+            with pytest.raises(PreannotationResultDeferred, match="input_not_ready"):
+                await _run(world)
         assert calls == []
         async with world.owner_factory() as db:
-            assert (await db.get(AsyncJob, world.job_id)).status == "pending"
+            job = await db.get(AsyncJob, world.job_id)
+            assert job.status == "pending" and job.started_at is None
             failed = await db.get(FailedPrediction, world.failed_id)
             assert failed.retry_count == 0 and failed.extra["retry_pending"] is True
             assert (
@@ -656,4 +658,21 @@ async def test_pending_input_has_a_visible_job_without_model_count_or_started_no
                     .where(Notification.user_id == world.actor_id)
                 )
                 == 0
+            )
+        result = await _run(world)
+        assert result["status"] == "succeeded" and await _run(world) == result
+        assert len(calls) == 1
+        async with world.owner_factory() as db:
+            job = await db.get(AsyncJob, world.job_id)
+            assert job.status == "completed" and job.started_at is not None
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Notification)
+                    .where(
+                        Notification.user_id == world.actor_id,
+                        Notification.type == "failed_prediction.retry.started",
+                    )
+                )
+                == 1
             )

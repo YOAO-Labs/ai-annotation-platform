@@ -2837,6 +2837,15 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_workspace_video_tracker_worker_live.py": "workspace-video-tracker",
     # These HTTP cases deliberately retain cancellation Jobs after deleting their Tasks.
     "tests/test_video_deletion_retirement_http_native.py": "video-deletion-http",
+    # This forward migration requires a drained system with no native retry attempts.
+    "tests/test_prediction_retry_legacy_migration.py": "pre-retry-migration",
+    # Both claimers and sweep counters cover their whole owner lane, not a Task.
+    "tests/test_video_tracker_input_lifecycle.py": "video-input-lanes",
+    # Native fences and delete-order proofs need an initially empty global GC
+    # queue. The live lost-reply case runs last and commits its real receipt.
+    "tests/test_mask_gc_native.py": "mask-gc-fences",
+    "tests/test_mask_gc_protocol_native.py": "mask-gc-fences",
+    "tests/test_mask_gc_live.py": "mask-gc-fences",
     "tests/test_native_pyramid_lifecycle_live.py": "native-lifecycle",
     # These destructive fixtures advance the whole store's retention cutoff.
     "tests/test_mask_gc_collection_live.py": "mask-gc-collection",

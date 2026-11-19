@@ -501,8 +501,8 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                         },
                     ],
                     [
-                        FakeModelExecutionPort(detect),
-                        FakeModelExecutionPort(classify),
+                        FakeModelExecutionPort(detect, instance_id=uuid4()),
+                        FakeModelExecutionPort(classify, instance_id=uuid4()),
                     ],
                     [None, None],
                     resolve_url=lambda _task: replay_reference.url,

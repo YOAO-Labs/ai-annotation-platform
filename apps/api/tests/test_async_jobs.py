@@ -696,7 +696,7 @@ class TestAsyncJobsAPI:
         assert "not cancellable" in r.json()["detail"]
 
     async def test_cancel_running_batch_predict_requests_cooperative_cancel(
-        self, httpx_client, db_session, project_admin, monkeypatch
+        self, httpx_client, db_session, project_admin, embedded_revocations
     ):
         user, token = project_admin
         project = await create_project(db_session, owner_id=user.id)
@@ -711,16 +711,6 @@ class TestAsyncJobsAPI:
         await async_job_svc.mark_running(db_session, aj.id)
         await db_session.flush()
 
-        from app.workers.celery_app import celery_app
-
-        called: dict = {}
-
-        def fake_revoke(task_id: str, terminate: bool = False):
-            called["task_id"] = task_id
-            called["terminate"] = terminate
-
-        monkeypatch.setattr(celery_app.control, "revoke", fake_revoke)
-
         r = await httpx_client.post(
             f"/api/v1/async-jobs/{aj.id}/cancel", headers=_bearer(token)
         )
@@ -730,7 +720,7 @@ class TestAsyncJobsAPI:
         await db_session.refresh(aj)
         assert aj.status == AsyncJobStatus.RUNNING.value
         assert aj.payload["cancel_requested"] is True
-        assert called == {"task_id": "celery-batch-running", "terminate": False}
+        assert embedded_revocations == [("celery-batch-running", False)]
         rows = (
             (
                 await db_session.execute(
@@ -743,7 +733,7 @@ class TestAsyncJobsAPI:
         assert rows == []
 
     async def test_cancel_pending_batch_predict_marks_cancelled(
-        self, httpx_client, db_session, project_admin, monkeypatch
+        self, httpx_client, db_session, project_admin, embedded_revocations
     ):
         user, token = project_admin
         project = await create_project(db_session, owner_id=user.id)
@@ -757,17 +747,6 @@ class TestAsyncJobsAPI:
         )
         await db_session.flush()
 
-        from app.workers.celery_app import celery_app
-
-        called: dict = {}
-        monkeypatch.setattr(
-            celery_app.control,
-            "revoke",
-            lambda task_id, terminate=False: called.update(
-                {"task_id": task_id, "terminate": terminate}
-            ),
-        )
-
         r = await httpx_client.post(
             f"/api/v1/async-jobs/{aj.id}/cancel", headers=_bearer(token)
         )
@@ -778,7 +757,7 @@ class TestAsyncJobsAPI:
         assert aj.status == AsyncJobStatus.CANCELLED.value
         assert aj.result["done_count"] == 0
         assert aj.result["skipped_count"] == 5
-        assert called == {"task_id": "celery-batch-pending", "terminate": False}
+        assert embedded_revocations == [("celery-batch-pending", False)]
 
     async def test_cancel_supported_kind_succeeds(
         self, httpx_client, db_session, project_admin

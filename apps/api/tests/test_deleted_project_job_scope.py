@@ -86,9 +86,12 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         payload={"project_id": str(surviving_project_id)},
         result={"error": "legacy orphan"},
     )
-    db_session.add_all(
-        [deleted_job, detached_job, surviving_job, global_job, orphan_job]
-    )
+    # Even an administrator can search precisely this fixture in a populated history.
+    marker = f"scope-{deleted_project_id}"
+    jobs = [deleted_job, detached_job, surviving_job, global_job, orphan_job]
+    for job in jobs:
+        job.payload = {**job.payload, "prompt": marker}
+    db_session.add_all(jobs)
     await db_session.flush()
     deleted_job_id = deleted_job.id
     detached_job_id = detached_job.id
@@ -184,7 +187,7 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         status=None,
         kind=None,
         project_id=None,
-        search=None,
+        search=marker,
         limit=50,
         offset=0,
     )
@@ -208,7 +211,7 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
             status=None,
             kind=None,
             project_id=None,
-            search=None,
+            search=marker,
             limit=50,
             offset=0,
         )
