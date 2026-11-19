@@ -628,10 +628,14 @@ commit or roll back the caller's transaction.
 For an existing API role whose Identity bindings are all remote, apply
 `infra/docker/identity-consumer-grants.sql` **after** migration, owner and legacy
 grants. Its explicit variables are `expected_database`, `migration_role`,
-`identity_owner` and `consumer_role`. It validates ownership and removes direct
-table/column Identity privileges and Identity command functions, then permits
-only these two SELECT relations plus `read_actor_facts`, the three account-lock
-functions and `check_accepted_api_key`. Missing remote bindings fail instead of
+`identity_owner` and `consumer_role`. It validates ownership, removes direct
+privileges on private Identity tables and columns, and audits both
+`aap_identity*` and `yoao_identity*` namespaces.
+The consumer can select only the two current Identity views and execute eight
+Identity functions: `read_accepted_api_key_facts`, `read_actor_facts`,
+`lock_accounts_share`, `lock_accounts_update`, `lock_accounts_key_share`,
+`check_accepted_api_key`, `is_jti_revoked` and `get_credential_generation`.
+Fixture commands are not granted. Missing remote bindings fail instead of
 falling back to local credential commands.
 
 The embedded/isolated seed profile remains compatible and broad. The consumer

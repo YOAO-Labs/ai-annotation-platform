@@ -532,7 +532,7 @@ async def test_node_fixture_contract_and_borrowed_rollback(
                     await db.scalars(
                         text(
                             "SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                            "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                            "WHERE n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$' "
                             "AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
                         )
                     )
@@ -561,7 +561,7 @@ async def test_node_fixture_contract_and_borrowed_rollback(
                         text(
                             "SELECT n.nspname || '.' || c.relname FROM pg_class c "
                             "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                            "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                            "WHERE n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$' "
                             "AND c.relkind='v' AND has_table_privilege('identity_api_consumer',c.oid,'SELECT')"
                         )
                     )

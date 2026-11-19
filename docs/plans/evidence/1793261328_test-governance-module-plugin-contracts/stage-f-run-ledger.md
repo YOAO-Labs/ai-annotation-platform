@@ -627,3 +627,9 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 
 - 三个分支原来在创建函数时就因 `aap_identity_v1` 不存在而失败，都没有验证库名。改为从前向迁移到 `bo0474` 的父库读取已安装的 `yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)`，在独占子库重放；保留禁止 PUBLIC 执行和 NOLOGIN owner 的最小列权限。第一次定向运行的两个拒绝分支通过，正例暴露另一处历史假设：当前函数更新 `identity_account_preferences`，不是 `users.preferences`。
 - `preference-dbname-native-2`：按当前表建立、授权并读回，三个分支同次 3/3 通过（35 秒）。`_e2e` 实际持久化新值，`_dev` 和大写 `_TEST` 均以 SQLSTATE `42501` 拒绝，值保持不变；验证后无残留子库，临时 PostgreSQL、卷和目录均已删除。两次原始 JUnit 和退役记录分别保存在 `preference-dbname-native-{1,2}/`。这是库名守卫的实库验证，不替代完整模块授权或 T2 的 Node 事务验收。
+
+## T2 Node 事务与 Identity 权限清单定向复验
+
+- 原联合运行的 `test_node_fixture_contract_and_borrowed_rollback` 已通过 Node 调用与事务回滚，失败在权限查询：只查旧命名空间，实得 0 个函数，预期为当前 8 个函数 OID。函数和视图枚举均改用部署授权脚本的 `^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$`。旧命名空间里的额外授权仍会被计入并导致不相等；不改预期集合、授权 SQL 或生产角色。
+- `t2-node-acl-3bf2dd86b-1`：独占 PostgreSQL 16 前向升级到 `bo0474`，按标准顺序安装授权，运行原节点。真实 Node 夹具 LOGIN 的私表访问被拒、21 字段读回、重复键保存点和调用方回滚均通过；独立会话确认事务前后数据相同。普通 API 角色另行精确对账：只允许当前 8 个 Identity 函数和 2 个只读视图。JUnit 1/1、无跳过、验证器退出 0；用例 2.756 秒，含环境准备与退役约 7 分 24 秒。
+- PostgreSQL、Redis、内外对象存储和临时目录均已退役。`t1-gate/t2-node-acl-3bf2dd86b-1/` 保留 `pytest.xml`、`module-data.json`、`verdict.json`、输入摘要和两份原始夹具回执。未重跑默认集或其余 T2 节点，不追认上一轮联合结果。
