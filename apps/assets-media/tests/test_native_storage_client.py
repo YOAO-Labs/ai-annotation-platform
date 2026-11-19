@@ -43,10 +43,7 @@ def saved_target(output_id, *, key_prefix=""):
             "endpoint_url": ENDPOINT,
             "bucket": BUCKET,
             "key_prefix": key_prefix,
-            "prefix": key_prefix
-            + "image-pyramids/objects/"
-            + str(output_id)
-            + "/",
+            "prefix": key_prefix + "image-pyramids/objects/" + str(output_id) + "/",
             "storage_identity": "a" * 64,
         }
     )
@@ -110,8 +107,7 @@ def signed_url(
         ]
     )
     encoded = sorted(
-        (quote(name, safe="-_.~"), quote(value, safe="-_.~"))
-        for name, value in params
+        (quote(name, safe="-_.~"), quote(value, safe="-_.~")) for name, value in params
     )
     if path is None:
         path = "/" + BUCKET + "/" + quote(key, safe="/-_.~")
@@ -458,9 +454,7 @@ async def test_write_scope_rejects_every_scope_escape(mutate):
         headers = dict(row.put.headers)
         headers.pop("if-none-match")
         row = row.model_copy(
-            update={
-                "put": row.put.model_copy(update={"headers": headers})
-            }
+            update={"put": row.put.model_copy(update={"headers": headers})}
         )
     elif mutate == "unsigned_header":
         signed = row.put
@@ -478,10 +472,7 @@ async def test_write_scope_rejects_every_scope_escape(mutate):
         row = row.model_copy(
             update={
                 "get": signed.model_copy(
-                    update={
-                        "url": signed.url
-                        + "&versionId=invented"
-                    }
+                    update={"url": signed.url + "&versionId=invented"}
                 )
             }
         )
@@ -628,6 +619,54 @@ async def test_prefix_reference_rejects_an_unadmitted_query():
         await client.aclose()
 
 
+@pytest.mark.parametrize(
+    "change", ["key-marker", "upload-id-marker", "prefix", "max-uploads"]
+)
+async def test_multipart_probe_is_bound_to_the_admitted_cursor(change):
+    output_id, page_id, lease_token = uuid4(), uuid4(), uuid4()
+    target = saved_target(output_id)
+    request = NativePyramidRetirementPrefixIoRequest(
+        output_id=output_id,
+        lease_token=lease_token,
+        page_id=page_id,
+        kind="uploads",
+        key_marker="foreign/previous",
+        upload_id_marker="previous-upload",
+    )
+    query = {
+        "uploads": "",
+        "max-uploads": "100",
+        "key-marker": request.key_marker,
+        "upload-id-marker": request.upload_id_marker,
+    }
+    if change in {"key-marker", "upload-id-marker"}:
+        query[change] = "skipped"
+    elif change == "prefix":
+        query["prefix"] = target.prefix
+    elif change == "max-uploads":
+        query["max-uploads"] = "1000"
+    result = NativePyramidPrefixIoReference(
+        scope_id=page_id,
+        scope_token=lease_token,
+        output_id=output_id,
+        storage_ref=target,
+        kind="uploads",
+        request=signed_url(
+            method="GET",
+            key="",
+            path="/" + BUCKET,
+            resource_query=tuple(query.items()),
+        ),
+    )
+    client = client_for(result)
+    try:
+        with pytest.raises(c.ImageFailure) as failure:
+            await client.retirement_prefix_reference(request)
+        assert failure.value.code == "invalid_response"
+    finally:
+        await client.aclose()
+
+
 async def test_failure_envelope_preserves_its_typed_code():
     output_id, operation_id, lease_token = uuid4(), uuid4(), uuid4()
     target = saved_target(output_id)
@@ -651,12 +690,8 @@ def test_contract_rejects_unrecorded_verify_and_terminal_members():
     output_id, operation_id, lease_token = uuid4(), uuid4(), uuid4()
     target = saved_target(output_id)
     unrecorded = NativePyramidSignedMember(
-        member=member(
-            target, etag=None, version_id=None, operation_id=operation_id
-        ),
-        get=signed_url(
-            method="GET", key=target.prefix + "overview.webp", headers={}
-        ),
+        member=member(target, etag=None, version_id=None, operation_id=operation_id),
+        get=signed_url(method="GET", key=target.prefix + "overview.webp", headers={}),
     )
     with pytest.raises(ValidationError):
         references(
