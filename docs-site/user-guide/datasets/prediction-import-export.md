@@ -50,7 +50,7 @@ last_reviewed: 2026-08-15
 
 #### 原生 JSON {#aap-json-平台无损}
 
-YOAO 原生交换格式。预测导入向导消费 `predictions[]`；独立的标注导入 API 消费 `annotations[]`。两条路径都能通过 `mask_objects` 恢复视频栅格 mask track。最小预测 payload：
+同一份 YOAO 原生 JSON 可以包含待审预测（`predictions[]`）和正式标注（`annotations[]`）。这个向导只导入待审预测。如果有效文件只有正式标注，预览显示将写入 **0** 条预测，不表示文件为空；要导入这些标注，请用 `yoao annotations import`。最小预测文件示例：
 
 ```json
 {
@@ -74,7 +74,7 @@ YOAO 原生交换格式。预测导入向导消费 `predictions[]`；独立的�
 
 要点：
 
-- **`schema_version` 必填**；当前文档使用 `2.0` 和 `yoao` 身份。历史 `1.x` 的 `aap` 身份与省略时的历史默认值仍可读取；版本与身份不匹配或不支持的主版本会被拒绝。
+- **保留文件原有的版本和身份。** 新文件使用 `schema_version: "2.0"` 和 `yoao` 身份；历史 `1.x` 文件按原样读取，不要手动改成 `yoao`。若文件被拒绝，先按提示的行、列或字段位置修正，再预览。见[导入接口的错误说明](../../api/guides/import#响应)。
 - **`task_match` 必须给 `display_id` 或 `file_path` 至少一个**，两者全省略则该 task 块的预测全部跳过。`display_id` 全局唯一最稳；`file_path` 在项目内匹配，带子目录时会自动吸收 dataset 名前缀（库内 `task.file_path` 形如 `{dataset}/animals/cat/001.jpg`，外部相对路径 `animals/cat/001.jpg` 也能命中）。
 - 图片预测支持 `bbox` / `polygon` / `multi_polygon` / `polyline` / `rotated_bbox` / `keypoint`；视频预测支持 `video_bbox` / `video_track_bbox` / `video_track_polygon` / `video_track_polyline` / `video_track_mask`。视频 task block 需声明 `media_type: "video"`，任务必须有可校验的源视频帧数；越界帧、重复关键帧或非法 outside 范围会显示在预览错误中。
 - 视频帧数以**当前原视频已完成的解析结果**为准，不使用旧汇总值。原视频变化或解析尚未就绪时，先完成原件核验与视频处理，再导入预测。

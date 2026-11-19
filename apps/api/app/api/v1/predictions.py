@@ -286,11 +286,9 @@ async def restore_failed_prediction(
     )
 
 
-# ── v0.10.15 · 外部预测导入 (COCO / AAP JSON) ─────────────────────────
-
-
 @router.post(
     "/projects/{project_id}/predictions/import",
+    summary="导入待审预测",
     response_model=ImportResult,
 )
 async def import_predictions(
@@ -307,10 +305,12 @@ async def import_predictions(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> ImportResult:
-    """导入外部模型预测结果。
+    """上传原生 JSON（`format=native_json`）、COCO Detection 或 YOLO ZIP，供人工审阅。
 
-    支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的
-    Prediction 行 source='external_import', ml_backend_id=NULL.
+    原生 JSON 只导入 `predictions[]`，不将 `annotations[]` 转为预测。当前文件使用
+    `schema_version: "2.0"` 和 `yoao` 身份；历史 `1.x` 文件按原身份读取。
+    `dry_run=true` 只预览，不写入预测。实际导入的来源为 `external_import`，
+    不关联模型服务，也不会自动成为正式标注。
     """
 
     from app.services import async_job as async_job_svc

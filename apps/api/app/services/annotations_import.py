@@ -1,15 +1,11 @@
-"""v0.10.54 · annotations[] 导入服务 (ADR-0028).
+"""通过 Labeling 导入原生 JSON 中的正式标注，不读取 predictions[]。
 
-支持 AAP JSON v1.0 envelope 里的 annotations[] 数组导入。与 predictions_import.py
-不同的写入路径: 直接落 Annotation 表（不走 PredictionService），geometry 透传（内部
-格式直存，无需 LS shape 转换），user_id 归操作者，溯源写 attributes._imported。
-
-详见 docs/adr/0028-annotations-import-semantics.md。
+标注归本次操作者，attributes._imported 标记其导入来源。
+默认追加；覆盖模式只替换匹配任务中此前导入的标注（ADR-0028）。
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from typing import Any
@@ -24,7 +20,7 @@ from app.schemas.native_json import (
     ImportErrorEntry,
     ImportResult,
     NativeJsonEnvelope,
-    decode_native_json,
+    read_native_json_upload,
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.annotation_track_identity import prepare_compact_track_identity
@@ -148,9 +144,6 @@ async def _apply_imported_scene_tracks(
             )
 
 
-# ── AAP JSON annotations 导入主函数 ──────────────────────────────────
-
-
 async def import_native_json_annotations(
     db: AsyncSession,
     project_id: uuid.UUID,
@@ -160,7 +153,7 @@ async def import_native_json_annotations(
     overwrite: bool = False,
     dry_run: bool = False,
 ) -> ImportResult:
-    """导入 AAP JSON envelope 里的 annotations[] 数组。
+    """导入原生 JSON 中的 annotations[]。
 
     语义决策见 ADR-0028:
     - D1 · user_id 归操作者, 原 user_id 转存 attributes._imported_user_id
@@ -169,15 +162,7 @@ async def import_native_json_annotations(
     - D5 · created_at 保留原值（若有）, was_cancelled=False, lead_time 不设
     - D6 · 循环结束后批量更新 task 统计, 抑制 batch 自动流转
     """
-    try:
-        raw = json.loads(file_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"原生 JSON 文件无法解析: {exc}") from exc
-
-    try:
-        envelope = decode_native_json(raw)
-    except ValidationError as exc:
-        raise ValueError(f"原生 JSON envelope 校验失败: {exc.errors()[:3]}") from exc
+    envelope = read_native_json_upload(file_bytes)
 
     result = ImportResult(dry_run=dry_run)
     purged_tasks: set[uuid.UUID] = set()

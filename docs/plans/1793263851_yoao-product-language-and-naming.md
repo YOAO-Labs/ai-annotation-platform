@@ -2,7 +2,7 @@
 
 > 状态：N1–N3、N4 四个切片、N6-K 已完成限定验收；**N5 已完成**，最后一批前向迁移与实库验收见 §16.13。T1／T2 尚未通过联合验收，J1、依赖 J1 的 N6-S／N6-E 采用及 J2 仍未放行。这不是生产切换或正式发布批准。
 >
-> N7 已独立完成 CLI 导入与清理的预览／执行回执切片，见[定向验收账本](evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)。不计入 T1／T2 的全量结果。
+> N7 已在独立分支完成两项定向验收：CLI 导入／清理的预览与执行回执；原生 JSON 的预测／标注导入说明与字段诊断。后者已用同一文件核对预览、实际写入和数据库读回。见[验收账本](evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)；均不计入 T1／T2 或发布资格。
 >
 > 日期：2026-10-29。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
 >

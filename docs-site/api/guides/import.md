@@ -3,12 +3,12 @@ audience: [dev]
 type: reference
 since: v0.10.15
 status: stable
-last_reviewed: 2026-08-12
+last_reviewed: 2026-11-19
 ---
 
 # 外部预测导入端点
 
-允许客户将**外部模型**（不通过平台模型服务运行的模型）生成的预测导入平台，供人工审阅，进入"AI 预标 → 人工修正 → 导出"工作流。
+将外部模型生成的结果导入为待审预测。导入不会自动创建正式标注；文件中已有的正式标注请走标注导入接口。
 
 支持三种输入格式：**COCO Detection**、**YOLO zip** 与**原生 JSON**（YOAO 原生交换格式）。
 
@@ -29,7 +29,7 @@ image_height=<optional COCO fallback height>
 
 | 参数                           | 位置  | 类型                              | 必填 | 说明                                                                                                              |
 | ------------------------------ | ----- | --------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------- |
-| `format`                       | query | `native_json` \| `coco` \| `yolo` | 是   | input 格式. 默认 `native_json`.                                                                                   |
+| `format`                       | query | `native_json` \| `coco` \| `yolo` | 否   | 输入格式，默认 `native_json`。                                                                                    |
 | `yolo_variant`                 | query | `det` \| `obb` \| `seg`           | 否   | 仅 `format=yolo` 生效,默认 `det`.                                                                                 |
 | `dry_run`                      | query | bool                              | 否   | true 时走全部校验路径但**不入库**, 供前端 wizard 预览.                                                            |
 | `file`                         | form  | File                              | 是   | 原生 JSON / COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                         |
@@ -47,21 +47,26 @@ image_height=<optional COCO fallback height>
   "skipped": 3,
   "errors": [
     { "task_match": { "display_id": "T-999" }, "reason": "task not found in project" },
-    { "task_match": { "file_path": "x.jpg" }, "reason": "unsupported geometry kind: 'polyline'" }
+    {
+      "task_match": { "file_path": "x.jpg" },
+      "reason": "unsupported geometry kind: 'unknown_kind'"
+    }
   ],
   "dry_run": false
 }
 ```
 
-OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。界面中的“原生 JSON”对应 `format=native_json`，当前文件使用 `schema_version: "2.0"`、`format: "yoao"` 和 `exported_from.platform: "yoao"`；历史 `1.x` 文档仍可读取。
+`ImportResult.imported` 在预览时是预计写入数量，在实际导入时是已写入数量。未能匹配任务或不支持的几何记入 `errors[]`（`ImportErrorEntry`）。
 
-错误是逐 entry / shape 累计，不让整批挂。多文件上传时后端合并响应，并在 errors[].reason 前缀文件名。单文件 schema_version 不兼容 / JSON 不可解析会整体 422；多文件中的坏文件会作为一条错误累计，其他文件继续处理。
+单个原生 JSON 文件无法解析、版本与身份不符或结构错误时，接口返回 422。语法错误给出行、列；结构错误最多列出三个字段位置，例如 `tasks[0].task_match`，不附上传字段的原值。多文件预测导入遇到这种错误时，在 `errors[].task_match.file_name` 标明文件，继续处理其他文件。
 
-多文件导入是 best-effort 语义：整批在一个事务内提交，但**不具备原子性**——若某个文件失败被累计为错误，已成功文件写入的预测仍会保留，不会因后续文件失败而回滚。
+多文件共享一个事务。普通文件或条目错误不阻止其余有效预测提交；Mask 存储冲突或不可用（409／503），以及未预期的执行异常，会中止整批并回滚本批预测写入。见[预测导入的错误与回滚](./predictions#导入外部预测)。
 
 ## 原生 JSON 格式 {#aap-json-格式}
 
-详见 [用户文档 · 原生 JSON](../../user-guide/reference/export-formats#aap-json-1-5-无损) + [ADR-0024](../../dev/adr/archive/0024-aap-json-format)。预测导入消费 `predictions[]`；标注导入接口消费 `annotations[]`。图片 `raster_mask` 和视频 `video_track_mask` 都通过 `mask_objects` 恢复内容寻址正文；导入会先校验引用、摘要与尺寸，再写对象并挂载 Prediction 或 Annotation。
+请求的 `format=native_json` 选择原生格式；不要把这个值写进文件。新文件使用 `schema_version: "2.0"`、`format: "yoao"` 和 `exported_from.platform: "yoao"`。历史 `1.x` 文件按原身份读取，不需要手动替换旧标识。
+
+同一份文件可以同时包含 `predictions[]` 与 `annotations[]`。预测导入只计待审预测；`POST /api/v1/projects/{project_id}/annotations/import` 只计正式标注，默认追加，`dry_run=true` 只预览。另一类记录不计为跳过。两条路径都通过 `mask_objects` 恢复图片与视频 Mask。完整字段见[原生交换格式](../../user-guide/reference/export-formats#aap-json-1-5-无损)；设计背景见 [ADR-0024](../../dev/adr/archive/0024-aap-json-format)。
 
 COCO 导入同时识别 bbox、polygon segmentation 与 uncompressed RLE segmentation。RLE 会先写入共享内容层，再形成 `raster_mask` 候选；非法、空前景或尺寸不匹配的 segmentation 作为逐 annotation 错误返回，不会静默降级成 bbox。
 

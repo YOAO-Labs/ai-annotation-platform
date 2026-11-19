@@ -1,19 +1,8 @@
-"""外部预测导入服务 (v0.10.15).
+"""将外部预测导入为待审候选，来源记为 external_import。
 
-支持三种 input format:
-- AAP JSON v1.0: 平台原生无损中间格式 (双数组 annotations[]/predictions[]);
-  本期仅消费 predictions[], annotations[] 警告日志保留供后续 epic.
-- COCO: 标准 COCO Detection 格式 (images + annotations + categories), 用 image
-  的 file_name 匹配 task.file_path.
-- YOLO: zip 包, 内含 classes.txt / data.yaml 与每图一个 label txt.
-
-写入路径: 把内部 geometry 反向适配回 LabelStudio shape -> 复用
-ApplyPredictionResultPort, 标记 source='external_import'.
-
-ROADMAP §6 决策底线 lenient 精神:
-- schema_version > 当前 major 直接 422; 同 major 内未知字段忽略.
-- task 不匹配 / geometry kind 不支持 / class_name 缺失 -> errors[] 累计, 不让整批失败.
-- dry_run=true 走全部校验路径但不入库.
+原生 JSON 读取 predictions[]；同一文件中的 annotations[] 属于标注导入，
+不计为跳过的预测。COCO Detection 按图片文件名匹配任务，YOLO 读取标签 ZIP。
+三种格式均支持只校验不写入的预览。
 """
 
 from __future__ import annotations
@@ -21,7 +10,6 @@ from __future__ import annotations
 import ast
 import io
 import json
-import logging
 import math
 import uuid
 import zipfile
@@ -36,7 +24,7 @@ from app.schemas.native_json import (
     ImportErrorEntry,
     ImportResult,
     PredictionEntry,
-    decode_native_json,
+    read_native_json_upload,
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
@@ -65,8 +53,6 @@ from app.services.raster_mask_storage import (
 from app.services.labeling_core_read_relations import prediction_row
 from app.services.labeling_scene import read_spatial_item_facts
 from app.utils.raster_mask_rle import coco_rle_area
-
-logger = logging.getLogger(__name__)
 
 _GEOMETRY_ADAPTER = TypeAdapter(Geometry)
 _VIDEO_PREDICTION_UNITS = {
@@ -368,9 +354,6 @@ async def _hold_import_authority(
         raise HTTPException(status_code=403, detail="项目管理权限已变化")
 
 
-# ── AAP JSON importer ──────────────────────────────────────────────
-
-
 async def import_native_json(
     db: AsyncSession,
     project_id: uuid.UUID,
@@ -383,15 +366,7 @@ async def import_native_json(
     dry_run: bool = False,
     purged_tasks: set[uuid.UUID] | None = None,
 ) -> ImportResult:
-    try:
-        raw = json.loads(file_bytes.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"原生 JSON 文件无法解析: {exc}") from exc
-
-    try:
-        envelope = decode_native_json(raw)
-    except ValidationError as exc:
-        raise ValueError(f"原生 JSON envelope 校验失败: {exc.errors()[:3]}") from exc
+    envelope = read_native_json_upload(file_bytes)
     if not dry_run:
         await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
@@ -408,15 +383,6 @@ async def import_native_json(
         if "file_path" not in match_dict and block.file_path:
             match_dict["file_path"] = block.file_path
 
-        if block.annotations:
-            # v0.10.15 不消费 annotations[]; 仅警告.
-            logger.warning(
-                "AAP JSON import: annotations[] 字段在 v0.10.15 暂不消费, "
-                "已跳过 %d 条 (task_match=%s)",
-                len(block.annotations),
-                match_dict,
-            )
-
         if not block.predictions:
             continue
 
@@ -432,8 +398,7 @@ async def import_native_json(
                 result.skipped += 1
             continue
 
-        # AAP JSON 每个 prediction entry 对应一条平台 Prediction 行; entry.shapes
-        # 可把多个 shape 合并进同一 Prediction.result.
+        # One prediction entry may contain multiple shapes for the same candidate.
         for entry in block.predictions:
             mask_geometries: list[dict[str, Any]] = []
             prepared_shapes: list[dict[str, Any]] = []

@@ -70,7 +70,7 @@ API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生�
 
 托管原件保留预演按 `owner_type` 区分样本文件与辅助原件；辅助原件只有自身 `auxiliary_original_id`，不能替代样本 ID。字段互斥约束见[保留预演 API](./docs-site/api/guides/storage-locations.md#托管原件保留预演)，SDK 离线 `yoao describe "GET /api/v1/storage/managed-original-reclamation"` 可查看说明；该路由仍未声明专用 SDK 方法。
 
-原生标注导入与导出使用 `native_json` 选择器；当前 JSON 文档使用 `schema_version: "2.0"` 与 `yoao` 身份。历史 `1.x` 原生文档仍可读取，格式和媒体支持范围见[导出格式](./docs-site/user-guide/reference/export-formats.md#aap-json-1-5-无损)。
+原生 JSON 使用 `native_json` 选择器。预测导入读取 `predictions[]` 作为待审候选，标注导入读取 `annotations[]` 作为正式标注。新文件使用 `schema_version: "2.0"` 与 `yoao` 身份，历史 `1.x` 文件按原样读取。见[导入指南](./docs-site/api/guides/import.md#aap-json-格式)。
 
 ## 工作台 AI 案例
 
