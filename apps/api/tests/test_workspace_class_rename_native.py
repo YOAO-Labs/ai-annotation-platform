@@ -361,8 +361,7 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
                 "Replay",
             )
             project = await create_project(session, owner_id=actor.id)
-            project.guide_assets_revision = 7
-            await session.flush()
+            await session.refresh(project, attribute_names=["guide_assets_revision"])
             read_row = text(
                 f"SELECT {_SCHEMA}._class_rename_project_row(:id, 'key_share')"
             )
@@ -371,7 +370,7 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
                 await owner.scalar(read_row, params), target_id=project.id
             )
             assert current_row["name"] == project.name
-            assert current_row["guide_assets_revision"] == 7
+            assert current_row["guide_assets_revision"] == project.guide_assets_revision
             before = await _function_metadata(owner)
             assert len(before) == 3
             for metadata in before.values():
