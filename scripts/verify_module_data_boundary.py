@@ -505,13 +505,13 @@ FUNCTION_BODY_ARTIFACTS = {
         signature: "0421_notification_job_scope.sql"
         for signature in (
             "yoao_notifications_v1._notification_unknown_job_scope(uuid)",
-            "yoao_notifications_v1._visible_inbox_rows(uuid,text)",
             "yoao_notifications_v1.read_state_command(jsonb)",
             "yoao_notifications_v1.read_state_command_scoped(jsonb)",
             "yoao_notifications_v1.delete_command(pg_catalog.jsonb)",
             "yoao_notifications_v1.delete_command_scoped(jsonb)",
         )
     },
+    NOTIFICATION_INBOX_PRIVATE_HELPER: "0475_inbox_retained_job_scope.sql",
     **{
         signature: "0374_workspace_guide_publication.sql"
         for signature in (
@@ -5726,6 +5726,7 @@ def _installed_function_body_sha256(
     base_sql_name = {
         "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
         "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
+        "0475_inbox_retained_job_scope.sql": "0421_notification_job_scope.sql",
     }.get(sql_name, sql_name)
     if (
         signature
@@ -7291,7 +7292,7 @@ def main(
             CONTAINER_LABEL: CONTAINER_LABEL_VALUE,
         },
         "contract_artifacts": {
-            "sql": list(SQL_ARTIFACTS),
+            "sql": [*SQL_ARTIFACTS, "0475_inbox_retained_job_scope.sql"],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
         "database": None,

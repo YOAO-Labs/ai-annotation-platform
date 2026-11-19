@@ -327,10 +327,26 @@ async def test_terminal_no_autoflush_keeps_owner_before_full_job_flush(
 ):
     maker, _user_id, job_id = terminal_world
     published_ids = []
+    owner_rows = []
+    original_command = NotificationTerminalAppendPostgresData.command
+
+    async def observe_append(self, request):
+        result = await original_command(self, request)
+        connection = await self.session.connection()
+        row = await connection.execute(
+            select(AsyncJob.status, Notification.type)
+            .join(Notification, Notification.target_id == AsyncJob.id)
+            .where(AsyncJob.id == job_id)
+        )
+        owner_rows.append(tuple(row.one()))
+        return result
 
     async def record_publish(_self, notifications):
         published_ids.extend(row.id for row in notifications)
 
+    monkeypatch.setattr(
+        NotificationTerminalAppendPostgresData, "command", observe_append
+    )
     monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
     async with maker() as db:
         job = await db.get(AsyncJob, job_id)
@@ -338,19 +354,7 @@ async def test_terminal_no_autoflush_keeps_owner_before_full_job_flush(
         job.status = "failed"
         with db.no_autoflush:
             await notify_job_terminal(db, job_id=job_id)
-            connection = await db.connection()
-            assert (
-                await connection.scalar(
-                    select(AsyncJob.status).where(AsyncJob.id == job_id)
-                )
-                == "completed"
-            )
-            assert (
-                await connection.scalar(
-                    select(Notification.type).where(Notification.target_id == job_id)
-                )
-                == "job.failed"
-            )
+        assert owner_rows == [("completed", "job.failed")]
         await db.commit()
     async with maker() as db:
         assert (await db.get(AsyncJob, job_id)).status == "failed"
