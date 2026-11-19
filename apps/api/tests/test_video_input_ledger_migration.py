@@ -9,6 +9,8 @@ import pytest
 
 from yoao_assets_video_inputs import evidence, execution
 
+from tests.frozen_namespaces import historical
+
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql"
 
@@ -52,15 +54,15 @@ def _migration():
 
 
 def test_video_execution_and_evidence_artifacts_match_portable_contracts():
-    document = execution.contract_document()
+    # The numbered bo0225 artifact keeps the spelling it was installed with.
+    document = historical(execution.contract_document())
     frozen = json.loads((SQL / "0225_video_inputs.schema.json").read_text())
     assert frozen == _contract_subset(document, frozen)
     for name, definition in frozen["x-native"].items():
         assert document["x-native"][name] == definition
-    assert (
-        json.loads((SQL / "0225_video_input_evidence.schema.json").read_text())
-        == evidence.contract_document()
-    )
+    assert json.loads(
+        (SQL / "0225_video_input_evidence.schema.json").read_text()
+    ) == historical(evidence.contract_document())
     migration = _migration()
     signatures = {signature.replace(" ", "") for signature in migration._signatures()}
     for definition in frozen["x-native"].values():

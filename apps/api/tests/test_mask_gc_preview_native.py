@@ -59,10 +59,10 @@ def test_operation_is_owner_only_and_adds_no_native_storage():
         if _function_signature(statement) is not None
     ]
 
-    assert signatures == ["yoao_labeling_v1.inspect_mask_gc_page(p_payload jsonb)"]
+    assert signatures == ["aap_labeling_v1.inspect_mask_gc_page(p_payload jsonb)"]
     assert statements[-1] == (
         "REVOKE ALL ON FUNCTION "
-        "yoao_labeling_v1.inspect_mask_gc_page(jsonb) FROM PUBLIC;"
+        "aap_labeling_v1.inspect_mask_gc_page(jsonb) FROM PUBLIC;"
     )
     assert "GRANT " not in sql.upper()
     assert "CREATE TABLE" not in sql.upper()

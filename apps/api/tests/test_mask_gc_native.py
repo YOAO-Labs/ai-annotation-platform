@@ -15,6 +15,7 @@ import pytest
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.mask_qc import MaskQCIssue
+from tests.frozen_namespaces import current
 from tests.test_video_tracker_jobs_list import _make_video_task
 
 
@@ -623,10 +624,13 @@ async def test_backfill_uses_whole_rows_when_a_source_column_shadows_the_alias(
         text("DELETE FROM mask_gc_roots WHERE object_key=ANY(:keys)"), {"keys": keys}
     )
     assert await roots() == set()
-    statement = next(
-        part.strip()
-        for part in SQL.read_text().split("-- aap-statement-break")
-        if part.strip().startswith("INSERT INTO public.mask_gc_roots(")
+    # bo0229 froze the spelling it was installed with; this replay runs at head.
+    statement = current(
+        next(
+            part.strip()
+            for part in SQL.read_text().split("-- aap-statement-break")
+            if part.strip().startswith("INSERT INTO public.mask_gc_roots(")
+        )
     )
     await db_session.execute(text("SET LOCAL TIME ZONE 'Pacific/Honolulu'"))
     for _ in range(2):

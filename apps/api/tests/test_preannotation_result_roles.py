@@ -42,7 +42,8 @@ def test_executor_login_gets_only_seventeen_public_operations():
     assert grant is not None
     functions = set(
         re.findall(
-            r"aap_(?:jobs|labeling)_v1\.[a-z_]+\([^)]*\)", grant.group(1).lower()
+            r"(?:aap|yoao)_(?:jobs|labeling)_v1\.[a-z_]+\([^)]*\)",
+            grant.group(1).lower(),
         )
     )
     assert functions == EXPECTED
@@ -73,7 +74,7 @@ def test_executor_has_no_raw_table_or_writer_capability():
     ):
         assert writer in script
         assert not re.search(
-            rf"GRANT EXECUTE ON FUNCTION[^;]*aap_(?:jobs|labeling)_v1\.{writer}\(",
+            rf"GRANT EXECUTE ON FUNCTION[^;]*(?:aap|yoao)_(?:jobs|labeling)_v1\.{writer}\(",
             script,
             re.IGNORECASE | re.DOTALL,
         )

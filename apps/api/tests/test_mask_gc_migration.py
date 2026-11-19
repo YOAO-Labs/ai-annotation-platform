@@ -80,14 +80,14 @@ def test_every_native_function_has_an_explicit_public_revoke():
         if statement.startswith("REVOKE ALL ON FUNCTION")
     )
     assert {
-        "yoao_labeling_v1.read_mask_write_epochs(jsonb)",
-        "yoao_labeling_v1.begin_mask_content_write(jsonb)",
-        "yoao_labeling_v1.lock_mask_write_epochs(jsonb)",
-        "yoao_labeling_v1.claim_mask_gc_sweep(jsonb)",
-        "yoao_labeling_v1.stage_mask_gc_page(jsonb)",
-        "yoao_labeling_v1.claim_mask_gc_deletes(jsonb)",
-        "yoao_labeling_v1.finish_mask_gc_delete(jsonb)",
-        "yoao_labeling_v1.read_mask_gc_progress(jsonb)",
+        "aap_labeling_v1.read_mask_write_epochs(jsonb)",
+        "aap_labeling_v1.begin_mask_content_write(jsonb)",
+        "aap_labeling_v1.lock_mask_write_epochs(jsonb)",
+        "aap_labeling_v1.claim_mask_gc_sweep(jsonb)",
+        "aap_labeling_v1.stage_mask_gc_page(jsonb)",
+        "aap_labeling_v1.claim_mask_gc_deletes(jsonb)",
+        "aap_labeling_v1.finish_mask_gc_delete(jsonb)",
+        "aap_labeling_v1.read_mask_gc_progress(jsonb)",
     } <= set(signatures)
 
 
