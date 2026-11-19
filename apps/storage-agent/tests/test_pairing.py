@@ -14,9 +14,7 @@ from storage_agent.config import AgentError, Config, Credentials
 from storage_agent import pairing
 from storage_agent.journal import Journal
 
-from conftest import private_write
-from test_agent import config_value
-from test_client import Opener, Response, tls_center as tls_center
+from .support import Opener, Response, config_value, private_write
 
 
 @pytest.fixture

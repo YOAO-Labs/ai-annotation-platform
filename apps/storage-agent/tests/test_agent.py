@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from yoao_site_agent_contract import digest, validate_command
+from yoao_site_agent_contract import validate_command
 from yoao_filesystem_read import capture_anchor
 from yoao_filesystem_read import roots as fs
 
@@ -14,18 +14,7 @@ from storage_agent.config import AgentError, Config, Credentials
 from storage_agent.journal import Journal
 from storage_agent.runner import Runner
 
-from conftest import private_write
-
-
-def acknowledgement(result, state="applied"):
-    return {
-        "protocol_version": 1,
-        "command_id": result["command_id"],
-        "command_digest": result["command_digest"],
-        "result_digest": digest(result),
-        "state": state,
-        "code": "lease_expired" if state == "rejected" else None,
-    }
+from .support import acknowledgement, config_value, private_write
 
 
 def test_read_stage_is_private_complete_and_only_removed_after_business_ack(
@@ -301,15 +290,6 @@ def test_oversized_scan_result_is_a_durable_failure_instead_of_restart_loop(
     assert runner.execute(command) == result
     assert len(calls) == 1
     assert journal.get(command["command_id"])["result"] == result
-
-
-def config_value(tmp_path):
-    return {
-        "center_url": "https://center.example",
-        "state_dir": str(tmp_path / "state"),
-        "credential_file": str(tmp_path / "credentials.json"),
-        "roots": {"images": {"path": str(tmp_path / "source"), "revision": 1}},
-    }
 
 
 @pytest.mark.parametrize(

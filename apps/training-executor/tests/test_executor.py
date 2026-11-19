@@ -252,7 +252,8 @@ def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_pa
     journal = {
         "phase": "preparing",
         "assignment": {
-            "attempt_id": "attempt",
+            "run_id": str(uuid.uuid4()),
+            "attempt_id": str(uuid.uuid4()),
             "config": config,
             "dataset_url": "dataset",
             "resume": {

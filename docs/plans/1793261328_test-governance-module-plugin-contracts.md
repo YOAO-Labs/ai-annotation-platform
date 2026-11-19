@@ -2,7 +2,7 @@
 
 > 状态：阶段 E 的本地集成验收已完成。第 16 节的阶段 F 正在实施：N4 四个切片、N6-K 已完成限定验收，N5 已按产品语言计划完成。N5 后的 T1／T2 联合验收未通过：默认验证器停在 ordinary 清理，后 17 组未运行。N6 后继及 J1／J2 四个批准门保持关闭；本轮不授权公开发布或生产采用。
 >
-> 分工：T1／T2 联合验收由 `feat/backend-opt` 执行并对账，本工作树不重跑。与联合门独立的 Web 治理证据见 [G1／G6 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)。
+> 分工：T1／T2 联合验收由 `feat/backend-opt` 执行并对账，本工作树不重跑。独立测试治理分别记录于 [Web 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)和[独立 Python 套件运行账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)。
 >
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
@@ -835,6 +835,12 @@ Native 验收包含真实安装、冻结函数体、owner／ACL、事务及迁�
 Web 录制与媒体工具已从仅本地命令接入 `Frontend verification`。工具用例由 Node 递归选择，包体积和精确帧基准的脚本测试仍由 Vitest 负责，截图产品场景仍由 Playwright 负责。[测试指南](../../docs-site/dev/testing.md)记录日常入口；[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)区分真实执行与负对照。本切片不改变阶段 F 批准门。
 
 三种存储绑定的目标删除和撤权已从 API 方法 mock 迁到同一组参数化 HTTP 边界场景；保留用途路由、错误码和禁止确认的语义。错误地只识别头像错误码时，报告附件和审计归档的恢复用例均失败，正常实现均通过。
+
+### 12.16 G1／G2／G7：独立 Python 套件的报告和站点 Agent 夹具
+
+echo、mock-v2、站点 Agent 和训练执行器保留各自环境与 CI 入口，JUnit 分开上传；一个示例测试失败不会遮蔽另一个示例的结果。站点 Agent 已解除测试模块互相导入和直接导入 `conftest` 的依赖，CI 使用 pytest 的 `importlib` 模式。各套件的实际结果和限制见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)，命令见[测试指南](../../docs-site/dev/testing.md)。组件结果不替代独立网络部署或 GPU 资格。
+
+训练执行器报告暴露一项未到达取消分支的续训夹具：补齐 Run 身份后，完整 CPU 选集的 237 项中 231 通过、6 项仍因缺受控预览权重跳过。原失败与修复后报告逐项对账，未修改生产实现或放宽断言。
 
 ## 13. 下一轮阶段并行安排
 
