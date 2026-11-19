@@ -14,4 +14,10 @@
 - 使用本工作树的 `apps/training-executor/uv.lock`，CPython 3.12.11；实际安装 PyTorch `2.14.1+cu132`、torchvision `0.29.1+cu132`、Ultralytics `8.4.183`、LibreYOLO `1.6.0`。从新缓存填充依赖的首次联机同步超时，不是 pytest 结果；随后使用本机另一个 uv 的缓存按同一锁文件完成同步，未改锁、替换为 CPU wheel 或移除原生依赖。
 - 首轮收集 **237 项／15 个文件**，与 JUnit 的逐项身份一致：**230 通过、1 失败、6 跳过**（`training-collection.txt`、`training-executor-before.xml`）。取消续训场景的真实 journal 记为 `preparation_failed`、`KeyError: 'run_id'`（`resume-cancel-before.json`）；恢复输入已落盘，夹具却未给执行器提供 Run 身份，尚未进入取消分支。只补齐派工夹具的 Run／Attempt UUID，不改生产代码、检查点字节、epoch 或不启动子进程的断言。
 - 修正后在同一锁定环境、禁用 CUDA 设备，重跑完整选集：**231 通过、6 跳过、0 失败／错误**。前后 237 个唯一 case 与 collection 逐项相等，唯一状态变化是上述取消场景。最终 journal 为 `cancelled`、无子进程记录，保留 epoch 2 的原检查点字节。见 `training-executor-test-results.xml`、`training-reconciliation.json`；临时环境已退役。
-- 六项原生预览缺少受控 `PREVIEW_TEST_BASE` 权重，未运行；不以任意下载的权重代替。此处没有真实 GPU／部署验收，也没有远端 CI 上传结果。
+- 该轮没有提供 `PREVIEW_TEST_BASE`，六项预览保留为跳过；后面的定向结果不回写这份报告。
+
+### 用官方 YOLO11n 权重补验原六项
+
+- 从 [Ultralytics 官方 release](https://github.com/ultralytics/assets/releases/tag/v8.4.0) 取得检测权重 `yolo11n.pt`（不是分割权重）。[GitHub 资产 340060970](https://api.github.com/repos/ultralytics/assets/releases/assets/340060970) 公布的大小为 **5,613,764 字节**，SHA-256 为 `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`；下载后先核对大小和摘要，再传给 `PREVIEW_TEST_BASE`。发布元数据见 `official-yolo11n-release.json`，权重不入 Git。
+- 从原 JUnit 提取六个跳过的 nodeid，在同一执行器依赖锁、CPython 3.12.11、CPU 环境定向执行：**6 通过、0 跳过／失败／错误**。逐项身份与原报告一致，包括增强前后像素和框的对照、CutMix 来源与几何、rect／epoch 策略和损坏输入拒绝。见 `official-yolo11n-selected.txt`、`official-yolo11n-preview.xml`、`official-yolo11n-reconciliation.json`。这是前次 231 项通过加本次六项定向通过，不是一次全量运行，也不是 GPU 或部署验收。
+- 单独执行训练 workflow 的取件步骤，传给 pytest 的文件与官方摘要相符。保持相同大小、只翻转一个字节后，同一校验命令退出 1，没有把未通过校验的文件交给 pytest（`official-yolo11n-ci-step.json`）。未运行远端 CI；本地测试及生产执行器未增加联网行为。

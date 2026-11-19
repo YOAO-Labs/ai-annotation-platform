@@ -48,7 +48,7 @@ last_reviewed: 2026-10-26
 
 机器可读归属集中在 `scripts/test-suites.json`：ML CPU runner 与 planner 共用 `ml_cpu`，CI owner 矩阵从 `owner_contracts` 动态派生。`node scripts/test-suite-inventory.mjs` 发现包含 Python 测试源码的独立平台测试根并拒绝未登记项；仅剩字节码的旧目录和 `plugins/` 下的独立仓库不属于平台选集。`other_test_roots` 明确其入口、资源与未接入常规 CI 的原因。登记与 `--collect-only` 均不等于执行通过。owner 入口分别上传实际 JUnit，不能合并成虚构的全仓成功计数。
 
-协议文档的 echo／mock-v2、站点 Agent 组合和训练执行器各自产生并上传 JUnit，工件分别为 `echo-example-test-results`、`mock-v2-example-test-results`、`storage-agent-test-results`、`training-executor-test-results`。两个示例用各自的环境，即使前者测试失败也执行后者。未获取执行器锁定依赖时是**未执行**，不是通过；报告中的受控权重跳过也不算设备验收。
+协议文档的 echo／mock-v2、站点 Agent 组合和训练执行器各自产生并上传 JUnit，工件分别为 `echo-example-test-results`、`mock-v2-example-test-results`、`storage-agent-test-results`、`training-executor-test-results`。两个示例用各自的环境，即使前者测试失败也执行后者。训练 CI 校验官方预览权重失败时，任务失败，其余 CPU 用例仍运行并记录结果；缺少执行器依赖而未运行的用例不算通过。
 
 结果消费者同时核对实际 case 记录与统计数，空报告不能凭通过计数变绿。Mask native／readonly 与独立源码 Worker 使用 `E2E_REQUIRE_ALL_TESTS=1`，选集内 skip、not-run、错误、未执行或计数不符均失败；JSON 状态与 Markdown 最终状态保持一致。模块边界验证还核对 collection 的 nodeid 与真实 JUnit，不能用另一个同文件 case 或旧报告冒充当前选择。
 
@@ -227,7 +227,7 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
    cd apps/training-executor
    uv run --with pytest --with pytest-asyncio pytest
    ```
-   覆盖不可变快照校验、Ultralytics / LibreYOLO 适配器、检查点恢复、原生报告与脱敏日志。原生增强预览需由 `PREVIEW_TEST_BASE` 指向受控的 YOLO11n 权重（默认 `/models/yolo11n.pt`）；缺少权重的用例报告为跳过，不算验证通过。平台的有预算串行搜索由 API 控制面测试覆盖。
+   覆盖不可变快照校验、Ultralytics / LibreYOLO 适配器、检查点恢复、原生报告与脱敏日志。原生增强预览使用 [Ultralytics 官方检测权重 `yolo11n.pt`](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt)。本地下载后对照[发布资产的 SHA-256](https://api.github.com/repos/ultralytics/assets/releases/assets/340060970) 校验，将 `PREVIEW_TEST_BASE` 设为文件的绝对路径；未设置时读取 `/models/yolo11n.pt`。本地缺文件则跳过，不计作通过。平台的有预算串行搜索由 API 控制面测试覆盖。
 2. **控制面 API 与状态机测试**：
    ```bash
    cd apps/api

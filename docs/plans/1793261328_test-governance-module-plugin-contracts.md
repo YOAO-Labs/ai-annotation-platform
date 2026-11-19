@@ -840,7 +840,7 @@ Web 录制与媒体工具已从仅本地命令接入 `Frontend verification`。�
 
 echo、mock-v2、站点 Agent 和训练执行器保留各自环境与 CI 入口，JUnit 分开上传；一个示例测试失败不会遮蔽另一个示例的结果。站点 Agent 已解除测试模块互相导入和直接导入 `conftest` 的依赖，CI 使用 pytest 的 `importlib` 模式。各套件的实际结果和限制见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)，命令见[测试指南](../../docs-site/dev/testing.md)。组件结果不替代独立网络部署或 GPU 资格。
 
-训练执行器报告暴露一项未到达取消分支的续训夹具：补齐 Run 身份后，完整 CPU 选集的 237 项中 231 通过、6 项仍因缺受控预览权重跳过。原失败与修复后报告逐项对账，未修改生产实现或放宽断言。
+训练执行器报告暴露一项未到达取消分支的续训夹具：补齐 Run 身份后，完整 CPU 选集的 237 项中 231 通过、6 项因缺预览权重跳过。随后校验 Ultralytics 官方检测权重，按原报告逐项补跑这 6 项，全部通过。两轮结果分开保留；未更改生产执行器或放宽断言。训练 CI 已配置在 pytest 前校验同一发行物。
 
 ## 13. 下一轮阶段并行安排
 
