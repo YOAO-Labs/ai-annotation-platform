@@ -340,7 +340,12 @@ async def test_bulk_delete_also_resets(db_session: AsyncSession, super_admin):
     )
     assert all(t.status == "pending" and t.batch_id is None for t in rows)
     pred_count = (
-        await db_session.execute(select(func.count()).select_from(Prediction))
+        await db_session.execute(
+            select(func.count())
+            .select_from(Prediction)
+            .join(Task, Task.id == Prediction.task_id)
+            .where(Task.project_id == project.id)
+        )
     ).scalar()
     assert pred_count == 0
     # 无 B-DEFAULT 时 bulk_delete 也要同步 project 物化列
