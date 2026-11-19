@@ -224,12 +224,10 @@ describe("GlobalBackendFormModal GPU claim", () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it("展示手动认证说明，填写后发送令牌", async () => {
+  it("手动认证发送用户填写的令牌", async () => {
     renderForm();
     fillRequiredFields();
     fireEvent.change(screen.getByLabelText("认证方式"), { target: { value: "token" } });
-    expect(screen.getByText(/本机|内置服务可改选/)).toBeInTheDocument();
-    expect(screen.getByText(/YOLO_MANAGED_MODELS_TOKEN/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Token"), { target: { value: "a".repeat(64) } });
     fireEvent.click(screen.getByRole("button", { name: "注册" }));
     await waitFor(() =>
@@ -249,6 +247,10 @@ describe("GlobalBackendFormModal GPU claim", () => {
     });
     renderForm();
     fillRequiredFields();
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: "系统托管（YOLO）" })).toBeEnabled(),
+    );
+    expect(screen.getByRole("option", { name: "系统托管（SAM 3）" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("认证方式"), { target: { value: "managed:yolo" } });
     fireEvent.click(await screen.findByRole("button", { name: "使用部署指定的服务地址" }));
     expect(screen.queryByLabelText("Token")).not.toBeInTheDocument();
@@ -266,7 +268,46 @@ describe("GlobalBackendFormModal GPU claim", () => {
     expect(mockCreate.mock.calls[0][0].auth_token).toBeUndefined();
   });
 
-  it("部署提示晚到时为新内置地址补上默认认证，保留用户显式选择", async () => {
+  it("可信地址读取失败时不能选托管方式，但仍可配置手动令牌", async () => {
+    mockRuntimeHints.mockRejectedValue(new Error("unavailable"));
+    renderForm();
+    await screen.findByText(/无法读取部署的可信地址/);
+    const method = screen.getByLabelText("认证方式");
+    expect(method).toHaveValue("none");
+    for (const option of screen.getAllByRole("option", { name: /系统托管/ })) {
+      expect(option).toBeDisabled();
+    }
+    fireEvent.change(method, { target: { value: "token" } });
+    expect(screen.getByLabelText("Token")).toBeEnabled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("撤下可信地址后仍显示实例原有的托管方式，允许显式切换认证", async () => {
+    mockRuntimeHints.mockResolvedValue({ managed_backend_urls: {} });
+    renderForm({
+      id: "sam-registry",
+      name: "SAM",
+      url: "http://sam:8002",
+      auth_method: "managed:sam3",
+      gpu_resource_id: null,
+      vram_budget_mb: null,
+      eviction_priority: 0,
+    });
+    await screen.findByText("未配置");
+    const method = screen.getByLabelText("认证方式");
+    expect(method).toHaveValue("managed:sam3");
+    expect(screen.getByRole("option", { name: "系统托管（SAM 3）" })).toBeDisabled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    fireEvent.change(method, { target: { value: "none" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: expect.objectContaining({ auth_method: "none" }) }),
+      ),
+    );
+  });
+
+  it("部署提示晚到时为新的可信地址补上默认认证，保留用户显式选择", async () => {
     let resolveHints!: (value: unknown) => void;
     mockRuntimeHints.mockReturnValue(
       new Promise((resolve) => {

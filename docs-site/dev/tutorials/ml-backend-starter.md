@@ -259,7 +259,7 @@ backend 跑起来后，按两层模型接入平台：
 
 操作细节见用户手册：[ML 后端绑定](/user-guide/projects/ml-backends)、[AI 预标注](/user-guide/projects/ai-preannotate)；超管全局视角见 [ML Backend 注册](/user-guide/superadmin/ml-backend-registry)。
 
-本教程的 echo 示例不要求认证，开发调试可选 None。五个内置服务默认要求认证，可信地址选择对应的系统托管方式，保存时验证受认证的 `/managed-auth`；该方式不填写手动 Token，也不用普通「测试连接」替代认证校验。自建服务可实现并配置自己的手动 Bearer 认证，服务端与平台注册值需要一致。
+本教程的 echo 示例不要求认证，开发调试可选 None。系统托管仅适用于部署配置的可信地址：保存时平台验证该服务的 `/managed-auth`，不需要填写手动 Token，普通「测试连接」也不能替代这一步。自建服务可实现自己的 Bearer 认证，手动注册时服务端与平台的令牌必须一致。受控插件使用各安装实例自己的凭据，不继承同名服务的托管身份。
 
 一个外部 Backend 实现普通预测协议，不代表它已实现训练权重安装、共享逐样本评估或 GPU 仲裁。接入这些能力前分别核对[协议契约](/dev/reference/ml-backend-protocol)；服务池接流和凭据生命周期见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)，已有训练模型的排查见[模型回流链路](../how-to/debug-model-return)。
 

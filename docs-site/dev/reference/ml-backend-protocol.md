@@ -9,13 +9,13 @@ last_reviewed: 2026-10-20
 
 本页供推理服务接入者查阅健康检查、预测、能力声明和错误响应合同。项目如何启用服务见[全局注册表与项目启用](#全局注册表与项目启用)。
 
-五个内置服务默认启用独立系统托管 Bearer 认证，业务路由（含 `/setup`、预测、模型与生命周期控制）拒绝缺失或错误凭据；`/health` 和 `/metrics` 保持公开。`GET /managed-auth` 同样要求认证，仅返回固定服务 ID 和认证来源，不返回令牌。平台将 `managed:<provider>` 精确绑定到部署可信地址，禁止代理与重定向；外部服务仍按 `none`／手动 `token` 接入。GPU 生命周期签名仍须独立通过，Bearer 不替代控制授权。
+使用共享凭据目录的 Compose 服务要求独立 Bearer：业务路由（含 `/setup`、预测、模型与生命周期控制）拒绝缺失或错误凭据；`/health` 和 `/metrics` 保持公开。`GET /managed-auth` 同样要求认证，仅返回固定服务 ID 和认证来源，不返回令牌。平台将 `managed:<provider>` 精确绑定到部署指定的可信地址，禁止代理与重定向。其他地址按服务端要求选择 `none` 或手动 `token`，受控安装的插件使用安装实例自己的凭据。GPU 生命周期签名仍须独立通过，Bearer 不替代控制授权。
 
 真实 GPU 资格验证脚本从相同部署凭据读取 Bearer，与逐请求 GPU 签名一起发送。使用各服务 README 中的 `docker compose ... run` 命令会继承服务的私有只读凭据挂载；先在平台初始化默认凭据。单独 `docker run` 必须挂载该服务自己的私有目录到 `/run/aap-inference-auth:ro`，或显式传入既有手动 Token；缺少凭据会在验证前明确失败，不生成临时绕过凭据。
 
 平台不内置任何具体模型。它把可挂接的「推理服务」抽象成 `MLBackend` 行——一个 URL + 鉴权信息 + 几个布尔位（`is_interactive` / `state`）。本文规定接入方需要实现的 HTTP 端点与请求/响应 schema。只要遵循，就能在「模型市场 → 注册管理」里注册、在「项目设置 → ML 模型」里启用。
 
-插件以统一、语言无关的 manifest 和 HTTP 协议接入 Registry；运行时 SDK 组合协议、认证和生命周期，模型实现由插件提供。当前实现仅覆盖 Inference 与图片检测 Python SDK，尚无通用前端插件框架。LibreYOLO 检测的新接入使用独立插件，不再作为内置 YOLO 服务的运行路径。作者通过 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`；SDK 不依赖平台 ORM、Celery 或原生模型框架。安装、作者命令、权重许可证边界与本地检查限制见[检测插件教程](/dev/tutorials/ml-backend-starter#使用-libreyolo-检测插件)。
+插件以统一、语言无关的 manifest 和 HTTP 协议接入 Registry；运行时 SDK 组合协议、认证和生命周期，模型实现由插件提供。当前实现覆盖 Inference 与图片检测 Python SDK，尚无通用前端插件框架。LibreYOLO 检测使用独立插件，而不是 YOLO 服务的另一条运行路径。作者通过 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`；SDK 不依赖平台 ORM、Celery 或原生模型框架。安装、作者命令、权重许可证边界与本地检查限制见[自定义推理 SDK 教程](/dev/ml-backend/starter#使用自定义推理-sdk)。
 
 受控模型兼容条目必须同时声明 `framework`、`format` 和 `runtime_device`。`format: null` 明确表示没有独立导出格式标识的原生 checkpoint（如 Ultralytics 原生权重），不是通配符；具名格式使用非空字符串，缺字段或空字符串均无效。安装清单、实际 `/setup` 观测及平台保存的模型回执必须精确匹配，CPU／CUDA 资格仍分别核对。
 

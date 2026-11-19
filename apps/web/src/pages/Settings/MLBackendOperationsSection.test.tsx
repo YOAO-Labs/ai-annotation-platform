@@ -126,6 +126,16 @@ describe("MLBackendOperationsSection", () => {
     expect(mlBackendOperationsApi.maintain).not.toHaveBeenCalled();
   });
 
+  it("does not offer credential writes for an empty trust map even when a runner is available", async () => {
+    vi.mocked(mlBackendOperationsApi.managedAuth).mockResolvedValue({ items: [] });
+    renderSection();
+    expect(await screen.findByRole("button", { name: "初始化 / 同步全部" })).toBeDisabled();
+    expect(screen.getByText(/ML_MANAGED_BACKEND_URLS/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "维护 YOLO 镜像与容器" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/当前部署：test-deployment/)).toBeVisible();
+    expect(mlBackendOperationsApi.initialize).not.toHaveBeenCalled();
+  });
+
   it("does not read or render privileged operations for a non-admin", () => {
     useAuthStore.getState().setAuth("viewer-token", { ...admin, role: "viewer" });
     const { container } = renderSection();

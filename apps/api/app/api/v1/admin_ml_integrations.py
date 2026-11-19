@@ -456,7 +456,7 @@ async def initialize_managed_backends(
         payload.providers if payload.providers is not None else configured_backends()
     )
     if selected - configured_backends().keys():
-        raise HTTPException(422, "所选内置服务未在当前部署的可信地址映射中配置。")
+        raise HTTPException(422, "当前部署未为所选服务配置系统托管的可信地址。")
     for item in status.items:
         if item.provider not in selected:
             continue

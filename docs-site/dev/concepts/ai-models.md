@@ -11,13 +11,13 @@ last_reviewed: 2026-10-20
 
 服务实例、模型、服务池和项目发布之间的关系，以及请求如何选路、Token 如何认证，见[模型服务接入、路由与认证](./ml-backend-routing-and-auth)。该文也说明训练结果回流、默认凭据的生成与同步，以及初始化和重建容器各自解决的问题。
 
-内置服务以固定服务 ID 和部署指定的唯一 URL 绑定系统托管认证，registry 的 `managed:<provider>` 与凭据一起参与既有认证修订围栏。API 只向该映射内的对应地址发送该服务凭据，禁用环境代理与重定向；URL 或认证并发变更会在短行锁下复核，防止把共享凭据绑定到另一个地址。凭据文件各自持久保存，服务只读自身子目录；启动生成默认值不改写已有实例认证，也不宣告服务可用。业务 Bearer 与 GPU 控制签名是独立校验，普通健康检查保持公开。外部服务保留 `none`／手动 `token`，`none` 不发送任何认证信息。
+系统托管认证以固定服务 ID 和部署指定的可信地址绑定，registry 的 `managed:<provider>` 与凭据一起参与认证修订围栏。API 只向对应地址发送该服务的凭据，禁用环境代理与重定向；URL 或认证并发变更会在短行锁下复核。凭据文件各自持久保存，服务只读自身子目录；生成默认凭据不改写已有实例认证，也不宣告服务可用。业务 Bearer 与 GPU 控制签名是独立校验，普通健康检查保持公开。其他地址按服务端要求使用 `none`／手动 `token`，`none` 不发送任何认证信息。
 
 ---
 
 ## 0. Backend 名录
 
-平台维护 SAM 系列服务；YOLO、ONNXTools 与 RapidOCR 由官方插件仓独立发布。它们是独立 FastAPI 微服务，通过各自 Compose profile 按显存预算部署。所有服务走同一套[能力声明协议](../reference/ml-backend-protocol)，由平台经 `/setup` 探能力 + `/predict` 调推理。
+Grounded SAM 2、SAM 3、YOLO、ONNXTools、RapidOCR 和 LibreYOLO 的实现位于 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。下表列的是平台提供 Compose 配置的五种服务，不是默认安装清单。LibreYOLO 的受控插件安装独立于这些 Compose 配置。平台通过[能力声明协议](../reference/ml-backend-protocol)的 `/setup` 探测能力，通过 `/predict` 调用推理。
 
 | Backend                 | 端口 | profile         | 模型族                       | 主用途                                                                                       | composition                  |
 | ----------------------- | ---- | --------------- | ---------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------- |

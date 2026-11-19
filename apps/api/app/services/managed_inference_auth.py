@@ -72,7 +72,8 @@ def local_managed_headers(url: str) -> dict[str, str]:
 async def verify_managed_auth(url: str, token: str, provider: str) -> None:
     if not is_managed_url(url, provider):
         raise HTTPException(
-            422, "系统托管仅支持部署指定的内置服务地址；其他服务请使用手动 Token。"
+            422,
+            "系统托管仅支持部署为该服务指定的可信地址；其他地址请按服务端配置选择认证方式。",
         )
     try:
         async with httpx.AsyncClient(
@@ -91,7 +92,7 @@ async def verify_managed_auth(url: str, token: str, provider: str) -> None:
         pass
     raise HTTPException(
         422,
-        "无法验证内置服务系统托管认证。请确认服务已升级并挂载自己的共享凭据目录；"
+        "无法验证该服务的系统托管凭据。请确认服务已升级并挂载自己的共享凭据目录；"
         "若服务端已有手动 Token，请继续使用手动认证。"
         "本地凭据已保留，可直接重试初始化或保存。",
     )
@@ -107,7 +108,7 @@ async def initialize_managed_auth(
         or supplied_token is not None
     ):
         raise HTTPException(
-            422, "系统托管须选择部署指定的内置服务，且不能自行填写 Token。"
+            422, "系统托管须使用部署为该服务指定的可信地址，且不能自行填写 Token。"
         )
     try:
         token = ensure_credential(credential_directory(provider))
