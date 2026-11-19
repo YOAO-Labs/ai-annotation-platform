@@ -2827,6 +2827,8 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_identity_e2e_live.py": "identity-e2e",
     "tests/test_identity_recording_live.py": "recording",
     "tests/test_identity_seed_selection_live.py": "scale-seed",
+    # The restore fixture retains terminal Jobs and delivers to all active admins.
+    "tests/test_notifications_module_assembly_live.py": "notifications-restore",
     "tests/test_media_seed_identity_live.py": "media-seed",
     "tests/test_seed_parent_operator_live.py": "parent-seed",
     "tests/test_workspace_seed_operator_live.py": "workspace-seed",

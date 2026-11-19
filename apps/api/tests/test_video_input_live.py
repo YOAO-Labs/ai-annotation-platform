@@ -290,7 +290,7 @@ def _video_bytes(tmp_path):
 
 
 async def test_real_video_input_control_worker_versions_and_independent_node_peer(
-    test_engine, tmp_path, native_signer
+    test_engine, tmp_path, native_signer, committed_batch_job_id
 ):
     async with _video_runtime(test_engine, tmp_path) as runtime:
         body = await asyncio.to_thread(_video_bytes, tmp_path)
@@ -313,7 +313,11 @@ async def test_real_video_input_control_worker_versions_and_independent_node_pee
             )
             selection = _selection(task_ids=[task])
             job = await _seed_video_job(
-                owner, actor_id=actor, project_id=project.id, selection=selection
+                owner,
+                actor_id=actor,
+                project_id=project.id,
+                selection=selection,
+                job_id=committed_batch_job_id,
             )
             header = await _call(
                 owner,

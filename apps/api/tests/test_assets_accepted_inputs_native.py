@@ -107,7 +107,7 @@ def _error(reply: dict, code: str) -> None:
     }
 
 
-async def _seed_workbench_input(db_session):
+async def _seed_workbench_input(db_session, *, job_id=None):
     actor_id = await _seed_actor(db_session)
     project = await create_project(db_session, owner_id=actor_id)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
@@ -119,7 +119,7 @@ async def _seed_workbench_input(db_session):
     task.dataset_item_id = item_id
     await db_session.flush()
     task_ids = [str(task.id)]
-    job_id = uuid.uuid4()
+    job_id = job_id or uuid.uuid4()
     db_session.add(
         AsyncJob(
             id=job_id,
@@ -696,7 +696,9 @@ async def test_annotation_input_pins_survive_parent_clones_and_drive_gc(db_sessi
     assert rescan["items"][0]["prefix"] == garbage["prefix"]
 
 
-async def test_independent_connections_cannot_claim_one_input_twice(test_engine):
+async def test_independent_connections_cannot_claim_one_input_twice(
+    test_engine, committed_batch_job_id
+):
     # Commit a private test world so two independent PostgreSQL sessions can race.
     async with test_engine.connect() as setup_connection:
         async with AsyncSession(setup_connection, expire_on_commit=False) as setup:
@@ -708,7 +710,7 @@ async def test_independent_connections_cannot_claim_one_input_twice(test_engine)
                 task,
                 job_id,
                 source,
-            ) = await _seed_workbench_input(setup)
+            ) = await _seed_workbench_input(setup, job_id=committed_batch_job_id)
             accepted = await _reserve(setup, actor_id, task, job_id, source)
             await setup.commit()
 
@@ -752,8 +754,7 @@ async def test_independent_connections_cannot_claim_one_input_twice(test_engine)
             if first_tx.is_active:
                 await first_tx.rollback()
 
-    # Leave the committed disposable fixture terminal so later polling tests
-    # cannot mistake its receipt for live accepted work.
+    # Settle the accepted-input lease before releasing the test-owned Job.
     async with test_engine.begin() as cleanup:
         await cleanup.execute(
             text("UPDATE public.async_jobs SET status='completed' WHERE id=:id"),
@@ -779,7 +780,9 @@ async def test_independent_connections_cannot_claim_one_input_twice(test_engine)
         )
 
 
-async def test_input_pin_copy_serializes_with_retirement_sweep(test_engine):
+async def test_input_pin_copy_serializes_with_retirement_sweep(
+    test_engine, committed_batch_job_id
+):
     async with test_engine.connect() as setup_connection:
         async with AsyncSession(setup_connection, expire_on_commit=False) as setup:
             (
@@ -790,7 +793,7 @@ async def test_input_pin_copy_serializes_with_retirement_sweep(test_engine):
                 task,
                 job_id,
                 source,
-            ) = await _seed_workbench_input(setup)
+            ) = await _seed_workbench_input(setup, job_id=committed_batch_job_id)
             accepted = await _reserve(setup, actor_id, task, job_id, source)
             claim = await _claim(setup, accepted["input_id"])
             ready = await _finish(setup, claim)

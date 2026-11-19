@@ -26,6 +26,7 @@ from app.db.models.task import Task
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.prediction import PredictionService
+from tests.committed_prediction_jobs import committed_prediction_job_id
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_project, create_task
 from tests.test_assets_catalog_native import _seed_actor
@@ -67,7 +68,10 @@ async def _world(
         assert value.database.endswith("_test") and value.host == "127.0.0.1"
         urls[role] = value
     owner_factory = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner_factory() as owner:
+    async with (
+        committed_prediction_job_id(test_engine, "batch_predict") as job_id,
+        owner_factory() as owner,
+    ):
         actor_id = await _seed_actor(owner)
         project = await create_project(owner, owner_id=actor_id, type_key="text")
         project.ai_enabled = True
@@ -118,7 +122,6 @@ async def _world(
             url=f"http://batch-{uuid4().hex}.example.test/",
             state="connected",
         )
-        job_id = uuid4()
         request = BatchPredictionRequest(
             project_id=str(project.id),
             ml_backend_id=str(backend.id),
@@ -177,50 +180,53 @@ async def _world(
             )
             for index in range(result_count)
         )
-    engines = {role: create_async_engine(url) for role, url in urls.items()}
-    writers = async_sessionmaker(engines["legacy_runtime"], expire_on_commit=False)
-    executors = async_sessionmaker(
-        engines["yoao_preannotation_result_client"], expire_on_commit=False
-    )
-    execution = BatchResultExecution(
-        request, writers, execution_id=str(job_id), executor_session_factory=executors
-    )
-    try:
-        if staged:
-            await execution.claim()
-            await execution.call(
-                "stage_batch_result_members",
-                after_ordinal=0,
-                complete=True,
-                members=[
-                    {
-                        "ordinal": 1,
-                        "task_id": task.id,
-                        "write_scope": scope_json(scope),
-                        "manifest_member": None,
-                    }
-                ],
-            )
-            await execution.call("start_batch_result_execution")
-            await execution.call("start_batch_result_member", ordinal=1)
-        yield SimpleNamespace(
-            execution=execution,
-            writers=writers,
-            executors=executors,
-            owner_factory=owner_factory,
-            request=request,
-            requests=requests,
-            task_id=task.id,
-            project_id=project.id,
-            task_ids=[selected.id for selected in tasks],
-            actor_id=actor_id,
-            backend_id=backend.id,
-            pool_id=pool.id,
+        engines = {role: create_async_engine(url) for role, url in urls.items()}
+        writers = async_sessionmaker(engines["legacy_runtime"], expire_on_commit=False)
+        executors = async_sessionmaker(
+            engines["yoao_preannotation_result_client"], expire_on_commit=False
         )
-    finally:
-        await execution.close()
-        for engine in engines.values():
-            await engine.dispose()
+        execution = BatchResultExecution(
+            request,
+            writers,
+            execution_id=str(job_id),
+            executor_session_factory=executors,
+        )
+        try:
+            if staged:
+                await execution.claim()
+                await execution.call(
+                    "stage_batch_result_members",
+                    after_ordinal=0,
+                    complete=True,
+                    members=[
+                        {
+                            "ordinal": 1,
+                            "task_id": task.id,
+                            "write_scope": scope_json(scope),
+                            "manifest_member": None,
+                        }
+                    ],
+                )
+                await execution.call("start_batch_result_execution")
+                await execution.call("start_batch_result_member", ordinal=1)
+            yield SimpleNamespace(
+                execution=execution,
+                writers=writers,
+                executors=executors,
+                owner_factory=owner_factory,
+                request=request,
+                requests=requests,
+                task_id=task.id,
+                project_id=project.id,
+                task_ids=[selected.id for selected in tasks],
+                actor_id=actor_id,
+                backend_id=backend.id,
+                pool_id=pool.id,
+            )
+        finally:
+            await execution.close()
+            for engine in engines.values():
+                await engine.dispose()
 
 
 async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots(
@@ -443,7 +449,7 @@ async def _counts(world):
 
 
 async def test_actual_multi_result_write_transfers_receipts_counts_and_releases_bodies(
-    test_engine,
+    test_engine, committed_batch_job_id
 ):
     async with _world(test_engine) as world:
         member, result, requests = await _ready(world)
@@ -487,6 +493,32 @@ async def test_actual_multi_result_write_transfers_receipts_counts_and_releases_
                 )
                 == 0
             )
+            owner.add(
+                AsyncJob(
+                    id=committed_batch_job_id,
+                    kind="batch_predict",
+                    project_id=world.project_id,
+                    user_id=world.actor_id,
+                    status="pending",
+                    payload={},
+                    result={},
+                )
+            )
+            await owner.commit()
+
+    async with world.owner_factory() as owner:
+        job_id = world.execution.scope["job_id"]
+        assert await owner.get(AsyncJob, job_id) is None
+        neighbor = await owner.get(AsyncJob, committed_batch_job_id)
+        assert neighbor.status == "pending"
+        receipts = await owner.scalars(
+            text(
+                "SELECT receipt->>'id' FROM public.batch_result_payloads "
+                "WHERE job_id=:id AND stage='prepared'"
+            ),
+            {"id": job_id},
+        )
+        assert set(receipts) == {str(value) for value in ids}
 
 
 def _runtime_connections(monkeypatch, world):

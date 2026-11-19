@@ -23,6 +23,7 @@ from app.db.models.prediction import FailedPrediction, Prediction, PredictionMet
 from app.services.prediction_retry_data import (
     SqlAlchemyPredictionRetryData,
 )
+from tests.committed_prediction_jobs import committed_prediction_job_id
 from tests.test_batch_result_consumers_native import _world as _batch_world
 from tests.test_batch_result_consumers_native import pytestmark as pytestmark
 
@@ -31,8 +32,11 @@ from tests.test_batch_result_consumers_native import pytestmark as pytestmark
 async def _world(
     test_engine, *, extra=None, task=True, backend=True, origin_member=False
 ):
-    async with _batch_world(test_engine, staged=origin_member) as world:
-        failed_id, job_id = uuid.uuid4(), uuid.uuid4()
+    async with (
+        _batch_world(test_engine, staged=origin_member) as world,
+        committed_prediction_job_id(test_engine, "prediction_retry") as job_id,
+    ):
+        failed_id = uuid.uuid4()
         async with world.owner_factory() as db:
             if origin_member:
                 failed_id = await db.scalar(

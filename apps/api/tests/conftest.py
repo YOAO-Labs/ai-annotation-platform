@@ -178,6 +178,14 @@ async def test_engine(test_db_url: str, apply_migrations):
 
 
 @pytest.fixture
+async def committed_batch_job_id(test_engine):
+    from tests.committed_prediction_jobs import committed_prediction_job_id
+
+    async with committed_prediction_job_id(test_engine, "batch_predict") as job_id:
+        yield job_id
+
+
+@pytest.fixture
 async def raster_owner_registry(test_engine):
     from tests.raster_mask_isolation import (
         remove_test_raster_owners,
