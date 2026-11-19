@@ -103,7 +103,7 @@ export const predictionsApi = {
   },
 
   /**
-   * 外部模型预测导入 (AAP JSON v1.0 / COCO / YOLO zip).
+   * 导入外部模型预测：原生 JSON、COCO 或 YOLO ZIP。
    * - 走 multipart/form-data, 不用 apiClient (其默认 Content-Type=application/json).
    * - dryRun=true: 仅校验不入库; 用于 Wizard 第 2 步预览.
    * - overwriteExisting=true: 替换 task 已有 source='external_import' 的 predictions.

@@ -686,7 +686,7 @@ class Settings(BaseSettings):
     # 周期写 Redis（key celery:hb:{worker}，TTL = 间隔 × 3），/health/celery 读差值。
     worker_heartbeat_interval_seconds: int = 30
 
-    # SMTP（本期占位，仅在 GET /settings/system 中以「已配置/未配置」呈现）
+    # 部署的 SMTP 默认值；发件时优先使用系统设置中已保存的配置。
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_user: str | None = None

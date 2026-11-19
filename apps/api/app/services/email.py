@@ -68,9 +68,9 @@ async def send_test_email(db: AsyncSession, to_address: str) -> dict[str, Any]:
     """连 SMTP 发一封测试邮件。返回诊断字典；失败抛 SmtpConfigError。"""
     cfg = await _load_smtp_config(db)
     msg = _plain_text_message(
-        "这是一封来自 AI 标注平台的 SMTP 配置测试邮件。\n"
-        "如收到此邮件，说明 SMTP 设置正确。\n",
-        subject="[AI 标注平台] SMTP 测试邮件",
+        "这是一封 YOAO 的 SMTP 测试邮件。\n"
+        "收到这封邮件，表示本次测试已送达你的邮箱。\n",
+        subject="[YOAO] SMTP 测试邮件",
         sender=cfg["smtp_from"],
         recipient=to_address,
     )

@@ -1,9 +1,9 @@
-"""AAP JSON 导出端点测试.
+"""原生 JSON 导出内容与批次范围测试。
 
 覆盖:
-- /projects/{id}/export?format=aap_json: schema_version + 双数组 + annotation_guide.
-- /projects/{id}/batches/{bid}/export?format=aap_json: batch 范围内任务和结果.
-- predictions 写入后导出可被回读 (round-trip 基础).
+- 项目导出包含文件身份、正式标注、预测和标注指南。
+- 批次导出仅包含该批次的任务和结果。
+- 历史文件中的预测导入后能从当前导出读回，原有正式标注不变。
 - 空项目导出仍是合法 envelope.
 """
 

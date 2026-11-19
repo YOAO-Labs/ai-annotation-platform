@@ -40,7 +40,7 @@ async function json<T>(response: APIResponse): Promise<T> {
   return (await response.json()) as T;
 }
 
-test("AAP JSON 视频预测可预检、审阅并持久化采纳/忽略", async ({ page, request, seed }) => {
+test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略", async ({ page, request, seed }) => {
   const data = await seed.owned();
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   await seed.configureRasterMask(data.project_id, true);

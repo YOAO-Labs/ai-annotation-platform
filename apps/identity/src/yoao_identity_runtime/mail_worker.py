@@ -124,38 +124,38 @@ class MailExecutor:
         if any(character in lease.email for character in "\r\n\x00"):
             raise ValueError("Invalid recipient")
         url = MailExecutor._link(lease, token)
+        expiry_line = f"链接有效期至：{lease.expires_at:%Y-%m-%d %H:%M:%S %Z}\n"
         message = EmailMessage()
         message["From"] = sender
         message["To"] = lease.email
         message["Message-ID"] = f"<aap.{lease.id}.{lease.purpose}@aap.invalid>"
         if lease.purpose == "password_reset":
-            message["Subject"] = "[AI 标注平台] 重置你的密码"
+            message["Subject"] = "[YOAO] 重置你的密码"
             message.set_content(
-                "你收到这封邮件，是因为有人请求重置你的 AI 标注平台密码。\n\n"
-                "请在该链接失效前点击以下链接设置新密码：\n"
+                "有人请求重置你的 YOAO 账号密码。\n\n"
+                f"{expiry_line}请点击以下链接设置新密码：\n"
                 f"{url}\n\n"
                 "如果你没有发起此请求，请忽略此邮件。你的密码不会因此改变。\n"
             )
         elif lease.purpose == "email_verification":
-            message["Subject"] = "[AI 标注平台] 验证你的邮箱"
+            message["Subject"] = "[YOAO] 验证你的邮箱"
             message.set_content(
-                "欢迎注册 AI 标注平台！\n\n"
-                "请点击以下链接验证你的邮箱（24 小时内有效）：\n"
+                "请验证用于注册 YOAO 的邮箱。\n\n"
+                f"{expiry_line}请点击以下链接完成验证：\n"
                 f"{url}\n\n"
                 "如果你没有注册本平台，请忽略此邮件。\n"
             )
         else:
             assert isinstance(lease, InvitationMailV2Lease)
             target = (
-                f"项目「{lease.project_name}」" if lease.project_name else "AI 标注平台"
+                f"YOAO 项目「{lease.project_name}」" if lease.project_name else "YOAO"
             )
             role_line = (
                 f"项目角色：{lease.project_member_role}\n"
                 if lease.project_member_role
                 else ""
             )
-            expiry_line = f"链接有效期至：{lease.expires_at.astimezone().isoformat()}\n"
-            message["Subject"] = "[AI 标注平台] 你有一份新的邀请"
+            message["Subject"] = "[YOAO] 你有一份新的邀请"
             message.set_content(
                 f"你收到一份加入 {target} 的邀请。\n\n"
                 f"{role_line}{expiry_line}"

@@ -531,6 +531,9 @@ while SMTP blocks; lease and retry intervals are bounded to 1–300 seconds. A
 stable Message-ID lets retries reuse the same challenge, ciphertext and message
 identity. SMTP is at-least-once: a disconnect after sending begins may deliver a
 duplicate, so the worker reports an unknown result and requeues the same intent.
+The subject and body identify YOAO; neither changes the delivery's Message-ID
+or the configured sender. Link deadlines use the challenge's expiry in UTC,
+not the time SMTP accepts the message.
 
 `delivered` and definite `rejected` results are terminal. A definite rejection
 retires only the matching password-reset token; verification tokens remain

@@ -335,7 +335,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
   const [predictMode, setPredictMode] = useState<PredictMode>("skip_predicted");
   const [concurrency, setConcurrency] = useState<ConcurrencyMode>("serial");
   const [running, setRunning] = useState(false);
-  // 外部预测导入向导 (COCO / AAP JSON)
   const [importOpen, setImportOpen] = useState(false);
 
   // 逐阶段统计: 运行中用 WS 实时快照, 终态/重连回落 job result (终态真值, 不丢)。

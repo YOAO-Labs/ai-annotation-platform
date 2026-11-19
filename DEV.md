@@ -3449,7 +3449,7 @@ AAP_WORKSPACE_EXPORT_WORKER_LIVE=1 apps/api/.venv/bin/python \
   --test-file tests/test_workspace_export_worker_live.py
 ```
 
-该开关只用于隔离夹具。案例用普通 employee 的 reviewer 身份执行真实 AAP JSON 导出，
+该开关只用于隔离夹具。案例用普通 `employee` 的 `reviewer` 项目身份执行真实原生 JSON 导出，
 通过数据库锁卡住实际构建，再验证整容器 SIGKILL 后的新 task ID 接管、原始 unacked
 消息精确恢复、prefork 子进程丢失后的自动同 ID 重投，以及排队后撤员、缓存复用、
 产物和源图片的真实签名 URL 下载。Worker 无 Workspace 私表读取或桶管理权限。

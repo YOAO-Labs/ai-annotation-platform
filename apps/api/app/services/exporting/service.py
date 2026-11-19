@@ -296,7 +296,7 @@ def _aabb_from_rings(
 def _coco_aabb_norm(geometry: dict) -> tuple[float, float, float, float] | None:
     """归一化外接框 (x,y,w,h)，覆盖 COCO 消费的几何：bbox/polygon/multi_polygon/keypoint。
 
-    rotated_bbox / polyline 不进 COCO（各有专属目标 / 仅 AAP），返回 None 表示跳过。
+    rotated_bbox 和 polyline 不纳入 COCO；返回 None 表示跳过。
     """
     t = geometry.get("type")
     if t in ("bbox", None):
@@ -514,7 +514,7 @@ class ExportService:
     async def _load_predictions(
         self, project_id: uuid.UUID, task_ids: list[uuid.UUID]
     ) -> list[Prediction]:
-        """AAP JSON 导出需要 predictions[] 双数组."""
+        """读取原生 JSON 单独保存在 predictions[] 的预测，不混入正式标注。"""
         if not task_ids:
             return []
         pred_q = (

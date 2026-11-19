@@ -2127,7 +2127,7 @@ broker 队列。当前 API 工件核对 1,336 项代码／包／CLI 文件及四
 
 ## Workspace export 冷执行与恢复 {#workspace-export-recovery}
 
-此组验证普通 `employee` 的 reviewer 成员身份执行图像 AAP JSON 导出。Worker 使用
+此组验证普通 `employee` 以 `reviewer` 项目成员身份导出图像原生 JSON。Worker 使用
 受限 `identity_api_consumer`、自有 PostgreSQL／Redis 私网及全部十个隔离桶；项目／
 成员表和列的直接读取被拒绝，项目权限与最终签名检查继续通过既有 Workspace 能力。
 对象身份只可读取本案例的一张源图片和操作本项目的 export 前缀，无桶管理权限。

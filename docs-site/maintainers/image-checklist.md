@@ -57,7 +57,7 @@
 
 ### 预测导入 / 导出
 
-- [x] `images/projects/prediction-import-wizard.png` — 导入预测弹窗（AAP JSON / COCO / YOLO 格式选择 + 文件上传 + 替换开关）；红框：格式下拉、YOLO 变体下拉、替换开关 `[auto]`
+- [x] `images/projects/prediction-import-wizard.png` — 导入预测弹窗；拍摄时选择原生 JSON、COCO 或 YOLO，标出格式下拉、YOLO 变体下拉和替换开关 `[auto]`
 - [x] `images/projects/prediction-purge-modal.png` — 清理预测弹窗三种来源范围 + ML Backend 风险确认复选框 `[auto]`
 
 ### 导出格式

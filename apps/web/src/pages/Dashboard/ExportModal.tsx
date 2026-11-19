@@ -267,7 +267,7 @@ function ExportForm({
   const [lossyConfirmed, setLossyConfirmed] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
-  // 帧模式仅对 Video JSON 有意义（MOT/KITTI 走采样网格，AAP 透传源帧）。
+  // 帧模式仅对 Video JSON 有意义（MOT/KITTI 走采样网格，原生 JSON 保留源帧）。
   const showFrameMode = isVideoProject && targets.includes("video_json");
 
   useEffect(() => {

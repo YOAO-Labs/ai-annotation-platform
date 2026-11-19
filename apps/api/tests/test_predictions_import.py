@@ -1,9 +1,9 @@
 """POST /projects/{id}/predictions/import 端点测试.
 
 覆盖:
-- AAP JSON happy path (bbox / polygon / multi_polygon)
+- 通过 native_json 导入历史文件中的 bbox / polygon / multi_polygon
 - COCO Detection happy path
-- schema_version > 1.x → 422
+- 不支持的文件版本 → 422
 - task_match display_id 命中 / file_path 命中 / 都 miss → errors[]
 - 跨项目 display_id (display_id 全局唯一但 project_id 不符) → fallback / miss
 - dry_run 不入库

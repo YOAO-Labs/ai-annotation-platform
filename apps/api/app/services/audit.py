@@ -147,11 +147,11 @@ class AuditAction(str, Enum):
     VIDEO_CHAPTER_CREATE = "video_chapter.create"
     VIDEO_CHAPTER_UPDATE = "video_chapter.update"
     VIDEO_CHAPTER_DELETE = "video_chapter.delete"
-    # 外部预测导入 (COCO / AAP JSON)
+    # 导入外部预测，不写入正式标注
     PREDICTIONS_IMPORT = "predictions.import"
     # 按来源清理 prediction
     PREDICTIONS_PURGE = "predictions.purge"
-    # 外部标注导入 (AAP JSON annotations[])
+    # 从原生 JSON 的 annotations[] 导入正式标注
     ANNOTATION_IMPORT = "annotation.import"
     # I12 · Object Group 分组 + 批量编辑
     ANNOTATION_GROUP = "annotation.group"
