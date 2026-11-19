@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from io import BytesIO
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -799,6 +799,49 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         assert not imported
 
 
+async def _wait_unstarted_write_settlement(stack, job, data, *, timeout):
+    async with asyncio.timeout(timeout):
+        while True:
+            async with stack.world.maker() as observer:
+                creation = (
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT c.id,c.operation_id,c.object_key,c.version_id,c.status,c.error_code,c.receipt,"
+                                "EXISTS(SELECT 1 FROM public.storage_operations WHERE id=c.operation_id) AS permit_retained,"
+                                "EXISTS(SELECT 1 FROM yoao_assets_v1.import_original_verifications "
+                                "WHERE job_id=CAST(c.authority->>'job_id' AS uuid)) AS verification_started,"
+                                "m.physical_outcome,m.finished_at,m.evidence "
+                                "FROM public.managed_original_creations c "
+                                "LEFT JOIN public.storage_usage_mutations m ON m.owner_id=c.id "
+                                "AND m.producer='managed_original_creation' AND m.kind='create' "
+                                "WHERE c.authority->>'job_id'=:job"
+                            ),
+                            {"job": str(job)},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+            if creation["status"] == "failed":
+                break
+            await asyncio.sleep(0.1)
+    assert creation["error_code"] == "import_verification_not_started"
+    assert not creation["permit_retained"] and not creation["verification_started"]
+    assert (
+        creation["physical_outcome"] == "written"
+        and creation["finished_at"] is not None
+    )
+    assert creation["evidence"]["physical_settled"] is True
+    assert creation["evidence"]["receipt"] == creation["receipt"]
+    get = {"Bucket": stack.storage.datasets_bucket, "Key": creation["object_key"]}
+    if creation["version_id"] is not None:
+        get["VersionId"] = creation["version_id"]
+    with closing(stack.storage.client.get_object(**get)["Body"]) as body:
+        assert body.read() == data
+    return creation
+
+
 @pytest.mark.parametrize(
     ("rejection", "expected_error"),
     [("wrong-token", "storage_unavailable"), ("invalid-status", "invalid_response")],
@@ -858,70 +901,7 @@ async def test_definitive_source_rejection_recovers_unstarted_written_creation(
             assert facts.jobs[0]["error_message"] == expected_error
             assert facts.jobs[0]["result"]["added"] == 0
             assert not facts.items
-            async with asyncio.timeout(15):
-                while True:
-                    async with stack.world.maker() as observer:
-                        creation = (
-                            (
-                                await observer.execute(
-                                    text(
-                                        "SELECT creation.id,creation.status,creation.operation_id,creation.object_key,"
-                                        "creation.version_id,creation.receipt,creation.error_code,"
-                                        "EXISTS(SELECT 1 FROM public.storage_operations permit "
-                                        "WHERE permit.id=creation.operation_id) AS permit_retained "
-                                        "FROM public.managed_original_creations creation "
-                                        "WHERE creation.authority->>'job_id'=:job"
-                                    ),
-                                    {"job": str(job)},
-                                )
-                            )
-                            .mappings()
-                            .one()
-                        )
-                        if creation["status"] == "failed":
-                            assert (
-                                creation["error_code"]
-                                == "import_verification_not_started"
-                            )
-                            assert not creation["permit_retained"]
-                            mutation = (
-                                (
-                                    await observer.execute(
-                                        text(
-                                            "SELECT physical_outcome,finished_at,evidence FROM public.storage_usage_mutations "
-                                            "WHERE owner_id=:creation AND producer='managed_original_creation' "
-                                            "AND kind='create'"
-                                        ),
-                                        {"creation": creation["id"]},
-                                    )
-                                )
-                                .mappings()
-                                .one()
-                            )
-                            assert mutation["physical_outcome"] == "written"
-                            assert mutation["finished_at"] is not None
-                            assert (
-                                mutation["evidence"]["receipt"] == creation["receipt"]
-                            )
-                            assert mutation["evidence"]["physical_settled"] is True
-                            assert (
-                                await observer.scalar(
-                                    text(
-                                        "SELECT count(*) FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
-                                    ),
-                                    {"job": job},
-                                )
-                                == 0
-                            )
-                            break
-                    await asyncio.sleep(0.1)
-            get = {
-                "Bucket": stack.storage.datasets_bucket,
-                "Key": creation["object_key"],
-            }
-            if creation["version_id"] is not None:
-                get["VersionId"] = creation["version_id"]
-            assert stack.storage.client.get_object(**get)["Body"].read() == data
+            await _wait_unstarted_write_settlement(stack, job, data, timeout=15)
             if rejection == "invalid-status":
                 assert [path for path, _ in observed] == [
                     "/v1/import/verify",
@@ -1401,14 +1381,27 @@ async def test_original_source_request_retries_admission_lock_contention(
             if locked_row == "budget":
                 _docker("kill", "--signal", "KILL", worker)
                 async with stack.world.maker() as observer:
-                    assert await observer.scalar(
-                        text(
-                            "SELECT EXISTS(SELECT 1 FROM public.managed_original_creations creation "
-                            "JOIN public.storage_operations permit ON permit.id=creation.operation_id "
-                            "WHERE creation.authority->>'job_id'=:job AND creation.status='written')"
-                        ),
-                        {"job": str(job)},
+                    written = (
+                        (
+                            await observer.execute(
+                                text(
+                                    "SELECT c.id,c.operation_id,c.object_key,c.version_id FROM "
+                                    "public.managed_original_creations c JOIN public.storage_operations p "
+                                    "ON p.id=c.operation_id AND p.purpose='managed_original_creation' "
+                                    "WHERE c.authority->>'job_id'=:job AND c.status='written'"
+                                ),
+                                {"job": str(job)},
+                            )
+                        )
+                        .mappings()
+                        .one()
                     )
+                # Leave the killed worker's 30s lease to expire. Source must
+                # settle its real PUT before teardown removes the import Job.
+                settled = await _wait_unstarted_write_settlement(
+                    stack, job, data, timeout=45
+                )
+                assert all(written[key] == settled[key] for key in written)
                 return
             facts = await _wait_job(stack, job)
             assert facts.jobs[0]["result"]["added"] == 1

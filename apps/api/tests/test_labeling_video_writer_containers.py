@@ -498,16 +498,15 @@ class _RestrictedWriterContainer:
 
 
 def _instrument_status_samples(
-    original_client, writer: _RestrictedWriterContainer, record_sample
+    original_client, writer: _RestrictedWriterContainer, terminal_renewal, record_sample
 ):
     sampling_started = False
 
     class SampledVideoWriterHttpClient(original_client):
         async def status(self, operation_id, execution, request_digest):
             nonlocal sampling_started
-            receipt = await super().status(operation_id, execution, request_digest)
             if sampling_started:
-                return receipt
+                return await super().status(operation_id, execution, request_digest)
             sampling_started = True
 
             semaphore = asyncio.Semaphore(4)
@@ -570,8 +569,9 @@ def _instrument_status_samples(
                 "http_attempts": len(receipts) + retries,
                 "latency_ms": latencies_ms,
             }
+            await asyncio.wait_for(terminal_renewal.wait(), timeout=10)
             record_sample(writer.status_sample)
-            return receipt
+            return receipts[0]
 
     return SampledVideoWriterHttpClient
 
@@ -583,6 +583,34 @@ async def test_video_writer_owner_container_restarts_and_serves_bounded_status_s
     from tests import test_labeling_video_writer_live as live_module
     from app.services.video_tracking import execution
 
+    terminal = asyncio.Event()
+    terminal_renewal = asyncio.Event()
+    normal_interval = execution._RENEW_SECONDS
+    native_call = execution._call
+
+    async def observe_renewal(db, action, proof):
+        if action != "renew":
+            return await native_call(db, action, proof)
+        # Keep the normal heartbeat during model work. Accelerate it only
+        # once the committed receipt is being served across an owner restart.
+        if not terminal.is_set():
+            try:
+                await asyncio.wait_for(terminal.wait(), timeout=normal_interval)
+            except TimeoutError:
+                pass
+        try:
+            return await native_call(db, action, proof)
+        except execution.VideoExecutionFailure as error:
+            if error.code == "job_not_active":
+                terminal_renewal.set()
+            raise
+
+    class RestartedWriter(_RestrictedWriterContainer):
+        async def restart(self):
+            terminal.set()
+            await super().restart()
+
+    monkeypatch.setattr(execution, "_call", observe_renewal)
     monkeypatch.setattr(execution, "_RENEW_SECONDS", 0.2)
     image_ref = os.environ["AAP_LABELING_VIDEO_WRITER_IMAGE"]
     image_id, _ = _inspect_image(image_ref)
@@ -616,7 +644,7 @@ async def test_video_writer_owner_container_restarts_and_serves_bounded_status_s
         monkeypatch.setattr(live_module, "_stop_mask_content", _stop_remove_container)
 
     def create_writer(**values):
-        writer = _RestrictedWriterContainer(**values, image_id=image_id)
+        writer = RestartedWriter(**values, image_id=image_id)
         containers.append(writer)
         return writer
 
@@ -629,6 +657,7 @@ async def test_video_writer_owner_container_restarts_and_serves_bounded_status_s
         sampled = _instrument_status_samples(
             original_client,
             containers[-1],
+            terminal_renewal,
             lambda sample: request.node.user_properties.append(
                 ("receipt_status_sample", json.dumps(sample))
             ),
@@ -644,6 +673,8 @@ async def test_video_writer_owner_container_restarts_and_serves_bounded_status_s
         "http",
     )
     assert len(containers) == 1
+    assert terminal_renewal.is_set()
+    request.node.user_properties.append(("terminal_renewal", "job_not_active"))
     sample = containers[0].status_sample
     assert sample is not None
     assert sample["requests"] == 16
