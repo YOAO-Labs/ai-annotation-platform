@@ -45,6 +45,7 @@ from yoao_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
     snapshot_video_window_checkpoint,
 )
+from tests.frozen_namespaces import current
 from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.test_inference_backend_dependency_reads_restore import (
     _assert_clone_identity,
@@ -79,8 +80,20 @@ def _invoke_writer_downgrade(connection):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.revision == "bo0283"
+    # The frozen 0283 guard names the schemas it was installed with. A current
+    # head has renamed those schemas in place, so run the frozen statements
+    # under their current spelling; the migration itself stays untouched.
+    frozen_execute = module._execute
+
+    def execute_current(statement: str) -> None:
+        frozen_execute(current(statement))
+
     with Operations.context(MigrationContext.configure(connection)):
-        module.downgrade()
+        module._execute = execute_current
+        try:
+            module.downgrade()
+        finally:
+            module._execute = frozen_execute
 
 
 def _role_dsn(database: str) -> str:

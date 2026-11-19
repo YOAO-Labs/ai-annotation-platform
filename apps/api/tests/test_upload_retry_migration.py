@@ -22,7 +22,8 @@ pytestmark = pytest.mark.asyncio
 API_ROOT = Path(__file__).resolve().parents[1]
 _RESERVED_KEY = "dataset-sources/retry/dataset/item/publication/file.png"
 _STAGING_KEY = "dataset-uploads/item/source"
-_SIGNATURE = "yoao_assets_v1.begin_operator_auxiliary(jsonb)"
+_FUNCTION = "begin_operator_auxiliary"
+_FUNCTION_SCHEMAS = ("aap_assets_v1", "yoao_assets_v1")
 
 
 def _config(url):
@@ -108,14 +109,36 @@ async def retry_migration_database(test_engine):
             await admin.dispose()
 
 
+async def _function_oid(connection):
+    """Resolve the installed retry admission function under either spelling.
+
+    bo0457/bo0458 install it in ``aap_assets_v1``; the forward N5 cutover
+    renames that schema in place to ``yoao_assets_v1`` without changing the
+    function OID. Exactly one schema exists at a time.
+    """
+    return (
+        await connection.execute(
+            text(
+                "SELECT proc.oid FROM pg_proc AS proc "
+                "JOIN pg_namespace AS namespace ON namespace.oid=proc.pronamespace "
+                "WHERE namespace.nspname=ANY(CAST(:schemas AS text[])) "
+                "AND proc.proname=:name "
+                "AND pg_catalog.oidvectortypes(proc.proargtypes)='jsonb'"
+            ),
+            {"schemas": list(_FUNCTION_SCHEMAS), "name": _FUNCTION},
+        )
+    ).scalar_one()
+
+
 async def _installed_contract(connection):
+    function_oid = await _function_oid(connection)
     function = (
         await connection.execute(
             text(
                 "SELECT pg_get_userbyid(proowner) AS owner,prosecdef,proconfig FROM pg_proc "
-                "WHERE oid=CAST(:signature AS regprocedure)"
+                "WHERE oid=CAST(:oid AS oid)"
             ),
-            {"signature": _SIGNATURE},
+            {"oid": function_oid},
         )
     ).one()
     function_acl = (
@@ -126,10 +149,10 @@ async def _installed_contract(connection):
                 "CROSS JOIN LATERAL aclexplode(COALESCE(proc.proacl, "
                 "acldefault('f',proc.proowner))) AS entry "
                 "LEFT JOIN pg_roles AS role ON role.oid=entry.grantee "
-                "WHERE proc.oid=CAST(:signature AS regprocedure) "
+                "WHERE proc.oid=CAST(:oid AS oid) "
                 "ORDER BY grantee,entry.privilege_type,entry.is_grantable"
             ),
-            {"signature": _SIGNATURE},
+            {"oid": function_oid},
         )
     ).all()
     table_acl = (
@@ -401,10 +424,11 @@ async def _retry_schema(connection):
             text(
                 "SELECT pg_get_functiondef(proc.oid) FROM pg_proc AS proc "
                 "JOIN pg_namespace AS namespace ON namespace.oid=proc.pronamespace "
-                "WHERE namespace.nspname='yoao_assets_v1' "
+                "WHERE namespace.nspname=ANY(CAST(:schemas AS text[])) "
                 "AND proc.proname IN ('begin_operator_auxiliary','fail_operator_original') "
                 "ORDER BY proc.proname"
-            )
+            ),
+            {"schemas": list(_FUNCTION_SCHEMAS)},
         )
     ).all()
     return columns, indexes, definitions
