@@ -653,3 +653,14 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - `joint-prereqs-3d45da957-3/administrative-retirement/`：按失败轮的容器 ID、数据库 OID、资源 owner、进程启动身份和 socket inode 退役了 22 个宿主进程、4 个容器、专属卷／网络和临时根。已移除该轮的独立工作树与私有 Python 环境。保留原 JUnit 与失败回执；未修改业务表，未把普通清理改记为成功。
 - `joint-repair-d8552d686-1/`：修复候选 `d8552d686` 按上轮的 3,336 个节点逐项核对，新删除组 8 项、ordinary 3,279 项、其余 19 组 49 项，没有删项或重复分配。3 个 API 镜像重建并验证安装字节，其余 15 个镜像的 COPY 输入未变；6,157 个宿主输入、私有 Workspace 运行时的 11 个发行包／385 个文件、20 个截图示例文件均已对账。两项严格峰值继续延期。`baseline-routing.json` 和 `preflight.json` 是分组及输入证据，不是执行结果。
 - `deletion-http-run/`：8 个删除／解除关联节点在独占数据库内全部通过，无跳过，数据库与内外存储正常退役。`ordinary-consumers-run/`：同库的 SFTP、导入通知、截图恢复、相邻 run 保护和作业摘要重投共 5 项通过；两个媒体回填用例因定向入口未传入已验明的 Workspace API 镜像而跳过。pytest 退出 0，验证器按“不得跳过”退出 1，资源正常退役，默认门未启动。`ordinary-consumers-worker-collection.json` 核对了冻结镜像摘要、制品回执和原 7 个节点的跳过标记；这仅证明可执行，不追认两个回填用例通过。
+
+## 后继阶段批准与 J1 准入核对
+
+2026-11-19，用户批准 J1、N6-S、N6-E、J2。主进程只读 `feat/backend-opt` 已出具的回执，没有在本工作树运行 T1／T2。以下联合轮路径相对于 `runtime-private/stage-f-20261112/t1-gate/`。
+
+- **已收到新准入，未收到通过终局。** `joint-repair-d8552d686-1/admitted-joint.json`（SHA256 `cc59d5436efcb43e8b1a93d2a115d2f95801aaed26cb0629e156b9b7b53c4fdf`）绑定 `d8552d686547a7b1ba43f84a5b1081ba83772219`，默认参数为空。重跑的 ordinary 前置 7/7、独占删除前置 8/8，不能替代默认轮。截至核对，最后可裁决的默认终局仍是 `joint-prereqs-3d45da957-3/joint-verdict.json`（SHA256 `d473b82c268ac44d8c2c253d4f1dabd16dd59e6265d7dba0c17052424900bdbe`）：退出 1，ordinary 清理失败。`2206f0722` 的定向 44/44 未并入它。
+- **J1 输入已核到字节。** 新准入绑定的 `inputs-d8552d686/index.json` SHA256 为 `c8f8f406d0580444ccc04f628de477b7dacd7c6623ffef4fcebde69c3540d5c0`；18 个不同镜像 ID 的 18 份制品回执均与索引摘要一致。3 项在本候选重建，11 项沿用 `254fe2a54`、4 项沿用 `d6bb9c4f4` 的相同 COPY 输入；没有声称重建全部镜像。Git 祖先关系覆盖 N4-F、D1、D2、D3、N6-K、N5 限定资格提交 `0a62314f1` 和 N5 收尾 `254fe2a54`。候选迁移目录 Git tree 为 `d31fceb8664dac6bb0b32e6fd3944e58f43e229c`；Alembic 从同一目录识别出唯一 head `bo0474`。这是源码与回执核对，不是实库迁移或 J1 组合验收。
+- **N6-S：保留哪些历史输入，哪些不能充当物理归属。** 对照原 `f0-evidence.json`（SHA256 `3d7beb85ddcbcaeeec64f7d51a8fa50c8ed957f4199fec90533df6871c7544fe`），直接读出图像、完整视频、范围视频、LiDAR 共四个旧 ZIP；四份整包和四个原始 annotations 成员的长度、SHA256 均吻合，未用当前 writer 重建。N4-F 的七个普通导出回执中，`job.result.object_key` 均不是 `_aap_managed/export/` 键，且结果内没有版本 ID。它们是格式／下载证据，不能冒充旧受管桶中的对象。J1 后须用旧分配器在专属版本桶中先保存准确 location、key、version，再用新路径实际下载、保留和精确退役；不能用邻居的相同字节代替。
+- **N6-E：旧工具只读盘点。** 在 `test-optimization` 用现有 `worktree_env.load_identity(create=False)` 核对：没有 `.worktree/identity.json`，也没有 `dev/test/e2e` 模式目录；`.worktree/t1-current` 和日志原样保留。这仅说明本 checkout 没有可据以操作的旧 owner，不证明宿主没有资源。`.env`／`.env.local` 不存在；根和 Web 的 Node 依赖、API 虚拟环境均为真实目录，未改动。另用两个临时目录产生旧工具身份，六组 checkout × mode 推导出互异的 6 个数据库名、6 个 Redis 名、60 个桶名、6 个 owner 和确认值；两次交叉身份校验均拒绝。临时目录已移除，没有创建数据库、Redis 或桶。该核对不能替代新环境普通进程、状态恢复及邻居保护。
+
+**放行条件：** `feat/backend-opt` 须交付同一候选的默认终局、逐节点 JUnit 对账和正常退役结果；若换候选，重新绑定其制品与迁移 head。主进程随后在同一集成基线上执行普通 worker／安装消费者导出、三类真实草稿恢复、精确清理后的邻居存活和 Workspace owner-transfer 权限／重放／恢复。只有这个组合门通过才从该提交并行实施两项 N6。J2 需在二者的集成提交上实跑新写、旧读、恢复和邻居保护；本次没有切换存储、迁移状态、采用日常环境或批准发布。
