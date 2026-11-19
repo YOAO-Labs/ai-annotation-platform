@@ -15,3 +15,11 @@
 - 四个绑定测试文件实际执行 **87 通过、无跳过或失败**（`storage-bindings-final.xml`）。新场景从按钮发起请求，核对两次预览的 generation、目标 ID、不同修订和最终确认状态；撤权从刷新按钮触发，不依赖 React Query 的私有缓存键。调整卸载与会话重置顺序后，新六项另行通过（`binding-cleanup.xml`），没有新增未包裹的 React 更新警告。旧组件用例的警告未据此关闭。
 - 负对照只在 Vite 加载时将报告附件、审计归档两种 `*_binding_target_missing` 替换成头像码，不改磁盘上的产品代码。六项中恰好这两种用途的恢复失败：目标删除被误显示为管理权限丢失；头像恢复和三项撤权仍通过（`binding-mutant.xml`）。负对照不计作产品通过项。
 - 初轮限 worker 参数冲突，零项执行（`storage-bindings.xml`）；上述成功来自显式设置最小／最大 worker 后的真实运行。替身在 HTTP 响应边界，不证明后端权限、真实存储、浏览器布局或 T1／T2。
+
+## 2026-11-19：筛选控件的静态归属与交互
+
+证据目录：`.artifacts/test-results/web-filter-ownership/`。
+
+- 在一次性副本中用空的 `<div>` 代替数据集页面，只在注释里留下共享组件的导入路径和 `<FilterGroup>`。旧 Vitest 仍然 **28/28 通过**（`before-comment-only.xml`）；它证明的是文字匹配，不是筛选行为。
+- `pnpm --filter web lint:filters` 现在核对 28 个界面的 JSX 标签是否绑定到指定的共享导入，已接入 Web lint。实际源码通过（`current.log`）；仅注释、同名本地组件、遮蔽导入三个对照分别退出 1，且只报告数据集页；具名导入改名和通过相对路径限定的命名空间导入通过（`static-controls.json`）。这 28 项不再计入 Vitest。
+- `FilterControls`、`FilterPanel` 与真实 `DatasetsPage` 的 Vitest/jsdom 选集分别为 **5、2、8 项通过**，无跳过（`filter-interactions.xml`）。页面场景覆盖恢复已归档筛选和第 40 项偏移后，清除筛选回到起始页。该证据不代表 28 个页面各自的运行时交互、真实浏览器或后端查询资格。

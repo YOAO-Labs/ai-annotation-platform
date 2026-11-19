@@ -836,6 +836,8 @@ Web 录制与媒体工具已从仅本地命令接入 `Frontend verification`。�
 
 三种存储绑定的目标删除和撤权已从 API 方法 mock 迁到同一组参数化 HTTP 边界场景；保留用途路由、错误码和禁止确认的语义。错误地只识别头像错误码时，报告附件和审计归档的恢复用例均失败，正常实现均通过。
 
+筛选控件的 28 项源码断言已移出 Vitest，改由 Web lint 核对 JSX 对共享导入的实际引用；只剩注释的页面不再通过。筛选组件与数据集页的 15 项交互用例由 Vitest 单独计数，不拿静态检查充作行为验收。两组结果均见上方运行账本。
+
 ### 12.16 G1／G2／G7：独立 Python 套件的报告和站点 Agent 夹具
 
 echo、mock-v2、站点 Agent 和训练执行器保留各自环境与 CI 入口，JUnit 分开上传；一个示例测试失败不会遮蔽另一个示例的结果。站点 Agent 已解除测试模块互相导入和直接导入 `conftest` 的依赖，CI 使用 pytest 的 `importlib` 模式。各套件的实际结果和限制见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)，命令见[测试指南](../../docs-site/dev/testing.md)。组件结果不替代独立网络部署或 GPU 资格。

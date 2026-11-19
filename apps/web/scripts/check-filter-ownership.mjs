@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 // Presentation ownership gate: every audited surface must opt into the shared
 // controls explicitly. Page interaction suites continue to own query semantics.
@@ -38,15 +37,55 @@ const surfaces = [
     "pages/Projects/data-manager/DataManagerExpressionEditor.tsx",
     "FilterSelect",
   ],
-] as const;
+];
 
-describe("shared filter presentation coverage", () => {
-  it.each(surfaces)("%s uses its shared filter surface", (_name, path, component) => {
-    const source = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), "../..", path),
-      "utf8",
-    );
-    expect(source.includes("@/components/filters/")).toBe(true);
-    expect(new RegExp(`<${component}\\b`).test(source)).toBe(true);
-  });
-});
+const src = fileURLToPath(new URL("../src/", import.meta.url));
+const filters = resolve(src, "components/filters");
+const program = ts.createProgram(
+  surfaces.map(([, path]) => resolve(src, path)),
+  { jsx: ts.JsxEmit.Preserve, noResolve: true, noLib: true, types: [] },
+);
+const checker = program.getTypeChecker();
+
+function importsControl(tag, control) {
+  const qualified = ts.isPropertyAccessExpression(tag);
+  const local = qualified ? tag.expression : tag;
+  if (!ts.isIdentifier(local) || (!qualified && /^[a-z]/.test(local.text))) return false;
+  const binding = checker.getSymbolAtLocation(local)?.declarations?.[0];
+  if (!binding) return false;
+  const exported =
+    qualified && ts.isNamespaceImport(binding)
+      ? tag.name.text
+      : !qualified && ts.isImportSpecifier(binding) && !binding.isTypeOnly
+        ? (binding.propertyName ?? binding.name).text
+        : undefined;
+  if (exported !== control) return false;
+  const declaration = ts.findAncestor(binding, ts.isImportDeclaration);
+  if (!declaration || declaration.importClause.isTypeOnly) return false;
+  const source = declaration.moduleSpecifier.text;
+  const target = source.startsWith("@/")
+    ? resolve(src, source.slice(2))
+    : source.startsWith(".")
+      ? resolve(dirname(declaration.getSourceFile().fileName), source)
+      : undefined;
+  return target === filters || target?.startsWith(filters + sep);
+}
+
+function usesControl(node, control) {
+  if (
+    (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+    importsControl(node.tagName, control)
+  )
+    return true;
+  return ts.forEachChild(node, (child) => usesControl(child, control));
+}
+
+for (const [surface, path, control] of surfaces) {
+  const source = program.getSourceFile(resolve(src, path));
+  if (!source || !usesControl(source, control)) {
+    console.error(`${path}: ${surface} must render the shared ${control}`);
+    process.exitCode = 1;
+  }
+}
+if (!process.exitCode)
+  console.log(`Verified shared filter ownership on ${surfaces.length} surfaces.`);
