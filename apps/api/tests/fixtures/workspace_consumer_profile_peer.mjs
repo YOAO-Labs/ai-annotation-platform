@@ -15,7 +15,7 @@ try {
   const before = (await client.query("SELECT pg_backend_pid(),txid_current()::text AS xid"))
     .rows[0];
   const functions = await client.query(
-    "SELECT count(*)::int AS count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' AND has_function_privilege(current_user,p.oid,'EXECUTE')",
+    "SELECT count(*)::int AS count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$' AND has_function_privilege(current_user,p.oid,'EXECUTE')",
   );
   assert.equal(functions.rows[0].count, 32);
   const project = await client.query("SELECT id FROM yoao_workspace_v1.project_facts WHERE id=$1", [

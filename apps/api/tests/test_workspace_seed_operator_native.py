@@ -16,6 +16,7 @@ from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.factory import create_user
+from tests.frozen_namespaces import historical
 from tests.test_workspace_consumer_profile_native import _grants, _world
 from contextlib import asynccontextmanager
 from app.db.models.dataset import Dataset
@@ -315,11 +316,21 @@ async def test_seed_native_descriptor_restrictions_errors_and_rollback(test_engi
     from tests.test_workspace_project_maintenance_native import _dsn
 
     expected = seed_project_schema()
-    for path in (
-        "apps/workspace/src/yoao_workspace/seed_project_protocol.schema.json",
-        "apps/api/alembic/sql/0301_workspace_seed_project.schema.json",
-    ):
-        assert json.loads((ROOT / path).read_text()) == expected
+    assert (
+        json.loads(
+            (
+                ROOT
+                / "apps/workspace/src/yoao_workspace/seed_project_protocol.schema.json"
+            ).read_text()
+        )
+        == expected
+    )
+    # The packaged migration descriptor keeps the historical AAP spelling.
+    assert json.loads(
+        (
+            ROOT / "apps/api/alembic/sql/0301_workspace_seed_project.schema.json"
+        ).read_text()
+    ) == historical(expected)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as db:
         actor = await create_user(

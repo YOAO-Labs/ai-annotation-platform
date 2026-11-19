@@ -17,6 +17,7 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.sample_evaluation import SampleEvaluationRun
 from app.db.models.trained_model import ModelDeployment
 from tests.factory import create_user
+from tests.frozen_namespaces import current
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.sample_evaluation_fixtures import Objects, seed as seed_evaluation_source
 
@@ -338,7 +339,8 @@ async def test_inference_role_gets_owner_reads_without_learning_table_access(
 
 
 async def test_backend_dependency_catalog_schema_is_closed_and_typed() -> None:
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    # The packaged migration descriptor keeps the historical AAP spelling.
+    schema = current(json.loads(_SCHEMA_PATH.read_text(encoding="utf-8")))
     signatures = [_EVALUATION_FUNCTION, _JOBS_FUNCTION]
 
     assert schema["$id"] == "aap-inference-backend-dependency-reads/v1"

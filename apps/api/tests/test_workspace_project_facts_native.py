@@ -30,6 +30,7 @@ from app.services.workspace_read_relations import (
     project_rows,
 )
 from types import SimpleNamespace
+from tests.frozen_namespaces import current
 from tests.test_workspace_project_authority_locking import _world
 
 pytestmark = [
@@ -44,10 +45,14 @@ _ROOT = Path(__file__).resolve().parents[3]
 
 async def test_native_column_contract_owner_and_grants_match_database(test_engine):
     schema = read_relations_schema()
-    native = json.loads(
-        (
-            _ROOT / "apps/api/alembic/sql/0377_workspace_project_snapshots.schema.json"
-        ).read_text()
+    # The packaged migration descriptor keeps the historical AAP spelling.
+    native = current(
+        json.loads(
+            (
+                _ROOT
+                / "apps/api/alembic/sql/0377_workspace_project_snapshots.schema.json"
+            ).read_text()
+        )
     )
     observations = {}
     async with _world(test_engine) as (owner, _api, _world_data, _url):

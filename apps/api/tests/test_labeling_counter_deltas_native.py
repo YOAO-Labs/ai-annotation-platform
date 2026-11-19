@@ -20,6 +20,7 @@ from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.project_access import get_workspace_project
 from tests.factory import create_task
+from tests.frozen_namespaces import current
 from tests.test_project_owner_persistence_native import _private_denied, _restricted
 
 pytestmark = [
@@ -86,7 +87,8 @@ async def test_native_counter_function_contract_and_exact_privileges(test_engine
     async with _restricted(test_engine) as (owner, _api, _world, _url, _batches):
         async with owner() as db:
             for function in manifest["functions"]:
-                signature = function["signature"]
+                # The packaged migration descriptor keeps the historical spelling.
+                signature = current(function["signature"])
                 row = (
                     await db.execute(
                         text(

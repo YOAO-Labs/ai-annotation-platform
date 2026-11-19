@@ -19,6 +19,7 @@ from app.db.models.task import Task
 from app.services.batch import BatchService
 from app.services.project_write_guard import lock_actor_scope
 from tests.factory import create_membership, create_user
+from tests.frozen_namespaces import current
 from tests.test_workspace_project_authority_locking import (
     _assert_private_denied,
     _world,
@@ -483,13 +484,15 @@ async def test_member_native_functions_have_exact_owner_and_grants(test_engine):
                 for item in artifact["x-native-capabilities"]["functions"]
             }
             for signature in signatures:
+                # The packaged migration descriptor keeps the historical spelling.
+                live_signature = current(signature)
                 row = (
                     await db.execute(
                         text(
                             "SELECT pg_get_userbyid(proowner),prosecdef FROM pg_proc "
                             "WHERE oid=CAST(:signature AS regprocedure)"
                         ),
-                        {"signature": signature},
+                        {"signature": live_signature},
                     )
                 ).one()
                 assert row == ("workspace_code", True)
@@ -506,7 +509,7 @@ async def test_member_native_functions_have_exact_owner_and_grants(test_engine):
                             text(
                                 "SELECT has_function_privilege(:role,:signature,'EXECUTE')"
                             ),
-                            {"role": role, "signature": signature},
+                            {"role": role, "signature": live_signature},
                         )
                         is expected
                     )
@@ -517,7 +520,7 @@ async def test_member_native_functions_have_exact_owner_and_grants(test_engine):
                         "WHERE p.oid=CAST(:signature AS regprocedure) AND a.grantee=0 "
                         "AND a.privilege_type='EXECUTE')"
                     ),
-                    {"signature": signature},
+                    {"signature": live_signature},
                 )
 
 
