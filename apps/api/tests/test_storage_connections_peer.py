@@ -63,6 +63,10 @@ _EXPECTED_SOURCE_CAPABILITIES = {
     "resolve_internal_image_source",
     "schedule_image_media",
     "read_legacy_dataset_upload",
+    # bo0464 adds the Source-owned native pyramid capture/retirement surface.
+    "capture_native_pyramid_write_io",
+    "capture_native_pyramid_read_io",
+    "capture_native_pyramid_retirement_io",
 }
 
 

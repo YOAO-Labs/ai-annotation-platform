@@ -22,6 +22,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from tests.factory import create_project, create_task, create_user
+from tests.frozen_namespaces import current, historical
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_project_class_rename_legacy import _binding, _snapshot
 from tests.test_workspace_configuration_native import _configuration_dsn
@@ -344,11 +345,13 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
     old_sql = (
         _ROOT / "apps/api/alembic/sql/0257_workspace_configuration.sql"
     ).read_text()
+    # Frozen migrations keep the historical AAP spelling; replay them under
+    # the current namespace exactly as revision bo0474 renamed it.
     old_step = next(
         statement.strip()
         for statement in old_sql.split("-- aap-statement-break")
         if statement.strip().startswith(
-            f"CREATE FUNCTION {_SCHEMA}.configuration_step("
+            f"CREATE FUNCTION {historical(_SCHEMA)}.configuration_step("
         )
     ).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
     new_statements = (
@@ -365,14 +368,14 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
                 assert metadata["owner"] == "workspace_code"
                 assert metadata["security_definer"] is True
                 assert "search_path=pg_catalog, pg_temp" in metadata["settings"]
-            await owner.exec_driver_sql(old_step)
+            await owner.exec_driver_sql(current(old_step))
             legacy = await _function_metadata(owner)
             step_key = next(key for key in before if ".configuration_step(" in key)
             for key in ("oid", "owner", "acl"):
                 assert legacy[step_key][key] == before[step_key][key]
             for statement in new_statements:
                 if statement.strip():
-                    await owner.exec_driver_sql(statement.strip())
+                    await owner.exec_driver_sql(current(statement.strip()))
             assert await _function_metadata(owner) == before
         finally:
             await transaction.rollback()

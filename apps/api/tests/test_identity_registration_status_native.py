@@ -27,6 +27,7 @@ from yoao_identity.registration_reader import RegistrationStatusReader
 from app.db.models.system_setting import SystemSetting
 from app.db.models.user import User
 from app.services.identity_recovery_data import IdentityRecoveryCommandData
+from tests.frozen_namespaces import historical
 from tests.identity_recovery_live_helpers import cleanup, command
 from tests.test_identity_admission_live import _dsn
 
@@ -87,15 +88,13 @@ def test_registration_read_descriptors_match_the_portable_owner_contract():
         )
         == expected
     )
-    assert (
-        json.loads(
-            (
-                Path(__file__).parents[1]
-                / "alembic/sql/0287_identity_registration_status.schema.json"
-            ).read_text()
-        )
-        == expected
-    )
+    # The packaged migration descriptor keeps the historical AAP spelling.
+    assert json.loads(
+        (
+            Path(__file__).parents[1]
+            / "alembic/sql/0287_identity_registration_status.schema.json"
+        ).read_text()
+    ) == historical(expected)
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,7 @@ from app.services.identity_session_data import IdentitySessionData
 from app.services.notification import NotificationService
 from app.services.project_aggregates import member_user_ids, membership_project_ids
 from tests.factory import create_project
+from tests.frozen_namespaces import historical
 from tests.test_identity_auth_native import _cleanup, _seed
 from tests.test_identity_recovery import _postgres_tool
 
@@ -73,16 +74,14 @@ def test_read_relation_descriptors_match_the_installed_portable_contract():
         )
         == expected
     )
-    assert (
-        json.loads(
-            (
-                _ROOT / "apps/api/alembic/sql/0286_identity_read_relations.schema.json"
-            ).read_text()
-        )
-        == expected
-    )
+    # The packaged migration descriptor keeps the historical AAP spelling.
+    assert json.loads(
+        (
+            _ROOT / "apps/api/alembic/sql/0286_identity_read_relations.schema.json"
+        ).read_text()
+    ) == historical(expected)
     for name, columns in _RELATIONS.items():
-        relation = expected["x-postgresql-relations"][f"aap_identity_v1.{name}"]
+        relation = expected["x-postgresql-relations"][f"yoao_identity_v1.{name}"]
         assert relation["columns"] == columns
 
 
@@ -467,7 +466,7 @@ async def test_independent_consumer_retains_only_approved_reads_and_transactiona
                     await db.execute(
                         text(
                             "SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                            "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                            "WHERE n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$' "
                             "AND has_function_privilege(current_user,p.oid,'EXECUTE')"
                         )
                     )

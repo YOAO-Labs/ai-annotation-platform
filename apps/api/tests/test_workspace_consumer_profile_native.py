@@ -343,6 +343,11 @@ async def test_lan_profile_revokes_public_mask_execution_and_keeps_runtime(test_
                         "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
                         "yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
                         "yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
+                        # bo0464 adds native pyramid capture/retirement to the
+                        # Assets cleanup role, revoked from PUBLIC.
+                        "yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
+                        "yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
+                        "yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
                     }
                     assert not await db.scalar(
                         text(
