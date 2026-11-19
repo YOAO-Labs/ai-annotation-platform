@@ -1,6 +1,6 @@
 # 面向后端模组解耦与能力插件化的测试治理计划草案
 
-> 状态：阶段 E 已完成本地集成验收；阶段 F 的 N4 四个切片、N6-K 已完成限定验收，N5 已按产品语言计划完成。**J1、N6-S、N6-E、J2 均已获实施批准，尚未通过验收。** `feat/backend-opt` 已启动 `d8552d686` 的 T1／T2 默认联合轮，尚无该轮通过回执。J1 通过后并行实施两项 N6，再执行 J2；不含生产采用或公开发布。
+> 状态：阶段 E 已完成本地集成验收；阶段 F 的 N4 四个切片、N6-K 已完成限定验收，N5 已按产品语言计划完成。**J1、N6-S、N6-E、J2 均已获实施批准，尚未通过验收。** `d8552d686` 的 T1／T2 默认联合轮已结束，ordinary 清理失败；J1 仍被阻塞。J1 通过后并行实施两项 N6，再执行 J2；不含生产采用或公开发布。
 >
 > 分工：T1／T2 联合验收由 `feat/backend-opt` 执行并对账，本工作树不重跑。独立测试治理分别记录于 [Web 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)和[独立 Python 套件运行账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)。
 >
@@ -1256,8 +1256,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 | 任务                          | 状态                       | 最佳单一证据                                                                                                          | 未关闭阻塞                                      |
 | ----------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | F0 基线与资源冻结             | 已完成（实施批准门已解除） | 迁移单头 `bo0430`；阶段 C／E 历史 ZIP 及 annotations 成员原始摘要；规划提交 `f4358c055`                               | 无                                              |
-| T1 默认完整资格               | 新候选待终局；上轮未通过   | `d8552d686` 已准入默认轮；`3d45da957` 的 3,336 项中 3,052 通过、205 失败、29 错误、49 未运行、1 延期跳过              | 等待同轮节点、JUnit 和清理；严格峰值延期        |
-| T2 跨运行清理收敛             | 新候选待终局；定向已通过   | `3d45da957` 默认轮 28 通过、14 错误、2 未运行；`2206f0722` 定向 44/44                                                 | 需要同一默认轮结果，不拼接定向报告              |
+| T1 默认完整资格               | 默认未通过                 | `d8552d686`：3,336 项中 3,225 通过、39 失败、14 错误、57 未运行、1 延期跳过                                           | ordinary 清理失败；严格峰值延期                 |
+| T2 跨运行清理收敛             | 定向通过，默认未通过       | `d8552d686`：28 通过、14 错误、2 未运行；`2206f0722` 定向 44/44                                                       | 不拼接定向与默认结果                            |
 | N4-F 导入导出格式             | 已完成（格式批准门已解除） | `24a109c3d`（`825835225`／`089d9cfbb`／`ffb7fbce9`／`f09b09a13`）                                                     | 无                                              |
 | N4-D1 run／study 草稿         | 已完成功能验收             | `38e3ce262`（`fc4a32760`／`e28776742`／`250b168b8`）                                                                  | 无（`cleanup_safety_qualified=false` 见 §16.8） |
 | N4-D2 数据集请求草稿          | 已完成独立验收             | `6a86e7987`／`f7df93b55`                                                                                              | 无                                              |
@@ -1265,7 +1265,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 | N5-S 新 namespace 安全识别    | 已完成限定资格             | `n5/qualification.json`：14 项权限分类／运行时检查与 6 项真实 grant 案例通过；不扩大正向权限白名单                    | 无；不等于全部 namespace 已切换                 |
 | N5-W Workspace owner-transfer | 已完成单能力试点资格       | `n5/qualification.json`：50 项去重案例＋34 项单元检查；填充旧库前向切换、四绑定、当前恢复及 Python／Node 受限镜像通过 | 无；完整 T1／T2 与后续批准门仍独立跟踪          |
 | N6-K 技能发现                 | 已完成                     | `d4fc25259`                                                                                                           | 无                                              |
-| J1 集成组合门                 | 已批准；等待联合终局       | `d8552d686` 的候选与输入已核对；启动记录不等于终局                                                                    | T1／T2 通过后执行 §16.5 同候选组合验收          |
+| J1 集成组合门                 | 已批准；联合门未通过       | `d8552d686` 的输入已核对，默认联合轮退出 1                                                                            | T1／T2 通过后执行 §16.5 同候选组合验收          |
 | N6-S export 新分配            | 已批准；待 J1 通过         | §16.4：只切新 export 分配，保留旧精确键与版本                                                                         | 从通过 J1 的集成提交起步                        |
 | N6-E 本地环境采用             | 已批准；待 J1 通过         | §16.4：只限可销毁工作树，保留旧资源归属与状态                                                                         | 与 N6-S 并行，不依赖其先完成                    |
 | J2 新命名环境收口             | 已批准；待两项 N6 通过     | §16.5：新环境执行新导出、历史读取、恢复与邻居保护                                                                     | 两项 N6 实现及独立验收合入同一候选              |
@@ -1278,13 +1278,13 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 
 ### 16.7 未关闭问题
 
-- **T1 默认完整门未通过。** `3d45da957` 的 ordinary 在清理阶段报 `WorktreeError`，后续 19 组未执行。除已隔离的冷跟踪 worker 外，真实删除项目、解除数据集关联的 HTTP 用例也会保留取消作业；操作回执可对上作业，但原 Task 和跟踪记录已不存在。截图清理按设计拒绝未知范围，随后新的作业写入也被拒。删除 HTTP 文件改用独占实例；不删除业务回执、不改变守卫或默认节点。导入通知另按本作业的投递记录对账，不把全局 relay 的投递总数当成本作业的投递数。修复不追认旧 JUnit，见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
+- **T1 默认完整门未通过。** `d8552d686` 的删除隔离组定向 8/8，共库消费者定向 7/7。完整默认轮仍在 ordinary 清理时报 `WorktreeError`，其余 20 组未运行。对专属失败库逐项代入实际守卫：44 个 `batch_predict` 和 1 个 `prediction_retry` 作业阻塞清理；另有两个已发布数据集未证明媒体退役。未将终局快照当作每次 409 的首次原因，不扩宽生产守卫、不删除业务回执。其他断言失败须按自己的证据处理。见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
 - **严格内存峰值（延期／未验证）。** 用户确认当前没有其他验收环境，且不便安装或重启；该单项不作为已获授权的独立开发与收尾工作的前置条件。不要求更改宿主、安装、重启或另找环境，也不在本机重复运行已知缺少 `memory.peak` 能力的检查。保留严格指标和未验证状态，不用应用侧预算或采样指标冒充内核峰值证明；正式发布评审时再决定补验安排。此决定不认定完整 T1／T2 通过，也不开放其他批准门。
 - **Playwright owned teardown 与截图失败／取消邻居保护（已通过）。** 2026-11-12 的真实运行修复了推理 owner 关闭、supervisor 导入路径、私有 supervisor 存储凭据、provider 地址、API／Vite webServer 以 SIGTERM 优雅关闭及截图入口的多项首个阻塞，集成为 `d4f231adf`、`2cce80154`。此前每次普通 `exec --mode e2e -- playwright test` 都因 Playwright 以 SIGKILL 结束 Vite 而以 `descendant_boundary_unproved` 退出 1；现在 exec 边界只接受 0，或独立且已退出的 webServer 进程组的 SIGTERM（-15／143），SIGKILL、其他退出码、supervisor 自身进程组和仍存活的组长都保留为失败。`t2-playwright-teardown-10` 失败与取消两例通过，B 的五个原件版本保持、真实重载通过，exec 退出 0；`t2-screenshot-teardown-8` 通过、exec 退出 0（限制：真实截图输出失败而非生产场景失败处理器，消费者为活动浏览器而非在途原件读取）；`test_scale_cleanup_blocks_live_admission_and_preserves_neighbor` 1 项通过。两份环境均经 owning `destroy` 退役。
 - **held-inference 邻居测试与 `batch_predict` 数据集范围（已通过）。** 此前 A 的真实 `batch_predict` 被物理挂起时，清理无关的 run C 得到 409 `fixture_dataset_job_unsettled`：`guard_fixture_dataset_jobs` 遇到任何范围未知、未退役的 Job 都拒绝清理，而 `fixture_job_dataset_scope` 不识别 `batch_predict`。`bo0456`（集成为 `59675c3f6`）在 fixture 预测 Job 出生时，由出生 payload 的准确 `task_ids` 经 Task、DatasetItem 解析出数据集集合，写入只允许出生触发器插入、不可更新或删除的 `aap_jobs_v1.fixture_prediction_job_datasets`；只有出生记录的 project／actor 与 Job 一致时，范围函数才返回这些数据集。缺少绑定、旧行或不一致时仍为 unknown 并继续阻塞。该 `task_ids` 是请求选择器，执行集合只会更小；全项目作业不带 `task_ids`，保持 unknown。两个守卫函数与退役证明均未改动。module-data 验证器单项 1 通过、exit 0，迁移头 `bo0456`，同时首次证明了新授权；测试模式 `test_fixture_run_ownership.py` 19 项通过。
-- **T2 定向与默认分开记账。** `2206f0722` 的定向组合验证了全部 44 项。`3d45da957` 的默认轮只通过 28 项：截图目录 14 项出错，Identity 双运行和 scale 各 1 项未运行。不拼接两轮结果，不以行政退役代替产品清理。见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
+- **T2 定向与默认分开记账。** `2206f0722` 的定向组合验证了 44 项。`d8552d686` 默认轮同一批 44 个节点中，28 通过、截图目录 14 项出错，Identity 双运行和 scale 各 1 项未执行。不拼接两轮结果，不以行政退役代替产品清理。见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
 - **#151／#152 与单次原件身份 409。** 三项仍按原归属单独跟踪：#152 的三视频／126-output 退出门未通过，精确清理的一组通过不关闭它；#151 的长驻环境延迟与 409 归因也未被任何切片证明关闭。修复只跟随有因果证据且阻塞已批准切片的问题，不增加重试或时限、不删除失败项。
-- **后继执行条件，不再是批准缺口。** J1 等待 T1／T2 同候选默认终局，N6-S／N6-E 等待 J1，J2 等待二者；最新准入核对见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#后继阶段批准与-j1-准入核对)。[产品语言计划](1793263851_yoao-product-language-and-naming.md) §16.13 记录 N5 的限定结论；不以其代替联合结果，也不新增旧任务续跑、永久双写或孤立对象自动认领。
+- **后继执行条件，不再是批准缺口。** J1 要求 T1／T2 在同一候选的默认轮通过并正常退役；`d8552d686` 已出终局，但未满足此条件。N6-S／N6-E 等待 J1，J2 等待二者；最新默认结果见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#默认联合轮终局-d8552d686)。[产品语言计划](1793263851_yoao-product-language-and-naming.md) §16.13 记录 N5 的限定结论；不以其代替联合结果，也不新增旧任务续跑、永久双写或孤立对象自动认领。
 - **暂停期间的未提交工作（2026-11-12 已处置）。** 六个保留工作树经审查后处置：`stage-f-raster-retirement-diagnostic`／`-guard` 只含向冻结 `0434` SQL 写入的 `RAISE LOG` 与 stderr 诊断插桩，丢弃；`worktree-agent-stage-f-config-authority`、`-integration-074930`、`-reader-drain` 的提交已在 `feat/backend-opt`（patch-equivalent，或 `e810718d3` 等同名后续修订），未提交新增行均已在主线中或被更新实现取代，丢弃。`worktree-agent-stage-f-pyramid-owner-read` 的 native pyramid output ownership 半成品（含 `bo0455`）迁入新工作树完成后集成为 `6304b7969`。另删除 114 个无工作树、已合入（祖先、完整 patch-equivalent 或新增行全部在主线）的阶段 F 历史分支；21 个仍含主线缺失行的历史分支保留待需要时单独审查。各工作树补丁、HEAD、`.worktree/` 状态及两份分支清单保存在 Run 私有目录 `retired-environments/20261112/paused-worktrees/`。
 
 ### 16.8 已关闭切片

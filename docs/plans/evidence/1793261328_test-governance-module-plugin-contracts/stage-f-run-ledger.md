@@ -669,3 +669,10 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 
 - **N6-S：两个清单不能用作旧受管导出的夹具。** `retired-environments/20261112/minio/object-inventory.json` 覆盖 309 个退役存储实例（SHA256 `18d346c83e76d6ff5b61808787e4a54ea4dbb667d2cab1621c0f521fe1093bb7`）；`t1-gate-1-retirement/fixture-object-versions.json` 带有 61 条 `Key`＋`VersionId`（SHA256 `e7ef3400058465d5d26bc72016d4c2368d1435d5f6f3f75689bf527af1868993`）。两份原始清单均不含 `_aap_managed/export/`，不能把其他键的版本配给历史 ZIP。这只描述这两份清单，不推断其他存储中没有旧对象。
 - **N6-E：真实旧 manifest 可作为切换时的对照。** 从 `retired-environments/20261112/worktrees/worktree-state.tar.gz`（24 个 e2e）和 `t1-gate-1-retirement/runtime-state.tar.gz`（1 个 test）直接配对读取 `identity.json` 与 `resources.json`，不解包到工作树、不连接服务。旧 `worktree_env.topology` 在各自保存的 root 上逐字段复现 25/25 份资源清单；换成本 checkout 的 root 后，25/25 个身份均被拒绝。25 个数据库名、25 个 Redis 名和 250 个桶名在各自类别内无重复。按 `(id, mode, root)` 排序、对 `resources` 数组作紧凑 JSON 编码（ASCII、键排序、无尾换行）所得 SHA256 为 `fe286e5844276890ad8e32a54334b3bb631eb04697c7670952d6fe5f708cb7df`。这可校验历史对照字节，不授予恢复或清理这些归档实例的权限。
+
+### 默认联合轮终局 d8552d686
+
+- **T1／T2 均未通过。** `joint-repair-d8552d686-1/joint-verdict.json`（SHA256 `636721bbbdc64e03f129b0f4d340d96657cd280e73a6e05d6b0839c5c626c6ae`）逐项对账：默认收集的 3,336 项与前轮相同，本轮 3,225 通过、39 失败、14 错误、57 未运行、1 延期跳过。前轮失败或错误的节点中，有 190 项本轮通过。T2 原 44 项中 28 通过、14 错误、2 未运行。ordinary 的产品清理失败，验证器退出 1，后续 20 组没有运行。定向 8/8 和 7/7 不替代默认结果，J1 未放行。
+- **耗时。** `default-duration-and-triage.json`：整轮 3 小时 57 分 53 秒，收集阶段 9 分 47 秒，ordinary 阶段 3 小时 48 分 06 秒。ordinary 的 JUnit 用例耗时合计 3 小时 38 分 26 秒，其中媒体种子身份测试文件用时 45 分 02 秒、Identity 端到端测试文件 27 分 32 秒。
+- **清理失败与其他断言分开。** `ordinary-final-db-observation.json`、`blocked-job-provenance.json` 记录了失败库的只读快照：44 个 `batch_predict` 和 1 个 `prediction_retry` 命中实际清理守卫，均没有可识别的夹具出生数据集范围；9 个已发布数据集中有 2 个没有媒体退役证明。这个快照证明终局时谁阻塞清理，不证明它们是每次 409 的首次原因，也不解释其他独立断言。
+- **失败环境已删除，产品清理不追认为通过。** `administrative-retirement/receipt.json` 和 `administrative-retirement/worktree.json` 记录了按身份清退的 22 个宿主进程、4 个容器、专属卷和网络、临时运行根，以及该轮的独立工作树和私有 Python 环境。保留失败回执和 JUnit，未修改业务数据或放宽守卫。
