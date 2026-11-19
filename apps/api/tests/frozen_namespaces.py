@@ -47,6 +47,7 @@ _SCHEMAS = (
     "settings_v1",
     "workspace_configuration_v1",
     "workspace_fixture_v1",
+    "workspace_project_query_v1",
     "workspace_v1",
 )
 

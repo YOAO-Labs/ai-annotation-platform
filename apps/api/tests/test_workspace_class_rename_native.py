@@ -10,7 +10,7 @@ import uuid
 import asyncpg
 import pytest
 from sqlalchemy import delete, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from yoao_workspace.configuration_contract import configuration_request
 from yoao_workspace.configuration import ConfigurationManager
@@ -345,8 +345,7 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
     old_sql = (
         _ROOT / "apps/api/alembic/sql/0257_workspace_configuration.sql"
     ).read_text()
-    # Frozen migrations keep the historical AAP spelling; replay them under
-    # the current namespace exactly as revision bo0474 renamed it.
+    # Replay the frozen definitions against the installed owner namespaces.
     old_step = next(
         statement.strip()
         for statement in old_sql.split("-- aap-statement-break")
@@ -377,6 +376,22 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
                 if statement.strip():
                     await owner.exec_driver_sql(current(statement.strip()))
             assert await _function_metadata(owner) == before
+            async with AsyncSession(bind=owner) as session:
+                actor = await create_user(
+                    session,
+                    "project_admin",
+                    f"replay-{uuid.uuid4().hex}@example.test",
+                    "Replay",
+                )
+                project = await create_project(session, owner_id=actor.id)
+                raw = await owner.scalar(
+                    text(
+                        f"SELECT {_SCHEMA}._class_rename_project_row(:id, 'key_share')"
+                    ),
+                    {"id": project.id},
+                )
+                row = decode_project_row(raw, target_id=project.id)
+                assert row["name"] == project.name
         finally:
             await transaction.rollback()
 

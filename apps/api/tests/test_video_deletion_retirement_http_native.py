@@ -9,15 +9,14 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
 
 from app.config import settings
 from app.core.security import create_access_token
+from tests.test_assets_media_live import _guard_role_url
 from tests.test_labeling_counter_deltas_workflows_native import (
     _configure_actual_api,
     _restricted_api_client,
 )
-from tests.test_module_data_roles import _role_url
 from tests.test_project_owner_persistence_native import _restricted
 from tests.test_video_deletion_retirement_native import _retire, _seed_unretired
 
@@ -40,34 +39,19 @@ _DIRECT_PROJECT_SQL = re.compile(
 )
 
 
-def _bind_publication_authority(test_engine, monkeypatch) -> None:
-    """Give the in-process API the verifier's narrow Jobs publication role.
-
-    Retirement redrive publishes through the durable dispatch ledger; without
-    this binding the endpoint can only answer 503 and the HTTP gate is not
-    exercised.
-    """
-    publication = make_url(
-        _role_url(
-            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "yoao_jobs_publication_client"
-        )
+@asynccontextmanager
+async def _restricted_http_world(test_engine, app_module, monkeypatch):
+    _configure_actual_api(test_engine, monkeypatch)
+    publication = _guard_role_url(
+        "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+        "yoao_jobs_publication_client",
+        test_engine,
     ).set(drivername="postgresql")
-    assert (publication.host, publication.port or 5432, publication.database) == (
-        test_engine.url.host,
-        test_engine.url.port or 5432,
-        test_engine.url.database,
-    )
     url = publication.render_as_string(hide_password=False)
     monkeypatch.setattr(settings, "jobs_publication_database_url", url)
     monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
     monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", url)
     monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
-
-
-@asynccontextmanager
-async def _restricted_http_world(test_engine, app_module, monkeypatch):
-    _configure_actual_api(test_engine, monkeypatch)
-    _bind_publication_authority(test_engine, monkeypatch)
     from app.deps import get_video_tracker_job_dispatcher
 
     class Dispatcher:
