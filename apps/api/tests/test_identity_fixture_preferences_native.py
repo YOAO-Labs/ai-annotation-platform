@@ -149,9 +149,16 @@ async def isolated_preference_database(test_engine, suffix):
     assert suffix in ("_e2e", "_dev", "_TEST")
     name = "aap_fixture_pref_" + uuid.uuid4().hex[:12] + suffix
     marker = "fixture-pref:" + uuid.uuid4().hex
+    signature = "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)"
     engine = None
     async with test_engine.connect() as raw:
         db = await raw.execution_options(isolation_level="AUTOCOMMIT")
+        definition = await db.scalar(
+            text(
+                "SELECT pg_catalog.pg_get_functiondef(CAST(:signature AS regprocedure))"
+            ),
+            {"signature": signature},
+        )
         await db.execute(text(f'CREATE DATABASE "{name}"'))
         await db.execute(text(f"""COMMENT ON DATABASE "{name}" IS '{marker}'"""))
         oid = await db.scalar(
@@ -165,34 +172,28 @@ async def isolated_preference_database(test_engine, suffix):
             await db.execute(text("CREATE SCHEMA yoao_identity_v1"))
             await db.execute(
                 text(
-                    "CREATE TABLE public.users(id uuid PRIMARY KEY,preferences jsonb NOT NULL DEFAULT '{}'::jsonb)"
+                    "CREATE TABLE public.identity_account_preferences("
+                    "user_id uuid PRIMARY KEY, preferences jsonb NOT NULL DEFAULT '{}'::jsonb)"
                 )
             )
             await db.execute(
                 text(
-                    "INSERT INTO public.users(id) VALUES ('10000000-0000-0000-0000-000000000001')"
+                    "INSERT INTO public.identity_account_preferences(user_id) "
+                    "VALUES ('10000000-0000-0000-0000-000000000001')"
                 )
             )
-            for statement in (
-                (ROOT / "apps/api/alembic/sql/0304_identity_fixture_preferences.sql")
-                .read_text()
-                .split("-- aap-statement-break")
-            ):
-                if statement.strip():
-                    await db.execute(text(statement))
+            await db.exec_driver_sql(definition)
+            await db.execute(text(f"REVOKE ALL ON FUNCTION {signature} FROM PUBLIC"))
             await db.execute(
                 text("GRANT USAGE ON SCHEMA yoao_identity_v1,public TO identity_code")
             )
             await db.execute(
                 text(
-                    "GRANT SELECT(id),UPDATE(preferences) ON public.users TO identity_code"
+                    "GRANT SELECT(user_id), UPDATE(preferences) "
+                    "ON public.identity_account_preferences TO identity_code"
                 )
             )
-            await db.execute(
-                text(
-                    "ALTER FUNCTION yoao_identity_v1.replace_fixture_preferences(uuid,jsonb) OWNER TO identity_code"
-                )
-            )
+            await db.execute(text(f"ALTER FUNCTION {signature} OWNER TO identity_code"))
         yield engine
     finally:
         if engine is not None:
@@ -236,9 +237,10 @@ async def test_fixture_preferences_uses_actual_case_sensitive_database_name(
                     await db.scalar(command)
             assert error.value.orig.sqlstate == "42501"
         async with engine.connect() as db:
-            assert await db.scalar(text("SELECT preferences FROM public.users")) == (
-                {"scope": True} if suffix == "_e2e" else {}
+            stored = await db.scalar(
+                text("SELECT preferences FROM public.identity_account_preferences")
             )
+            assert stored == ({"scope": True} if suffix == "_e2e" else {})
     record_property(
         "fixture_preferences_database_guard", {"suffix": suffix, "removed": True}
     )
