@@ -189,6 +189,13 @@ def test_project_pool_availability_and_enablement(client, respx_mock):
             lambda c: c.ml_backends.set_pool_enablement(PID, "pool", True),
         ),
     ],
+    ids=(
+        "list-backends",
+        "enable-backend",
+        "backend-health",
+        "list-pools",
+        "enable-pool",
+    ),
 )
 def test_project_model_management_maps_permission_error(
     client, respx_mock, method, path, call
@@ -277,6 +284,7 @@ def test_registry_crud_health_and_unload(client, respx_mock):
             lambda c: c.ml_registry.unload(BID),
         ),
     ],
+    ids=(None, None, "update", "delete", "health", "unload"),
 )
 def test_registry_maps_permission_error(client, respx_mock, method, path, call):
     getattr(respx_mock, method)(f"{API}{path}").mock(

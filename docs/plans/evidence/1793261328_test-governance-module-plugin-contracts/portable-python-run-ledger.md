@@ -21,3 +21,13 @@
 - 从 [Ultralytics 官方 release](https://github.com/ultralytics/assets/releases/tag/v8.4.0) 取得检测权重 `yolo11n.pt`（不是分割权重）。[GitHub 资产 340060970](https://api.github.com/repos/ultralytics/assets/releases/assets/340060970) 公布的大小为 **5,613,764 字节**，SHA-256 为 `0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1`；下载后先核对大小和摘要，再传给 `PREVIEW_TEST_BASE`。发布元数据见 `official-yolo11n-release.json`，权重不入 Git。
 - 从原 JUnit 提取六个跳过的 nodeid，在同一执行器依赖锁、CPython 3.12.11、CPU 环境定向执行：**6 通过、0 跳过／失败／错误**。逐项身份与原报告一致，包括增强前后像素和框的对照、CutMix 来源与几何、rect／epoch 策略和损坏输入拒绝。见 `official-yolo11n-selected.txt`、`official-yolo11n-preview.xml`、`official-yolo11n-reconciliation.json`。这是前次 231 项通过加本次六项定向通过，不是一次全量运行，也不是 GPU 或部署验收。
 - 单独执行训练 workflow 的取件步骤，传给 pytest 的文件与官方摘要相符。保持相同大小、只翻转一个字节后，同一校验命令退出 1，没有把未通过校验的文件交给 pytest（`official-yolo11n-ci-step.json`）。未运行远端 CI；本地测试及生产执行器未增加联网行为。
+
+## 2026-11-19：在仓库外安装 SDK 并执行便携契约
+
+证据目录：`.artifacts/test-results/sdk-distribution/`。CPython 3.11.13、uv 0.11.29；只使用本树构建的 SDK 和五个共享契约包，以及经 SHA-256 校验的 `yoao-backend-runtime` wheel，没有外部仓库 editable 安装。
+
+- 修正前的 SDK sdist 包含两份仓内测试却不含四份冻结响应 JSON；在仓外对已安装 wheel 运行受影响用例为 **11 失败、2 跳过**（`before-archive.json`、`before-outside.xml`）。Protocol 缺少 `native_mask_interaction.json` 导致收集错误，Training 缺少 `legacy_task_identities.json` 导致历史身份向量失败；Inference 的 legacy 输入原已随包分发。未改任何期望向量的字节。
+- 把文档、调用点与目录生成对账留给仓内强制执行；在一次性副本移去 OpenAPI 快照，三项选定的仓内检查均 **失败，无跳过**（`missing-checkout.xml`）。还原快照后，生成检查发现模型注册表创建与修改端点的两处 422 描述已过期；同步后目录与生成器输出逐字节一致（`catalog-drift.json`）。
+- 即使两边各有 1,264 项，最初仍有 44 项身份含收集时生成的 UUID。仅命名这些参数用例，不固定输入 UUID，也不在对账时屏蔽参数值。用一项重复通过替换另一项、保持总数不变，对账仍拒绝，并列出准确缺失和多余项（`equal-count-negative.json`）。
+- 最终同一入口先直接从 sdist 安装核心 SDK，验证随包指南、离线能力发现和不装 CLI extra 的依赖错误；再替换成带测试依赖的非 editable wheel 并运行真实 `yoao --version`。仓内 **49 通过**，仓外 **1,215 通过**；两份 JUnit 合计恰好覆盖 **1,264 个唯一 SDK 用例**。Inference／Protocol／Training 另为 **30／30／32 通过**，五份报告全部零跳过、零失败、零错误。见 `installed.log`、`installed-reconciliation.json`、`installed/` 下的 JUnit、collection 及十二个构建制品摘要。
+- 这是本地执行 GitHub Actions 使用的命令，不是远端 CI、SDK 发布、独立 Plugin-SDK 资格或 T1／T2 联合验收。

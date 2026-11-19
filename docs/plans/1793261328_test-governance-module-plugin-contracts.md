@@ -844,6 +844,10 @@ echo、mock-v2、站点 Agent 和训练执行器保留各自环境与 CI 入口�
 
 训练执行器报告暴露一项未到达取消分支的续训夹具：补齐 Run 身份后，完整 CPU 选集的 237 项中 231 通过、6 项因缺预览权重跳过。随后校验 Ultralytics 官方检测权重，按原报告逐项补跑这 6 项，全部通过。两轮结果分开保留；未更改生产执行器或放宽断言。训练 CI 已配置在 pytest 前校验同一发行物。
 
+### 12.17 G1／G5／G6：SDK 与平台便携契约的发行物
+
+SDK 的文档和 OpenAPI 合同由仓内执行，缺少快照直接失败；其余用例和历史 JSON 向量从源码包取出，对仓外实际安装的 wheel 执行。CI 先验证 sdist 核心安装，再验证带依赖的 wheel，并逐项对账，不把两边数量相等当作通过。一次完整运行的 1,264 项 SDK 和 92 项便携契约均通过，无跳过。命令见[测试指南](../../docs-site/dev/testing.md)；原始打包失败、过期目录、等数漏项反例和最终报告见[独立 Python 账本](evidence/1793261328_test-governance-module-plugin-contracts/portable-python-run-ledger.md)。未执行独立插件仓或 T1／T2。
+
 ## 13. 下一轮阶段并行安排
 
 本轮基线为 `bc7e2b7ef`，Orca Run 为 `run_6b91abf3470a`。沿用独立工作树、`omp`／`openai-codex/gpt-6.1-terra:xhigh` 和主进程审核集成；阶段范围按下面的用户决策调整。

@@ -51,12 +51,13 @@ def cli_client(client, monkeypatch):
             {"unread": 4},
             "",
         ),
-        (
+        pytest.param(
             ["mark-read", NOTICE_ID, "--json"],
             "POST",
             f"/notifications/{NOTICE_ID}/read",
             {"ok": True},
             "",
+            id="mark-read",
         ),
         (
             ["mark-all-read", "--yes", "--json"],
@@ -65,12 +66,13 @@ def cli_client(client, monkeypatch):
             {"updated": 4},
             "",
         ),
-        (
+        pytest.param(
             ["delete", NOTICE_ID, "--yes", "--json"],
             "DELETE",
             f"/notifications/{NOTICE_ID}",
             {"ok": True},
             "",
+            id="delete",
         ),
         (
             ["clear-read", "--yes", "--json"],

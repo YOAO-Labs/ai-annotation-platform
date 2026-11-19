@@ -216,6 +216,18 @@ git add openapi.snapshot.json
 
 CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与运行时路由是否一致；前端 `pnpm codegen` 与 Python SDK 契约测试同样以该快照为唯一真值源。
 
+### Python SDK：仓内契约和发行物
+
+在仓库根目录安装 `uv`，按 CI 的 `Stage verified Plugin-SDK artifacts` 步骤将已校验的运行时 wheel 放入 `.artifacts/python/plugin-sdk/`，然后运行：
+
+```bash
+python3.11 scripts/test-sdk-distributions.py "$(mktemp -d)/sdk-reports"
+```
+
+脚本构建 SDK 与平台维护的五个共享契约包。先从 SDK 源码包安装核心依赖，检查离线发现和未安装 CLI extra 时的错误；再显式安装带测试与插件依赖的 wheel。临时环境必须在仓库外，脚本不从相邻 checkout 或 `PYTHONPATH` 借用实现。
+
+SDK 文档片段、HTTP 调用点、覆盖清单和生成目录与 monorepo 输入一起测试，缺失快照直接失败。其余 SDK 测试以及推理、协议、训练三组便携向量从各自 sdist 取出，对实际安装包执行。两份 SDK JUnit 的用例身份必须合起来恰好覆盖一次仓内收集清单；缺项、重复、跳过或缺少应携带的夹具都会失败。CI 的 `python-sdk-test-results` 保留五份 JUnit、`sdk-collection.txt` 和 `distributions.sha256`，不代表独立插件仓、服务部署或 GPU 资格。
+
 ---
 
 ## 在线学习与训练执行器测试

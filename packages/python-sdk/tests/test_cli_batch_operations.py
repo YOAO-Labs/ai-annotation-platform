@@ -28,7 +28,7 @@ ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}
     [
         (["bulk-archive", PROJECT_ID, "--id", BATCH_ID, "--json"], None),
         (["bulk-delete", PROJECT_ID, "--id", BATCH_ID, "--json"], None),
-        (
+        pytest.param(
             ["distribution-apply", PROJECT_ID, "--body", "-", "--json"],
             json.dumps(
                 {
@@ -37,6 +37,7 @@ ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}
                     "preview_version": PREVIEW_VERSION,
                 }
             ),
+            id="distribution-apply",
         ),
         (
             ["split", PROJECT_ID, "--body", "-", "--json"],

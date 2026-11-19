@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from collections import Counter
-from pathlib import Path
+from importlib.resources import files
 
 import pytest
 
 from yoao.discovery import describe_operation, list_capabilities
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
-GENERATOR = PACKAGE_ROOT / "scripts" / "generate_operation_catalog.py"
-SNAPSHOT = REPO_ROOT / "apps" / "api" / "openapi.snapshot.json"
+CATALOG = files("yoao").joinpath("_operation_catalog.generated.json")
 
 
 def test_capabilities_are_bounded_filterable_and_cover_the_snapshot():
@@ -111,9 +107,7 @@ def test_describe_exposes_internal_request_dto_and_opaque_json_map():
 
 
 def test_all_packaged_sdk_methods_have_resolvable_descriptions():
-    catalog = json.loads(
-        (PACKAGE_ROOT / "src/yoao/_operation_catalog.generated.json").read_text()
-    )
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     for method in catalog["sdk_methods"]:
         described = describe_operation(method["name"])
         assert described["name"]
@@ -200,46 +194,21 @@ def test_capabilities_returns_detached_tags():
     assert "mutated" not in second["operations"][0]["tags"]
 
 
-@pytest.mark.skipif(
-    not SNAPSHOT.is_file(), reason="catalog generation is monorepo-only"
-)
-def test_generated_catalog_is_current_and_deterministic():
-    env = os.environ.copy()
-    source = str(PACKAGE_ROOT / "src")
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, (source, env.get("PYTHONPATH"))))
-    result = subprocess.run(
-        [sys.executable, str(GENERATOR), "--check"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stderr == ""
-
-
 def test_installed_catalog_is_json_and_does_not_embed_openapi_snapshot():
-    catalog_path = PACKAGE_ROOT / "src" / "yoao" / "_operation_catalog.generated.json"
-    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     assert catalog["operation_count"] == len(catalog["operations"])
     assert "paths" not in catalog
     assert "components" not in catalog
 
 
 def test_core_discovery_import_does_not_load_cli_modules():
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join(
-        filter(None, (str(PACKAGE_ROOT / "src"), env.get("PYTHONPATH")))
-    )
     result = subprocess.run(
         [
             sys.executable,
+            "-I",
             "-c",
             "import yoao.discovery, sys; assert not any(name == 'yoao.cli' or name.startswith('yoao.cli.') for name in sys.modules)",
         ],
-        cwd=REPO_ROOT,
-        env=env,
         check=False,
         capture_output=True,
         text=True,

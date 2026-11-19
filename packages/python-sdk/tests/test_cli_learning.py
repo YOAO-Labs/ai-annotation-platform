@@ -145,6 +145,7 @@ def test_policy_disable_revision_is_query_and_guarded(respx_mock):
 @pytest.mark.parametrize(
     "group,resource",
     [("runs", RUN), ("evaluations", VERSION), ("active-learning", ROUND)],
+    ids=("cancel-run", "cancel-evaluation", "cancel-active-learning"),
 )
 def test_cancel_declined_sends_no_request(group, resource, respx_mock):
     result = runner.invoke(
