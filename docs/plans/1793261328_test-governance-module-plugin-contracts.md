@@ -834,6 +834,8 @@ Native 验收包含真实安装、冻结函数体、owner／ACL、事务及迁�
 
 Web 录制与媒体工具已从仅本地命令接入 `Frontend verification`。工具用例由 Node 递归选择，包体积和精确帧基准的脚本测试仍由 Vitest 负责，截图产品场景仍由 Playwright 负责。[测试指南](../../docs-site/dev/testing.md)记录日常入口；[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)区分真实执行与负对照。本切片不改变阶段 F 批准门。
 
+三种存储绑定的目标删除和撤权已从 API 方法 mock 迁到同一组参数化 HTTP 边界场景；保留用途路由、错误码和禁止确认的语义。错误地只识别头像错误码时，报告附件和审计归档的恢复用例均失败，正常实现均通过。
+
 ## 13. 下一轮阶段并行安排
 
 本轮基线为 `bc7e2b7ef`，Orca Run 为 `run_6b91abf3470a`。沿用独立工作树、`omp`／`openai-codex/gpt-6.1-terra:xhigh` 和主进程审核集成；阶段范围按下面的用户决策调整。

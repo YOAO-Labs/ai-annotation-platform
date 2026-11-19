@@ -5,7 +5,6 @@ import type { AuditArchiveBindingPreview, StorageBindingOut } from "@/api/genera
 import { ApiError } from "@/api/client";
 import { createTestQueryClient } from "@/test/queryClient";
 import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
-import { expectDeletedTargetRecovery } from "./bindingRecoveryTestSupport";
 
 const auth = vi.hoisted(() => ({ revision: 1 }));
 const pushToast = vi.hoisted(() => vi.fn());
@@ -304,21 +303,6 @@ it("invalidates a review if candidate refresh reports a new target revision", as
   expect(screen.getByRole("button", { name: "确认切换" })).toBeDisabled();
 });
 
-it("hides retained evidence when candidate access is revoked", async () => {
-  const view = mount();
-  await preview();
-  api.bindingCandidates.mockRejectedValueOnce(Object.assign(new Error("revoked"), { status: 403 }));
-  await act(async () =>
-    view.client.invalidateQueries({ queryKey: ["audit-archive-binding-candidates"] }),
-  );
-  await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "审计归档绑定变更预览" })).not.toBeInTheDocument(),
-  );
-  expect(screen.queryByRole("option", { name: target.name })).not.toBeInTheDocument();
-  expect(screen.getByRole("alert")).toHaveTextContent("存储管理权限已变化");
-  expect(screen.getByRole("button", { name: "确认切换" })).toBeDisabled();
-});
-
 it("invalidates a rejected apply and permits a new reviewed token", async () => {
   api.applyBinding.mockRejectedValueOnce(
     new ApiError(409, "Conflict", { code: "storage_binding_preview_changed" }),
@@ -398,18 +382,4 @@ it("settles an in-flight apply after target refresh without trapping the dialog"
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(view.onApplied).not.toHaveBeenCalled();
-});
-
-it("permits another target after the selected candidate is deleted", async () => {
-  api.previewBinding.mockRejectedValueOnce(
-    new ApiError(404, "Not found", { code: "audit_archive_binding_target_missing" }),
-  );
-  mount();
-  const dialog = await open();
-  await expectDeletedTargetRecovery(dialog, target.location_id, () =>
-    api.bindingCandidates.mockResolvedValueOnce({
-      items: [{ ...target, location_id: "other", name: "另一位置" }],
-      total: 1,
-    }),
-  );
 });
