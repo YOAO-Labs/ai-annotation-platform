@@ -2822,6 +2822,8 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_audit_consumers_cold.py": "audit-consumers-cold",
     "tests/test_audit_maintenance_consumers_cold.py": "audit-maintenance-consumers-cold",
     "tests/test_seed_parent_operator_native.py": "parent-seed-native",
+    # The historical audit temporarily replaces legacy_runtime, a cluster-wide LOGIN.
+    "tests/test_identity_role_audit_live.py": "identity-role-audit",
     "tests/test_identity_e2e_live.py": "identity-e2e",
     "tests/test_identity_recording_live.py": "recording",
     "tests/test_identity_seed_selection_live.py": "scale-seed",

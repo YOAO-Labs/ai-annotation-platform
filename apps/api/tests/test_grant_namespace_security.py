@@ -172,19 +172,17 @@ async def _scalar(engine, sql: str, **params):
 
 
 @asynccontextmanager
-async def _login(engine, prefix: str):
+async def _login(engine, prefix: str, *, installs_lan_profile: bool = False):
     role = f"n5s_{prefix}_{uuid.uuid4().hex[:10]}"
     password = uuid.uuid4().hex
     assert re.fullmatch(ROLE_PATTERN, role)
-    # The deployment profile assigns the shared user-performance MV to the
-    # application role. Preserve its pre-existing owner so cleaning up this
-    # per-test LOGIN cannot drop an object installed by the migrations.
-    maintenance_owner = await _scalar(
-        engine,
-        "SELECT pg_catalog.pg_get_userbyid(relation.relowner) "
-        "FROM pg_catalog.pg_class AS relation "
-        "WHERE relation.oid=pg_catalog.to_regclass('public.mv_user_perf_daily')",
+    view_owner_sql = text(
+        "SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class "
+        "WHERE oid='public.mv_user_perf_daily'::regclass"
     )
+    if installs_lan_profile:
+        async with engine.connect() as db:
+            previous_owner = await db.scalar(view_owner_sql)
     await _execute(
         engine,
         [
@@ -195,16 +193,22 @@ async def _login(engine, prefix: str):
     try:
         yield role, password
     finally:
-        statements = []
-        if maintenance_owner is not None:
-            owner = engine.dialect.identifier_preparer.quote_identifier(
-                maintenance_owner
-            )
-            statements.append(
-                f"ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO {owner}"
-            )
-        statements.extend((f"DROP OWNED BY {role}", f"DROP ROLE {role}"))
-        await _execute(engine, statements)
+        async with engine.begin() as db:
+            if installs_lan_profile:
+                # Restore only the view this installer transferred to our LOGIN.
+                actual_owner = await db.scalar(view_owner_sql)
+                if actual_owner == role:
+                    quote = db.dialect.identifier_preparer.quote_identifier
+                    await db.execute(
+                        text(
+                            "ALTER MATERIALIZED VIEW public.mv_user_perf_daily "
+                            f"OWNER TO {quote(previous_owner)}"
+                        )
+                    )
+                else:
+                    assert actual_owner == previous_owner
+            await db.execute(text(f"DROP OWNED BY {role}"))
+            await db.execute(text(f"DROP ROLE {role}"))
 
 
 @asynccontextmanager
@@ -742,7 +746,10 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
     profile_probe = f"yoao_workspace_n5s_profile_{_suffix()}_v1"
     other_probe = f"yoao_n5s_other_{_suffix()}_v1"
     function = f"{profile_probe}.probe_read()"
-    async with _login(owner_engine, "runtime") as (role, password):
+    async with _login(owner_engine, "runtime", installs_lan_profile=True) as (
+        role,
+        password,
+    ):
         async with _login(owner_engine, "cleanup") as (cleanup, _cleanup):
             async with _schema(owner_engine, lan_probe):
                 # The development runtime is configured by lan-production-grants

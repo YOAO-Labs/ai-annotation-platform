@@ -173,7 +173,9 @@ async def _source_stack(test_engine, app_module, monkeypatch):
         monkeypatch.setattr(settings, "assets_source_token", token)
         scheme = "https" if settings.minio_use_ssl else "http"
         values = {
-            "ASSETS_SOURCE_DATABASE_URL": _container_database_url(role_url),
+            "ASSETS_SOURCE_DATABASE_URL": _container_database_url(
+                role_url.update_query_dict({"application_name": identity})
+            ),
             "ASSETS_SOURCE_TOKEN": token,
             "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": secrets.token_urlsafe(32),
             "ASSETS_SOURCE_S3_ENDPOINT": _container_s3_endpoint(settings),
@@ -771,6 +773,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                 )
             wrapped = True
             await gate.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock_key})
+            gate_pid = await gate.scalar(text("SELECT pg_backend_pid()"))
             request_task = asyncio.create_task(
                 _complete(stack, world.dataset_id, item, key=operation)
             )
@@ -783,8 +786,12 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                 async with test_engine.connect() as observer:
                     waiting = await observer.scalar(
                         text(
-                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='yoao_asset_source_client' AND wait_event='advisory')"
-                        )
+                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity "
+                            "WHERE datname=current_database() AND usename='yoao_asset_source_client' "
+                            "AND application_name=:source AND wait_event='advisory' "
+                            "AND :gate=ANY(pg_blocking_pids(pid)))"
+                        ),
+                        {"source": stack.identity, "gate": gate_pid},
                     )
                 if waiting:
                     break
@@ -802,6 +809,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
             await asyncio.to_thread(
                 _docker, "kill", "--signal", "KILL", stack.container
             )
+            assert await asyncio.to_thread(_docker, "wait", stack.container) == "137"
             await gate.execute(
                 text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key}
             )
@@ -812,8 +820,11 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                 async with test_engine.connect() as observer:
                     active = await observer.scalar(
                         text(
-                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE usename='yoao_asset_source_client')"
-                        )
+                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity "
+                            "WHERE datname=current_database() AND usename='yoao_asset_source_client' "
+                            "AND application_name=:source)"
+                        ),
+                        {"source": stack.identity},
                     )
                 if not active:
                     break
