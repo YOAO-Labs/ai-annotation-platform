@@ -22,6 +22,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import ProjectDataset
 from app.db.models.video_tracker_job import VideoTrackerJob
 from tests.factory import create_project, create_task
+from tests.frozen_namespaces import current as current_namespace
 from tests.test_video_execution_checkpoints_native import _claimed_running_job
 from tests.test_video_execution_native import (
     _install_ready_tracker_scope,
@@ -1610,9 +1611,21 @@ async def test_downgrade_refuses_to_drop_committed_clearance_evidence(test_engin
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
+    # The frozen downgrade keeps the AAP spelling it was installed with; 0474
+    # renamed those schemas to YOAO in place. Translate only the statements this
+    # historical guard executes, so the refusal still runs against the live DB.
+    frozen_execute = migration._execute
+
+    def execute_current(statement):
+        frozen_execute(current_namespace(statement))
+
     def downgrade(connection):
         with Operations.context(MigrationContext.configure(connection)):
-            migration.downgrade()
+            migration._execute = execute_current
+            try:
+                migration.downgrade()
+            finally:
+                migration._execute = frozen_execute
 
     with pytest.raises(DBAPIError) as rejected:
         async with test_engine.begin() as connection:
