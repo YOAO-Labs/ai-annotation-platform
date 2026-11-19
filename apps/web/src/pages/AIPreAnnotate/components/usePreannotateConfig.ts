@@ -31,10 +31,10 @@ import { useAiParamPresets } from "../utils/useAiParamPresets";
 import { isImageDetectionEntry, useProjectDetectionCatalog } from "@/api/modelCatalog";
 import { useAuthStore } from "@/stores/authStore";
 
-// v0.14.9 · 文本 / OCR / 文档版面三态任务类型 (按选中 backend 的 models[].task 派生).
+// 文本 / OCR / 文档版面三态任务类型 (按选中 backend 的 models[].task 派生).
 export type PreannotateTaskType = "text" | "ocr" | "doc_layout";
 
-// v0.14.17 · YOLO 等"多 task 几何 backend"(闭集, supported_prompts=['none']) 的可选 task.
+// YOLO 等"多 task 几何 backend"(闭集, supported_prompts=['none']) 的可选 task.
 export const GEOMETRIC_TASKS = ["detect", "segment", "pose", "obb"];
 
 // 整图预标注(单图/批量)只接受能吃 full_image 投递的 model;显式声明 crop-only
@@ -70,7 +70,7 @@ export interface UsePreannotateConfigArgs {
   /** 当前选中的 backend id (批量页可多选; 工作台为项目绑定值). null 时多数派生为空/禁用. */
   backendId: string | null;
   /**
-   * v0.21.7 · 视频项目的执行单位, 决定源模型过滤:
+   * 视频项目的执行单位, 决定源模型过滤:
    * - "video" (整段序列): 源模型只列 tracker (detect-then-track, 落 video_track)。
    * - "frame" (逐帧): 源模型只列图像检测 (yolo detect/seg 逐帧跑, 落 video_bbox)。
    * 图像项目忽略此参数 (恒图像检测)。缺省视为 "video" (视频项目主选择)。
@@ -103,7 +103,7 @@ function useBackendPreannotateConfig({
       }
     | undefined;
 
-  // v0.9.12 · alias 频率排序: prompt 默认勾选项目所有 alias (按预标频率降序).
+  // alias 频率排序: prompt 默认勾选项目所有 alias (按预标频率降序).
   const freqQ = useQuery({
     queryKey: ["alias-frequency", projectId],
     queryFn: () => aliasFrequencyApi.byProject(projectId),
@@ -123,7 +123,7 @@ function useBackendPreannotateConfig({
       .sort((a, b) => b.count - a.count || a.alias.localeCompare(b.alias));
   }, [project, freqQ.data]);
 
-  // v0.10.38 · 按后端参数面板: 拉选中 backend 的 /setup.params 渲染 SchemaForm.
+  // 按后端参数面板: 拉选中 backend 的 /setup.params 渲染 SchemaForm.
   const setupQ = useQuery({
     queryKey: mlBackendSetupQueryKey(projectId, backendId),
     queryFn: () => mlBackendsApi.setup(projectId, backendId as string),
@@ -131,7 +131,7 @@ function useBackendPreannotateConfig({
     staleTime: 60_000,
     retry: false,
   });
-  // v0.14.9 · 能力目录 (health_meta 派生): models[] 含 ocr / doc_layout / 几何条目.
+  // 能力目录 (health_meta 派生): models[] 含 ocr / doc_layout / 几何条目.
   const capabilitiesQ = useQuery({
     queryKey: ["ml-backends", projectId, backendId, "capabilities"],
     queryFn: () => mlBackendsApi.capabilities(projectId, backendId as string),
@@ -166,7 +166,7 @@ function useBackendPreannotateConfig({
   }, [availableTaskTypes, taskType]);
   const isDocMode = taskType === "ocr" || taskType === "doc_layout";
 
-  // v0.20.5 · doc 路径也 model-first(对齐 geometric/text): 当前任务族(ocr / doc_layout)的
+  // doc 路径也 model-first(对齐 geometric/text): 当前任务族(ocr / doc_layout)的
   //   全部 full_image 模型(排除 crop-only 识别原子如 ocr-rec)进统一「模型任务」下拉。
   //   此前 doc 模式只 `.find` 第一个、UI 不出选择器, 端到端 e2e 既看不到也选不了。
   const docModels = useMemo<MLModelCapability[]>(
@@ -196,7 +196,7 @@ function useBackendPreannotateConfig({
     return models.find((m) => m.task !== "ocr" && m.task !== "doc_layout") ?? models[0];
   }, [isDocMode, activeDocModel, capabilitiesQ.data]);
 
-  // v0.21.6 / v0.21.7 · 视频项目源模型按**执行单位**分叉 (输入节点顶层选择, 见 母计划对等分叉):
+  // 视频项目源模型按**执行单位**分叉 (输入节点顶层选择, 见 母计划对等分叉):
   //   - 整段序列 (executionUnit!=='frame', 默认): 只列 tracker (detect-then-track, 落 video_track);
   //     配置层(变体 series×size / 参数 conf-iou-tracker / 类别白名单)与检测同构, 复用几何 model 机制,
   //     buildArgs 几何分支自然发 task='tracker'。
@@ -227,7 +227,7 @@ function useBackendPreannotateConfig({
   const geometricModel =
     geometricModels.find((m) => m.id === geometricTaskId) ?? geometricModels[0];
 
-  // v0.18.12 · 文本路径 (gsam2 / sam3 开集) 也 model-first: 列出该 backend 的「文本 task」model
+  // 文本路径 (gsam2 / sam3 开集) 也 model-first: 列出该 backend 的「文本 task」model
   //   (含 text prompt、非交互、public 的 detection / segmentation), 作 task 选择器。
   //   统一 wire: 选中 model → 发 model_id + model_variants (替代旧的「一个 backend + output 开关」)。
   const textModels = useMemo<MLModelCapability[]>(
@@ -253,12 +253,12 @@ function useBackendPreannotateConfig({
   }, [backendId, textModels, project?.type_key]);
   const textModel = textModels.find((m) => m.id === textTaskId) ?? textModels[0];
 
-  // v0.14.18 / v0.18.12 · 当前路径的 variant 来源: doc → 文档 model; 几何 → 选中 task model;
+  // 当前路径的 variant 来源: doc → 文档 model; 几何 → 选中 task model;
   //   文本 (gsam2 / sam3) → **选中文本 task model** 的逐 model 变体 (检测=dino; 分割=sam+dino),
   //   取代旧顶层 union (选检测时不再白显 SAM)。textModel 缺位回落顶层 (能力未就位兜底)。
   const isTextPath = !isDocMode && !isGeometricBackend;
 
-  // v0.20.5 · 统一「模型任务」选择层(对齐所有 backend): 不再为 OCR/文档单设「任务类型」tab,
+  // 统一「模型任务」选择层(对齐所有 backend): 不再为 OCR/文档单设「任务类型」tab,
   //   把该 backend 全部可批量预标的 full_image 模型(几何检测/分割 + OCR/版面, 排除交互式与
   //   crop-only 原子如 ocr-rec)铺进同一个下拉。选中 model 后由其 task 派发到内部三路机制
   //   (taskType + 对应路径选中 id),prompt/类别白名单/变体/输出/buildArgs 仍按原路径生效。
@@ -267,7 +267,7 @@ function useBackendPreannotateConfig({
     const out: MLModelCapability[] = [];
     for (const m of capabilitiesQ.data?.models ?? []) {
       if (m.is_interactive) continue;
-      // v0.21.7 · 整段序列 (video tracking): 源下拉**只列 tracker** (吃 video 输入, 跳 full_image 门)。
+      // 整段序列 (video tracking): 源下拉**只列 tracker** (吃 video 输入, 跳 full_image 门)。
       if (isVideoTracking) {
         if (m.task !== "tracker" || seen.has(m.id)) continue;
         seen.add(m.id);
@@ -350,7 +350,7 @@ function useBackendPreannotateConfig({
     return derivePanelShape(primaryModel, isDocMode);
   }, [isTextPath, isDocMode, primaryModel, textModel]);
 
-  // v0.18.12 · 文本路径输出子选项 (task-first 去重): 选中分割 model → {掩膜, 全部} 二选 (删「框」,
+  // 文本路径输出子选项 (task-first 去重): 选中分割 model → {掩膜, 全部} 二选 (删「框」,
   //   因「分割@框」与「检测」等价冗余); 选中检测 model → 无子选项 (强制 box, 结构即隐藏 SAM)。
   //   值取分割 model 的 supported_text_outputs 中的 mask/both (排除 box)。
   const textOutputOptions = useMemo<TextOutputMode[]>(() => {
@@ -359,14 +359,14 @@ function useBackendPreannotateConfig({
     return (["mask", "both"] as TextOutputMode[]).filter((o) => outs.has(o));
   }, [isTextPath, textModel]);
 
-  // v0.14.17 · 类别白名单: 选中的模型原生类别 index 子集 (空集=全部). 随 task 切换重置.
+  // 类别白名单: 选中的模型原生类别 index 子集 (空集=全部). 随 task 切换重置.
   const [selectedClassIdx, setSelectedClassIdx] = useState<Set<number>>(new Set());
   useEffect(() => {
     setSelectedClassIdx(new Set());
   }, [backendId, geometricTaskId]);
 
   // 文本任务用 /setup.params; OCR / 版面用所选 model 条目自带的 params schema。
-  // v0.21.6 · 几何路径改用**选中几何 model** 的 per-model params (每条 model entry 都自带,
+  // 几何路径改用**选中几何 model** 的 per-model params (每条 model entry 都自带,
   //   见 yolo-backend `_build_model_entry`), 回落 /setup 顶层。此前恒用顶层 (= 检测的 conf/iou/max_det),
   //   导致 tracker 的「追踪算法」enum、obb 的专属 params 等 per-model 字段被吞。检测/分割的 per-model
   //   与顶层同构, 零回归。
@@ -385,7 +385,7 @@ function useBackendPreannotateConfig({
   const { savedParams, save: saveParams } = useAiToolParamPrefs(backendId);
   const [paramsValue, setParamsValue] = useState<Record<string, unknown>>({});
 
-  // v0.14.13 · 项目级 variant 偏好 merge backend 自报默认 (按当前路径的 variant 来源, 见 variantSource).
+  // 项目级 variant 偏好 merge backend 自报默认 (按当前路径的 variant 来源, 见 variantSource).
   const variantDefaults = useMemo<Record<string, string>>(() => {
     const fromBackend = variantSource.defaults ?? {};
     const fromProject = (backendId ? project?.default_variants?.[backendId] : undefined) ?? {};
@@ -406,7 +406,7 @@ function useBackendPreannotateConfig({
     saveParams(next);
   };
 
-  // v0.14.13 · variant 写回项目级偏好 (debounced 跟随 PATCH).
+  // variant 写回项目级偏好 (debounced 跟随 PATCH).
   const updateProjectMu = useUpdateProject(projectId);
   const variantAxisKeysRef = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -450,7 +450,7 @@ function useBackendPreannotateConfig({
     }, 300);
   };
 
-  // v0.14.16 · 命名预设 (variant + params 快照, 按 backend×task 分桶 localStorage).
+  // 命名预设 (variant + params 快照, 按 backend×task 分桶 localStorage).
   const {
     presets,
     save: savePreset,
@@ -460,7 +460,7 @@ function useBackendPreannotateConfig({
     onVariantOrParamsChange({ ...deriveDefaults(paramsSchema), ...variantDefaults, ...values });
   };
 
-  // v0.14.17 · 手动预热: 加载该 task 的类别表 (model.names) 以勾选类别白名单.
+  // 手动预热: 加载该 task 的类别表 (model.names) 以勾选类别白名单.
   const warmMut = useMutation({
     mutationFn: () => {
       const variants: Record<string, string> = {};
@@ -519,7 +519,7 @@ function useBackendPreannotateConfig({
     defaultPromptAppliedRef.current = "";
   }, [projectId, project?.type_key]);
 
-  // v0.18.12 · 文本 task 切到分割且 outputMode 残留 box (检测态) → 回落 mask;
+  // 文本 task 切到分割且 outputMode 残留 box (检测态) → 回落 mask;
   //   子开关只 {掩膜, 全部}, 不留无匹配项的 box。检测态由 buildArgs 强制 box, 无需在此处理。
   useEffect(() => {
     if (isTextPath && textModel?.task === "segment" && outputMode === "box") {
@@ -527,7 +527,7 @@ function useBackendPreannotateConfig({
     }
   }, [isTextPath, textModel, outputMode]);
 
-  // v0.9.12 · aliases 就绪且 prompt 仍空时, 默认勾选所有 alias 拼成逗号分隔 (按频率降序).
+  // aliases 就绪且 prompt 仍空时, 默认勾选所有 alias 拼成逗号分隔 (按频率降序).
   const defaultPromptAppliedRef = useRef<string>("");
   useEffect(() => {
     if (!projectId) return;
@@ -542,7 +542,7 @@ function useBackendPreannotateConfig({
     defaultPromptAppliedRef.current = projectId;
   }, [projectId, aliases, prompt, freqQ.isFetched]);
 
-  // v0.14.13 · 当前 variant 选择是否已 warm (用于按钮文案分两态).
+  // 当前 variant 选择是否已 warm (用于按钮文案分两态).
   const currentVariantSlice = useMemo<Record<string, string>>(() => {
     const out: Record<string, string> = {};
     for (const k of variantAxisKeysRef.current) {
@@ -606,14 +606,14 @@ function useBackendPreannotateConfig({
         ml_backend_id: backendId,
         model_id: activeDocModel?.id,
         task: taskType,
-        // v0.20.5 · 把变体轴(version/size/lang)从 params 拆出、按 model_variants 下发,
+        // 把变体轴(version/size/lang)从 params 拆出、按 model_variants 下发,
         //   否则后端 resolve() 读不到、永远跑默认档(此前 doc 分支漏发 model_variants)。
         model_variants: variantSlice,
         params: nonVariantParams,
         predict_mode: predictMode,
       };
     }
-    // 文本路径 (gsam2 / sam3): v0.18.12 统一 wire 发 model_id + task + model_variants。
+    // 文本路径 (gsam2 / sam3) 发送 model_id + task + model_variants。
     //   输出形态: 检测 model 恒 box; 分割 model 取子开关 outputMode (mask/both)。
     //   variantSlice 已只含选中文本 model 的轴 (variantSource 按 textModel 派生); 阈值走 nonVariantParams。
     return {
@@ -628,7 +628,7 @@ function useBackendPreannotateConfig({
     };
   };
 
-  // v0.19.3 WS2 · 当前激活的「源模型」(批量预标流水线的根, 与 buildArgs 选 model 一致)。
+  // 当前激活的「源模型」(批量预标流水线的根, 与 buildArgs 选 model 一致)。
   //   自报 resource_profile.batchable=false (交互/有状态) → 不能批量预标, 给非阻断预警
   //   (与端点 _assert_capabilities 源阶段 422 对齐; config-time 前移, 不硬挡)。
   const sourceModel = isGeometricBackend ? geometricModel : isDocMode ? activeDocModel : textModel;
@@ -658,7 +658,7 @@ function useBackendPreannotateConfig({
     hasDocTasks,
     isDocMode,
     activeDocModel,
-    // v0.20.5 · 统一「模型任务」选择层: 所有 backend(含 OCR/版面)共用一个下拉。
+    // 统一「模型任务」选择层: 所有 backend(含 OCR/版面)共用一个下拉。
     selectableModels,
     selectedModelId,
     selectTaskModel,
@@ -668,7 +668,7 @@ function useBackendPreannotateConfig({
     geometricModel,
     geometricTaskId,
     setGeometricTaskId,
-    // v0.18.12 · 文本 task (gsam2 / sam3 model-first): 检测 / 分割 model 选择 + 分割输出子选项。
+    // 文本 task (gsam2 / sam3 model-first): 检测 / 分割 model 选择 + 分割输出子选项。
     isTextPath,
     textModels,
     textModel,
@@ -685,7 +685,7 @@ function useBackendPreannotateConfig({
     paramsSchema,
     hasAnyParams,
     hasNonVariantParams,
-    // v0.14.18 · 当前路径的 variant 来源 (文本路径=顶层两组; 几何/doc=选中 model). 供 VariantSelector.
+    // 当前路径的 variant 来源 (文本路径=顶层两组; 几何/doc=选中 model). 供 VariantSelector.
     variantGroups: variantSource.groups,
     variantCombinations: variantSource.combinations,
     // variant / 参数
@@ -707,7 +707,7 @@ function useBackendPreannotateConfig({
     // 输出形态
     outputMode,
     setOutputMode,
-    // v0.19.3 WS2 · 源模型 batchable 非阻断预警 (null = 无)。
+    // 源模型 batchable 非阻断预警 (null = 无)。
     sourceBatchableWarning,
     isVideoProject,
     // 运行

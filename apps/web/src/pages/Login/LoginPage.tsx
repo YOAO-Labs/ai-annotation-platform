@@ -32,7 +32,7 @@ export function LoginPage() {
   const [captchaRequired, setCaptchaRequired] = useState(false);
   const [captchaGeneration, setCaptchaGeneration] = useState(0);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  // v0.12.0 · 后端返回 email_not_verified 时展示重发入口
+  // 后端返回 email_not_verified 时展示重发入口
   const [unverified, setUnverified] = useState(false);
   const [resendDone, setResendDone] = useState(false);
   const login = useLogin();

@@ -1,4 +1,4 @@
-// v0.10.14 · E2 · 从已有项目导出模板对话框. 列出当前用户可见的项目, 选定后
+// 从已有项目导出模板对话框. 列出当前用户可见的项目, 选定后
 // 调 POST /project-templates with source_project_id; 后端自动 dump
 // _CLONEABLE_PROJECT_FIELDS + annotation_guide.
 

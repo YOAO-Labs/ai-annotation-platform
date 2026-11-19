@@ -1,5 +1,5 @@
 /**
- * v0.11.4 · DiscussionPanel issues tab ↔ IssueLayer 图钉双向联动的轻量共享 store。
+ * DiscussionPanel issues tab ↔ IssueLayer 图钉双向联动的轻量共享 store。
  *
  * - highlightId: 当前高亮的 issue feedback id。列表单击 / 图钉单击都写它，
  *   IssueLayer (pin 圆环加亮) 与 issues tab 列表行 (描边) 同时读它。

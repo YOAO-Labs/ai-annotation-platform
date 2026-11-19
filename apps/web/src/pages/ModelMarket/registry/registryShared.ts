@@ -1,5 +1,5 @@
 /**
- * v0.23.4 P3 · small shared helpers for the registry section components.
+ * small shared helpers for the registry section components.
  *
  * Pure presentation logic only — no React, no query. The four section
  * components (ServicePools / BackendInstances / GPUResources /

@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · 工作台 ToolId → ToolUnitId 映射.
+ * 工作台 ToolId → ToolUnitId 映射.
  *
  * 与后端 ``app/schemas/_jsonb_types.py`` 中的 ToolUnitId Literal 严格对齐.
  * 区域工具 (polygon / mask) 共享 region; bbox 单独. hand / canvas 是辅助工具不持有
@@ -30,7 +30,7 @@ export const TOOL_TO_UNIT: Record<ToolId, ToolUnitId> = {
   // 文本召回与 Magic Box 产出矩形框 → 与手画 box 同归 bbox 单位.
   "text-prompt": "bbox",
   "magic-box": "bbox",
-  // v0.10.28 · 关键点工具归 keypoint 单位.
+  // 关键点工具归 keypoint 单位.
   keypoint: "keypoint",
   // select / hand / canvas 是选择 / 视图 / 批注工具, 不归任何 unit; 给个占位 (兜底 bbox)
   select: "bbox",

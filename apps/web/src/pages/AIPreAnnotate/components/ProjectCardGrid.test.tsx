@@ -1,5 +1,5 @@
 /**
- * v0.9.12 · ProjectCardGrid 单测 (BUG B-17 项目卡片视图).
+ * ProjectCardGrid 单测 (BUG B-17 项目卡片视图).
  */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";

@@ -1,4 +1,4 @@
-// v0.23.5 · WS-B · useMaskEditorSession 单测 — 覆盖 A1 / A2 / A7 复现场景。
+// useMaskEditorSession 单测 — 覆盖 A1 / A2 / A7 复现场景。
 //
 // A1 视频"加载中落笔后被迟到 GET 覆盖": sessionKey 切换后旧 generation 的 loadRle 不得回写。
 // A2 图片保存失败后 Buffer 被清空: save reject → phase=error, editor.buffer 仍在, 可 retry。

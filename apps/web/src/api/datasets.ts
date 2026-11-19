@@ -377,7 +377,7 @@ export const datasetsApi = {
       status: string;
       dataset_id: string;
       project_id: string;
-      // v0.12.0 · 大 dataset(>2000 items) 异步建 task 时返回 job id；小 dataset 同步建则为 null
+      // 大 dataset(>2000 items) 异步建 task 时返回 job id；小 dataset 同步建则为 null
       async_job_id?: string | null;
       created_tasks?: number;
     }>(`/datasets/${id}/link`, { project_id: projectId }),
@@ -403,7 +403,7 @@ export const datasetsApi = {
   getLinkedProjects: (id: string, init?: RequestInit) =>
     datasetGet<import("./projects").ProjectResponse[]>(`/datasets/${id}/projects`, init),
 
-  // v0.7.3 · 项目侧反查：列出本项目已关联的所有数据集
+  // 项目侧反查：列出本项目已关联的所有数据集
   listForProject: (projectId: string, init?: RequestInit) =>
     datasetGet<
       {

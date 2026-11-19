@@ -139,7 +139,7 @@ function buildMatrix(config) {
 }
 
 /**
- * v0.23.15 §8 · WebCodecs 精确帧性能资格矩阵。生成结构化 manifest(§8.2 分辨率 × 场景)、
+ * §8 · WebCodecs 精确帧性能资格矩阵。生成结构化 manifest(§8.2 分辨率 × 场景)、
  * §8.3 退出门 budget 与 §9 Dedicated Worker 决策结论。真实 warm seek / long task / 内存
  * 测量需有 VideoDecoder 的有头 Chrome / GPU runner;headless 仅记录环境与 capability,
  * 不以一台开发机数字宣称硬件 SLA(§8.3)。

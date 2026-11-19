@@ -1,4 +1,4 @@
-// v0.15.24 · §Phase1 frustum 视锥选点纯函数单测。
+// §Phase1 frustum 视锥选点纯函数单测。
 // SIMPLE_CALIB: identity 外参 + fx=fy=1000/cx=cy=500 → lidar 系即相机系,像素/深度可手算。
 import { describe, it, expect } from "vitest";
 import type { SensorCalibration } from "@/types";

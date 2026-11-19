@@ -142,7 +142,7 @@ describe("videoStageGeometry", () => {
   });
 });
 
-// ── v0.21.20 · polygon track 弧长参数化插值 (前端, 镜像后端 lerp_polygon) ──
+// ── polygon track 弧长参数化插值 (前端, 镜像后端 lerp_polygon) ──
 
 const SQUARE_A: [number, number][] = [
   [0, 0],
@@ -268,7 +268,7 @@ describe("videoStageGeometry · polygon track", () => {
   });
 });
 
-// ── v0.21.20 · polyline (开路径) track 插值 (前端, 镜像后端 lerp_polyline) ──
+// ── polyline (开路径) track 插值 (前端, 镜像后端 lerp_polyline) ──
 
 const LINE_A: [number, number][] = [
   [0, 0],

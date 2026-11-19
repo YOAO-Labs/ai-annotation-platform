@@ -58,7 +58,7 @@ export function TopBar({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { resolved, setTheme } = useTheme();
 
-  // v0.7.2 · 全局 ⌘K / Ctrl+K 触发命令搜索
+  // 全局 ⌘K / Ctrl+K 触发命令搜索
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -160,7 +160,7 @@ export function TopBar({
             <Icon name={themeIcon} size={15} />
           </button>
 
-          {/* v0.9.11 PerfHud · 性能监控浮窗 toggle (admin only, 快捷键 Ctrl+Shift+P 同步) */}
+          {/* PerfHud · 性能监控浮窗 toggle (admin only, 快捷键 Ctrl+Shift+P 同步) */}
           {user?.role === "super_admin" || user?.role === "project_admin" ? (
             <button
               type="button"
@@ -177,13 +177,13 @@ export function TopBar({
             </button>
           ) : null}
 
-          {/* v0.9.8 · 全局预标 job 徽章 (admin only, 0 个时隐身) */}
+          {/* 全局预标 job 徽章 (admin only, 0 个时隐身) */}
           <PreannotateJobsBadge />
 
-          {/* v0.10.16 · 后台异步任务铃铛（all users, polling /async-jobs） */}
+          {/* 后台异步任务铃铛（all users, polling /async-jobs） */}
           <JobsBell />
 
-          {/* 通知按钮（v0.7.6：组件自包含 trigger + popover，TopBar 不再管 open state） */}
+          {/* 通知按钮封装 trigger 和 popover，TopBar 不管理其 open state。 */}
           <Suspense
             fallback={
               <button type="button" aria-label="通知加载中" disabled className={ICON_BTN_CLASS}>

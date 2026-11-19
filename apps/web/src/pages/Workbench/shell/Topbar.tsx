@@ -28,7 +28,7 @@ interface TopbarProps {
   taskIdx: number;
   taskTotal: number;
   aiRunning: boolean;
-  /** v0.9.6 · 当前任务所属批次状态;pre_annotated 时显示「AI 预标已就绪」紫徽章. */
+  /** 当前任务所属批次状态;pre_annotated 时显示「AI 预标已就绪」紫徽章. */
   batchStatus?: string;
   isSubmitting: boolean;
   /** 当前置信度阈值（0~1）；变化时短暂浮出反馈，给 [ ] 盲调用。 */
@@ -58,16 +58,16 @@ interface TopbarProps {
   submitDisabled?: boolean;
   onSmartNextOpen?: () => void;
   onSmartNextUncertain?: () => void;
-  /** v0.15.3 · 齿轮图标直接打开设置窗口;缺省不渲染该项。 */
+  /** 齿轮图标直接打开设置窗口;缺省不渲染该项。 */
   onOpenWorkbenchSettings?: () => void;
-  /** v0.6.5 状态机：审核中可撤回 / 已通过可重开。 */
+  /** 状态机：审核中可撤回 / 已通过可重开。 */
   canWithdraw?: boolean;
   canReopen?: boolean;
   isWithdrawing?: boolean;
   isReopening?: boolean;
   onWithdraw?: () => void;
   onReopen?: () => void;
-  // v0.8.7 F7 · 任务跳过；缺省时不渲染按钮
+  // 任务跳过；缺省时不渲染按钮
   isSkipping?: boolean;
   onSkip?: (reason: SkipReason, note?: string) => void;
   /** M2 · review 模式专属操作 */
@@ -94,7 +94,7 @@ function cn(...xs: Array<string | false | null | undefined>): string {
 }
 
 /**
- * Topbar 三段（v0.5.3）：
+ * Topbar 的三个区域：
  * - 左：标题 / 索引（task.display_id · file_name · n / total）
  * - 中：上一题 / 提交 / 下一题 / ⌄ 智能切题
  * - 右：阈值反馈浮 + AI + 主题 + ⋯ 溢出菜单（? 帮助 + 设置）
@@ -157,7 +157,7 @@ export function Topbar({
 }: TopbarProps) {
   const { resolved, setTheme } = useTheme();
   const openBugDrawer = useBugDrawerStore((state) => state.openDrawer);
-  // v0.8.7 F7 · 跳过任务 modal 状态
+  // 跳过任务 modal 状态
   const [skipOpen, setSkipOpen] = useState(false);
   const status = task?.status;
   const isReview = status === "review";
@@ -307,9 +307,9 @@ export function Topbar({
               </span>
             )}
             <div className="flex shrink-0 items-center gap-2.5 @max-[1400px]:hidden">
-              {/* v0.9.6 · 仅 pre_annotated 时显示徽章, 标注员一眼知道「先看 AI 候选」 */}
+              {/* 仅 pre_annotated 时显示徽章, 标注员一眼知道「先看 AI 候选」 */}
               {batchStatus === "pre_annotated" && <BatchStatusBadge status="pre_annotated" />}
-              {/* v0.7.2 · 责任人胶囊：标注员 / 审核员（list_tasks/get_task 已 populate） */}
+              {/* 责任人胶囊：标注员 / 审核员（list_tasks/get_task 已 populate） */}
               {(task?.assignee || task?.reviewer) && (
                 <span className="shrink-0 w-px h-4 bg-border" />
               )}

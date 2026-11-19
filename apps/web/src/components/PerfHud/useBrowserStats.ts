@@ -1,4 +1,4 @@
-// v0.10.18 · PerfHud 浏览器侧指标采集 hook.
+// PerfHud 浏览器侧指标采集 hook.
 //
 // 6 项指标:
 //   - fps               : rAF 1s 滑动窗口

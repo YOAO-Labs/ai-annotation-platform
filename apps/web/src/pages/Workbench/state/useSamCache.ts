@@ -1,5 +1,5 @@
 /**
- * v0.10.4 I6.1 · SAM 候选前端 LRU 缓存。
+ * SAM 候选前端 LRU 缓存。
  *
  * 重复点击同一坐标 / 拖同一框时，跳过对后端的重复请求；后端 embedding cache 减少了
  * encoder 开销但仍走 HTTP round-trip。前端缓存让重复操作秒回。
@@ -54,7 +54,7 @@ export interface SamCacheKeyArgs {
   ctxKind: string;
   ctx: Record<string, unknown>;
   /**
-   * v0.21.23 · 额外作用域，视频传当前 frameIndex。同一 task 的不同帧是不同底图，
+   * 额外作用域，视频传当前 frameIndex。同一 task 的不同帧是不同底图，
    * 同样的 prompt 必须命中不同缓存项，否则候选会跨帧串。省略 = 图片链路（无此维度）。
    */
   scope?: string | number;

@@ -1,9 +1,9 @@
 /**
- * v0.9.4 phase 2 · SAM text 输出模式工具.
+ * SAM text 输出模式工具.
  *
  * 智能默认按项目 type_key:
  *   image-det → "box"  (DINO 直出, 跳过 SAM mask, 标注员要的就是 bbox)
- *   其它      → "mask" (与 v0.9.2 当前行为一致, 兼容 image-seg / mm / video / lidar)
+ *     其它      → "mask" (适用于 image-seg / mm / video / lidar)
  *
  * "both" 不作智能默认, 仅作用户 opt-in (Tab 切活跃几何, 复杂度高).
  *

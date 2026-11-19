@@ -1,5 +1,5 @@
 /**
- * v0.21.0 收尾优化 · 全局编排页阶段 Inspector.
+ * 全局编排页阶段 Inspector。
  *
  * 与项目侧 StageCard 对齐, 字段分两类:
  *   ① 手配 (用户填): 模型选择 / 模型变体 (version/size/lang 轴) / 类别 (源 class_filter、
@@ -253,7 +253,7 @@ export function GlobalStageInspector({
     }
   }, [modelKey, value, optionByKey, kind]);
 
-  // v0.21.6 · 源模型阶段标题按 model.task 派生 (不 hardcode「检测」): 目标检测 / 视频追踪 参数。
+  // 源模型阶段标题按 model.task 派生 (不 hardcode「检测」): 目标检测 / 视频追踪 参数。
   //   (输入节点已收敛为独立纯数据源, 此处是其子源模型 stage。)
   const roleLabel =
     kind === "source"

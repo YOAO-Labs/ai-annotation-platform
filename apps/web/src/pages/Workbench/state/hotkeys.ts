@@ -1,7 +1,7 @@
 // Single source of truth for Workbench shortcuts.
 // useEffect 注册和 HotkeyCheatSheet 都从这里读，避免漂移。
 //
-// v0.24 快捷键面板重构：
+// 快捷键面板重构：
 //  - HOTKEYS 是带稳定 `id` 的参考目录（对话框 / 提示 / 文档生成共用）；
 //  - 可编辑命令的默认组合与覆盖解析在 `state/hotkeyBindings.ts`，dispatchKey 通过
 //    `matchCommand` 按生效绑定匹配，硬编码按键分支只保留 Fixed 命令；
@@ -1345,7 +1345,7 @@ export type HotkeyAction =
   | { type: "setClassByDigit"; idx: number }
   | { type: "setAttribute"; key: string; value: unknown }
   | { type: "deleteSelected" }
-  // v0.10.5 M4-β · I15 shape 状态位快捷键。
+  // shape 状态位快捷键。
   | { type: "toggleShapeFlag"; flag: "is_locked" | "is_hidden" }
   | { type: "bumpZOrder"; delta: -1 | 1 }
   | { type: "submit" }
@@ -1357,9 +1357,9 @@ export type HotkeyAction =
   | { type: "videoJogPlayback"; dir: -1 | 1 }
   | { type: "videoPausePlayback" }
   | { type: "videoSeek"; delta: number }
-  // v0.10.29 · 软网格导航：采样开启 (step>1) 时 ←/→ 走网格跳。
+  // 软网格导航：采样开启 (step>1) 时 ←/→ 走网格跳。
   | { type: "videoSeekGrid"; dir: -1 | 1 }
-  // v0.10.29 · 逃生口：±1 源帧微调 (采样开启时 Shift+←/→ 与 ,/. )。
+  // 逃生口：±1 源帧微调 (采样开启时 Shift+←/→ 与 ,/. )。
   | { type: "videoMicroStep"; dir: -1 | 1 }
   | { type: "videoSeekKeyframe"; dir: -1 | 1 }
   | { type: "videoToggleBookmark" }
@@ -1409,7 +1409,7 @@ export interface DispatchCtx {
   stage?: HotkeyStage;
   /** selected annotation is a video_track; used for contextual video timeline shortcuts. */
   hasSelectedVideoTrack?: boolean;
-  /** v0.10.29 · 视频采样网格生效 (step>1)：←/→ 改为网格跳，Shift/Alt 重映射。
+  /** 视频采样网格生效 (step>1)：←/→ 改为网格跳，Shift/Alt 重映射。
    *  step=1 (不采样) 时为 false，键位维持现状不变 (向后兼容)。 */
   samplingActive?: boolean;
   /** Increment B：可编辑命令的生效绑定匹配（无 overrides 时等价默认组合）。 */
@@ -1566,7 +1566,7 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
       return { type: "videoJogPlayback", dir: 1 };
     }
     if (e.key === "Tab") return { type: "videoCycleInCategory", dir: e.shiftKey ? -1 : 1 };
-    // v0.21.11 · ` / Shift+` 跨类跳转(AI 待审 → 人工 → 轨迹); 紧邻 Tab、当前未占用。
+    // ` / Shift+` 跨类跳转(AI 待审 → 人工 → 轨迹); 紧邻 Tab、当前未占用。
     // e.code 而非 e.key: Shift+` 的 key 在美式布局是 "~" 而非 "`", 用 key 判定会让反向(Shift)永不触发。
     if (e.code === "Backquote") return { type: "videoStepCategory", dir: e.shiftKey ? -1 : 1 };
     if (e.key === "Escape") return { type: "cancel" };
@@ -1581,7 +1581,7 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
   }
 
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-    // v0.14.1 · Alt+→ / Alt+← 跨帧目标延续(2D / 3D 统一键; 2D 的 Shift+← / → 已被
+    // Alt+→ / Alt+← 跨帧目标延续(2D / 3D 统一键; 2D 的 Shift+← / → 已被
     //           10px nudge 占用, 故跨帧用 Alt+方向)。仅在有选中时消费。
     if (ctx.hasSelection && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
       return { type: "crossFramePropagate", dir: e.key === "ArrowRight" ? "next" : "prev" };
@@ -1611,7 +1611,7 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
   // popover 活跃时，类别数字键归它消费
   if (ctx.pendingActive) return null;
 
-  // v0.10.5 M4-β I15 · 有选中时 `[`/`]` 调层级（向下/向上）；无选中时维持原 threshold 行为。
+  // 有选中时 `[`/`]` 调层级（向下/向上）；无选中时维持原 threshold 行为。
   if (e.key === "[") {
     if (ctx.hasSelection) return { type: "bumpZOrder", delta: -1 };
     return { type: "thresholdAdjust", delta: -0.05 };
@@ -1621,13 +1621,13 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
     return { type: "thresholdAdjust", delta: 0.05 };
   }
 
-  // v0.9.4 phase 2 · SAM 子工具栏 polarity (sam-point 下生效, 由消费端 gate by tool/samSubTool).
+  // SAM 子工具栏 polarity (sam-point 下生效, 由消费端 gate by tool/samSubTool).
   // "+" 需要 Shift+=, "=" 单按 = SAM positive; "-" 单按 = SAM negative。
   // 按产出字符匹配（"Shift 才打得出的 +" 与 "=" 都视为正向），Shift+其它字母不受影响。
   if (e.key === "+" || e.key === "=") return { type: "samPolarity", polarity: "positive" };
   if (e.key === "-") return { type: "samPolarity", polarity: "negative" };
 
-  // v0.21.11 · 图片 Tab 升级为「同类流转」(AI 待审 / 人工, 按选中对象类型环内循环),
+  // 图片 Tab 升级为「同类流转」(AI 待审 / 人工, 按选中对象类型环内循环),
   // ` 跨类跳转。J/K 保留为人工框专属循环(老肌肉记忆)。
   if (e.key === "Tab") return { type: "imageCycleInCategory", dir: e.shiftKey ? -1 : 1 };
   // e.code 而非 e.key: Shift+` 的 key 在美式布局是 "~" 而非 "`", 用 key 判定会让反向(Shift)永不触发。

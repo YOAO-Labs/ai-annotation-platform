@@ -1,7 +1,7 @@
 /**
- * v0.10.20 · I18 · IssueLayer
+ * IssueLayer
  *
- * 把 v0.10.19 已落的 pixel-anchored feedback (kind=issue, anchor_type=pixel) 同步渲染到
+ * 把 pixel-anchored feedback (kind=issue, anchor_type=pixel) 同步渲染到
  * ImageStage Konva tree 中, 替代「输入框填 x/y」形态:
  *
  *   - 每个 pixel issue 渲染为 status/severity 配色的图钉 (Circle + 符号)。

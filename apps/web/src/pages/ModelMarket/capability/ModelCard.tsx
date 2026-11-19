@@ -61,7 +61,7 @@ export function ModelCard({
   const variantGroups = (m.supported_variants ?? []).filter(
     (g) => Array.isArray(g.variants) && g.variants.length > 0,
   );
-  // v0.19.4 · batchable / device 升级为语义徽标 (顶部 badge 行), 资源行排除二者只留余项 (vram 等)。
+  // batchable / device 升级为语义徽标 (顶部 badge 行), 资源行排除二者只留余项 (vram 等)。
   const resource = m.resource_profile ?? {};
   const batchable = typeof resource.batchable === "boolean" ? resource.batchable : undefined;
   const device = typeof resource.device === "string" ? resource.device : undefined;
@@ -124,7 +124,7 @@ export function ModelCard({
           </Badge>
         ))}
         {m.is_interactive && <Badge variant="ai">交互式</Badge>}
-        {/* v0.19.4 · 批量徽标: 一眼看出能否进批量预标 (交互/有状态模型不可批量)。 */}
+        {/* 批量徽标: 一眼看出能否进批量预标 (交互/有状态模型不可批量)。 */}
         {batchable === true && (
           <span title="resource_profile.batchable=true：可用于批量预标流水线">
             <Badge variant="success">可批量</Badge>
@@ -135,7 +135,7 @@ export function ModelCard({
             <Badge variant="warning">交互/有状态</Badge>
           </span>
         )}
-        {/* v0.19.4 · 设备徽标: resource_profile.device。 */}
+        {/* 设备徽标: resource_profile.device。 */}
         {device && (
           <span title={`resource_profile.device=${device}`}>
             <Badge variant="outline">{device.toUpperCase()}</Badge>

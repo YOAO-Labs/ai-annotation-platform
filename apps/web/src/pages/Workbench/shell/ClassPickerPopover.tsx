@@ -13,7 +13,7 @@ type Geom = { x: number; y: number; w: number; h: number };
 type FixedAnchor = { left: number; top: number };
 export type ClassPickerCancelReason = "escape" | "outside";
 
-/** v0.11.28：改类悬浮框内联的属性编辑（与类别选择二合一，单列堆叠）。 */
+/** 改类悬浮框内联的属性编辑（与类别选择二合一，单列堆叠）。 */
 export type ClassPickerAttrEditing = {
   schema: AttributeSchema;
   attributes: Record<string, unknown>;

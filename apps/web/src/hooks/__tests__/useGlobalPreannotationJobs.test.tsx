@@ -1,5 +1,5 @@
 /**
- * v0.9.13 · useGlobalPreannotationJobs WS smoke 测试.
+ * useGlobalPreannotationJobs WS smoke 测试.
  *
  * 兜底「14 个月没人发现 URL 写错」类 bug — 验证:
  *   - URL 路径 /ws/prediction-jobs?token=... 拼接正确

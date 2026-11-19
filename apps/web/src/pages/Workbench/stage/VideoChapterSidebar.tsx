@@ -29,14 +29,14 @@ interface VideoChapterSidebarProps {
   timebase?: FrameTimebase;
   canEdit: boolean;
   onSeekFrame?: (frameIndex: number) => void;
-  /** v0.21.13 · 时间轴「圈选建章节」臂选态 (由 shell 管理, 圈一段后自动解除)。 */
+  /** 时间轴「圈选建章节」臂选态 (由 shell 管理, 圈一段后自动解除)。 */
   timelineDraftArmed?: boolean;
   onToggleTimelineDraft?: () => void;
-  /** v0.21.13 · 时间轴刷选产物 (start/end 帧); 一变化即打开新建表单并预填范围。 */
+  /** 时间轴刷选产物 (start/end 帧); 一变化即打开新建表单并预填范围。 */
   draftRange?: { startFrame: number; endFrame: number } | null;
   /** 消费完 draftRange 后通知 shell 清空, 使同一区间可再次触发。 */
   onConsumeDraftRange?: () => void;
-  /** v0.21.13 WS4 · 时间轴章节条 ↔ 侧栏行双向 hover 联动。 */
+  /** 时间轴章节条 ↔ 侧栏行双向 hover 联动。 */
   hoveredChapterId?: string | null;
   onHoverChapter?: (chapterId: string | null) => void;
 }
@@ -118,7 +118,7 @@ export function VideoChapterSidebar({
     setError(null);
   }, [editing?.chapterId]);
 
-  // v0.21.13 · 时间轴刷选产物到达 → 打开新建表单并预填起止帧 (只剩填标题 / 选色), 随即通知 shell 清空。
+  // 时间轴刷选产物到达 → 打开新建表单并预填起止帧 (只剩填标题 / 选色), 随即通知 shell 清空。
   useEffect(() => {
     if (!draftRange) return;
     const start = Math.max(0, Math.min(draftRange.startFrame, draftRange.endFrame));

@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · RegisterPage 单测：开放注册 / 邀请注册 双形态。
+ * RegisterPage 单测：开放注册 / 邀请注册 双形态。
  * - 已登录跳 dashboard
  * - 注册未开放空态
  * - 密码强度校验各项
@@ -193,7 +193,7 @@ describe("RegisterPage / OpenRegisterForm", () => {
     fireEvent.change(inputs[1], { target: { value: "Tom" } }); // name
     fillPwd("Abcdef12");
     fireEvent.click(screen.getByText("注册"));
-    // v0.8.7 F1 · payload 增加 captcha_token（VITE_TURNSTILE_SITE_KEY 缺省时为 null）
+    // payload 增加 captcha_token（VITE_TURNSTILE_SITE_KEY 缺省时为 null）
     expect(mockOpenRegister.mutate).toHaveBeenCalledWith(
       {
         email: "x@y.com",

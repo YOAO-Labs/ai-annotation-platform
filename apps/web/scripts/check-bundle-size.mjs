@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * v0.8.8 · 前端 bundle size budget。
+ * 前端 bundle size budget。
  *
  * 在 `vite build` 之后运行：扫描 `dist/assets/*.js`，按 `.size-limit.json`
  * 中的 glob 规则匹配并对比 max 字节数。任何文件超出 → 进程非零退出 →

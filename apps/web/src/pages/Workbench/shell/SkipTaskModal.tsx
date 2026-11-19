@@ -1,5 +1,5 @@
 /**
- * v0.8.7 F7 · 标注员跳过任务 modal。
+ * 标注员跳过任务 modal。
  *
  * 4 项预设原因（image_corrupt / no_target / unclear / other）+ 可选 note。
  * 确认后 POST /tasks/{id}/skip，由父组件触发 invalidate + 切下一题。

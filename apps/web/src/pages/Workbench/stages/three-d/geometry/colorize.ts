@@ -1,13 +1,13 @@
 /**
- * v0.13.6 · 点云 RGB 上色纯函数:把相机像素颜色「喷」到点云。
+ * 点云 RGB 上色纯函数:把相机像素颜色「喷」到点云。
  *
  * 对每个点投影到各标定相机像面(与 projection.ts 同口径:行主序 extrinsic·[x,y,z,1]
  * → 可选 rect → intrinsic·xyz → 透视除法),落在图内且在相机前方(depth>0)即候选;
  * 多候选取**归一化图像中心距最小**者(最居中 = 镜头畸变最小、最可靠,且不同分辨率可比),
  * 采样该像素 RGB。无任何相机覆盖的点 → 保留原色(高度色带或灰)。
  *
- * v0.13.8 接 `rasters` 后做 z-test 遮挡剔除,容差 OCCLUSION_TOL_M;未传 rasters 时
- * 回退 v0.13.6 无遮挡行为(向后兼容)。
+ * 提供 rasters 时按 OCCLUSION_TOL_M 容差做 z-test；未传 rasters 时
+ * 不做遮挡剔除。
  * 投影单点内联展开(不走 projection.ts 的数组版),避开 1e6 点逐点建数组的分配开销。
  */
 import type { SensorCalibration } from "@/types";
@@ -64,8 +64,8 @@ function projectOne(
  * @param cameras  有标定的相机采样集(空 → 全部点取原色)。
  * @param rasters  可选,与 cameras 一一对应的深度栅格。传入则做 z-test 遮挡剔除:
  *                 候选点深度比该相机栅格在投影格里的最近深度大于 OCCLUSION_TOL_M 时丢弃。
- *                 rasters[i] = null 表示第 i 个相机不做 z-test(等价 v0.13.6 行为);
- *                 整个参数为 undefined/null 时所有相机都不做 z-test(回归 v0.13.6)。
+ *                 rasters[i] = null 表示第 i 个相机不做 z-test；
+ *                 整个参数为 undefined/null 时所有相机都不做 z-test。
  */
 export function colorizePoints(
   positions: Float32Array,
@@ -131,7 +131,7 @@ export function colorizePoints(
 }
 
 /**
- * v0.15.x · 相机上色色调调整参数。中性值 = 不改色。
+ * 相机上色色调调整参数。中性值 = 不改色。
  * gamma > 1 提亮中间调；contrast 绕 0.5 灰点拉伸；brightness 整体平移。
  */
 export interface ColorAdjust {

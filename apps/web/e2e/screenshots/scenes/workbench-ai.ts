@@ -14,7 +14,7 @@ const imageTaskRoute = (catalog: Parameters<ScreenshotScene["route"]>[0], task: 
 
 // 工作台布局 + AI 工具体系截图。
 // 工具激活：ToolDock 按钮 testid 为 `tool-btn-{id}`；AI 工具(smart-point/smart-box/exemplar)
-// 激活后画布顶部居中浮 InteractiveToolBar(testid=interactive-toolbar, v0.18.25 取代旧 AIToolDrawer)；
+// 激活后画布顶部居中显示 InteractiveToolBar (testid=interactive-toolbar)；
 // mask 工具激活后画布上方浮 MaskToolbar(testid=mask-toolbar)，两者互斥。
 // AI 工具能否激活取决于 catalog 声明的 backend capability。
 
@@ -40,7 +40,7 @@ export const WORKBENCH_AI_SCENES: ScreenshotScene[] = [
     prepare: async (page) => {
       await page.waitForSelector('[data-testid="workbench-stage"]', { timeout: 5000 });
       await page.getByTestId("tool-btn-mask").click();
-      // v0.18.25+ ContextToolbar：激活后先是胶囊，需展开常用工具并点「更多设置」
+      // ContextToolbar：激活后先是胶囊，需展开常用工具并点「更多设置」
       // 才会挂载完整 MaskToolbar（testid=mask-toolbar 的弹层）。
       await page.getByTestId("mask-tool-capsule").waitFor({ state: "visible", timeout: 5000 });
       await page.getByTestId("mask-settings-trigger").click();

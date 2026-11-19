@@ -1,5 +1,5 @@
 /**
- * v0.9.13 · 项目级 batch 变更 WS 订阅.
+ * 项目级 batch 变更 WS 订阅.
  *
  * 后端在 BatchService.transition / check_auto_transitions 转态成功后,
  * `publish_batch_status_change()` 推 `batch.status_changed`; issue #124 起

@@ -1,5 +1,5 @@
 /**
- * v0.8.7 F5.3 · ReviewerMiniPanel 单测：渲染 3 个 mini-stat 数值。
+ * ReviewerMiniPanel 单测：渲染 3 个 mini-stat 数值。
  */
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";

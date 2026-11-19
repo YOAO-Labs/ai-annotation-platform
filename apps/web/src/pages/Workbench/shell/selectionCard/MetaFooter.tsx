@@ -47,7 +47,7 @@ const ROW_LABEL_CLASS = "text-xs text-muted-foreground";
 const ROW_VALUE_CLASS = "truncate text-xs text-muted-foreground";
 
 /**
- * v0.16.14 · 选中信息卡 · 可折叠次要信息(默认收起)。
+ * 选中信息卡 · 可折叠次要信息(默认收起)。
  * ID 短码 / 来源 / 创建·更新时间 / z-order,各端可经 extra 追加行。
  * 用原生 details/summary,无 JS 状态、键盘可达;无任何行时不渲染。
  */

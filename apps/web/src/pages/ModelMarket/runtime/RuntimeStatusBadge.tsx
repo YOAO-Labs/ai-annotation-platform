@@ -1,5 +1,5 @@
 /**
- * v0.23.4 · single-axis status badge.
+ * single-axis status badge.
  *
  * Renders one of the four status axes (health / routing / capacity / residency)
  * or a diagnostic severity as a Badge with an icon + label. Never color-only

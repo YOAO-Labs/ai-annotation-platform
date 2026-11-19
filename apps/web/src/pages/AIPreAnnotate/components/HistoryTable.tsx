@@ -3,8 +3,8 @@ import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.9.7 · pre_annotated 批次历史表 (含 client-side 搜索 / 排序 / 分页).
- * v0.9.12 · BUG B-16 加 checkbox 多选 + 底部浮窗 + 批量重激活/删除 prediction.
+ * pre_annotated 批次历史表 (含 client-side 搜索 / 排序 / 分页).
+ * BUG B-16 加 checkbox 多选 + 底部浮窗 + 批量重激活/删除 prediction.
  */
 
 import { Fragment, useId, useMemo, useRef, useState } from "react";
@@ -37,7 +37,7 @@ export function HistoryTable({ items, isLoading }: Props) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_run_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  // v0.9.12 B-16 · 多选 state (按 batch_id 索引, 跨折叠/分页保留)
+  // 多选 state (按 batch_id 索引, 跨折叠/分页保留)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmMode, setConfirmMode] = useState<BulkClearMode | null>(null);
   const [reasonInput, setReasonInput] = useState("");

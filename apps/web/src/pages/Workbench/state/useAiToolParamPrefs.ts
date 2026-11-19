@@ -13,7 +13,7 @@ import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreference
  *
  * 读取优先级链由调用方实现：用户偏好（本 hook）→ 后端 /setup 默认（InteractiveToolBar.deriveDefaults）。
  *
- * v0.21.17 · 拉取收敛到共享 {@link useUserPreferences} query; 本地态作乐观覆盖, 写回 600ms
+ * 拉取收敛到共享 {@link useUserPreferences} query; 本地态作乐观覆盖, 写回 600ms
  * 节流 + 成功后 invalidate。
  */
 export function useAiToolParamPrefs(backendId: string | null | undefined) {

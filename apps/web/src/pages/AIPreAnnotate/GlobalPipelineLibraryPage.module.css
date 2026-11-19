@@ -102,7 +102,7 @@
   border-radius: var(--radius-sm);
 }
 
-/* v0.21.0 收尾优化 · 两列编排: 左 DAG 画布 + 右选中节点参数检查器 (与 ProjectDetailPanel 语义一致). */
+/* 两列编排：左侧 DAG 画布，右侧选中节点的参数检查器。 */
 .editorTwoCol {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr);

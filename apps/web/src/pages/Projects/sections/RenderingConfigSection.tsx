@@ -1,5 +1,5 @@
-// v0.10.10 · I17.3 · 项目级渲染配置覆盖（ProjectSettings 子页）。
-// v0.10.18 · 视图层抽出为 RenderingConfigEditor, Section 仅作保存外壳.
+// 项目级渲染配置覆盖（ProjectSettings 子页）。
+// 视图层抽出为 RenderingConfigEditor, Section 仅作保存外壳.
 //
 // 字段集与 User.preferences.workbench 同：smoothImage / cssImageFilter /
 // controlPointsSize / snapToGrid（不含 longTaskSampleRate）。

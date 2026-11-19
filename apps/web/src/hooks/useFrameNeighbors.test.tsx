@@ -1,5 +1,5 @@
 /**
- * v0.14.1 · useFrameNeighbors 单测: 调端点 + 透传数据 + 无 scene 兜底。
+ * useFrameNeighbors 单测: 调端点 + 透传数据 + 无 scene 兜底。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";

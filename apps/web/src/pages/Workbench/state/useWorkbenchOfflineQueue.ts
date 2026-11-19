@@ -1,4 +1,4 @@
-// v0.6.3 P1：从 WorkbenchShell 拆出的离线队列接线层。
+// 从 WorkbenchShell 拆出的离线队列接线层。
 // 集中管理：online 状态 + 单条 op 远端执行 + drain 全量同步 + drawer 开关
 // + 错误归类（网络抖动入队 / 业务错 toast）。
 //
@@ -197,7 +197,7 @@ export function useWorkbenchOfflineQueue({
                 ),
               );
             }
-            // v0.6.3 P0：跨队列替换 tmpId → realId，保后续 update/delete 不 404
+            // 跨队列替换 tmpId → realId，保后续 update/delete 不 404
             await offlineQueueReplaceAnnotationId(op.tmpId, real.id, queueScope);
           } else if (canWriteCurrentTask) {
             queryClient.invalidateQueries({ queryKey: ["annotations", op.taskId] });

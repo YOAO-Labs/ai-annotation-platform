@@ -1,5 +1,5 @@
 /**
- * v0.8.7 F6 · ResizeHandles.applyResize 修饰键覆盖。
+ * ResizeHandles.applyResize 修饰键覆盖。
  *
  * - 不带修饰：拖右下角扩展（基线，验未破坏）
  * - shiftKey: 锁纵横比
@@ -22,7 +22,7 @@ const base: Annotation = {
   h: 0.1,
 };
 
-describe("applyResize · v0.8.7 F6", () => {
+describe("applyResize · 修饰键和尺寸限制", () => {
   it("baseline: SE 角拖动 +0.1,+0.05 扩展", () => {
     const r = applyResize(base, { x: 0, y: 0 }, { x: 0.1, y: 0.05 }, "se");
     expect(r.x).toBeCloseTo(0.4);

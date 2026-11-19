@@ -1,6 +1,6 @@
 /**
- * v0.6.6 · 评论 hover → ImageStage 历史回看叠加。
- * v0.11.x · 增加「点击 pin」：hover 是瞬时 peek，鼠标一移开即清空，无法定睛看画布上的批注；
+ * 评论 hover → ImageStage 历史回看叠加。
+ * 增加「点击 pin」：hover 是瞬时 peek，鼠标一移开即清空，无法定睛看画布上的批注；
  *   点击评论卡片把该评论的批注 pin 到画布，持续显示直到取消 / 切换到别条 / 切换标注。
  *
  * 渲染优先级（见 selectEffectiveShapes）：hover 优先（临时 peek 覆盖 pinned），

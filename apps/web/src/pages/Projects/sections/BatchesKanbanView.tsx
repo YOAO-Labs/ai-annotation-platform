@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · 批次 Kanban 看板视图
+ * 批次 Kanban 看板视图
  *
  * 7 态卡片墙（draft / active / annotating / reviewing / approved / rejected / archived），
  * 列内显示批次 mini-card；owner 视角支持 HTML5 drag-and-drop 拖拽迁移，受 VALID_TRANSITIONS 约束。
@@ -22,7 +22,7 @@ const COLUMNS: {
 }[] = [
   { id: "draft", label: "草稿", variant: "default" },
   { id: "active", label: "激活", variant: "accent" },
-  // v0.9.6 · pre_annotated: 让 admin 跑完 /ai-pre 后能在 Kanban 看到「AI 预标已就绪」紫色列
+  // pre_annotated: 让 admin 跑完 /ai-pre 后能在 Kanban 看到「AI 预标已就绪」紫色列
   { id: "pre_annotated", label: "AI 预标已就绪", variant: "ai" },
   { id: "annotating", label: "标注中", variant: "accent" },
   { id: "reviewing", label: "审核中", variant: "warning" },
@@ -35,7 +35,7 @@ const COLUMNS: {
 // 仅做前端 dryrun，最终鉴权与状态机由后端 transition 端点把关。
 const VALID_TRANSITIONS: Record<string, Set<string>> = {
   draft: new Set(["active"]),
-  // v0.9.6 · active 可去 pre_annotated (跑完 AI 预标自动转); 也保留原 annotating / archived
+  // active 可去 pre_annotated (跑完 AI 预标自动转); 也保留原 annotating / archived
   active: new Set(["annotating", "pre_annotated", "archived"]),
   pre_annotated: new Set(["annotating", "active", "archived"]),
   annotating: new Set(["reviewing", "archived"]),

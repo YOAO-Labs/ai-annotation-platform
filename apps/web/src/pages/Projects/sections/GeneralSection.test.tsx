@@ -1,5 +1,5 @@
 /**
- * v0.9.14 · GeneralSection 单测 — 项目基本信息 controlled form 主路径.
+ * GeneralSection 单测 — 项目基本信息 controlled form 主路径.
  *
  * 覆盖: 加载初值 / 离散控件即时保存 / 名称失焦保存 / 空名校验恢复.
  */

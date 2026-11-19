@@ -1,5 +1,5 @@
 /**
- * v0.15.1 · scene 的逐帧 ego 轨迹(overlay ego 对齐消费)。
+ * scene 的逐帧 ego 轨迹(overlay ego 对齐消费)。
  *
  * 轨迹随导入固化、基本不变 → staleTime 放长;无位姿 scene 返回 poses=[],
  * 调用方按"无轨迹"降级(参考框退回不对齐叠加)。

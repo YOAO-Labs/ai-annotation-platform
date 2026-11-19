@@ -60,7 +60,7 @@ export function sanitizeApiCalls(calls: ApiCallEntry[]): ApiCallEntry[] {
 }
 
 /**
- * v0.6.6 · 用 html2canvas 截当前可视区。返回 PNG Blob。
+ * 用 html2canvas 截当前可视区。返回 PNG Blob。
  *
  * 注意：被 BugReportDrawer 自身遮挡的部分不会被截到（截图前应先关闭 drawer
  * 或把 drawer 设为 ignore）。这里使用 ignoreElements 排除带 data-bug-drawer 的节点。

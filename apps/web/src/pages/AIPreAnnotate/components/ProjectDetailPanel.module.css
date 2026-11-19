@@ -114,7 +114,7 @@
   gap: 4px;
 }
 
-/* v0.18.3 · 运行态逐阶段统计条。 */
+/* 运行态逐阶段统计条。 */
 .stageStats {
   display: flex;
   flex-direction: column;
@@ -125,7 +125,7 @@
   border-radius: var(--sc-radius);
 }
 
-/* v0.18.2 · 阶段级字段的文本/数字输入 (类别过滤 / pad / 写回键)。 */
+/* 阶段级字段的文本/数字输入 (类别过滤 / pad / 写回键)。 */
 .textInput {
   height: 28px;
   padding: 0 8px;
@@ -232,21 +232,21 @@
   font-size: 10px;
 }
 
-/* v0.18.5 · 写回属性键与其它并行阶段冲突的 chip: 红描边警示。 */
+/* 写回属性键与其它并行阶段冲突的 chip: 红描边警示。 */
 .aliasChipConflict {
   border-color: var(--sc-destructive);
   box-shadow: inset 2px 0 0 var(--sc-destructive);
 }
 
-/* v0.18.8 · 流水线连接线 (源 → 下游扇出): 内置「裁 ROI」语义, 非节点图。 */
-/* v0.18.8 · 空态引导文案。 */
+/* 流水线连接线 (源 → 下游扇出): 内置「裁 ROI」语义, 非节点图。 */
+/* 空态引导文案。 */
 .stageEmptyHint {
   color: var(--sc-muted-foreground);
   font-size: 11px;
   line-height: 1.5;
 }
 
-/* v0.18.16 · 两列编排: 左 DAG 画布 + 右选中节点参数检查器。窄屏退化为单列堆叠。 */
+/* 两列编排: 左 DAG 画布 + 右选中节点参数检查器。窄屏退化为单列堆叠。 */
 .editorTwoCol {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr);
@@ -282,7 +282,7 @@
   border-radius: 8px;
 }
 
-/* v0.18.8 · 阶段卡 (Card 卡面): 内边距 + 组间距 + 左侧角色轨。 */
+/* 阶段卡 (Card 卡面): 内边距 + 组间距 + 左侧角色轨。 */
 .stageCard {
   display: flex;
   flex-direction: column;
@@ -290,7 +290,7 @@
   padding: 12px 14px;
   border-left: 3px solid var(--sc-brand);
 }
-/* v0.18.16 · 检查器里非选中阶段卡: CSS 隐藏 (不卸载, 保住自持 usePreannotateConfig 状态)。 */
+/* 检查器里非选中阶段卡: CSS 隐藏 (不卸载, 保住自持 usePreannotateConfig 状态)。 */
 .stageHidden {
   display: none;
 }
@@ -312,7 +312,7 @@
   gap: 6px;
 }
 
-/* v0.18.8 · 运行态: 进度条 + 计数块 (StatCard 风格小块)。 */
+/* 运行态: 进度条 + 计数块 (StatCard 风格小块)。 */
 .stageRun {
   display: flex;
   flex-direction: column;
@@ -338,7 +338,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* v0.18.5 · 阶段卡警示条 (下游不产属性 / 键冲突)。 */
+/* 阶段卡警示条 (下游不产属性 / 键冲突)。 */
 .stageWarn {
   display: flex;
   align-items: flex-start;
@@ -470,7 +470,7 @@
   cursor: not-allowed;
 }
 
-/* v0.14.16 · 推理参数命名预设行 */
+/* 推理参数命名预设行 */
 .presetRow {
   display: flex;
   flex-wrap: wrap;
@@ -520,7 +520,7 @@
   border-color: var(--sc-border);
 }
 
-/* v0.20.x · 类名快速勾选自定义下拉 (替代原生 <datalist>: 原生弹层字号由浏览器渲染、
+/* 类名快速勾选自定义下拉 (替代原生 <datalist>: 原生弹层字号由浏览器渲染、
    CSS 控不住, 80 类时撑得过大「夸张」)。只在输入时显示匹配项、字号统一 11px。 */
 .combo {
   position: relative;

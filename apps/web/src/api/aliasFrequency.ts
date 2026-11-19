@@ -1,5 +1,5 @@
 /**
- * v0.9.7 · 项目 alias 频率聚合 API.
+ * 项目 alias 频率聚合 API.
  *
  * 后端 GET /admin/projects/:id/alias-frequency 返回各 detected label 出现次数,
  * 让 AIPreAnnotate chips 按真实预标频率排序, 高频常用类别浮上来.

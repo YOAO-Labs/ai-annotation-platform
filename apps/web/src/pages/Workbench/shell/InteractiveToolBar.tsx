@@ -1,5 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-// v0.18.25 · 交互工具上下文浮块 (前身 AIToolDrawer, 已退役)。
+// 交互工具上下文浮块 (前身 AIToolDrawer, 已退役)。
 //
 // 浮在 ImageStage container 顶部居中, 选中 AI 工具 (point/box/exemplar) 时渲染, 与 MaskToolbar
 // 互斥 (mask 非 AI 工具)。主层保留工具提示、候选决策与恢复；高级区折叠引擎、模型、权重、
@@ -24,7 +24,7 @@ import type { SamPolarity, Tool } from "../state/useWorkbenchState";
 import type { TextOutputMode } from "../state/useInteractiveAI";
 import type { CapabilityWarning } from "../state/useCapabilityValidation";
 import { TOOL_REGISTRY, type ToolId } from "../stage/tools";
-// v0.21.27 · U-pvs-1 · 共享的悬浮工具条 chrome（与视频 tracker 传播工具条共用同款外观）。
+// 共享的悬浮工具条 chrome（与视频 tracker 传播工具条共用同款外观）。
 import { TOOLBAR_FIELD_LABEL_CLASS as FIELD_LABEL_CLASS } from "./workbenchToolbarChrome";
 
 const SELECT_CLASS =
@@ -85,7 +85,7 @@ export interface InteractiveToolBarProps {
   onSetActiveModelId?: (id: string) => void;
   // active model 与项目配置的兼容性警告 (非阻断). 空数组时不渲染。
   capabilityWarnings?: CapabilityWarning[];
-  // v0.20.2 · 「采纳后该属性将丢失」警告的一键补全回调: 把 model 自报字段补进项目所有启用工具单位。
+  // 「采纳后该属性将丢失」警告的一键补全回调: 把 model 自报字段补进项目所有启用工具单位。
   //   仅 warning.fillable 存在时渲染 CTA; 缺省 = 不渲染补全按钮。
   onFillAttribute?: (field: AttributeField) => void;
   // 交互后端选择器 (能力作用域化): 只列支持当前工具 prompt 的后端, 选中值 = 实际解析后端.
@@ -93,7 +93,7 @@ export interface InteractiveToolBarProps {
   interactiveBackends?: Array<{ id: string; name: string }>;
   selectedInteractiveId?: string | null;
   onSelectInteractive?: (id: string) => void;
-  // v0.18.26 · 模型权重(档位)选择: 交互后端 activeModel 的 variant 轴 (series/size 等);
+  // 模型权重(档位)选择: 交互后端 activeModel 的 variant 轴 (series/size 等);
   //   选择写回项目级 default_variants (与批量预标注同源)。无 variant 轴时不渲染入口。
   variantGroups?: MLBackendSupportedVariantGroup[];
   variantCombinations?: string[][];

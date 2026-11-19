@@ -1,7 +1,7 @@
 /**
  * 批量编辑 React Query mutation hook。
  *
- * v0.21.3 · 标注编组(Ctrl+G)持久化已删除,group / ungroup mutation 一并移除;
+ * 标注编组(Ctrl+G)持久化已删除,group / ungroup mutation 一并移除;
  * 仅保留 bulkUpdate(选中多框一次改 class/属性/状态位),invalidate
  * `["annotations", taskId]` 让 useAnnotations 重拉反映字段变更。
  */

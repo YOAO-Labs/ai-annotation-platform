@@ -1,4 +1,4 @@
-// v0.10.6 M4-γ · I13.2 · useDirtyTracker 首次消费的基础设施单测。
+// useDirtyTracker 的 dirty bit 和 flush 行为单测。
 //
 // 覆盖：
 //  - markDirty / getDirtyFields 累积去重

@@ -1,5 +1,5 @@
 /**
- * v0.18.31 · useInteractiveBackendPref 单测.
+ * useInteractiveBackendPref 单测.
  *
  * 覆盖 claude[bot] P1 修复点:
  * - 切账号/登出 (userId → null/undefined): byProject 必须清, 否则下一用户读到上一用户偏好
@@ -18,7 +18,7 @@ import { useInteractiveBackendPref } from "./useInteractiveBackendPref";
 const getPreferencesMock = vi.fn();
 const updatePreferencesMock = vi.fn();
 
-// v0.21.17 · hook 拉取改走共享 useUserPreferences (react-query), 需 QueryClientProvider。
+// hook 拉取改走共享 useUserPreferences (react-query), 需 QueryClientProvider。
 let queryClient: QueryClient;
 const wrapper = ({ children }: { children: ReactNode }) =>
   createElement(QueryClientProvider, { client: queryClient }, children);

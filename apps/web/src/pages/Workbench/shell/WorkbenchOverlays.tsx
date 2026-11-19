@@ -24,7 +24,7 @@ interface WorkbenchOverlaysProps {
   editingClass: EditingClass;
   samPendingGeom: Geom | null;
   /**
-   * v0.21.23 · 视频侧 SAM 候选的类选择器锚点 (屏幕坐标)。
+   * 视频侧 SAM 候选的类选择器锚点 (屏幕坐标)。
    * 图片侧用 geom + vp 换算; 视频画布的 vp 不在这层, 故由画布换算好再传下来 —— 与视频
    * pendingDrawing 的 anchor 同式。二者互斥: 有 anchor 走 fixed 定位。
    */
@@ -45,9 +45,9 @@ interface WorkbenchOverlaysProps {
   onPickPendingClass: (cls: string) => void;
   onCancelPending: (reason: ClassPickerCancelReason) => void;
   onCommitChangeClass: (cls: string) => void;
-  /** v0.11.28：改类悬浮框含属性时用此回调——提交改类但不关闭悬浮框，便于接着编辑属性。 */
+  /** 改类悬浮框含属性时用此回调——提交改类但不关闭悬浮框，便于接着编辑属性。 */
   onChangeClassKeepOpen?: (cls: string) => void;
-  /** v0.11.28：改类悬浮框内联属性编辑（按当前选中标注派生；缺省时退化为纯改类、点选即关）。 */
+  /** 改类悬浮框内联属性编辑（按当前选中标注派生；缺省时退化为纯改类、点选即关）。 */
   changeClassAttrEditing?: ClassPickerAttrEditing;
   onCancelChangeClass: () => void;
   onSamCommitClass: (cls: string) => void;

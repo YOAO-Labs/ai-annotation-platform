@@ -38,7 +38,7 @@ interface FloatingPanelShellProps {
   className?: string;
   style?: CSSProperties;
   headerContent?: ReactNode;
-  /** v0.20.19 · 头部右侧额外操作 (渲染在 收起/合并/关闭 图标簇最前)。 */
+  /** 头部右侧额外操作 (渲染在 收起/合并/关闭 图标簇最前)。 */
   extraActions?: ReactNode;
   children: ReactNode;
 }

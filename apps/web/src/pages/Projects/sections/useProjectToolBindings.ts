@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · ClassesSection / TemplateEditModal 共享 hook.
+ * ClassesSection / TemplateEditModal 共享 hook.
  *
  * 从 project.tool_bindings (或老 classes_config 派生兜底) 反推出按 ToolUnitId 拆分
  * 的编辑状态; 保存时把当前各 unit 的 classRows / attributeFields 序列化回 tool_bindings.
@@ -27,7 +27,7 @@ export interface UnitBindingState {
   enabled: boolean;
   classRows: ClassRow[];
   attributeFields: AttributeField[];
-  /** v0.10.28 · 仅 keypoint 单元用：骨骼模板 (命名节点 + 连线)。 */
+  /** 仅 keypoint 单元用：骨骼模板 (命名节点 + 连线)。 */
   keypointSchema?: import("@/types").KeypointSchema | null;
   /**
    * 仅视频几何单位 (bbox/region/polyline) 用：单帧 / 轨迹变体独立开关。null = 两者均可用。
@@ -191,7 +191,7 @@ export function unitBindingsToPayload(bindings: UnitBindingMap): ToolBindings {
     if (!ub.enabled && isUnitEmpty(ub)) continue;
     out[k] = {
       enabled: ub.enabled,
-      // v0.17.15 · 链接(aliasTo)的类完全继承目标 color/alias, 故 payload 省略自身
+      // 链接(aliasTo)的类完全继承目标 color/alias, 故 payload 省略自身
       // color/alias 走后端 resolve_class_visual 继承; 未链接的类照旧带显式 color/alias。
       classes: ub.classRows.map((r, i) =>
         r.aliasTo
@@ -205,7 +205,7 @@ export function unitBindingsToPayload(bindings: UnitBindingMap): ToolBindings {
       ),
       attribute_schema:
         ub.attributeFields.length > 0 ? { fields: ub.attributeFields } : { fields: [] },
-      // v0.10.28 · keypoint 单元附带骨骼模板 (后端 ToolBinding.keypoint_schema 就位前不落库)。
+      // keypoint 单元附带骨骼模板 (后端 ToolBinding.keypoint_schema 就位前不落库)。
       ...(k === "keypoint" && ub.keypointSchema ? { keypoint_schema: ub.keypointSchema } : {}),
       // 视频几何单位 (bbox/region/polyline) 附带单帧/轨迹开关 (仅视频项目设置, null 不落库)。
       ...(ub.videoModes ? { video_modes: ub.videoModes } : {}),

@@ -1,4 +1,4 @@
-// v0.15.3 · 共享设置控件:按注册表 control 类型渲染、锁定禁用 + badge、提交回调。
+// 共享设置控件:按注册表 control 类型渲染、锁定禁用 + badge、提交回调。
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SettingsFieldControl } from "./SettingsFieldControl";

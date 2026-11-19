@@ -1,6 +1,6 @@
 /**
  * ExportModal 关键交互单测（前身 ExportSection.test.tsx）。
- * v0.10.43 · 多目标导出：targets 数组入参 + 多选切换。
+ * 多目标导出：targets 数组入参 + 多选切换。
  * B-47 后导出入口收进 ⋮ 菜单，独立包装器 ExportSection 已删除；
  * 表单逻辑（目标多选 / 属性开关 / 视频帧模式）改为直接渲染 ExportModal 验证。
  *

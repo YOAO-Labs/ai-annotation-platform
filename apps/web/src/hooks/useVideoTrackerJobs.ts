@@ -29,7 +29,7 @@ const MAX_POLL_DELAY_MS = 30000;
 export interface VideoTrackerJobState {
   jobId: string;
   taskId: string;
-  // v0.22.1 · B · 无源检测 job 无 annotationId (画布级发起)。
+  // 无源检测 job 无 annotationId (画布级发起)。
   annotationId: string | null;
   jobKind: "tracking" | "correction";
   correctionFrame?: number | null;
@@ -68,7 +68,7 @@ export interface TrackerReviewDecisionOutcome {
   reason?: string;
 }
 
-// v0.21.28 · 候选/接受流: 追踪完成 (pending_review) 拉出的暂存预览, 供画布叠加 + 接受/丢弃。
+// 候选/接受流: 追踪完成 (pending_review) 拉出的暂存预览, 供画布叠加 + 接受/丢弃。
 export interface TrackerStoreState {
   jobs: Record<string, VideoTrackerJobState>;
   candidates: Record<string, VideoTrackerJobPreview>;
@@ -646,7 +646,7 @@ export class TrackerJobStore {
     this.emit();
 
     const range = `${cur.modelKey} · F${cur.fromFrame}-F${cur.toFrame}`;
-    // v0.21.28 · 候选流: 完成/取消 = 结果暂存待审, 拉候选预览进候选态 (接受才落库), 不直接
+    // 候选流: 完成/取消 = 结果暂存待审, 拉候选预览进候选态 (接受才落库), 不直接
     // invalidate; 失败无候选、直接清理。
     if (payload.type === "job_completed") {
       this.resetPoll(jobId);
@@ -948,7 +948,7 @@ export class TrackerJobStore {
       },
     };
     this.emit();
-    // v0.21.28 · 取消也暂存部分结果 → 进候选态待审 (而非直接落库)。
+    // 取消也暂存部分结果 → 进候选态待审 (而非直接落库)。
     if (updated.status === "cancelled" && cur.jobKind !== "correction") {
       void this.enterReview(jobId);
     } else if (updated.status === "cancelled") {
@@ -999,7 +999,7 @@ function mapEventToStatus(
     case "job_progress":
     case "frame_result":
       return "running";
-    // v0.21.28 · 完成 = 暂存待审 (非直接 completed)。
+    // 完成 = 暂存待审 (非直接 completed)。
     case "job_completed":
       return "pending_review";
     case "job_failed":
@@ -1063,7 +1063,7 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
     [],
   );
 
-  // v0.22.1 · B · 无源检测发起 (画布级入口, 不绑选中轨迹)。
+  // 无源检测发起 (画布级入口, 不绑选中轨迹)。
   const track = useCallback(
     async (taskId: string, payload: Parameters<typeof videoTrackerApi.track>[1]) => {
       const epoch = trackerStore.captureTaskEpoch(taskId);
@@ -1119,7 +1119,7 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
   const byAnnotation = useMemo(() => {
     const map: Record<string, VideoTrackerJobState> = {};
     for (const job of Object.values(jobs)) {
-      // v0.22.1 · B · 无源 job (annotationId=null) 不进 annotation 索引 (画布按选中轨迹取
+      // 无源 job (annotationId=null) 不进 annotation 索引 (画布按选中轨迹取
       // 候选时不误命中); 其审阅走 job 级 review bar。
       if (!job.annotationId) continue;
       const existing = map[job.annotationId];
@@ -1130,11 +1130,11 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
     return map;
   }, [jobs]);
 
-  // v0.21.28 · 候选按 annotation 归并 (供画布/审阅条按当前选中轨迹取候选)。
+  // 候选按 annotation 归并 (供画布/审阅条按当前选中轨迹取候选)。
   const candidateByAnnotation = useMemo(() => {
     const map: Record<string, VideoTrackerJobPreview> = {};
     for (const preview of Object.values(candidates)) {
-      // v0.22.1 · B · 无源候选无 annotation_id, 不进 annotation 索引 (走 job 级审阅)。
+      // 无源候选无 annotation_id, 不进 annotation 索引 (走 job 级审阅)。
       if (!preview.annotation_id) continue;
       map[preview.annotation_id] = preview;
     }

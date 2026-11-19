@@ -1,7 +1,7 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 /**
- * v0.10.16 · Topbar 异步任务铃铛（ROADMAP §1.7）。
+ * Topbar 异步任务铃铛（ROADMAP §1.7）。
  *
  * 5s polling /async-jobs?limit=20，把 in-progress 进度 + 最近完成历史塞进 drawer。
  * 与 PreannotateJobsBadge 互补：那个走 Redis pub/sub 只展示预标 job 实时进度；
@@ -37,7 +37,7 @@ import { ShellPopover, SHELL_POPOVER_HEADER_CLASS } from "./ShellPopover";
 
 const POLL_INTERVAL_MS = 5000;
 
-// v0.11.17 · 浮层显示层（纯前端，不触后端 / 不调删除接口）。
+// 浮层显示层（纯前端，不触后端 / 不调删除接口）。
 const FILTER_KEY = "wb:jobsbell:filter";
 const DISMISSED_KEY = "wb:jobsbell:dismissed";
 
@@ -235,14 +235,14 @@ function JobRow({
 }) {
   const kindLabel = KIND_LABEL[job.kind] ?? job.kind;
   const pct = Math.max(0, Math.min(100, job.progress_pct));
-  // v0.10.27 · 导出完成后的下载链接（预签名 URL，7 天内可反复点）。
+  // 导出完成后的下载链接（预签名 URL，7 天内可反复点）。
   const download =
     job.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
   const downloadUrl = download?.url;
   const detail = jobDetail(job);
   const resultDetail =
     job.kind === "export" ? exportResultDetail(job.result) : jobResultSummary(job);
-  // v0.11.17 · 仅终态任务可单条本地 dismiss；进行中永不可隐藏。
+  // 仅终态任务可单条本地 dismiss；进行中永不可隐藏。
   const canDismiss = onDismiss && isTerminal(job.status);
   const cancelRequested = job.payload?.cancel_requested === true;
   const canCancel =

@@ -1,5 +1,5 @@
 /**
- * v0.8.7 F5.3 · Reviewer 实时 mini 仪表（在 ReviewWorkbench 右侧栏渲染）。
+ * Reviewer 实时 mini 仪表（在 ReviewWorkbench 右侧栏渲染）。
  *
  * 三个数：本日通过 / 本日退回 / 平均审核耗时秒。
  * 20s 自动 refetch（useReviewerTodayMini staleTime+interval）。

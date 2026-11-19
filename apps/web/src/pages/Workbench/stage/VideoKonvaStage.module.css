@@ -5,7 +5,7 @@
   position: relative;
   overflow: hidden;
   /* 画布 letterbox 底色:与旧 VideoStage 同一字面值,保证新旧栈底图四周像素一致
-     (主题无关的画布背景,非 UI 表面;v0.16.5 双栈塌缩时再统一)。 */
+     (主题无关的画布背景，非 UI 表面)。 */
   background: #050507;
 }
 

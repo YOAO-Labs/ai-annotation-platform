@@ -1,4 +1,4 @@
-// v0.10.18 · CreateProjectWizard 第 1 步: 项目名 + 数据类型 + 工具集多选 + 截止日期.
+// CreateProjectWizard 第 1 步: 项目名 + 数据类型 + 工具集多选 + 截止日期.
 // 从 CreateProjectWizard.tsx 抽出.
 
 import { clsx } from "clsx";
@@ -43,9 +43,9 @@ export function Step1DataTypeAndTools({
                 type="button"
                 onClick={() =>
                   setForm((s) => {
-                    // v0.10.28 · B 路线: 选媒体类型时同步派生兼容 typeKey,
+                    // B 路线: 选媒体类型时同步派生兼容 typeKey,
                     // 并按新 data_type 重置默认 unitBindings; 保留同一 unit 之前已
-                    // 配置的 classRows / attributeFields (避免误删, 沿用 v0.10.17 逻辑).
+                    // 配置的 classRows / attributeFields，避免误删。
                     const next = defaultUnitBindings(t.legacyTypeKey);
                     for (const k of Object.keys(next) as ToolUnitId[]) {
                       const prev = s.unitBindings[k];
@@ -108,7 +108,7 @@ export function Step1DataTypeAndTools({
         </label>
       )}
 
-      {/* v0.10.17 · 工具集多选 chip. 三组: 矩形框 / 区域 / AI 交互 (region 与 AI 各自打包). */}
+      {/* 工具集多选 chip. 三组: 矩形框 / 区域 / AI 交互 (region 与 AI 各自打包). */}
       <div>
         <label className={styles.label}>
           工具集{" "}
@@ -120,8 +120,7 @@ export function Step1DataTypeAndTools({
           {TOOL_UNIT_GROUPS.map((g) => {
             const binding = form.unitBindings[g.id];
             // 仅显示当前 data type 派生出 binding 的 unit (defaultUnitBindings 已按
-            // g.available + g.dataTypes 过滤; polyline 仍占位, v0.13.3 起 lidar_box_3d
-            // 解禁可在点云项目配置 3D 框类别).
+            // g.available + g.dataTypes 过滤)。点云项目可配置 lidar_box_3d 类别。
             if (!binding) return null;
             const disabled = !g.available;
             return (

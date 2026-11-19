@@ -1,4 +1,4 @@
-// v0.6.4 P1：从 WorkbenchShell 拆出的标注 mutation 接线层。
+// 从 WorkbenchShell 拆出的标注 mutation 接线层。
 //
 // 集中管理 7 个 handler：
 //  - optimisticEnqueueCreate（共用 fallback：tmpId + cache + 离线队列）
@@ -87,16 +87,16 @@ export interface UseWorkbenchAnnotationActionsArgs {
   enqueueOnError: (err: unknown, fallback: () => void) => void;
   /** 由 shell 维护的当前 annotations ref（避免 stale closure）。*/
   annotationsRef: { current: AnnotationResponse[] };
-  /** v0.6.5：任务已锁定（review/completed），所有写动作直接 short-circuit + toast。 */
+  /** 任务已锁定（review/completed），所有写动作直接 short-circuit + toast。 */
   isLocked?: boolean;
-  /** v0.10.28 · 当前 keypoint 单元 schema 节点数；放满即自动提交一个实例。0 = 未配置 schema。 */
+  /** 当前 keypoint 单元 schema 节点数；放满即自动提交一个实例。0 = 未配置 schema。 */
   keypointNodeCount?: number;
   /** 当前工具自身无类别时直接以 unknown 落库，不打开空类别弹层。 */
   activeToolHasOwnClasses?: boolean;
   toolBindings?: ToolBindings;
   createAnnotationAsync?: (payload: AnnotationPayload) => Promise<AnnotationResponse>;
   /**
-   * v0.20.22 · 同步登记提交在途几何 override, 桥接「setDrag(null)」与「onMutate 微任务
+   * 同步登记提交在途几何 override, 桥接「setDrag(null)」与「onMutate 微任务
    * 回填 cache」之间的一帧空窗, 防松手闪回原尺寸。见 usePendingGeom。
    */
   markPendingGeom?: (id: string, geom: Geometry) => void;
@@ -113,7 +113,7 @@ export interface UseWorkbenchAnnotationActionsReturn {
   hasManualDraft: boolean;
   /** 旋转框：由轴对齐矩形生成 angle=0 草稿，再统一选择类别。 */
   createRotatedBbox: (geom: Geom) => boolean;
-  /** v0.10.28 · 旋转框: 旋转 / 缩放手柄落定时更新 OBB geometry (走 update mutation + history)。 */
+  /** 旋转框: 旋转 / 缩放手柄落定时更新 OBB geometry (走 update mutation + history)。 */
   handleCommitRotateBbox: (
     id: string,
     before: RotatedBboxGeometry,
@@ -121,7 +121,7 @@ export interface UseWorkbenchAnnotationActionsReturn {
   ) => void;
   handlePickPendingClass: (cls: string) => void;
   submitPolygon: (points: [number, number][]) => void;
-  /** v0.10.28 · 提交折线（不闭合，≥2 顶点）。*/
+  /** 提交折线（不闭合，≥2 顶点）。*/
   submitPolyline: (points: [number, number][]) => void;
   handleDeleteBox: (id: string) => void;
   handleCommitMove: (
@@ -132,9 +132,9 @@ export interface UseWorkbenchAnnotationActionsReturn {
   ) => void;
   handleCommitResize: (id: string, before: Geom, after: Geom) => void;
   handleCommitPolygonGeometry: (id: string, before: Pt[], after: Pt[]) => void;
-  /** v0.10.28 · keypoint 节点几何/可见性变更。 */
+  /** keypoint 节点几何/可见性变更。 */
   handleCommitKeypointGeometry: (id: string, before: Keypoint[], after: Keypoint[]) => void;
-  /** v0.10.5 M4-β · I15 shape 状态位 (z_order / is_locked / is_hidden) 字段级 PATCH。*/
+  /** shape 状态位 (z_order / is_locked / is_hidden) 字段级 PATCH。*/
   handlePatchShapeFlag: (
     id: string,
     flag: "z_order" | "is_locked" | "is_hidden",
@@ -145,9 +145,9 @@ export interface UseWorkbenchAnnotationActionsReturn {
   setPolygonDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
   /** 给 ImageStage 用的 PolygonDraftHandle，已 memoize。*/
   polygonHandle: PolygonDraftHandle;
-  /** v0.10.28 · 折线草稿 handle（closed:false，复用同一 polygonDraftPoints）。*/
+  /** 折线草稿 handle（closed:false，复用同一 polygonDraftPoints）。*/
   polylineHandle: PolygonDraftHandle;
-  /** v0.10.28 · 给 ImageStage 用的 KeypointDraftHandle，已 memoize。*/
+  /** 给 ImageStage 用的 KeypointDraftHandle，已 memoize。*/
   keypointHandle: KeypointDraftHandle;
 }
 
@@ -208,7 +208,7 @@ export function useWorkbenchAnnotationActions({
       s.setPendingDrawing(null);
   }, [s, taskId]);
 
-  /** v0.6.5：锁定时 short-circuit；返回 true 表示已被拦截。 */
+  /** 锁定时 short-circuit；返回 true 表示已被拦截。 */
   const blockIfLocked = useCallback((): boolean => {
     if (isLocked) {
       pushToast({ msg: "任务已锁定", sub: "撤回提交或继续编辑后再操作", kind: "warning" });
@@ -248,7 +248,7 @@ export function useWorkbenchAnnotationActions({
     [taskId, setQ, owner],
   );
 
-  /** v0.6.3 P0：create 失败兜底（共用 bbox / polygon）。*/
+  /** create 失败兜底（共用 bbox / polygon）。*/
   const optimisticEnqueueCreate = useCallback(
     async (payload: AnnotationPayload) => {
       if (!taskId || !meUserId) throw new Error("当前账号无法接收离线操作");
@@ -725,7 +725,7 @@ export function useWorkbenchAnnotationActions({
     ],
   );
 
-  // ── polyline 提交 (v0.10.28) ──────────────────────────────────────
+  // ── polyline 提交 ──────────────────────────────────────
   const submitPolyline = useCallback(
     (points: [number, number][]) => {
       if (blockIfLocked()) return;
@@ -770,7 +770,7 @@ export function useWorkbenchAnnotationActions({
     [polygonDraftPoints, submitPolyline, isLocked, setPolygonDraftPoints],
   );
 
-  // ── v0.10.28 · keypoint 草稿 ──────────────────────────────────────────
+  // ── keypoint 草稿 ──────────────────────────────────────────
   const [keypointDraftPoints, setKeypointDraftPoints] = useState<Keypoint[]>([]);
   useEffect(() => {
     if (!isLocked) return;
@@ -876,7 +876,7 @@ export function useWorkbenchAnnotationActions({
       const beforeG = keypointGeom(before);
       const afterG = keypointGeom(after);
       const payload = { geometry: afterG };
-      // v0.20.22 · 见 usePendingGeom: 同步 mark 目标几何以桥接一帧闪回。
+      // 见 usePendingGeom: 同步 mark 目标几何以桥接一帧闪回。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -946,7 +946,7 @@ export function useWorkbenchAnnotationActions({
       const payload: AnnotationPayload = {
         client_request_id: randomId(),
         annotation_type: "bbox",
-        // v0.10.17 · 工具维度: bbox / smart-box / magic-box 各自映射的 unit.
+        // 工具维度: bbox / smart-box / magic-box 各自映射的 unit.
         tool_unit_id: toolUnitForTool(s.tool),
         class_name: cls,
         geometry: bboxGeom(geom),
@@ -1002,7 +1002,7 @@ export function useWorkbenchAnnotationActions({
     [createGeometryWithClass],
   );
 
-  // v0.10.28 · 旋转框: 轴对齐矩形 → angle=0 的 rotated_bbox，完成后统一弹类别选择。
+  // 旋转框: 轴对齐矩形 → angle=0 的 rotated_bbox，完成后统一弹类别选择。
   const createRotatedBbox = useCallback(
     (geom: Geom): boolean => {
       return beginManualDrawing({ kind: "rotated_bbox", geom });
@@ -1010,7 +1010,7 @@ export function useWorkbenchAnnotationActions({
     [beginManualDrawing],
   );
 
-  // v0.10.28 · 旋转框: 旋转 / 缩放手柄落定时更新 rotated_bbox geometry。
+  // 旋转框: 旋转 / 缩放手柄落定时更新 rotated_bbox geometry。
   const handleCommitRotateBbox = useCallback(
     (id: string, before: RotatedBboxGeometry, after: RotatedBboxGeometry) => {
       if (blockIfLocked()) return;
@@ -1024,7 +1024,7 @@ export function useWorkbenchAnnotationActions({
       )
         return;
       const payload = { geometry: after };
-      // v0.20.22 · 见 usePendingGeom。
+      // 见 usePendingGeom。
       markPendingGeom?.(id, after);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1203,7 +1203,7 @@ export function useWorkbenchAnnotationActions({
       if (!taskId) return;
       const beforeG = bboxGeom(before);
       const afterG = bboxGeom(after);
-      // v0.20.15 · Alt 拖父联动子: 父 + 子的几何更新作为一个 batch 命令进 history (单次 undo 全回退)。
+      // Alt 拖父联动子: 父 + 子的几何更新作为一个 batch 命令进 history (单次 undo 全回退)。
       // 各更新独立 mutate; 失败走同款离线兜底 (乐观写 + enqueue), 但 history 只 pushBatch 一次 (不逐条 push)。
       if (childMoves && childMoves.length > 0) {
         const commands: {
@@ -1240,7 +1240,7 @@ export function useWorkbenchAnnotationActions({
         };
         const fire = (annotationId: string, geometry: Geometry) => {
           const p = { geometry };
-          // v0.20.22 · 见 usePendingGeom。
+          // 见 usePendingGeom。
           markPendingGeom?.(annotationId, geometry);
           mutations.update.mutate(
             { annotationId, payload: p },
@@ -1276,7 +1276,7 @@ export function useWorkbenchAnnotationActions({
         return;
       }
       const payload = { geometry: afterG };
-      // v0.20.22 · 见 usePendingGeom。
+      // 见 usePendingGeom。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1347,7 +1347,7 @@ export function useWorkbenchAnnotationActions({
       const beforeG = bboxGeom(before);
       const afterG = bboxGeom(after);
       const payload = { geometry: afterG };
-      // v0.20.22 · 见 usePendingGeom。
+      // 见 usePendingGeom。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1419,7 +1419,7 @@ export function useWorkbenchAnnotationActions({
         });
         return;
       }
-      // v0.10.28 · 折线 (polyline) 复用同一顶点编辑路径，但不闭合 → 跳过 polygon 专属校验。
+      // 折线 (polyline) 复用同一顶点编辑路径，但不闭合 → 跳过 polygon 专属校验。
       const isPolyline = target?.geometry.type === "polyline";
       if (isPolyline) {
         if (after.length < 2) {
@@ -1440,7 +1440,7 @@ export function useWorkbenchAnnotationActions({
       const beforeG = isPolyline ? polylineGeom(before) : polygonGeom(before);
       const afterG = isPolyline ? polylineGeom(after) : polygonGeom(after);
       const payload = { geometry: afterG };
-      // v0.20.22 · 见 usePendingGeom。
+      // 见 usePendingGeom。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1501,7 +1501,7 @@ export function useWorkbenchAnnotationActions({
     ],
   );
 
-  // v0.10.5 M4-β · I15 shape 状态位字段级 PATCH。
+  // shape 状态位字段级 PATCH。
   // `flag` ∈ { z_order, is_locked, is_hidden }；value 直传。
   // 失败时仍 enqueue 离线 op（与 handleCommitMove 一致）。
   const handlePatchShapeFlag = useCallback(

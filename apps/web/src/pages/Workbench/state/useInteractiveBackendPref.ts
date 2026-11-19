@@ -5,7 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreferences";
 
 /**
- * v0.18.31 · 工作台「交互后端(引擎)选择」的用户级偏好, 按 project 分桶。
+ * 工作台「交互后端(引擎)选择」的用户级偏好, 按 project 分桶。
  *
  * 修 BUG: 此前交互后端选择存 localStorage (`wb:preferred-interactive`), 不跨设备 / 不跨标签页;
  * 现迁到 `User.preferences.ai.interactive_backend_by_project`, 与 {@link useAiToolModelPref}
@@ -18,7 +18,7 @@ import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreference
  * 读取优先级链由 {@link useBackendRouting} 实现: 本会话显式切换 > 本偏好 (savedBackendId) >
  * 项目默认 / 首个交互后端。
  *
- * v0.21.17 · 拉取收敛到共享 {@link useUserPreferences} query (进工作台首屏不再各自并发 GET);
+ * 拉取收敛到共享 {@link useUserPreferences} query (进工作台首屏不再各自并发 GET);
  * 本地态仍作乐观覆盖 (即时反映选择), 写回走 600ms 节流 + 成功后 invalidate 刷新缓存。
  */
 export function useInteractiveBackendPref(projectId: string | null | undefined) {

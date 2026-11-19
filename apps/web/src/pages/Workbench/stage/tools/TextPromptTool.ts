@@ -1,7 +1,7 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
 /**
- * v0.10.2 · 拆自旧 SamTool / sub-tool="text".
+ * 拆自旧 SamTool / sub-tool="text".
  * 画布事件不响应 (返回 null), 交互在 InteractiveToolBar 内的文本输入完成.
  * requiredPrompt = "text".
  */

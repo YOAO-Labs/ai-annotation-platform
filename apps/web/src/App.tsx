@@ -228,7 +228,7 @@ function AppShell() {
   }, []);
 
   useHeartbeat();
-  // v0.9.11 PerfHud · 全局快捷键 Ctrl+Shift+P 切换性能监控浮窗 (super_admin/project_admin only).
+  // PerfHud · 全局快捷键 Ctrl+Shift+P 切换性能监控浮窗 (super_admin/project_admin only).
   // 权限 gating 在 PerfHud 组件内做; 此 listener 只负责 toggle store.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -280,7 +280,7 @@ function AppShell() {
           />
         </Suspense>
       )}
-      {/* v0.9.11 PerfHud · 全局浮窗 (内部按角色 gating + visibility store 控制渲染) */}
+      {/* PerfHud · 全局浮窗 (内部按角色 gating + visibility store 控制渲染) */}
       <PerfHud />
     </div>
   );
@@ -354,7 +354,7 @@ function MobileWorkbenchBlock() {
 
 export function App() {
   const discussionSession = useAuthenticatedDiscussionSession();
-  // v0.9 · 通知 WS 挂在 App 生命周期：主界面与全屏标注/审核工作台共用一条
+  // 通知 WS 挂在 App 生命周期：主界面与全屏标注/审核工作台共用一条
   // 个人通知连接，路由切换不拆链；登出/换账号由 hook 清理（token/userId 依赖）。
   useNotificationSocket();
   return (
@@ -421,7 +421,7 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* v0.10.16 · DuckDB 离线分析面板（super_admin only） */}
+          {/* DuckDB 离线分析面板（super_admin only） */}
           <Route
             path="/admin/analytics"
             element={
@@ -438,7 +438,7 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* v0.12.3 · 我的绩效（所有角色，自助自视） */}
+          {/* 我的绩效（所有角色，自助自视） */}
           <Route
             path="/me/performance"
             element={
@@ -447,7 +447,7 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* v0.9.3 phase 2 · /admin/failed-predictions 与 /admin/ml-integrations 已合并到 /model-market */}
+          {/* 预测失败记录和 ML 服务管理统一由 /model-market 提供。 */}
           <Route
             path="/review"
             element={
@@ -516,7 +516,7 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* v0.10.38 · 视频追踪监控并入 /ai-pre/jobs 视频 tab (epic 阶段 3); 旧链接 301 到新址 */}
+          {/* 视频追踪监控并入 /ai-pre/jobs 视频 tab (epic 阶段 3); 旧链接 301 到新址 */}
           <Route
             path="/model-market/video-jobs"
             element={<Navigate to="/ai-pre/jobs?tab=video" replace />}

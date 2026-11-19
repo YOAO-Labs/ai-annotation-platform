@@ -12,9 +12,9 @@ export interface BatchResponse {
   status: string;
   priority: number;
   deadline: string | null;
-  /** v0.7.2 派生字段（= [annotator_id, reviewer_id] filter null）；保留为兼容旧路径，新代码优先用 annotator/reviewer。 */
+  /** 派生字段（= [annotator_id, reviewer_id] filter null）；保留为兼容旧路径，新代码优先用 annotator/reviewer。 */
   assigned_user_ids: string[];
-  /** v0.7.2 · 单值分派 */
+  /** 单值分派 */
   annotator_id: string | null;
   reviewer_id: string | null;
   /** 责任人 brief（avatar / name / role） */
@@ -32,7 +32,7 @@ export interface BatchResponse {
   review_feedback: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
-  // v0.9.15 · ADR-0008 admin-lock
+  // ADR-0008 admin-lock
   admin_locked: boolean;
   admin_lock_reason: string | null;
   admin_locked_at: string | null;
@@ -64,7 +64,7 @@ export interface BatchSplitPayload {
   metadata_value?: string;
   item_ids?: string[];
   n_batches?: number;
-  /** v0.11.22 · false = 顺序切分（不打乱），按 task 创建顺序分包 */
+  /** false = 顺序切分（不打乱），按 task 创建顺序分包 */
   shuffle?: boolean;
   name_prefix?: string;
   priority?: number;
@@ -118,7 +118,7 @@ export interface BatchDistributionPreview {
   preview_version: string;
 }
 
-// v0.7.3 · 多选批量操作
+// 多选批量操作
 export interface BulkBatchActionItem {
   batch_id: string;
   reason: string;
@@ -136,7 +136,7 @@ export interface BulkBatchReassignPayload {
   reviewer_id?: string | null;
 }
 
-// v0.7.3 · 批次操作历史抽屉
+// 批次操作历史抽屉
 export interface BatchAuditLogEntry {
   id: number;
   created_at: string | null;
@@ -202,7 +202,7 @@ export const batchesApi = {
   reject: (projectId: string, batchId: string, feedback: string) =>
     apiClient.post<BatchResponse>(`/projects/${projectId}/batches/${batchId}/reject`, { feedback }),
 
-  // v0.7.6 · 终极重置：任意状态 → draft（owner-only，reason ≥ 10 字）
+  // 终极重置：任意状态 → draft（owner-only，reason ≥ 10 字）
   reset: (projectId: string, batchId: string, reason: string) =>
     apiClient.post<BatchResponse>(`/projects/${projectId}/batches/${batchId}/reset`, { reason }),
 
@@ -243,7 +243,7 @@ export const batchesApi = {
       payload,
     ),
 
-  // v0.7.3 · 批量操作
+  // 批量操作
   bulkArchive: (projectId: string, batchIds: string[]) =>
     apiClient.post<BulkBatchActionResponse>(`/projects/${projectId}/batches/bulk-archive`, {
       batch_ids: batchIds,
@@ -266,7 +266,7 @@ export const batchesApi = {
       batch_ids: batchIds,
     }),
 
-  // v0.9.15 · ADR-0008 admin-lock
+  // ADR-0008 admin-lock
   adminLock: (projectId: string, batchId: string, reason: string) =>
     apiClient.post<BatchResponse>(`/projects/${projectId}/batches/${batchId}/admin-lock`, {
       reason,
@@ -275,7 +275,7 @@ export const batchesApi = {
   adminUnlock: (projectId: string, batchId: string) =>
     apiClient.post<BatchResponse>(`/projects/${projectId}/batches/${batchId}/admin-unlock`, {}),
 
-  // v0.9.15 · Bulk approve/reject
+  // Bulk approve/reject
   bulkApprove: (projectId: string, batchIds: string[]) =>
     apiClient.post<BulkBatchActionResponse>(`/projects/${projectId}/batches/bulk-approve`, {
       batch_ids: batchIds,
@@ -287,17 +287,17 @@ export const batchesApi = {
       feedback,
     }),
 
-  // v0.7.3 · 批次操作历史
+  // 批次操作历史
   auditLogs: (projectId: string, batchId: string, limit = 50, offset = 0) =>
     apiClient.get<BatchAuditLogEntry[]>(
       `/projects/${projectId}/batches/${batchId}/audit-logs?limit=${limit}&offset=${offset}`,
     ),
 
-  // v0.7.3 · 未归类任务计数（batch_id IS NULL）— 顶部横带提示用
+  // 未归类任务计数（batch_id IS NULL）— 顶部横带提示用
   unclassifiedCount: (projectId: string) =>
     apiClient.get<{ count: number }>(`/projects/${projectId}/batches/unclassified-count`),
 
-  // v0.10.27 · 导出异步化：POST 创建 async_job(kind=export)，返回 {job_id}。
+  // 导出异步化：POST 创建 async_job(kind=export)，返回 {job_id}。
   // 不再直接 blob 下载；产物完成后在 JobsBell 里用预签名 URL 下载。
   exportBatch: (
     projectId: string,

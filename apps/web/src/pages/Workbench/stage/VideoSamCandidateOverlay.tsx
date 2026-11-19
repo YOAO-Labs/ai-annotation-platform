@@ -1,5 +1,5 @@
 /**
- * v0.21.23 · 视频交互式 SAM 候选浮层（smart-point / smart-box）。
+ * 视频交互式 SAM 候选浮层（smart-point / smart-box）。
  *
  * **不复用 `VideoKonvaAiLayer`**：那一层是**批量候选**（落库 `Prediction`）的渲染，其上游
  * `aiBoxFrames.resolveAiBoxAtFrame` 是帧作用域去重的 SSOT 且只认 bbox 类几何（其余类型会
@@ -16,7 +16,7 @@ import { tightenBboxFromPolygon } from "./shared/geometry/bbox";
 const SAM_STROKE = "#a855f7";
 const POSITIVE_POINT = "#22c55e";
 const NEGATIVE_POINT = "#ef4444";
-// v0.21.27 · U-pvs-3 · 逐目标配色（canvas 数据域色，非 token）：多目标 PVS 种子时按 obj_id
+// 逐目标配色（canvas 数据域色，非 token）：多目标 PVS 种子时按 obj_id
 // 给种子点的描边环上色 + 标号，区分不同目标各自的轨迹；填充仍按极性（绿正/红负）保留心智。
 const OBJ_PALETTE = ["#a855f7", "#06b6d4", "#f59e0b", "#ec4899", "#84cc16", "#6366f1"];
 function objRingColor(obj: number): string {
@@ -56,7 +56,7 @@ export interface VideoSamCandidateOverlayProps {
    */
   sessionPoints: { pt: [number, number]; polarity: 1 | 0; obj?: number }[];
   /**
-   * v0.21.27 · 框修正 · 当前帧已落的 PVS 框种子（归一化 xyxy）。实线 + 按 obj 配色描边，
+   * 框修正 · 当前帧已落的 PVS 框种子（归一化 xyxy）。实线 + 按 obj 配色描边，
    * 与虚线 AI 候选框区分；`obj` 多目标时标号。
    */
   sessionBoxes?: { bbox: [number, number, number, number]; obj?: number }[];
@@ -209,7 +209,7 @@ export function VideoSamCandidateOverlay({
         );
       })}
 
-      {/* v0.21.27 · 框修正 · PVS 框种子: 实线 + 按 obj 配色 (区别虚线 AI 候选框)。 */}
+      {/* 框修正 · PVS 框种子: 实线 + 按 obj 配色 (区别虚线 AI 候选框)。 */}
       {boxes.map((sb, i) => {
         const [x1, y1, x2, y2] = sb.bbox;
         const ring = sb.obj != null ? objRingColor(sb.obj) : SAM_STROKE;

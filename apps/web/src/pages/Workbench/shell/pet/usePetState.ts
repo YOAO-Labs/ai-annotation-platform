@@ -148,7 +148,7 @@ function deriveContextState(
 }
 
 /**
- * 工作台桌宠状态机(v0.20.8 轻量状态代理):
+ * 工作台桌宠状态机：
  * - 标注里程碑仍是 transient 最高优先级。
  * - 普通标注 +1 不触发气泡/姿态切换,避免高频标注时视觉闪烁。
  * - 常态状态全部从 WorkbenchPetContext 纯前端派生。

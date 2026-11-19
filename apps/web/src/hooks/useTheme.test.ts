@@ -1,5 +1,5 @@
 /**
- * v0.15.25 · useTheme 服务端偏好持久化单测:
+ * useTheme 服务端偏好持久化单测:
  * 登出态只写 localStorage;登录态 PATCH 服务端 + 乐观写 authStore;服务端主题采纳为真值源。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · AdminDashboard 单测：加载态 / 主要卡片 / 状态分布 / role_distribution /
+ * AdminDashboard 单测：加载态 / 主要卡片 / 状态分布 / role_distribution /
  * ML backend 0/n 分支 / 注册来源空 vs 有数据 / 项目列表空态 / wizard 入口 toggle。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -12,7 +12,7 @@ const mockUseAuditLogs = vi.fn();
 
 vi.mock("@/hooks/useDashboard", () => ({
   useAdminStats: () => mockUseAdminStats(),
-  // v0.8.6 F4 · 新加成本卡片 hook，单测下返回空态即可
+  // 新加成本卡片 hook，单测下返回空态即可
   usePredictionCostStats: () => ({ data: undefined, isLoading: false }),
 }));
 vi.mock("@/hooks/useProjects", () => ({
@@ -134,11 +134,11 @@ describe("AdminDashboard", () => {
     expect(screen.getByTestId("id-wizard")).toBeInTheDocument();
   });
 
-  it("ML backend > 0 → 显示 X / Y 在线汇总（v0.8.6 联合卡片标题区）", () => {
+  it("ML backend > 0 → 在联合卡片标题区显示 X / Y 在线汇总", () => {
     const s = { ...baseStats, ml_backends_total: 3, ml_backends_connected: 2 };
     mockUseAdminStats.mockReturnValue({ data: s, isLoading: false });
     renderUI();
-    // v0.8.6 F4 · 「ML 后端 · 预测成本」联合卡片，Badge 文案为 X / Y 在线
+    // 「ML 后端 · 预测成本」联合卡片，Badge 文案为 X / Y 在线
     expect(screen.getByText("2 / 3 在线")).toBeInTheDocument();
     // 4 mini-stat 标题应渲染
     expect(screen.getByText("本期调用数")).toBeInTheDocument();

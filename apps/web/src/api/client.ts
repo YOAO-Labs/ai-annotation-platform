@@ -6,7 +6,7 @@ const BASE = "/api/v1";
 class ApiError extends Error {
   /** 后端 detail 原文：可能是 string 或结构化对象（如 409 + {reason, pending_task_count, ...}）。 */
   detailRaw?: unknown;
-  /** v0.9.3 · 选择性透传响应头（小写键），用于 LoginPage 读 X-Login-Failed-Count 等。 */
+  /** 选择性透传响应头（小写键），用于 LoginPage 读 X-Login-Failed-Count 等。 */
   headers?: Record<string, string>;
 
   constructor(
@@ -22,7 +22,7 @@ class ApiError extends Error {
   }
 }
 
-/** v0.9.3 · 仅透传少数白名单响应头（避免序列化无关大头），按需扩展。 */
+/** 仅透传少数白名单响应头（避免序列化无关大头），按需扩展。 */
 const EXPOSED_HEADERS = ["x-login-failed-count", "retry-after"] as const;
 
 function validationIssueMessage(issue: unknown): string | undefined {
@@ -60,7 +60,7 @@ async function request<T>(
   if (!opts?.anonymous && owner.user && owner.token !== token) {
     throw new ApiError(401, "登录账号已在其他页面变更，请等待同步或刷新页面");
   }
-  // v0.10.18 · PerfHud 浏览器侧 API p95 指标; recordApiDuration 内部包 try/catch 不会抛.
+  // PerfHud 浏览器侧 API p95 指标; recordApiDuration 内部包 try/catch 不会抛.
   const t0 = performance.now();
   const res = await fetch(`${BASE}${path}`, {
     ...init,

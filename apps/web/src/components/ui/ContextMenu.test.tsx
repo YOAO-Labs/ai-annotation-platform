@@ -68,7 +68,7 @@ describe("<ContextMenu />", () => {
     renderMenu([{ id: "mark", label: "Mark" }], { x: 190, y: 130 });
 
     await waitFor(() => {
-      // v0.17.2:module.css → Tailwind,翻转类改为 -translate-x/y-full
+      // module.css → Tailwind,翻转类改为 -translate-x/y-full
       expect(screen.getByRole("menu").className).toContain("-translate-x-full");
       expect(screen.getByRole("menu").className).toContain("-translate-y-full");
     });

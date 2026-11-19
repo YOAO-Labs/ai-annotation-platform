@@ -1,4 +1,4 @@
-// v0.10.58 · /admin/system-health panel API client.
+// /admin/system-health panel API client.
 
 import { apiClient } from "./client";
 

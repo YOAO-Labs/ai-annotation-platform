@@ -129,7 +129,7 @@ type Drag =
   | { kind: "draw"; sx: number; sy: number; cx: number; cy: number; fromCenter?: boolean }
   | {
       kind: "samProbe";
-      // v0.10.2 · 加 exemplar; 行为同 bbox 但松手时派发到 onSamPrompt.kind="exemplar".
+      // 加 exemplar; 行为同 bbox 但松手时派发到 onSamPrompt.kind="exemplar".
       mode: "point" | "bbox" | "exemplar";
       sx: number;
       sy: number;
@@ -167,14 +167,14 @@ type Drag =
     }
   | { kind: "polyVertex"; id: string; vidx: number; start: Pt[]; cur: Pt[] }
   | { kind: "polyMove"; id: string; start: Pt[]; sx: number; sy: number; cur: Pt[] }
-  // v0.10.28 · 关键点单节点拖拽。start/cur 为完整 keypoints 列表，nidx 为被拖节点。
+  // 关键点单节点拖拽。start/cur 为完整 keypoints 列表，nidx 为被拖节点。
   | { kind: "kpNode"; id: string; nidx: number; start: Keypoint[]; cur: Keypoint[] }
   | { kind: "pan"; sx: number; sy: number }
   | { kind: "canvasStroke"; points: number[] }
   | { kind: "maskBrush"; lastX: number; lastY: number }
   | { kind: "maskSlice"; start: [number, number]; end: [number, number] }
   | { kind: "maskLasso"; points: [number, number][] }
-  // v0.10.28 · 旋转框旋转手柄拖拽。cx/cy 为框中心 (归一化), startAngle 为按下时角度, cur 实时角度。
+  // 旋转框旋转手柄拖拽。cx/cy 为框中心 (归一化), startAngle 为按下时角度, cur 实时角度。
   | { kind: "rotateBox"; id: string; cx: number; cy: number; startAngle: number; cur: number };
 
 function translatePolygon(points: Pt[], dx: number, dy: number): Pt[] {
@@ -272,7 +272,7 @@ interface ImageStageProps {
   /** 临时几何 override（方向键 nudge 期间用于显示）。优先级：drag > nudgeMap > b。 */
   nudgeMap?: Map<string, Geom>;
   /**
-   * v0.20.22 · 「提交在途」几何 override（松手 → mutate 微任务回填 cache 之间的桥梁,
+   * 「提交在途」几何 override（松手 → mutate 微任务回填 cache 之间的桥梁,
    * 防原尺寸闪回一帧, 见 usePendingGeom）。优先级：drag > nudgeMap > pendingGeomMap > b。
    * 值为整条 annotation.geometry, 各分支挑对应分量渲染 (bbox 分量 / polygon.points / …)。
    */
@@ -294,11 +294,11 @@ interface ImageStageProps {
     value: number | boolean,
   ) => void;
   clipboardActions?: ImageContextMenuClipboardActions | null;
-  /** v0.20.19 · 二次推理面板显隐 + 右键菜单切换 (透传给上下文菜单)。 */
+  /** 二次推理面板显隐 + 右键菜单切换 (透传给上下文菜单)。 */
   secondaryBarHidden?: boolean;
   onToggleSecondaryBar?: () => void;
   onCommitDrawing?: (geo: Geom) => void;
-  /** v0.10.28 · 旋转框: 拖出轴对齐矩形松手 → 提交 angle=0 的 rotated_bbox (类别用 activeClass)。 */
+  /** 旋转框: 拖出轴对齐矩形松手 → 提交 angle=0 的 rotated_bbox (类别用 activeClass)。 */
   onCommitRotatedBbox?: (geo: Geom) => void;
   /** 旋转框移动、旋转或缩放结束后更新完整几何。 */
   onCommitRotateBbox?: (
@@ -307,8 +307,8 @@ interface ImageStageProps {
     after: RotatedBboxGeometry,
   ) => void;
   /**
-   * v0.9.2 · SAM 工具松手时派发 prompt.
-   * v0.10.2 · 新增 exemplar 类型 (与 bbox 同手势, kind 区分由父层路由到 runExemplar).
+   * SAM 工具松手时派发 prompt.
+   * exemplar 与 bbox 共用绘制手势，父层按 kind 路由到 runExemplar。
    */
   onSamPrompt?: (
     prompt:
@@ -320,12 +320,12 @@ interface ImageStageProps {
           alt: boolean;
           width: number;
         }
-      // v0.18.19 · exemplar refine: alt=负框 (排误检) / 否则正框 (扩召回)。
+      // exemplar refine: alt=负框 (排误检) / 否则正框 (扩召回)。
       | { kind: "exemplar"; bbox: [number, number, number, number]; alt: boolean },
   ) => void;
   /**
-   * v0.9.2 · SAM 候选 polygon（待确认紫虚线）。当前候选 stroke 加粗，其它半透。
-   * v0.9.4 phase 2 · 加 type discriminator 支持 box/mask/both 三模式; rectanglelabels
+   * SAM 候选 polygon（待确认紫虚线）。当前候选 stroke 加粗，其它半透。
+   * 加 type discriminator 支持 box/mask/both 三模式; rectanglelabels
    * 类型用 bbox 字段渲染矩形, polygonlabels 用 points 渲染多边形.
    */
   samCandidates?: {
@@ -340,7 +340,7 @@ interface ImageStageProps {
   onSelectSamMaskCandidate?: (candidateId: string) => void;
   samActiveIdx?: number;
   /**
-   * v0.18.18 · §5.5 当前点交互会话已落的正/负点 (归一化 + 极性)。仅 smart-point 工具激活且
+   * §5.5 当前点交互会话已落的正/负点 (归一化 + 极性)。仅 smart-point 工具激活且
    * 会话非空时, 在 overlay 层渲染正点绿色实心圆 / 负点红色叉, 跟随视口缩放平移。
    */
   samSessionPoints?: { pt: [number, number]; polarity: 1 | 0 }[];
@@ -350,11 +350,11 @@ interface ImageStageProps {
     width: number;
   }[];
   /**
-   * v0.18.19 · exemplar refine 会话已落的正/负框 (归一化 xyxy + 极性)。仅 exemplar 工具激活且
+   * exemplar refine 会话已落的正/负框 (归一化 xyxy + 极性)。仅 exemplar 工具激活且
    * 会话非空时渲染: 正框=绿色实线 (扩召回) / 负框=红色虚线 (排误检), 跟随视口缩放平移。
    */
   samSessionExemplars?: { bbox: [number, number, number, number]; polarity: 1 | 0 }[];
-  // v0.20.15 · childMoves: Alt 拖父框时同位移的子框 (各自新旧几何), 供上游与父框一并 batch 进单次 undo。
+  // childMoves: Alt 拖父框时同位移的子框 (各自新旧几何), 供上游与父框一并 batch 进单次 undo。
   onCommitMove?: (
     id: string,
     before: Geom,
@@ -369,23 +369,23 @@ interface ImageStageProps {
   onStageGeometry?: (g: { imgW: number; imgH: number; vpSize: { w: number; h: number } }) => void;
   /** 渲染在画布层之上的覆盖物（与 SelectionOverlay 同坐标系，container 内绝对定位）。 */
   overlay?: React.ReactNode;
-  /** polygon 工具草稿（v0.5.3）。仅 tool === "polygon" 时使用。 */
+  /** polygon 工具草稿。仅 tool === "polygon" 时使用。 */
   polygonDraft?: PolygonDraftHandle;
-  /** v0.10.28 · keypoint 工具草稿。仅 tool === "keypoint" 时使用。 */
+  /** keypoint 工具草稿。仅 tool === "keypoint" 时使用。 */
   keypointDraft?: KeypointDraftHandle;
-  /** v0.10.28 · 当前 keypoint 单元的骨骼模板 (命名节点 + 连线)，驱动草稿提示与渲染取色 / 连线。 */
+  /** 当前 keypoint 单元的骨骼模板 (命名节点 + 连线)，驱动草稿提示与渲染取色 / 连线。 */
   keypointSchema?: KeypointSchema | null;
-  /** v0.10.28 · keypoint 节点几何变更 (拖动单点 / 切换可见性)；before/after 为完整 keypoints 列表。 */
+  /** keypoint 节点几何变更 (拖动单点 / 切换可见性)；before/after 为完整 keypoints 列表。 */
   onCommitKeypointGeometry?: (id: string, before: Keypoint[], after: Keypoint[]) => void;
   /**
-   * v0.9.4 phase 2 / v0.10.2 · 派生型 sub-tool; 仅作 cursor / preview hint 用.
+   * 派生型 sub-tool，仅用于光标和预览提示。
    * 派生自 tool: smart-point → "point", smart-box → "bbox", text-prompt → "text", exemplar → "exemplar".
    * 非 AI 工具时为 null.
    */
   samSubTool?: "point" | "bbox" | "scribble" | "text" | "exemplar" | null;
-  /** v0.9.4 phase 2 · 仅 sam-point 子工具下生效, "+/-" 切换 (与 Alt 修饰键合并). */
+  /** 仅 sam-point 子工具下生效, "+/-" 切换 (与 Alt 修饰键合并). */
   samPolarity?: "positive" | "negative";
-  /** v0.6.4：画布批注 shapes（已落地的笔触）。read-only 渲染。 */
+  /** 画布批注 shapes（已落地的笔触）。read-only 渲染。 */
   canvasShapes?: NonNullable<CommentCanvasDrawing["shapes"]>;
   /** canvas 工具激活：监听 + 渲染 draft，新笔触通过 onCanvasStrokeCommit 上报。 */
   canvasEditable?: boolean;
@@ -393,26 +393,26 @@ interface ImageStageProps {
   canvasStroke?: string;
   /** 一段笔触落定时回调，points 是归一化 [x1,y1,x2,y2,...]。*/
   onCanvasStrokeCommit?: (points: number[], stroke: string) => void;
-  /** v0.6.6：历史画布批注（来自 hover 的某条 comment.canvas_drawing），半透明叠加只读。
+  /** 历史画布批注（来自 hover 的某条 comment.canvas_drawing），半透明叠加只读。
    *  与 canvasShapes 并存：上层主笔触不变，下方覆盖一层 0.5 opacity 的「历史回看」。*/
   historicalShapes?: NonNullable<CommentCanvasDrawing["shapes"]>;
-  /** v0.10.8 · Mask 编辑器 hook 返回；mask 工具激活时挂 MaskOverlayLayer + 派发 paintAt。 */
+  /** Mask 编辑器 hook 返回；mask 工具激活时挂 MaskOverlayLayer + 派发 paintAt。 */
   maskEditor?: UseMaskEditorReturn;
-  /** v0.10.9 · 当前 SAM 候选「精修」入口；点击后由 useImageAnnotationActions.handleRefineSamCandidate 启动 mask 编辑。 */
+  /** 当前 SAM 候选「精修」入口；点击后由 useImageAnnotationActions.handleRefineSamCandidate 启动 mask 编辑。 */
   onRefineSamCandidate?: (idx: number) => void;
-  /** v0.10.10 · I17.3 · 当前项目级渲染配置覆盖；与用户级 preferences 合并后驱动 KonvaImage 等。
+  /** 当前项目级渲染配置覆盖；与用户级 preferences 合并后驱动 KonvaImage 等。
    *  缺省 / null = 项目不覆盖，纯用户级。 */
   projectRenderingConfig?: import("@/api/projects").ProjectRenderingConfig | null;
   /**
-   * v0.10.20 · I18 · pixel-anchored issue feedback 数据源, 由 Shell 通过 useFeedbacks 提供.
+   * pixel-anchored issue feedback 数据源, 由 Shell 通过 useFeedbacks 提供.
    * 仅 kind=issue + anchor_type=pixel 的行会被消费; 其它 anchor_type 由调用方过滤.
    */
   issuePixelFeedbacks?: import("@/api/feedbacks").AnnotationFeedback[];
-  /** v0.10.20 · pin 高亮 id (DiscussionPanel issues tab 单击列表项时聚焦). */
+  /** pin 高亮 id (DiscussionPanel issues tab 单击列表项时聚焦). */
   highlightIssueId?: string | null;
-  /** v0.10.20 · 单击图钉; Shell 据此高亮 + 切到 DiscussionPanel issues tab. */
+  /** 单击图钉; Shell 据此高亮 + 切到 DiscussionPanel issues tab. */
   onIssuePinClick?: (id: string) => void;
-  /** v0.10.20 · drop-arm 模式: 渲染 catcher 拦截单击, 派发归一化坐标 → Shell 打开 IssueCreateModal. */
+  /** drop-arm 模式: 渲染 catcher 拦截单击, 派发归一化坐标 → Shell 打开 IssueCreateModal. */
   issuePinDropArmed?: boolean;
   onIssuePinDrop?: (x: number, y: number) => void;
   /** Per-annotation saved comment totals for the image canvas. */
@@ -421,7 +421,7 @@ interface ImageStageProps {
   onOpenAnnotationComments?: (annotationId: string) => void;
 }
 
-// v0.18.19 · SAM 候选「待确认」紫虚线 overlay。抽成独立组件: 内部 rAF 驱动 dashOffset 做
+// SAM 候选「待确认」紫虚线 overlay。抽成独立组件: 内部 rAF 驱动 dashOffset 做
 // marching-ants 流动动效, 把每帧重渲隔离在这一小块 (候选数少), 不带动整个 ImageStage 重渲。
 // 紫色边缘整体加粗 (选中 / 未选中都加粗, active 略粗以区分)。
 type SamCandidateShape = {
@@ -657,11 +657,11 @@ export function ImageStage({
   const hasEditablePrimarySelection = !!primarySelectedBox && !primarySelectedBox.is_locked;
   const userLayerListening =
     (selectActive || (!continuousCreation && hasEditablePrimarySelection)) && !readOnly;
-  // v0.9.41 · 标注偏好（I17）：smoothImage / cssImageFilter / longTaskSampleRate。
-  // v0.10.10 · I17.3 · 合并项目级 rendering_config 覆盖（项目级 > 用户级 > 默认）。
+  // 标注偏好（I17）：smoothImage / cssImageFilter / longTaskSampleRate。
+  // 合并项目级 rendering_config 覆盖（项目级 > 用户级 > 默认）。
   const { config: workbenchConfig } = useWorkbenchConfig(projectRenderingConfig);
   useWorkbenchPerf(workbenchConfig.common.longTaskSampleRate);
-  // v0.15.27 · 共享视觉规格(线宽/填充/字号/标签显隐+内容);图片与视频共用同一 common 子集。
+  // 共享视觉规格(线宽/填充/字号/标签显隐+内容);图片与视频共用同一 common 子集。
   const annotationVisual = useMemo(
     () => resolveAnnotationVisual(workbenchConfig.common),
     [workbenchConfig.common],
@@ -833,7 +833,7 @@ export function ImageStage({
     [imgH, imgW],
   );
 
-  // v0.10.5 M4-β · 按 is_hidden 过滤；按 z_order ASC 排序（高 z_order 后渲染 = 在上层）。
+  // 按 is_hidden 过滤；按 z_order ASC 排序（高 z_order 后渲染 = 在上层）。
   // 同 z_order 保持原数组顺序作 tie-breaker，避免选中态下渲染顺序闪烁。
   const visibleSortedUserBoxes = useMemo(() => {
     const visible = userBoxes.filter((b) => !b.is_hidden);
@@ -886,7 +886,7 @@ export function ImageStage({
     );
     return buildSnapIndex(polygonAnnotations);
   }, [visibleSortedUserBoxes]);
-  // v0.20.14 · 父子同胞高亮: 恰好单选一个框时, 其直接子框 (parent_annotation_id === 选中框) 描高亮环。
+  // 父子同胞高亮: 恰好单选一个框时, 其直接子框 (parent_annotation_id === 选中框) 描高亮环。
   // 多选/无选 → 空 (环仅辅助"看清某父框的子框归属", 多选语义模糊故不画)。
   const siblingHighlightChildBoxes = useMemo(
     () =>
@@ -896,7 +896,7 @@ export function ImageStage({
     [visibleSortedUserBoxes, selSet, selectedId],
   );
 
-  // v0.10.4 I2.3 · 当前视口在归一化 [0,1] 空间的 bbox，用于大 polygon 顶点视口粗筛。
+  // 当前视口在归一化 [0,1] 空间的 bbox，用于大 polygon 顶点视口粗筛。
   // 加 1 顶点 buffer 防边缘抖动；imgW/imgH 未就绪时返回 undefined（不启用粗筛）。
   const viewportBBox = useMemo(() => {
     if (!imgW || !imgH || vp.scale <= 0 || !vpSize.w || !vpSize.h) return undefined;
@@ -1227,7 +1227,7 @@ export function ImageStage({
           }),
         );
       } else if (d.kind === "resize") {
-        // v0.8.7 F6 · 透传 shift/alt 修饰键给 applyResize
+        // 透传 shift/alt 修饰键给 applyResize
         const shiftKey = e.shiftKey;
         const altKey = e.altKey;
         schedule(() =>
@@ -1312,7 +1312,7 @@ export function ImageStage({
           }),
         );
       } else if (d.kind === "maskBrush") {
-        // v0.10.8 · 相邻两点线段插值 (步长 = radius/2)；不走 rAF 节流，避免漏笔。
+        // 相邻两点线段插值 (步长 = radius/2)；不走 rAF 节流，避免漏笔。
         if (!maskEditor || maskCompareActive) return;
         const phase =
           maskEditor.phase ?? (maskEditor.dirty ? "dirty" : maskEditor.active ? "ready" : "idle");
@@ -1359,7 +1359,7 @@ export function ImageStage({
           setDrag({ ...d, points: [...d.points] });
         }
       } else if (d.kind === "rotateBox") {
-        // v0.10.28 · 旋转手柄: 光标相对框中心的方位角。手柄默认在正上方 (angle=0),
+        // 旋转手柄: 光标相对框中心的方位角。手柄默认在正上方 (angle=0),
         // 顺时针为正; atan2(dx, -dy) 给出从上方起顺时针角度 (y 轴向下需取负)。
         schedule(() =>
           setDrag((cur) => {
@@ -1386,7 +1386,7 @@ export function ImageStage({
           // 误点（几乎没拖动）静默丢弃；任一边 ≥3px 的真实拖拽一律下交，
           // 过小 / 越界 / 疑似重复由 commit 漏斗 (guardDrawnBox) 统一处理并提示。
           if (Math.max(w * imgW, h * imgH) >= 3) {
-            // v0.10.28 · 旋转框工具拖出的矩形直接提交为 rotated_bbox (angle=0); 其它走普通 bbox pending。
+            // 旋转框工具拖出的矩形直接提交为 rotated_bbox (angle=0); 其它走普通 bbox pending。
             if (tool === "rotated-box") onCommitRotatedBbox?.({ x, y, w, h });
             else onCommitDrawing?.({ x, y, w, h });
           }
@@ -1397,7 +1397,7 @@ export function ImageStage({
             onCommitRotateBbox?.(d.id, g, { ...g, angle: d.cur });
           }
         } else if (d.kind === "samProbe") {
-          // v0.10.2 · 按 mode 分发 (point / bbox / exemplar).
+          // 按 mode 分发 (point / bbox / exemplar).
           if (d.mode === "point") {
             onSamPrompt?.({ kind: "point", pt: [d.sx, d.sy], alt: d.alt });
           } else {
@@ -1424,7 +1424,7 @@ export function ImageStage({
           }
         } else if (d.kind === "move") {
           if (d.cur.x !== d.start.x || d.cur.y !== d.start.y) {
-            // v0.20.15 · Alt 起拖 → 把直接子框按父框实际位移 (已 clamp 的 cur-start) 同步平移,
+            // Alt 起拖 → 把直接子框按父框实际位移 (已 clamp 的 cur-start) 同步平移,
             // 与父框一并交给上游 batch (单次 undo)。非 Alt = 现状仅搬父框。
             let childMoves: { id: string; before: Geometry; after: Geometry }[] | undefined;
             if (d.alt) {
@@ -1505,7 +1505,7 @@ export function ImageStage({
             value: maskEditor.tool === "lasso_subtract" ? 0 : 255,
           });
         }
-        // v0.23.5 · WS-B/A3 · maskBrush 松手关闭一笔历史边界, 把这一笔压入 undo 栈
+        // WS-B/A3 · maskBrush 松手关闭一笔历史边界, 把这一笔压入 undo 栈
         // (与 VideoKonvaStage 一致)。仍不 commit; buffer 累积笔迹, 由 Enter / MaskToolbar
         // 显式触发 commitMaskAsPolygon。
         if (d.kind === "maskBrush") {
@@ -1672,7 +1672,7 @@ export function ImageStage({
       keypointDraft,
       samPolarity,
       maskEditor,
-      // v0.23.5 · WS-C · 选中对象的 is_locked 传入, 供 MaskTool 经 canEditMask 判定。
+      // 选中对象的 is_locked 传入, 供 MaskTool 经 canEditMask 判定。
       annotationLocked: !!primarySelectedBox?.is_locked || maskReadOnly,
     });
     if (init) setDrag(init);
@@ -1710,7 +1710,7 @@ export function ImageStage({
       setPolygonCursor(snapped.point);
       setSnapIndicator(snapped.match ? snapped.point : null);
     } else if (tool === "keypoint" && keypointDraft && keypointDraft.nodeCount > 0) {
-      // v0.10.28 · 复用 polygonCursor 跟踪光标, 给下一个待放节点画提示。
+      // 复用 polygonCursor 跟踪光标, 给下一个待放节点画提示。
       setPolygonCursor(pt);
       setSnapIndicator(null);
     } else if (polygonCursor) {
@@ -1719,7 +1719,7 @@ export function ImageStage({
     } else if (snapIndicator) {
       setSnapIndicator(null);
     }
-    // v0.10.9 · Mask 工具下追踪笔刷光标位置（image-space pixels），驱动 overlay 圆圈渲染。
+    // Mask 工具下追踪笔刷光标位置（image-space pixels），驱动 overlay 圆圈渲染。
     if (customMaskCursorActive) {
       updateMaskCursor(inImagePoint);
     } else if (maskCursorVisibleRef.current) {
@@ -1738,7 +1738,7 @@ export function ImageStage({
           ? "default"
           : tool === "canvas"
             ? "crosshair"
-            : // v0.10.9 · Mask 工具用自绘 overlay 圆圈替代系统光标，让笔刷大小与图像同比例可视。
+            : // Mask 工具用自绘 overlay 圆圈替代系统光标，让笔刷大小与图像同比例可视。
               tool === "mask"
               ? customMaskCursorActive
                 ? maskCursorVisible
@@ -1762,7 +1762,7 @@ export function ImageStage({
 
   // polygon 草稿当前光标位置（用于动态预览线段）
   const [polygonCursor, setPolygonCursor] = useState<{ x: number; y: number } | null>(null);
-  // v0.14.10 · polygon/polyline snap 命中时的图像坐标指示点。
+  // polygon/polyline snap 命中时的图像坐标指示点。
   const [snapIndicator, setSnapIndicator] = useState<{ x: number; y: number } | null>(null);
   const maskOperationPreviewBuffer = useMemo(() => {
     const preview = maskEditor?.operationPreview;
@@ -1795,7 +1795,7 @@ export function ImageStage({
   const overrideGeom = (id: string): Geom | null => {
     if (drag && (drag.kind === "move" || drag.kind === "resize") && drag.id === id) return drag.cur;
     if (nudgeMap?.has(id)) return nudgeMap.get(id) ?? null;
-    // v0.20.22 · 提交在途兜底: 松手 → onMutate 回填 cache 之间的一帧空窗顶住原尺寸,
+    // 提交在途兜底: 松手 → onMutate 回填 cache 之间的一帧空窗顶住原尺寸,
     // 见 usePendingGeom。整条 geometry 存的是 bbox / rotated_bbox / polygon / polyline / keypoint 之一,
     // 这里只关心 bbox 分量, 其它类型走各自的 override 函数。
     const pg = pendingGeomMap?.get(id);
@@ -1807,22 +1807,22 @@ export function ImageStage({
   const polyOverridePoints = (id: string): Pt[] | null => {
     if (drag && (drag.kind === "polyVertex" || drag.kind === "polyMove") && drag.id === id)
       return drag.cur;
-    // v0.20.22 · 见上方 overrideGeom 注释。
+    // 见上方 overrideGeom 注释。
     const pg = pendingGeomMap?.get(id);
     if (pg && (pg.type === "polygon" || pg.type === "polyline")) return pg.points;
     return null;
   };
 
-  /** v0.10.28 · keypoint 单节点拖拽期间的实时 override。 */
+  /** keypoint 单节点拖拽期间的实时 override。 */
   const kpOverridePoints = (id: string): Keypoint[] | null => {
     if (drag && drag.kind === "kpNode" && drag.id === id) return drag.cur;
-    // v0.20.22 · 见上方 overrideGeom 注释。
+    // 见上方 overrideGeom 注释。
     const pg = pendingGeomMap?.get(id);
     if (pg && pg.type === "keypoint") return pg.points;
     return null;
   };
 
-  /** v0.20.22 · 旋转框整条 geometry override（松手后一帧桥, 见 usePendingGeom）。 */
+  /** 旋转框整条 geometry override（松手后一帧桥, 见 usePendingGeom）。 */
   const rotatedOverride = (id: string): RotatedBboxGeometry | null => {
     const pg = pendingGeomMap?.get(id);
     if (pg && pg.type === "rotated_bbox") return pg;
@@ -2039,7 +2039,7 @@ export function ImageStage({
       onPointerDown={(evt) => {
         // 右键任意位置拖 = pan, 不论当前 tool. 走与 hand 工具 / spacePan 同一个
         // window pointer listener 管线 (drag.kind === "pan").
-        // v0.10.28 · keypoint 工具下右键 = 跳过当前节点 (v=0), 让 Konva onMouseDown 处理, 不抢 pan.
+        // keypoint 工具下右键 = 跳过当前节点 (v=0), 让 Konva onMouseDown 处理, 不抢 pan.
         if (evt.button !== 2) return;
         rightDownRef.current = { x: evt.clientX, y: evt.clientY };
         closeContextMenu();
@@ -2312,10 +2312,10 @@ export function ImageStage({
               const ov = overrideGeom(b.id);
               const display: Annotation = ov ? { ...b, ...ov } : b;
               const renderKey = b.render_key ?? b.id;
-              // v0.10.28 · 旋转框: 绕中心旋转的 Rect + 顶部旋转手柄。
+              // 旋转框: 绕中心旋转的 Rect + 顶部旋转手柄。
               if (b.geometry?.type === "rotated_bbox") {
                 const g = b.geometry;
-                // v0.20.22 · 优先级: drag(实时拖拽) > pendingGeom(松手在途) > b.geometry。
+                // 优先级: drag(实时拖拽) > pendingGeom(松手在途) > b.geometry。
                 const rotPending = rotatedOverride(b.id);
                 const liveGeometry =
                   (drag?.kind === "resizeRotatedBox" || drag?.kind === "moveRotatedBox") &&
@@ -2397,7 +2397,7 @@ export function ImageStage({
                   />
                 );
               }
-              // v0.10.28 · polyline 走折线渲染（顶点编辑 / Alt 新增 / Shift 删除，不闭合、无自交检测）。
+              // polyline 走折线渲染（顶点编辑 / Alt 新增 / Shift 删除，不闭合、无自交检测）。
               if (display.polyline && display.polyline.length >= 2) {
                 const polyOv = polyOverridePoints(b.id);
                 const livePoints = polyOv ?? (display.polyline as Pt[]);
@@ -2461,7 +2461,7 @@ export function ImageStage({
                   />
                 );
               }
-              // v0.10.28 · keypoint 走关键点渲染（单点拖拽 + Alt 切换可见性）
+              // keypoint 走关键点渲染（单点拖拽 + Alt 切换可见性）
               if (b.geometry?.type === "keypoint") {
                 const kpOv = kpOverridePoints(b.id);
                 const liveKps = kpOv ?? b.keypoints ?? [];
@@ -2499,11 +2499,11 @@ export function ImageStage({
                   />
                 );
               }
-              // polygon 走多边形渲染（v0.5.4 加顶点编辑 / Alt 新增 / Shift 删除）
+              // polygon 使用多边形渲染，支持拖动顶点、Alt 新增和 Shift 删除。
               if (display.polygon && display.polygon.length >= 3) {
                 const polyOv = polyOverridePoints(b.id);
                 const livePoints = polyOv ?? (display.polygon as Pt[]);
-                // v0.10.5 M4-β · 锁定时不进入编辑态，但仍允许 click 选中。
+                // 锁定时不进入编辑态，但仍允许 click 选中。
                 // points-only 编辑器不能原子保存 holes / multi_polygon；复杂几何保持可选择、可查看，
                 // 但禁用顶点、插点与整体拖动，避免提交时降级成无孔单 polygon。
                 const geometrySupportsDirectEdit = b.geometry
@@ -2515,7 +2515,7 @@ export function ImageStage({
                   selSet.size === 1 &&
                   canEditSavedGeometry &&
                   !b.is_locked;
-                // v0.10.4 I2.2 · 顶点拖拽中走 O(n) 增量检测；静态态用 O(n²) 全量（n 通常 <50）。
+                // 顶点拖拽中走 O(n) 增量检测；静态态用 O(n²) 全量（n 通常 <50）。
                 const draggingThisVertex =
                   drag?.kind === "polyVertex" && drag.id === b.id ? drag.vidx : -1;
                 const intersects =
@@ -2584,7 +2584,7 @@ export function ImageStage({
                 );
               }
               // 单体选中时（且只有一个选中）才允许 move/resize；多选时禁用以避免冲突
-              // v0.10.5 M4-β · 锁定 (is_locked) 时禁 move/resize；occluded 影响 stroke 风格。
+              // 锁定 (is_locked) 时禁 move/resize；occluded 影响 stroke 风格。
               const isPrimarySingleSelect =
                 selectedId === b.id && selSet.size === 1 && canEditSavedGeometry && !b.is_locked;
               return (
@@ -2608,7 +2608,7 @@ export function ImageStage({
                       ? (e) => {
                           const pt = toImg(e.evt.clientX, e.evt.clientY);
                           if (!pt) return;
-                          // v0.20.15 · 按住 Alt 起拖 = 子框联动 (在 commit 处据此把子框同位移一并 batch)。
+                          // 按住 Alt 起拖 = 子框联动 (在 commit 处据此把子框同位移一并 batch)。
                           setDrag({
                             kind: "move",
                             id: b.id,
@@ -2641,7 +2641,7 @@ export function ImageStage({
                 />
               );
             })}
-            {/* v0.20.14 · 父子同胞高亮环: 绕每个子框 bbox 画细点线 (统一形状, 免逐 shape 穿 prop);
+            {/* 父子同胞高亮环: 绕每个子框 bbox 画细点线 (统一形状, 免逐 shape 穿 prop);
               offset 6px 使其在 group 长虚线 (offset 4px) 之外, 二者共存时嵌套不打架。listening=false。 */}
             {siblingHighlightChildBoxes.map((b) => (
               <Rect
@@ -2660,7 +2660,7 @@ export function ImageStage({
             ))}
           </Layer>
 
-          {/* v0.10.8 · Mask 编辑器临时叠加层 (仅 tool === "mask" 且 active 时挂)。 */}
+          {/* Mask 编辑器临时叠加层 (仅 tool === "mask" 且 active 时挂)。 */}
           {!maskCompareActive &&
             tool === "mask" &&
             maskEditor?.active &&
@@ -2721,7 +2721,7 @@ export function ImageStage({
             />
           )}
 
-          {/* v0.6.6 · 历史画布批注（hover 评论触发）：半透明只读叠加，比主层 z 高一点点 */}
+          {/* 历史画布批注（hover 评论触发）：半透明只读叠加，比主层 z 高一点点 */}
           {historicalShapes && historicalShapes.length > 0 && (
             <Layer name="historical-canvas" listening={false} opacity={0.5}>
               {historicalShapes.map((shape, idx) => {
@@ -2745,7 +2745,7 @@ export function ImageStage({
             </Layer>
           )}
 
-          {/* v0.6.4 · 画布批注层：reviewer/annotator 在原图上画的红圈/箭头，
+          {/* 画布批注层：reviewer/annotator 在原图上画的红圈/箭头，
             坐标系归一化 [0,1] → 与 ImageStage vp 共享，缩放 / 平移自动跟随。 */}
           <CanvasDrawingLayer
             shapes={canvasShapes ?? []}
@@ -2900,7 +2900,7 @@ export function ImageStage({
                 listening={false}
               />
             )}
-            {/* v0.10.28 · keypoint 草稿：已放节点 (按 schema 取色) + 下一个待放节点光标提示 */}
+            {/* keypoint 草稿：已放节点 (按 schema 取色) + 下一个待放节点光标提示 */}
             {tool === "keypoint" &&
               keypointDraft &&
               keypointDraft.nodeCount > 0 &&
@@ -3081,7 +3081,7 @@ export function ImageStage({
               );
             })}
 
-            {/* v0.18.18 · §5.5 会话点位: smart-point 多点精修时显示已落的正/负点
+            {/* §5.5 会话点位: smart-point 多点精修时显示已落的正/负点
               (正=绿色实心圆, 负=红色叉), 让用户看到点过哪、哪些正/负, 跟随视口缩放。 */}
             {samSubTool === "point" &&
               samSessionPoints &&
@@ -3141,7 +3141,7 @@ export function ImageStage({
                 />
               ))}
 
-            {/* v0.18.19 · exemplar refine 会话框: 正框=绿色实线 (扩召回) / 负框=红色虚线 (排误检),
+            {/* exemplar refine 会话框: 正框=绿色实线 (扩召回) / 负框=红色虚线 (排误检),
               让用户看清拖过哪些示例、哪些正/负, 跟随视口缩放。颜色与点会话正/负一致。 */}
             {samSubTool === "exemplar" &&
               samSessionExemplars &&
@@ -3250,7 +3250,7 @@ export function ImageStage({
               </Group>
             )}
           </Layer>
-          {/* v0.10.20 · I18 IssueLayer · pixel-anchored feedback 可视化 + 单击 drop. */}
+          {/* IssueLayer · pixel-anchored feedback 可视化 + 单击 drop. */}
           {(issuePixelFeedbacks && issuePixelFeedbacks.length > 0) || issuePinDropArmed ? (
             <IssueLayer
               pixelIssues={(issuePixelFeedbacks ?? []).filter(
@@ -3319,9 +3319,9 @@ export function ImageStage({
         />
       )}
 
-      {/* v0.10.9 · SAM 候选精修浮按钮：active polygonlabels 候选 + 未 Enter 时显示。
+      {/* SAM 候选精修浮按钮：active polygonlabels 候选 + 未 Enter 时显示。
           位置贴在候选 polygon 顶点 bbox 右上角；点击/按 R 都触发 onRefineSamCandidate。
-          v0.10.17 · Magic Box 走 bbox 输出, 不提供 mask 精修入口. */}
+          Magic Box 输出 bbox，不提供 mask 精修入口。 */}
       {tool !== "magic-box" &&
         onRefineSamCandidate &&
         samCandidates &&

@@ -1,4 +1,4 @@
-// v0.16.14 · VideoFrameBoxCardContent 单测:
+// VideoFrameBoxCardContent 单测:
 // - 帧定位 chip(F{n} + 时间)+ 指标网格
 // - 跳到该帧 / 改类 / 删除 回调透传
 // - readOnly 禁用改类/删除(跳帧仍可用)

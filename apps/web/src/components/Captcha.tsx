@@ -3,7 +3,7 @@ import { getTurnstileSiteKey, renderTurnstile, removeTurnstile } from "@/lib/tur
 import styles from "./Captcha.module.css";
 
 /**
- * Cloudflare Turnstile widget (v0.8.7).
+ * Cloudflare Turnstile widget.
  *
  * - VITE_TURNSTILE_SITE_KEY 缺省时不渲染、不阻塞表单（dev/CI 透传）。
  * - token 通过 onChange 回调暴露；过期 / 错误时回传 null，由父组件禁用提交。

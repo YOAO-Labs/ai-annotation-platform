@@ -1,4 +1,4 @@
-// v0.23.5 · WS-B · 图片 / 视频统一的 mask 编辑会话状态机。
+// 图片 / 视频统一的 mask 编辑会话状态机。
 //
 // 在 useMaskEditor (buffer + undo/redo + 模式) 之上叠加 ADR-0052 D7 冻结的会话语义:
 //

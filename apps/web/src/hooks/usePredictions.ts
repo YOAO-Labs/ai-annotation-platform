@@ -55,9 +55,9 @@ export function useAcceptPrediction(taskId: string, videoSegmentId?: string | nu
         taskId,
         vars.predictionId,
         vars.shapeIndex,
-        // v0.14.17 · 采纳时选类: 预测类名不在项目标签集 (会 422) 时带人选的项目标签.
+        // 采纳时选类: 预测类名不在项目标签集 (会 422) 时带人选的项目标签.
         vars.overrideClassName,
-        // v0.18.3 · 采纳前审阅改过的候选属性值.
+        // 采纳前审阅改过的候选属性值.
         vars.attributeOverrides,
         videoSegmentId,
         vars.idempotencyKey,

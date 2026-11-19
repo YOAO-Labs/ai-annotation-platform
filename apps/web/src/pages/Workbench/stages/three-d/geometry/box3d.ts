@@ -1,9 +1,9 @@
 /**
- * v0.13.3 · 点云 3D 框纯几何 (PSR ↔ 8 角点)。
+ * 点云 3D 框纯几何 (PSR ↔ 8 角点)。
  *
  * 与 WebGL/renderer 无关 —— 只用 three 的数学类 (Matrix4 / Euler / Vector3),
  * 可在 jsdom 下单测。供主视图渲染框线框 (把 unit cube 经 boxToMatrix4 变换),
- * 以及 v0.13.4 图像投影复用 (角点 → 像素)。
+ * 以及图像投影 (角点 → 像素)。
  *
  * 坐标系: 点云 Z-up。框用 PSR 表达:
  *   - center   [x, y, z]            米, 框中心世界坐标
@@ -13,7 +13,7 @@
  * 欧拉角顺序: **'XYZ'** (THREE.Euler 默认即 'XYZ', 这里显式写出以防默认值变化)。
  * 即先绕 X, 再绕 Y, 最后绕 Z, 应用顺序为内旋 R = Rz · Ry · Rx。
  *
- * TODO(v0.13.4): 图像投影 (角点 → 相机像素) 必须沿用这里的 'XYZ' 欧拉顺序与
+ * 图像投影 (角点 → 相机像素) 必须沿用这里的 'XYZ' 欧拉顺序与
  *   size→local-half-extent 约定; 任何一端改顺序都会让投影框偏移, 改前请同步两端。
  */
 import * as THREE from "three";
@@ -79,7 +79,7 @@ function unitAxis(axis: 0 | 1 | 2): THREE.Vector3 {
 }
 
 /**
- * v0.13.5 · 框 local 轴在世界系的单位方向 (旋转作用于单位轴, 不含 scale/平移)。
+ * 框 local 轴在世界系的单位方向 (旋转作用于单位轴, 不含 scale/平移)。
  * 三视图拖边时中心沿该方向移动, 裁剪面法线也由它给出。欧拉顺序与 boxToMatrix4 同 'XYZ'。
  */
 export function boxAxisWorldDir(rotation: Vec3, axis: 0 | 1 | 2): THREE.Vector3 {
@@ -90,7 +90,7 @@ export function boxAxisWorldDir(rotation: Vec3, axis: 0 | 1 | 2): THREE.Vector3 
 }
 
 /**
- * v0.13.5 · boxToMatrix4 的逆: 世界坐标 → 单位立方体 local 系。
+ * boxToMatrix4 的逆: 世界坐标 → 单位立方体 local 系。
  * 含 scale, 故框内点映到 [-0.5, 0.5]^3 内 (供正交相机 / 命中 / 裁切判断)。
  */
 export function worldToBox(center: Vec3, size: Vec3, rotation: Vec3): THREE.Matrix4 {
@@ -98,7 +98,7 @@ export function worldToBox(center: Vec3, size: Vec3, rotation: Vec3): THREE.Matr
 }
 
 /**
- * v0.13.5 · 框的 6 个世界系裁剪面 (法线指向框内), 喂给 three 点材质 `clippingPlanes`
+ * 框的 6 个世界系裁剪面 (法线指向框内), 喂给 three 点材质 `clippingPlanes`
  * 做 GPU 框内点裁切 (保留满足全部 6 面 `distanceToPoint >= 0` 的点)。
  * margin: 各方向额外放宽米数 (看清框边界外一圈轮廓)。PSR 变只需重算这 6 面。
  */

@@ -1,4 +1,4 @@
-// v0.10.14 · E2 · 模板列表卡片. 显示 name / type / classes 数 / usage_count /
+// 模板列表卡片. 显示 name / type / classes 数 / usage_count /
 // scope chip + 操作按钮 (应用 / 复制 / 编辑 / 删除).
 
 import { Button } from "@/components/ui/Button";

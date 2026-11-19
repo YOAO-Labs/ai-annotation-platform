@@ -1,5 +1,5 @@
 /**
- * v0.13.8 · 3D 框自动贴合纯几何 (与 WebGL / renderer 无关, jsdom 可单测)。
+ * 3D 框自动贴合纯几何 (与 WebGL / renderer 无关, jsdom 可单测)。
  *
  * 坐标系: 点云 Z-up。PSR size 是 **全边长** (与 box3d.ts / triview.ts 一致)。
  *
@@ -102,7 +102,7 @@ function clampSize(s: Vec3): Vec3 {
 }
 
 /**
- * v0.13.8 · fit_size: 保朝向 + 收尺寸, **中心对齐到框内点 box-local AABB 中心**
+ * fit_size: 保朝向 + 收尺寸, **中心对齐到框内点 box-local AABB 中心**
  * (= 旧中心 + R·AABBcenter_local;只有 inside 点云在 box 内对称分布时新中心 == 旧中心,
  * 不对称分布时中心会沿 inside 主体方向漂移以让 size 紧贴点云)。
  * 框内空 / 点数 < 3 → 返回原 PSR 不动。padding 默认 0.05m。
@@ -156,14 +156,14 @@ export function fitSize(positions: Float32Array, psr: Psr, padding: number = 0.0
 }
 
 /**
- * v0.13.8 · fit_bottom: 保中心 cx/cy + 朝向 + size 不动, 把 cz 下移到「框内点最低 Z = box 下沿」。
+ * fit_bottom: 保中心 cx/cy + 朝向 + size 不动, 把 cz 下移到「框内点最低 Z = box 下沿」。
  * 框内空 → 返回原 PSR。仅改 center[2]; size[2] 与 rotation 完全不动。
  *
  * 注: 这里"最低 Z"指 **world 系 Z** (点云 Z-up), 不是 box-local 系。直接对 inside 点取 min(world.z),
  * 然后新 cz = z_min_world + sz/2 (让 box 世界下沿 = 点云最低点)。
  *
  * **严格性 contract**: "box 下沿 = z_min" 仅在 box 与世界 Z 共轴 (pitch == roll == 0,只 yaw)
- * 时严格成立 —— 这是车载 LiDAR 数据集 (含本平台 v0.13.x 示例集) 的通用约束,故按此简化。
+ * 时严格成立；这是车载 LiDAR 数据集（含平台示例集）的通用约束。
  * 若以后支持 box 整体倾斜 (pitch/roll ≠ 0),此公式会让 box 下顶点低于 z_min,需改为用
  * box-local Z 最低面坐标反算 world cz。
  */
@@ -185,7 +185,7 @@ export function fitBottom(positions: Float32Array, psr: Psr): Psr {
 }
 
 /**
- * v0.13.8 · fit_yaw (实验): 保中心 + size + pitch/roll 不动, 仅改 yaw = rotation[2]。
+ * fit_yaw (实验): 保中心 + size + pitch/roll 不动, 仅改 yaw = rotation[2]。
  * 框内点投到 XY 平面做 2D PCA, 主轴方向角 → 新 yaw = atan2(主轴.y, 主轴.x)。
  * 点数 < 20 → 返回原 PSR 不动 (稀疏点 PCA 易反转)。协方差 2x2 用闭式特征值。
  *
@@ -194,7 +194,7 @@ export function fitBottom(positions: Float32Array, psr: Psr): Psr {
  * → 特征值 λ1 ≥ λ2, 主轴方向 v1 取大特征值对应的特征向量。
  * 闭式解: tr = a+d; det = ad - bc; λ1 = tr/2 + sqrt((tr/2)² - det);
  *         v1 ∝ (b, λ1 - a) 若 b≠0, 否则 (1, 0) 当 a≥d 否则 (0, 1)。
- * 新 yaw = atan2(v1.y, v1.x); 不区分 180° 朝向 (留 v0.13.9 跨帧轨迹补朝向先验)。
+ * 新 yaw = atan2(v1.y, v1.x)；不区分相差 180° 的朝向。
  */
 export function fitYaw(positions: Float32Array, psr: Psr): Psr {
   const inside = collectInsidePoints(positions, psr);
@@ -251,7 +251,7 @@ export function fitYaw(positions: Float32Array, psr: Psr): Psr {
 }
 
 /**
- * v0.13.9 · 框选选点拟合: 由一组 world 点 (Float32Array, len=3K) 直接取轴对齐 AABB → PSR。
+ * 框选选点拟合: 由一组 world 点 (Float32Array, len=3K) 直接取轴对齐 AABB → PSR。
  * center = AABB 中心, size = (max - min) + 2×padding (clamp MIN_SIZE), rotation = [0,0,0]。
  *
  * 用于 frustum 框选 (selectPointsInScreenRect → 本函数): 选中点即用户圈住的真实物体点,
@@ -290,7 +290,7 @@ export function psrFromPoints(points: Float32Array, padding: number = 0.05): Psr
 }
 
 /**
- * v0.13.8 · 便捷: fit_size 后再 fit_bottom (默认连击, Q 键)。不嵌入 fit_yaw。
+ * 便捷: fit_size 后再 fit_bottom (默认连击, Q 键)。不嵌入 fit_yaw。
  */
 export function fitSizeAndBottom(positions: Float32Array, psr: Psr, padding: number = 0.05): Psr {
   return fitBottom(positions, fitSize(positions, psr, padding));

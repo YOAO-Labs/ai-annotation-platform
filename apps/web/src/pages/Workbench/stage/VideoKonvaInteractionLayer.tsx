@@ -63,12 +63,12 @@ interface VideoKonvaInteractionLayerProps {
 }
 
 /**
- * v0.16.3 · 视频交互层(Konva,listening=true)。对应旧 SVG 栈 VideoInteractionLayer。
+ * 视频交互层(Konva,listening=true)。对应旧 SVG 栈 VideoInteractionLayer。
  *
  * 只画「交互态」:选中框的 8 向 resize 句柄 + 拖拽实时预览(画框/移动/缩放)。
  * 命中(画框/移动分流)由 VideoKonvaStage 在 Stage 级 pointerdown 用几何 pick 处理,
  * 不需逐形状事件;句柄是唯一逐形状事件(pointerdown 需 cancelBubble 防冒泡到 Stage)。
- * 静态框/轨迹/标签仍由 v0.16.2 的渲染层(listening=false)绘制,本层不重复。
+ * 静态框、轨迹和标签由 listening=false 的渲染层绘制，本层不重复绘制。
  *
  * scale 抵消:句柄尺寸/线宽屏幕恒定(`/scale`),与图片栈同范式。
  */

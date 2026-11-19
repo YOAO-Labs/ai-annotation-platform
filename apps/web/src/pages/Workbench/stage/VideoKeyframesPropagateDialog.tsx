@@ -41,10 +41,10 @@ interface VideoKeyframesPropagateDialogProps {
 }
 
 /**
- * v0.10.30 · 2.6 关键帧 Propagate 对话框 (纯前端, 区别于 AI 版 VideoTrackerPropagateDialog)。
+ * 关键帧 Propagate 对话框 (纯前端, 区别于 AI 版 VideoTrackerPropagateDialog)。
  * 把当前帧的框复制到后续 / 向前 N 帧, overwrite 控制是否覆盖目标帧已有关键帧。
  *
- * v0.10.35 · §A: 采样开启 (samplingStep>1) 时, count 以网格格子为单位, 与 ←/→ 网格导航统一;
+ * §A: 采样开启 (samplingStep>1) 时, count 以网格格子为单位, 与 ←/→ 网格导航统一;
  * 提交时换算回源帧 count (count * samplingStep), 底层 D2 (propagateKeyframes) 仍逐源帧不变。
  */
 export function VideoKeyframesPropagateDialog({
@@ -128,7 +128,7 @@ export function VideoKeyframesPropagateDialog({
                   direction === d ? "border-brand bg-brand/10" : "border-border",
                 )}
               >
-                {/* v0.21.27 · U-pvs-3 · U1 消歧, 与 AI 追踪对话框方向标签统一 */}
+                {/* 消歧, 与 AI 追踪对话框方向标签统一 */}
                 {d === "forward" ? "更晚帧 →" : "← 更早帧"}
               </button>
             ))}

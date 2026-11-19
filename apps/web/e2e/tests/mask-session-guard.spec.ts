@@ -1,5 +1,5 @@
 /**
- * v0.23.5 · WS-B/C · E2E · mask 编辑会话状态机与 guard (A1/A7/P1)。
+ * WS-B/C · E2E · mask 编辑会话状态机与 guard (A1/A7/P1)。
  *
  * 验收 §1「离开 dirty session 必须经过 guard」+ §1「无变化不物化 held keyframe」:
  *  - 按 M 进 mask 但尚未涂抹时, Enter 不触发 POST (canCommitMask 要求 dirty);
@@ -11,7 +11,7 @@
  */
 import { test, expect } from "../fixtures/seed";
 
-test.describe("mask session guard (v0.23.5 WS-B/C)", () => {
+test.describe("mask session guard", () => {
   test("未涂抹时 Enter 不提交; 涂抹后 Enter 提交一次", async ({ page, seed }) => {
     const data = await seed.owned();
     await seed.advanceTask({

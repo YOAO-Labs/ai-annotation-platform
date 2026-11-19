@@ -1,5 +1,5 @@
 /**
- * v0.16.1 · 视频底图层(VideoKonvaMediaLayer)测试。
+ * 视频底图层(VideoKonvaMediaLayer)测试。
  *
  * 两层分工(对齐 ADR-0041 决策 C):
  *   - 纯函数 pickMediaImageSource:播放/暂停下的 image source 选取矩阵;

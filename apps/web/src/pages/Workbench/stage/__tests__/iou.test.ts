@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · iou / iouShape 单测。
+ * iou / iouShape 单测。
  *
  * 覆盖：
  *  - bbox 完全重叠 → 1

@@ -240,7 +240,7 @@ describe("AIInspectorPanel", () => {
     const aiBox = makeAiBox("ai-2", "truck");
     renderUI({ aiBoxes: [aiBox], onAcceptPrediction });
     fireEvent.click(screen.getByTestId("accept-ai-2"));
-    // v0.20.22 · AIInspectorPanel 通过 acceptWithReviewEdits wrapper 透传给 BoxesList,
+    // AIInspectorPanel 通过 acceptWithReviewEdits wrapper 透传给 BoxesList,
     // 未选中候选 / 未编辑时 overrides = undefined。
     expect(onAcceptPrediction).toHaveBeenCalledWith(aiBox, undefined);
   });
@@ -356,7 +356,7 @@ describe("AIInspectorPanel", () => {
     expect(onRefinePrediction).toHaveBeenCalledWith(polygonBox);
   });
 
-  it("v0.20.9 · 子框在父框下方缩进渲染 (depth=1 → border-l 包裹)", () => {
+  it("子框在父框下方缩进渲染 (depth=1 → border-l 包裹)", () => {
     const parent = makeUserBox("u-parent", "car");
     const child = { ...makeUserBox("u-child", "plate"), parent_annotation_id: "u-parent" };
     renderUI({ userBoxes: [parent, child] });

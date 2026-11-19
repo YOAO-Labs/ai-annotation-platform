@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · batch lifecycle E2E：smoke + 多角色串联。
+ * batch lifecycle E2E：smoke + 多角色串联。
  *
  * - smoke: super_admin 登录 → 项目设置页 200
  * - 多角色串联: annotator 提交（advance_task）→ reviewer 看到 /review 列表 →

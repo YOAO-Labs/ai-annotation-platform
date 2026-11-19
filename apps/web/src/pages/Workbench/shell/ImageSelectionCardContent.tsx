@@ -34,7 +34,7 @@ export interface ImageSelectionCardContentProps {
 }
 
 /**
- * v0.16.14 · 选中标注浮动信息卡的图片端内容。
+ * 选中标注浮动信息卡的图片端内容。
  * 由设计系统积木组合:IdentityHeader(类别 + 来源 + 置信度)/ MetricGrid(结构化几何指标)/
  * AttributeForm(属性)/ MetaFooter(折叠次要信息)/ ActionBar(改类 / 隐藏 / 锁定 / 删除)。
  * 复用模型既有回调,不重写逻辑;与右栏 attrDock 共享同一批回调。

@@ -4,7 +4,7 @@ import { AVATAR_SIZE_CLASS, type AvatarSize } from "./avatarSizes";
 import { useElementStyle } from "./useElementStyle";
 
 /**
- * Avatar —— 首字母头像(v0.17.2)。
+ * Avatar —— 首字母头像。
  * 纯首字母(无图片加载),故不用 shadcn `<Avatar>` 的图片回退机制,直接渲染中性圆片
  * (设计「中性基底」:`bg-muted`)。保留 `style` 透传(useElementStyle),调用方仍可覆盖配色。
  *

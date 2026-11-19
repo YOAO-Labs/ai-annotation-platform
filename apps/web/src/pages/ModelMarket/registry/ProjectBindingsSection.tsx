@@ -2,7 +2,7 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
 /**
- * v0.23.4 P3 · registry "项目绑定" tab (Super Admin only).
+ * registry "项目绑定" tab (Super Admin only).
  *
  * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: default by-project view
  * (项目 / 关联服务池 / 可用实例 / 风险 / 项目设置) with a by-pool reverse

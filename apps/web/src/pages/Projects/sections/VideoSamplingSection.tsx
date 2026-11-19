@@ -1,4 +1,4 @@
-// v0.10.29 · 项目级视频帧采样配置（逻辑采样，见
+// 项目级视频帧采样配置（逻辑采样，见
 // docs/plans/archive/2026-05-21-v0.10.29-video-frame-sampling.md §2/§4 Wave2-D）。
 //
 // 仅在 data_type === "video" 的项目设置页渲染。

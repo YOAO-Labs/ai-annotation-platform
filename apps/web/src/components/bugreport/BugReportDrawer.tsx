@@ -137,11 +137,11 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   const activeDetailIdRef = useRef<string | null>(null);
   const commentRequestRef = useRef(0);
 
-  // v0.6.6 · 截图状态
+  // 截图状态
   const [screenshotBlob, setScreenshotBlob] = useState<Blob | null>(null);
   const [screenshotEditing, setScreenshotEditing] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
-  // v0.7.0：上传失败 retry 状态
+  // 上传失败 retry 状态
   const [screenshotUploadFail, setScreenshotUploadFail] = useState<string | null>(null);
   const revision = useSessionRevision();
   const captureSession = useSessionGuard();
@@ -193,7 +193,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
     }
   }, [open, view, revision]);
 
-  // v0.7.0：从通知中心点击「我的反馈」类通知跳转时，自动定位到该条详情
+  // 从通知中心点击「我的反馈」类通知跳转时，自动定位到该条详情
   useEffect(() => {
     if (open && focusBugId) {
       loadDetail(focusBugId);
@@ -386,7 +386,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
           setScreenshotUploadFail(null);
         } catch (e) {
           if (!current()) return;
-          // v0.7.0：失败不再静默降级，停在表单让用户选 retry / skip / cancel
+          // 失败不再静默降级，停在表单让用户选 retry / skip / cancel
           console.error("Bug screenshot upload failed", e);
           setScreenshotUploadFail("请稍后重试，或跳过截图继续提交。");
           return;
@@ -402,7 +402,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
       if (rasterResourceDiagnosticsEntry) {
         recentConsoleErrors.unshift(rasterResourceDiagnosticsEntry);
       }
-      // v0.9.41: 附 workbench longtask 快照，便于 BUG 排查时定位卡顿点。
+      // 附 workbench longtask 快照，便于 BUG 排查时定位卡顿点。
       const perf = readWorkbenchPerfSnapshot();
       if (perf.longTaskCount > 0) {
         recentConsoleErrors.unshift({

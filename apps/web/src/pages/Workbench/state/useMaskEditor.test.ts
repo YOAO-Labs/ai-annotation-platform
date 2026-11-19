@@ -1,4 +1,4 @@
-// v0.10.7.1 · useMaskEditor 单测：
+// useMaskEditor 单测：
 // - 初始非 active；beginBlank / initFromPolygon 后 active
 // - paintAt 调 brush / erase 按 mode 分流
 // - radius clamp 到 [MIN, MAX]
@@ -168,7 +168,7 @@ describe("useMaskEditor · paintAt / mode / radius", () => {
     expect(result.current.dirty).toBe(true);
     expect(result.current.buffer!.get(40, 40)).toBe(255);
     expect(result.current.buffer!.countSet()).toBeGreaterThan(250);
-    // v0.10.8 · revision 在每次 paintAt 后 bump，供 MaskOverlayLayer 触发重画。
+    // revision 在每次 paintAt 后 bump，供 MaskOverlayLayer 触发重画。
     expect(result.current.revision).toBeGreaterThan(revAfterBegin);
   });
 

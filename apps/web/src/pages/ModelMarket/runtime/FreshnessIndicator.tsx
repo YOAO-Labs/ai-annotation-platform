@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 · per-source freshness chip.
+ * per-source freshness chip.
  *
  * Plan §6.3: a stale source keeps its last value + a stale marker + time, and
  * does NOT borrow the real-time status color. Errors are surfaced in a tooltip

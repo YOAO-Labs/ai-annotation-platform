@@ -2,7 +2,7 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { useListPagination } from "@/hooks/useListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 /**
- * v0.10.58 · super_admin system health panel.
+ * super_admin system health panel.
  * Tailwind/shadcn surface with semantic status colors.
  */
 

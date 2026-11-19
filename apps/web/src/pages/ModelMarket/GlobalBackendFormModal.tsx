@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.19.0 · ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
+ * ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
  *
  * 字段：name / url / 认证 / GPU 静态 claim / max_concurrency / extra_params + 测试连接，
  * 调用全局注册表端点：新建 = createRegistry，编辑 = updateRegistry。

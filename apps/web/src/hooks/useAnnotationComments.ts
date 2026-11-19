@@ -31,7 +31,7 @@ export function useAnnotationComments(annotationId: string | null | undefined) {
   });
 }
 
-// v0.8.8 · keyset 分页 + 「加载更早评论」按钮。CommentsPanel 切换到这条 hook
+// keyset 分页 + 「加载更早评论」按钮。CommentsPanel 切换到这条 hook
 // 后单标注 100+ 评论不再初始化卡顿；老 hook（`useAnnotationComments`）保留作
 // 简单场景兜底（list_attachments 等）。
 const COMMENTS_PAGE_LIMIT = 50;

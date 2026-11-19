@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · useToolBindings 派生 classes / fallback 行为单测.
+ * useToolBindings 派生 classes / fallback 行为单测.
  *
  * 关键 case:
  *   - 当前 tool_unit 配置正常 → 按 order 出 classes
@@ -30,7 +30,7 @@ function _proj(extra: Partial<ProjectResponse>): ProjectResponse {
   } as ProjectResponse;
 }
 
-describe("useToolBindings · v0.10.17", () => {
+describe("useToolBindings", () => {
   it("返回当前工具单位下的 classes / classesConfig", () => {
     const proj = _proj({
       tool_bindings: {
@@ -146,7 +146,7 @@ describe("useToolBindings · v0.10.17", () => {
     expect(result.current.classes).toEqual(["person"]);
   });
 
-  it("tool_bindings 完全空 → 返回空视图 (v0.10.22 单源, 扁平字段由 tool_bindings 派生)", () => {
+  it("tool_bindings 完全为空时返回空视图（扁平字段由 tool_bindings 派生）", () => {
     const proj = _proj({
       tool_bindings: {},
     });

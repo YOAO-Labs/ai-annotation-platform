@@ -1,5 +1,5 @@
 /**
- * v0.6.6 · WorkbenchShell 第三刀。
+ * WorkbenchShell 第三刀。
  *
  * 从 WorkbenchShell.tsx 抽出切题 + 提交流程：
  *   - navigateTask(direction)        切上/下一题，距末页 10 条预加载
@@ -7,8 +7,7 @@
  *   - hasMissingRequired             所有 annotation 必填属性巡检
  *   - handleSubmitTask()             提交质检（必填巡检拦截 + 成功后自动切下一题）
  *
- * 之前 v0.6.4 拆 hotkeys + actions、v0.6.5 拆 canvas 草稿持久化；本 hook 让
- * shell 文件再瘦 ~80 行，并把 task flow 与 ImageStage 渲染逻辑解耦，便于单测。
+ * 本 hook 将 task flow 与 ImageStage 渲染逻辑解耦，便于单测。
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TaskResponse, AnnotationResponse } from "@/types";

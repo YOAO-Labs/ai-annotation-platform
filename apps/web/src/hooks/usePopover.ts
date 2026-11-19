@@ -1,5 +1,5 @@
 /**
- * v0.6.6 · 通用 popover 状态 hook。
+ * 通用 popover 状态 hook。
  *
  * 之前 ExportSection / TopBar 主题切换 / 智能切题菜单 / AttributeForm
  * DescriptionPopover / CanvasToolbar 各自手写 click-outside + ESC-close 逻辑。

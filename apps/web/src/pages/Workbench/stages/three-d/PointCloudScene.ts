@@ -1,5 +1,5 @@
 /**
- * v0.13.2 · 裸 Three.js 点云场景(命令式薄封装,不用 react-three-fiber)。
+ * 裸 Three.js 点云场景(命令式薄封装,不用 react-three-fiber)。
  *
  * 职责:管 Legacy WebGL / 实验 WebGPU renderer、PerspectiveCamera / Scene / OrbitControls 生命周期,
  * 加载 PCD、按高度上色、大点云抽稀、resize、dispose。React 组件只持有一个实例
@@ -58,7 +58,7 @@ function webGpuPointCapacity(pointCount: number): number {
   return capacity;
 }
 
-// v0.15.18 · 邻帧点云叠加弱化色,与当前帧的高度色带 / 相机上色强区分。
+// 邻帧点云叠加弱化色,与当前帧的高度色带 / 相机上色强区分。
 // 前/后帧分色(过去冷蓝 / 未来暖橙),让动态目标拖影读起来是"运动方向"而非乱噪。
 const NEIGHBOR_PAST_COLOR = 0x4a90d9; // 过去帧:冷蓝
 const NEIGHBOR_FUTURE_COLOR = 0xd98a4a; // 未来帧:暖橙
@@ -86,7 +86,7 @@ export interface PointCloudStats {
   decimateStride: number;
 }
 
-/** v0.13.3 · 渲染层用的 3D 框输入(PSR + 类别色 + 选中态),由 React 从标注派生。 */
+/** 渲染层用的 3D 框输入(PSR + 类别色 + 选中态),由 React 从标注派生。 */
 export interface SceneBox {
   id: string;
   center: [number, number, number];
@@ -102,14 +102,14 @@ export interface SceneBox {
   label?: string;
 }
 
-/** v0.14.1 · 邻帧参考框(只读叠加层): PSR + 类别色, 不可选不可拖。 */
+/** 邻帧参考框(只读叠加层): PSR + 类别色, 不可选不可拖。 */
 export interface ReferenceBox {
   id: string;
   center: [number, number, number];
   size: [number, number, number];
   rotation: [number, number, number];
   color: string;
-  /** v0.15.17 · scope=all 下非选中 group 的框弱化显示(更低透明度)。 */
+  /** scope=all 下非选中 group 的框弱化显示(更低透明度)。 */
   dim?: boolean;
 }
 
@@ -124,7 +124,7 @@ export interface PointCloudPick {
   position: MeasurementPosition;
 }
 
-/** v0.13.3 · TransformControls 拖拽结束时回传的 PSR(center/size/rotation)。 */
+/** TransformControls 拖拽结束时回传的 PSR(center/size/rotation)。 */
 export interface BoxPsr {
   center: [number, number, number];
   size: [number, number, number];
@@ -175,7 +175,7 @@ export class PointCloudScene {
   private pointIndexStride = 1;
   private sourcePointCount = 0;
   private renderedPointCount = 0;
-  // v0.13.6 · 载帧时存的原色(高度色带),相机上色关闭时还原。
+  // 载帧时存的原色(高度色带),相机上色关闭时还原。
   private baseColors: Float32Array | null = null;
   private renderScheduler!: PointCloudRenderScheduler;
   private readonly triViewPass: PointCloudTriViewPass;
@@ -191,7 +191,7 @@ export class PointCloudScene {
   private surfaceWidth = 0;
   private surfaceHeight = 0;
 
-  // v0.13.3 · 3D 框图层:每框一个 Group(线框 LineSegments + 半透明拾取 Mesh),
+  // 3D 框图层:每框一个 Group(线框 LineSegments + 半透明拾取 Mesh),
   // 用 boxToMatrix4 设矩阵。共享单位几何(边长 1),材质按框单独建(颜色不同)。
   private boxLayer = new THREE.Group();
   private boxGroups = new Map<string, THREE.Group>();
@@ -206,7 +206,7 @@ export class PointCloudScene {
   private labelLayer = new THREE.Group();
   private boxLabels = new Map<string, THREE.Sprite>();
 
-  // v0.14.1 · 邻帧参考框图层:半透明 dashed 线框, 不参与 raycast(不加入 boxGroups,
+  // 邻帧参考框图层:半透明 dashed 线框, 不参与 raycast(不加入 boxGroups,
   // pickBox 只遍历 boxGroups), 仅作时序连续性参考。切 selectedGroupId / overlay K 时整层重建。
   private referenceLayer = new THREE.Group();
   private referenceBoxes: THREE.LineSegments[] = [];
@@ -215,20 +215,20 @@ export class PointCloudScene {
   // 会话态测量辅助层：只渲染主视图，不参与框拾取、标注、导出或三视图编辑。
   private measurementLayer = new THREE.Group();
 
-  // v0.15.18 · 邻帧点云叠加图层:各邻帧点云经 ego 补偿(对象矩阵)对齐到当前帧 ego 系,
+  // 邻帧点云叠加图层:各邻帧点云经 ego 补偿(对象矩阵)对齐到当前帧 ego 系,
   // 弱化单色 + 低透明,与当前帧点区分。切帧 / 关开关时整层重建并 dispose。
   private neighborLayer = new THREE.Group();
   private neighborPoints: NeighborPointLayer[] = [];
 
-  // v0.13.3 · 鲁棒取景中心/半径(mean ± 2.5σ,见 setRobustFrame)。
+  // 鲁棒取景中心/半径(mean ± 2.5σ,见 setRobustFrame)。
   private readonly viewCenter = new THREE.Vector3();
   private viewRadius = 10;
 
-  // v0.13.7 · resetView 默认视向的水平「前方」(= front 相机光轴水平投影)。
+  // resetView 默认视向的水平「前方」(= front 相机光轴水平投影)。
   // 默认 +Y(历史行为:相机蹲 -Y 看 +Y);由 setViewForward 跟随实际车头改写。
   private readonly forward = new THREE.Vector3(0, 1, 0);
 
-  // v0.13.3 · 估计的地面高度 z(低分位,见 estimateGroundZ),放置新框时落在此平面上。
+  // 估计的地面高度 z(低分位,见 estimateGroundZ),放置新框时落在此平面上。
   private groundZ = 0;
 
   // 主视图左下角方向辅助器:同一个 renderer 的小 viewport,跟随主相机旋转。
@@ -243,7 +243,7 @@ export class PointCloudScene {
   private orbitMode: PointCloudViewState["mode"] = "orbit";
   private onViewChange: ((view: PointCloudViewState) => void) | null = null;
 
-  // v0.13.3 · 选中框拖拽编辑(平移/yaw/缩放)。gizmo 挂 getHelper() 到场景。
+  // 选中框拖拽编辑(平移/yaw/缩放)。gizmo 挂 getHelper() 到场景。
   private readonly transform: TransformControls;
   private onTransformChange: ((id: string, psr: BoxPsr, commit: boolean) => void) | null = null;
   private transformDragging = false;
@@ -630,7 +630,7 @@ export class PointCloudScene {
   /**
    * 加载 PCD 并渲染,返回统计;失败 throw。
    *
-   * v0.13.11 · convention 用于把 src 系下的 lidar 点云就地旋转到 ISO 8855
+   * convention 用于把 src 系下的 lidar 点云就地旋转到 ISO 8855
    * (+X 前 / +Y 左 / +Z 上),下游 (色带 / robust frame / groundZ / autofit /
    * cameraAnchor / projectPoints) 全部在 ISO 系下工作。默认 iso_8855 = identity,
    * 与历史行为完全一致。
@@ -737,7 +737,7 @@ export class PointCloudScene {
     const r = this.viewRadius;
     const f = this.forward; // 水平单位向量(车头方向)
     this.controls.target.copy(c);
-    this.camera.up.set(0, 0, 1); // v0.13.9 · 还原 up(bevView 会改成水平 forward)
+    this.camera.up.set(0, 0, 1); // 还原 up（bevView 会将其设为水平 forward）。
     // 蹲在车头反方向、抬高,看向中心 ⇒ 视线 = 车头方向(与 front 相机一致)。
     // forward 默认 (0,1,0) 时退化为历史的 (c.x, c.y - 2.2r, ...)。
     this.camera.position.set(c.x - f.x * r * 2.2, c.y - f.y * r * 2.2, c.z + r * 1.2);
@@ -749,7 +749,7 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.13.7 · 设默认视向的水平「前方」(= front 相机光轴水平投影),使 resetView 与
+   * 设默认视向的水平「前方」(= front 相机光轴水平投影),使 resetView 与
    * front 相机朝向一致(健壮于任意 lidar 系前向约定)。近零向量忽略(保持上次/默认 +Y);
    * 不立即重排,下次 frameView / resetView 生效。
    */
@@ -763,7 +763,7 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.13.9 · 俯视(BEV)复位: 相机摆到稠密区正上方俯看 -Z, 车头(forward)朝屏幕上方。
+   * 俯视(BEV)复位: 相机摆到稠密区正上方俯看 -Z, 车头(forward)朝屏幕上方。
    * 看 -Z 时 up 不能与视线共线 → 取水平的 forward 作 up(切回 resetView 时 frameView 还原 (0,0,1))。
    * 便于在地面平面拖框选 footprint。仍是透视相机, 不引入正交模式。
    */
@@ -802,7 +802,7 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.13.9 · 框选选点: 返回投影落在屏幕矩形(两对角 client px)内、且在相机前方的点 world 坐标
+   * 框选选点: 返回投影落在屏幕矩形(两对角 client px)内、且在相机前方的点 world 坐标
    * (Float32Array, len = 3·K)。用屏幕投影选真实点而非投地面平面 → 对物体高度/视角零视差
    * (SUSTechPOINTS 「框选 + 点云拟合」范式)。无点云 / 选不到点 → 返回 null。
    *
@@ -902,7 +902,7 @@ export class PointCloudScene {
     };
   }
 
-  /** v0.13.9 · 框选拖拽期禁用 OrbitControls(同 gizmo 拖拽), 避免拖框时相机乱转。 */
+  /** 框选拖拽期禁用 OrbitControls(同 gizmo 拖拽), 避免拖框时相机乱转。 */
   setBoxSelecting(active: boolean) {
     this.controls.enabled = !active;
   }
@@ -1112,7 +1112,7 @@ export class PointCloudScene {
     return true;
   }
 
-  /** v0.13.6 · 当前点坐标 (N*3, lidar/world 系, 与标定同系); 供相机上色逐点投影。 */
+  /** 当前点坐标 (N*3, lidar/world 系, 与标定同系); 供相机上色逐点投影。 */
   getPointPositions(): Float32Array | null {
     const attr = this.pointGeometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
     if (!attr || this.renderedPointCount === 0) return null;
@@ -1120,7 +1120,7 @@ export class PointCloudScene {
     return positions.subarray(0, this.renderedPointCount * 3);
   }
 
-  /** v0.13.6 · 载帧时的原色 (高度色带); 上色时无相机覆盖的点回退到它。 */
+  /** 载帧时的原色 (高度色带); 上色时无相机覆盖的点回退到它。 */
   getBaseColors(): Float32Array | null {
     return this.baseColors;
   }
@@ -1163,7 +1163,7 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.13.6 · 设点云颜色。colors=相机上色结果 (N*3); null=还原原色 (高度色带)。
+   * 设点云颜色。colors=相机上色结果 (N*3); null=还原原色 (高度色带)。
    * 原地写回既有 color buffer (长度一致), 触发 GPU 更新。三视图复用同一 geometry 自动跟随。
    */
   setPointColors(colors: Float32Array | null) {
@@ -1269,7 +1269,7 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.13.3 · 同步 3D 框图层到给定集合(diff 增删改)。共享单位几何;
+   * 同步 3D 框图层到给定集合(diff 增删改)。共享单位几何;
    * 每框材质单独建(颜色不同),移除时 dispose 材质(几何只在 scene dispose 时清)。
    */
   setBoxes(boxes: SceneBox[]) {
@@ -1392,7 +1392,7 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.14.1 · 同步邻帧参考框图层(整层清空重建)。参考框半透明 dashed 线框, 颜色取
+   * 同步邻帧参考框图层(整层清空重建)。参考框半透明 dashed 线框, 颜色取
    * 主框类别色但描边更暗, 不参与 raycast(不加入 boxGroups)。切 selectedGroupId /
    * overlay K 时由 React 重新调一次。
    */
@@ -1418,7 +1418,7 @@ export class PointCloudScene {
       const mat = new THREE.LineDashedMaterial({
         color: new THREE.Color(b.color).multiplyScalar(0.5),
         transparent: true,
-        // v0.15.17 · scope=all 非选中 group 的框更淡,突出当前对象。
+        // scope=all 非选中 group 的框更淡,突出当前对象。
         opacity: b.dim ? 0.22 : 0.5,
         depthTest: false,
         dashSize: 0.3,
@@ -1439,10 +1439,10 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.15.18 · 邻帧点云叠加。每个 frame 的 positions 是该邻帧 ISO ego 系点;matrix 是
+   * 邻帧点云叠加。每个 frame 的 positions 是该邻帧 ISO ego 系点;matrix 是
    * inv(T_cur)@T_nbr(frameRelMatrix),作为对象矩阵直接把整片点云对齐到当前帧 ego 系
    * (刚体变换,GPU 端做,无逐点 CPU 开销)。静止背景重合加密,动态目标留拖影。
-   * v0.15.18 · 视觉缓解动态拖影:前/后帧分色(过去冷蓝 / 未来暖橙)+ 按帧距时序淡出,
+   * 视觉缓解动态拖影:前/后帧分色(过去冷蓝 / 未来暖橙)+ 按帧距时序淡出,
    * 拖影读起来是运动方向而非乱噪。整层重建,旧 geometry/material 全部 dispose。
    */
   setNeighborPoints(
@@ -1636,13 +1636,13 @@ export class PointCloudScene {
   }
 
   /**
-   * v0.13.3 · 屏幕坐标射线 → 世界落点 [x,y,z],供放置新框(透视拖拽不准,故先点落点 +
+   * 屏幕坐标射线 → 世界落点 [x,y,z],供放置新框(透视拖拽不准,故先点落点 +
    * 默认尺寸,再用数值面板 / gizmo / Q 一键贴合精修)。射线极端时返回 null。
    *
-   * v0.13.8.1 · **优先打点云**(SUSTechPOINTS / xtreme1 通行做法):
+   * **优先打点云**(SUSTechPOINTS / xtreme1 通行做法):
    *   1. 射线与点云相交 → 用最近命中点的 (x,y,z) 作落点,框底贴该点。
    *   2. 未命中(点击空地)→ fallback 到水平面相交,用中位数 groundZ。
-   * 解决 v0.13.3 「总用 groundZ」的两个体感问题:
+   * 直接命中点云解决总用 groundZ 时的两个问题：
    *   - 斜视角 + lidar 缺自车正下方点 → 1% 分位 groundZ 比"视觉地面"低,框总埋地下;
    *   - 想标车顶物 / 屋顶物 → 总强行贴 groundZ,要手动调 cz。
    * 点云命中容差用 0.3m(默认 1m 太松,易抓到背景远点;0.3m 跟点云密度匹配)。
@@ -1764,7 +1764,7 @@ export class PointCloudScene {
     }
     this.referenceBoxes = [];
     this.clearMeasurementLayer();
-    // v0.15.18 · 邻帧点云图层:各自持有 geometry + material,全部 dispose。
+    // 邻帧点云图层:各自持有 geometry + material,全部 dispose。
     for (const pointLayer of this.neighborPoints) this.disposeNeighborPointLayer(pointLayer);
     this.neighborPoints = [];
     this.unitEdges.dispose();

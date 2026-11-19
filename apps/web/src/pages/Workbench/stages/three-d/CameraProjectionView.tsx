@@ -1,5 +1,5 @@
 /**
- * v0.13.4 · 单相机视图 = 只读图 + 投影 overlay(canvas)。
+ * 单相机视图 = 只读图 + 投影 overlay(canvas)。
  *
  * 把各 3D 框经该相机标定(SensorCalibration)投影成 12 边线框,叠在图上;点投影框可反选对应
  * 3D 框(命中测试 → onSelectBox)。投影**实时**:消费同一份 boxes + highlightedIds,框 PSR / 选中
@@ -24,7 +24,7 @@ import { buildDepthRaster, sampleDepth, type DepthRaster } from "./geometry/dept
 import type { Psr } from "./geometry/triview";
 import type { SceneBox } from "./PointCloudScene";
 
-// v0.17.6 · Tailwind class constants (was ThreeDWorkbench.module.css).
+// Tailwind class constants (was ThreeDWorkbench.module.css).
 const CAMERA_ITEM = "m-0 shrink-0";
 const CAMERA_ITEM_EXPANDED = "w-fit max-w-full";
 const CAMERA_VIEW = "relative inline-block min-h-24 bg-muted leading-none";
@@ -52,18 +52,18 @@ interface CameraProjectionViewProps {
   onSelectBox: (id: string | null, opts?: { shift?: boolean }) => void;
   /** 该相机是否最正对当前选中框(可见角点最多者);用于 figcaption 角标。 */
   bestForSelected?: boolean;
-  /** v0.13.6 · 点云坐标(N*3,lidar/world 系);深度提示开启时建相机深度栅格。 */
+  /** 点云坐标(N*3,lidar/world 系);深度提示开启时建相机深度栅格。 */
   pointPositions?: Float32Array | null;
-  /** v0.13.6 · 深度提示开关:开 → 画深度热力图 + 图上 hover 读出最近点深度/3D。 */
+  /** 深度提示开关:开 → 画深度热力图 + 图上 hover 读出最近点深度/3D。 */
   showDepth?: boolean;
   /**
-   * v0.15.24 · 种框模式:在相机图上拖一个 2D 矩形 → mouseup 回调 onSeedBox(natural 像素系)。
+   * 种框模式:在相机图上拖一个 2D 矩形 → mouseup 回调 onSeedBox(natural 像素系)。
    * 上层据此选视锥内点拟合 box_3d。开则禁用反选点击、光标 crosshair。无标定时不生效。
    */
   seedMode?: boolean;
   /** 上层正在保存种框时阻止新的 pointer，不把请求排成并发队列。 */
   interactionDisabled?: boolean;
-  /** v0.15.24 · 种框完成回调:rect 为 natural 像素系,calibration 为本相机标定(必非空)。 */
+  /** 种框完成回调:rect 为 natural 像素系,calibration 为本相机标定(必非空)。 */
   onSeedBox?: (rect: SeedRect, calibration: SensorCalibration) => void;
   /** 放大相机视图中允许直接移动中心的单个 3D 框；缩略视图与不可编辑态传 null。 */
   editableBox?: SceneBox | null;
@@ -91,7 +91,7 @@ interface CameraProjectionViewProps {
 // 一个框至少有这么多可见角点才参与命中测试(避免擦边框误选)。
 const MIN_VISIBLE_FOR_HIT = 3;
 
-// v0.15.24 · 种框拖拽最小位移(显示像素);低于此视为误点,不种框。
+// 种框拖拽最小位移(显示像素);低于此视为误点,不种框。
 const MIN_SEED_DRAG_PX = 5;
 
 const EDIT_HANDLE_RADIUS_PX = 7;
@@ -231,7 +231,7 @@ export function CameraProjectionView({
 }: CameraProjectionViewProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // v0.15.24 · 种框拖拽:起点(显示坐标)+ 当前矩形(显示坐标),用 ref 即时重绘不进 state。
+  // 种框拖拽:起点(显示坐标)+ 当前矩形(显示坐标),用 ref 即时重绘不进 state。
   const seedStartRef = useRef<{ x: number; y: number } | null>(null);
   const seedRectRef = useRef<SeedRect | null>(null);
   const editHandleRef = useRef<{ x: number; y: number } | null>(null);
@@ -244,7 +244,7 @@ export function CameraProjectionView({
   const hitBoxesRef = useRef<
     { id: string; x0: number; y0: number; x1: number; y1: number; area: number }[]
   >([]);
-  // v0.13.6 · 深度提示:相机深度栅格(state,变化时驱动一次重绘)+ hover 读数(不入 draw 依赖,不触发重绘)。
+  // 深度提示:相机深度栅格(state,变化时驱动一次重绘)+ hover 读数(不入 draw 依赖,不触发重绘)。
   const [raster, setRaster] = useState<DepthRaster | null>(null);
   const [natSize, setNatSize] = useState<{ w: number; h: number } | null>(null);
   const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
@@ -299,7 +299,7 @@ export function CameraProjectionView({
     const sx = cssW / natW;
     const sy = cssH / natH;
 
-    // v0.13.6 · 深度热力图:遍历栅格非空格,在投影像素画按深度着色的点(近→远 = 红→蓝)。
+    // 深度热力图:遍历栅格非空格,在投影像素画按深度着色的点(近→远 = 红→蓝)。
     // 画在框线之下。深度归一化到 [minDepth, maxDepth],hue 0(红,近)→ 240(蓝,远)。
     if (calibration && showDepth && raster && isFinite(raster.minDepth)) {
       const span = raster.maxDepth - raster.minDepth || 1;
@@ -416,7 +416,7 @@ export function CameraProjectionView({
       }
     }
 
-    // v0.15.24 · 种框橡皮筋矩形(显示坐标,虚线 + 淡填充)。从 shadcn token 取品牌色。
+    // 种框橡皮筋矩形(显示坐标,虚线 + 淡填充)。从 shadcn token 取品牌色。
     const seed = seedRectRef.current;
     if (seedMode && seed) {
       const accent = getComputedStyle(canvas).getPropertyValue("--sc-brand").trim() || "#3b82f6";
@@ -600,7 +600,7 @@ export function CameraProjectionView({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [cancelCameraEdit, cancelManualEdit]);
 
-  // v0.13.6 / v0.15.24 · mousemove:种框模式下更新橡皮筋矩形(ref + 直接重绘);否则深度 hover。
+  // mousemove:种框模式下更新橡皮筋矩形(ref + 直接重绘);否则深度 hover。
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (interactionDisabled) return;
@@ -716,7 +716,7 @@ export function CameraProjectionView({
     ],
   );
 
-  // v0.15.24 · 种框:按下记起点(需有标定);松手换算回 natural 像素发 onSeedBox;微小位移视为误点。
+  // 种框:按下记起点(需有标定);松手换算回 natural 像素发 onSeedBox;微小位移视为误点。
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (e.button !== 0 || editDragRef.current || manualDragRef.current) return;

@@ -50,10 +50,10 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     region: { box: "单帧多边形", track: "多边形轨迹" },
     polyline: { box: "单帧折线", track: "折线轨迹" },
   };
-  // v0.17.15 · 同名类跨工具单位批量重命名意图: 开启后重命名不传 tool_unit_id,
+  // 同名类跨工具单位批量重命名意图: 开启后重命名不传 tool_unit_id,
   // 后端在所有 enabled unit 内一起改同名类 (强隔离默认仍为单 unit, 默认=现状)。
   const [renameAllUnits, setRenameAllUnits] = useState(false);
-  // v0.18.0 起「从 ML Backend 预填配置」对话框开关 (v0.20.3 由「导入属性」升级为类别+属性)。
+  // 「从 ML Backend 预填配置」对话框开关，可预填类别和属性。
   const [prefillOpen, setPrefillOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -73,8 +73,8 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
   }, [bindings]);
 
   const handleRename = (oldName: string, newName: string) => {
-    // v0.10.17 · 重命名走后端原子 endpoint, 限定 tool_unit_id 仅改本 unit 内的同名类.
-    // v0.17.15 · 勾选「同步所有工具单位」时不传 tool_unit_id, 走后端跨 unit 批量路径。
+    // 重命名走后端原子 endpoint, 限定 tool_unit_id 仅改本 unit 内的同名类.
+    // 勾选「同步所有工具单位」时不传 tool_unit_id, 走后端跨 unit 批量路径。
     const allUnits = renameAllUnits && hasSharedClass;
     rename.mutate(
       {
@@ -103,7 +103,7 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
 
   const activeBinding = bindings[activeUnit];
 
-  // v0.20.1 · 推荐属性字段: 从在线 backend 自报的 output_attribute_schema 取落点类属性
+  // 推荐属性字段: 从在线 backend 自报的 output_attribute_schema 取落点类属性
   // (text/language/orientation) 的完整定义 (含 type/options), 排除当前单位已有 key。
   // 供 AttributeSchemaEditor 一键填入, 让手建字段的 key 天然对齐协议、不被落点校验漏判。
   const { data: capInstances } = useCapabilityInstances();
@@ -120,7 +120,7 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     return [...byKey.values()].filter((f) => !existing.has(f.key));
   }, [capInstances, activeBinding]);
 
-  // v0.17.15 · alias_to 链接目标: 其它启用工具单位 (≠ 当前) 且有类的 unit。
+  // alias_to 链接目标: 其它启用工具单位 (≠ 当前) 且有类的 unit。
   const linkTargets = useMemo(
     () =>
       (Object.keys(bindings) as ToolUnitId[])
@@ -342,7 +342,7 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     e.target.value = "";
   };
 
-  // v0.20.3 · 从 ML Backend 预填进当前工具单位: 属性同 key 覆盖、新 key 追加; 类别同名跳过、
+  // 从 ML Backend 预填进当前工具单位: 属性同 key 覆盖、新 key 追加; 类别同名跳过、
   // 新名追加 (自动配色)。属性与类别各走一次受控更新, setBindings 函数式叠加安全。
   const onPrefillFromBackend = ({ classes, attributes }: PrefillPicked) => {
     if (attributes.length > 0) {

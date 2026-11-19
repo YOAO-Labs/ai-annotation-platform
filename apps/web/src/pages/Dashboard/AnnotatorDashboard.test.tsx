@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · AnnotatorDashboard 单测：加载态 / 空项目 / hour_buckets 直方图渲染 /
+ * AnnotatorDashboard 单测：加载态 / 空项目 / hour_buckets 直方图渲染 /
  * formatMs 边界 / sortedProjects 排序。
  *
  * 用 vi.mock 拦截 hooks（useAnnotatorStats / useProjects / useMyBatches）避免

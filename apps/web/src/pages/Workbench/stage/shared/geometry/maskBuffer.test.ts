@@ -1,4 +1,4 @@
-// v0.10.7 M4-δ · I11 · MaskBuffer 单测：brush / erase / clear / fromPolygon / toAlphaImageData / clone。
+// MaskBuffer 单测：brush / erase / clear / fromPolygon / toAlphaImageData / clone。
 
 import { describe, expect, it } from "vitest";
 import { MaskBuffer } from "./maskBuffer";
@@ -191,7 +191,7 @@ describe("MaskBuffer · XOR bit patch", () => {
   });
 });
 
-describe("MaskBuffer · dirtyRect (v0.10.10)", () => {
+describe("MaskBuffer · dirtyRect", () => {
   it("初始无脏区", () => {
     const m = new MaskBuffer({ width: 30, height: 30 });
     expect(m.consumeDirty()).toBeNull();

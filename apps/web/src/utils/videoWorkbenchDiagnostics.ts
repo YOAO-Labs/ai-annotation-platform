@@ -6,7 +6,7 @@ type VideoWorkbenchDiagnosticsStore = {
 export type VideoWorkbenchDiagnosticsSnapshot = Record<string, unknown>;
 
 /**
- * 精确帧 pipeline 的全局诊断快照(v0.23.15)。只允许枚举型 state / reason、数值型 id / 计数 /
+ * 精确帧 pipeline 的全局诊断快照。只允许枚举型 state / reason、数值型 id / 计数 /
  * 耗时与预算;禁止 signed URL、chunk bytes、base64 description、文件名或 annotation 内容。
  * typed 边界本身就是数据最小化约束——producer 不接受任意对象 spread。
  */
@@ -136,7 +136,7 @@ export function taskIdFromVideoWorkbenchDiagnostics(
   return taskId && UUID_RE.test(taskId) ? taskId : undefined;
 }
 
-// === Precise-frame diagnostics producer (v0.23.15) ===
+// === Precise-frame diagnostics producer ===
 //
 // 写入 window.__videoWorkbenchDiagnostics,供 BugReportDrawer 附带与排障。producer 只接受 typed
 // snapshot,不 spread 任意对象;节流上限 5 Hz,state / fallback 转换立即写入,trailing 保证最后

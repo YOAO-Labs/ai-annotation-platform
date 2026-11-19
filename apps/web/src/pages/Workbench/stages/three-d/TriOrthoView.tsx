@@ -1,5 +1,5 @@
 /**
- * v0.13.5 · 单个正交视图的 2D overlay。
+ * 单个正交视图的 2D overlay。
  *
  * B-1 只读画框; B-2 拖边/角改 size/center; B-3 方向线柄绕 box-local 轴旋转 (yaw/pitch/roll)。
  * 数学全走 triview.ts 纯函数 (dragHandle / dragRotation), overlay 不写裸数学。
@@ -10,7 +10,7 @@
  *
  * 方向线沿 box-local +u 轴 (= 朝向: Top 朝 X、Side 朝 X、Front 朝 Y), 末端一个旋转柄;
  * 拖它按指针绕框心的角度增量 Δθ 旋转。每视图绕其法线轴, 屏幕 CCW→+Δθ 的手性按视图定 (ROT_SIGN)。
- * v0.17.6 · module.css → Tailwind。
+ * module.css → Tailwind。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
@@ -37,7 +37,7 @@ export interface TriSelected {
   color: string;
 }
 
-// v0.17.6 · Tailwind class constants (was ThreeDWorkbench.module.css).
+// Tailwind class constants (was ThreeDWorkbench.module.css).
 // pointer-events 必须互斥下发；只读框也要接收 wheel / keyboard 视图缩放。
 const TRI_OVERLAY = "absolute inset-0 z-local-1";
 const TRI_OVERLAY_INTERACTIVE = "pointer-events-auto focus-visible:ring-2 focus-visible:ring-ring";
@@ -422,7 +422,7 @@ export function TriOrthoView({
         e.stopImmediatePropagation();
         onZoomChange(stepTriZoom(zoom, direction));
       } else if (
-        // v0.24 · 0 让位给第十个类别键；聚焦视图缩放重置改为 Shift+物理 Digit0。
+        // 0 让位给第十个类别键；聚焦视图缩放重置改为 Shift+物理 Digit0。
         // 事件在本视图消费，不再下落到类别选择或全局视图重置。
         e.code === "Digit0" &&
         e.shiftKey &&

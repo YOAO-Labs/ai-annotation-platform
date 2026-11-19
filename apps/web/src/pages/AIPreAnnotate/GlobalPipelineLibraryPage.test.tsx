@@ -23,7 +23,7 @@ vi.mock("@/hooks/useProjectPipelines", () => ({
   }),
 }));
 
-// v0.21.0 · 用可交互的 canvas mock 触发 addStage/onSelect, 让测试不依赖 react-flow 真实 DOM.
+// 用可交互的 canvas mock 触发 addStage/onSelect, 让测试不依赖 react-flow 真实 DOM.
 type CanvasProps = {
   onAddChild?: (sid: string) => void;
   onSelect?: (sid: string) => void;
@@ -135,7 +135,7 @@ describe("GlobalPipelineLibraryPage", () => {
                 supported_geometric_outputs: ["bbox"],
                 output_attribute_types: [],
                 output_attribute_schema: [],
-                // v0.21.0 · 变体轴: 源检测 model 声明 size 轴, default=m; 保存 payload 应带 model_variants.
+                // 变体轴: 源检测 model 声明 size 轴, default=m; 保存 payload 应带 model_variants.
                 supported_variants: [
                   {
                     key: "size",
@@ -181,7 +181,7 @@ describe("GlobalPipelineLibraryPage", () => {
     fireEvent.change(screen.getByLabelText("源阶段模型"), {
       target: { value: "bk-global-det::det" },
     });
-    // v0.21.6 · 从画布触发 addStage(source) 给源模型 stage 挂下游子.
+    // 从画布触发 addStage(source) 给源模型 stage 挂下游子.
     fireEvent.click(screen.getByTestId("add-child-source"));
     // 切到 stage-1 Inspector.
     fireEvent.click(screen.getByTestId("select-stage-1"));

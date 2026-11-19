@@ -1,4 +1,4 @@
-// v0.10.16 · reject 原因类型枚举与中文 label 映射（前端单点）
+// reject 原因类型枚举与中文 label 映射（前端单点）
 // 后端 enum: missing | extra | wrong_label | wrong_geometry
 
 export type RejectReasonType = "missing" | "extra" | "wrong_label" | "wrong_geometry";

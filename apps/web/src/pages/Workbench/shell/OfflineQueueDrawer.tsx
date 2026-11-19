@@ -17,7 +17,7 @@ import {
 interface OfflineQueueDrawerProps {
   open: boolean;
   onClose: () => void;
-  /** 当前题（v0.6.4：用于「当前题」筛选 + 默认展开当前题分组）。*/
+  /** 当前题，用于「当前题」筛选和默认展开当前题分组。 */
   currentTaskId?: string;
   /** Current account scope. Legacy rows without an owner are intentionally excluded. */
   queueScope?: OfflineQueueScope;
@@ -51,7 +51,7 @@ function kindClassName(kind: OfflineOp["kind"]): string {
   return "text-status-danger";
 }
 
-/** v0.6.4：retry_count 颜色阈值。0 灰，1-2 黄（已有失败但不严重），≥3 红。*/
+/** retry_count 颜色阈值。0 灰，1-2 黄（已有失败但不严重），≥3 红。*/
 function retryBadgeClassName(rc: number): string {
   if (rc >= 3) return "bg-rose-500/20 text-rose-700 dark:text-rose-400";
   if (rc >= 1) return "bg-amber-500/20 text-amber-700 dark:text-amber-400";
@@ -246,7 +246,7 @@ export function OfflineQueueDrawer({
           </button>
         </header>
 
-        {/* v0.6.4：筛选 chip */}
+        {/* 筛选 chip */}
         {items.length > 0 && (
           <FilterGroup
             label="筛选"

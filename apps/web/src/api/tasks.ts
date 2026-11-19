@@ -38,7 +38,7 @@ import type {
   ImagePyramidResponse,
 } from "@/pages/Workbench/stage/imagePyramid";
 
-/** v0.20.11 · 选中框单框二次推理请求: 在选中框 ROI 上跑一个能力。 */
+/** 选中框单框二次推理请求: 在选中框 ROI 上跑一个能力。 */
 export interface SecondaryInferenceRequest {
   ml_backend_id: string;
   /** attributes → 写回原框; geometry → 建子框。 */
@@ -54,26 +54,26 @@ export interface SecondaryInferenceRequest {
   pad?: number;
 }
 
-/** v0.20.11 · 二次推理响应: 更新后的原框 + 新建子框(几何型)。 */
+/** 二次推理响应: 更新后的原框 + 新建子框(几何型)。 */
 export interface SecondaryInferenceResponse {
   annotation: AnnotationResponse;
   created_children: AnnotationResponse[];
 }
 
-/** v0.14.1 · 跨帧 propagate 响应: 复制到目标 task 的新 annotation。 */
+/** 跨帧 propagate 响应: 复制到目标 task 的新 annotation。 */
 export interface PropagateResponse {
   annotation: AnnotationResponse;
-  /** v0.15.1 · true=已按 ego pose 做运动补偿; false=原样复制(scene 无轨迹等)。 */
+  /** true=已按 ego pose 做运动补偿; false=原样复制(scene 无轨迹等)。 */
   motion_compensated: boolean;
 }
 
-/** v0.15.1 · 批量跨帧延续响应。 */
+/** 批量跨帧延续响应。 */
 export interface PropagateBatchResponse {
   items: { source_annotation_id: string; annotation: AnnotationResponse }[];
   motion_compensated: boolean;
 }
 
-/** v0.15.1 · 区间插值响应。 */
+/** 区间插值响应。 */
 export interface InterpolateRangeResponse {
   annotations: AnnotationResponse[];
   motion_compensated: boolean;
@@ -83,7 +83,7 @@ export interface InterpolateRangeResponse {
 
 export interface TaskListResponse {
   items: TaskResponse[];
-  // v0.11.30 · 仅首页返回精确总数；cursor 翻页时为 null（前端复用首页值）。
+  // 仅首页返回精确总数；cursor 翻页时为 null（前端复用首页值）。
   total: number | null;
   limit: number;
   offset: number;
@@ -96,9 +96,9 @@ export interface TaskListParams {
   status?: string;
   assignee_id?: string;
   batch_id?: string;
-  // v0.12.0 · true = 只返回 batch_id IS NULL（未归类）任务
+  // true = 只返回 batch_id IS NULL（未归类）任务
   unbatched?: boolean;
-  // v0.12.6 (A3) · 绩效页 reject/类别维度下钻过滤
+  // (A3) · 绩效页 reject/类别维度下钻过滤
   reject_reason_type?: string;
   class_name?: string;
   limit?: number;
@@ -111,7 +111,7 @@ export interface AnnotationPayload {
   client_request_id?: string;
   video_segment_id?: string | null;
   annotation_type?: string;
-  /** v0.10.17 · 工具维度绑定; service 层据此校验 class_name 在对应 unit 类别集内. */
+  /** 工具维度绑定; service 层据此校验 class_name 在对应 unit 类别集内. */
   tool_unit_id?: string;
   class_name: string;
   geometry: Geometry;
@@ -126,7 +126,7 @@ export interface AnnotationUpdatePayload {
   class_name?: string;
   confidence?: number;
   attributes?: Record<string, unknown>;
-  // v0.10.5 M4-β · shape 状态位（I15）。
+  // shape 状态位（I15）。
   z_order?: number;
   is_locked?: boolean;
   is_hidden?: boolean;
@@ -151,7 +151,7 @@ export interface VideoTrackCompositionPayload {
   annotation_ids: string[];
   frame_index?: number;
   delete_sources?: boolean;
-  // v0.10.30 · 2.5 join: gap 填充模式 (interpolate 线性过渡 / outside 标记 gap 区为消失)。
+  // join: gap 填充模式 (interpolate 线性过渡 / outside 标记 gap 区为消失)。
   gap_mode?: "interpolate" | "outside";
 }
 
@@ -450,7 +450,7 @@ export const tasksApi = {
       { headers: { "Idempotency-Key": idempotencyKey } },
     ),
 
-  // v0.14.0 · scene 内前后 k 个邻居 task(跨帧导航 backing)。
+  // scene 内前后 k 个邻居 task(跨帧导航 backing)。
   getNeighbors: (id: string, k = 1, init?: RequestInit) =>
     apiClient.get<NeighborsResponse>(`/tasks/${id}/neighbors?k=${k}`, init),
 
@@ -469,8 +469,8 @@ export const tasksApi = {
     return apiClient.silentGet<SceneTimelineResponse>(`/tasks/${id}/scene-timeline?${query}`, init);
   },
 
-  // v0.15.17 · 一次性拉 ±k 帧邻帧标注(替代 2k 条并发 getAnnotations + client 过滤)。
-  // v0.21.2 · trackId 给定 → 服务端只回该 track(scope=selected);省略 → 回全部(scope=all)。
+  // 一次性拉 ±k 帧邻帧标注(替代 2k 条并发 getAnnotations + client 过滤)。
+  // trackId 给定 → 服务端只回该 track(scope=selected);省略 → 回全部(scope=all)。
   getNeighborAnnotations: (id: string, k = 1, trackId?: string | null, init?: RequestInit) => {
     const q = trackId != null ? `?k=${k}&track_id=${encodeURIComponent(trackId)}` : `?k=${k}`;
     return apiClient.get<NeighborAnnotationsResponse>(
@@ -479,7 +479,7 @@ export const tasksApi = {
     );
   },
 
-  // v0.20.11 · 选中框单框二次推理: 在选中框 ROI 上同步跑一个能力, 产物落库
+  // 选中框单框二次推理: 在选中框 ROI 上同步跑一个能力, 产物落库
   // (属性写回原框 / 几何建子框, 带 AI 溯源)。
   secondaryInference: (taskId: string, annotationId: string, body: SecondaryInferenceRequest) =>
     apiClient.post<SecondaryInferenceResponse>(
@@ -487,7 +487,7 @@ export const tasksApi = {
       body,
     ),
 
-  // v0.14.1 · 把源 annotation 跨帧 propagate 到目标 task(同 project 同 scene)。
+  // 把源 annotation 跨帧 propagate 到目标 task(同 project 同 scene)。
   propagateToTask: (
     taskId: string,
     annotationId: string,
@@ -499,7 +499,7 @@ export const tasksApi = {
       { target_task_id: targetTaskId, override_psr: overridePsr ?? null },
     ),
 
-  // v0.15.1 · 批量跨帧延续: 源 task 的多个(annotationIds 给定)或全部
+  // 批量跨帧延续: 源 task 的多个(annotationIds 给定)或全部
   // (undefined → 全部 active box_3d)运动补偿 propagate 到目标 task。
   propagateBatch: (taskId: string, targetTaskId: string, annotationIds?: string[]) =>
     apiClient.post<PropagateBatchResponse>(`/tasks/${taskId}/annotations/propagate-batch`, {
@@ -507,8 +507,8 @@ export const tasksApi = {
       annotation_ids: annotationIds ?? null,
     }),
 
-  // v0.15.1 · 关键帧区间插值: 路径 task = 起点帧, 同 track 链两端框之间的
-  // 中间帧自动生成插值框(source="interpolated")。v0.21.2 · ADR-0045 · 按 track_id。
+  // 关键帧区间插值: 路径 task = 起点帧, 同 track 链两端框之间的
+  // 中间帧自动生成插值框 (source="interpolated")。按 track_id 串链 (ADR-0045)。
   interpolateRange: (taskId: string, trackId: string, toTaskId: string) =>
     apiClient.post<InterpolateRangeResponse>(`/tasks/${taskId}/annotations/interpolate-range`, {
       track_id: trackId,
@@ -678,7 +678,7 @@ export const tasksApi = {
 
   submit: (id: string) => apiClient.post<SubmitResponse>(`/tasks/${id}/submit`),
 
-  // v0.8.7 F7 · 任务跳过
+  // 任务跳过
   skip: (
     id: string,
     body: {
@@ -726,7 +726,7 @@ export const tasksApi = {
   releaseLock: (taskId: string) => apiClient.delete<void>(`/tasks/${taskId}/lock`),
 
   /**
-   * v0.6.7 B-13：unmount / 页面跳转期间 release 必须在请求被取消前送达。
+   * unmount / 页面跳转期间 release 必须在请求被取消前送达。
    * 用 fetch keepalive 而非常规 client（client 走 fetch 但未开 keepalive，浏览器会在 unload 时取消）。
    * sendBeacon 不支持 Bearer header，所以走 keepalive。
    */

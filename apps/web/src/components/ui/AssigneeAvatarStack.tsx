@@ -1,7 +1,7 @@
 import { UserAvatar } from "@/components/ui/UserAvatar";
 
 /**
- * AssigneeAvatarStack —— 责任人头像组(v0.17.2,module.css → Tailwind)。
+ * AssigneeAvatarStack —— 责任人头像组。
  * 复用迁好的 Avatar;头像叠放用负 margin + 同色描边环。
  */
 export interface AssigneeBrief {

@@ -1,4 +1,4 @@
-// v0.20.15 · geometryTranslate 平移守护 (粘贴偏移 + 父子 Alt 拖动联动共用同一套)。
+// geometryTranslate 平移守护 (粘贴偏移 + 父子 Alt 拖动联动共用同一套)。
 import { describe, it, expect } from "vitest";
 import type { Annotation } from "@/types";
 import { translateGeometry, translatePoints, clamp01 } from "./geometryTranslate";

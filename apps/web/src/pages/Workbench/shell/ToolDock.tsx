@@ -47,15 +47,15 @@ interface ToolDockProps {
   videoToolScope?: VideoToolScope;
   /** Admission belongs to the Shell; the dock never changes scope before this callback. */
   onSetVideoToolScope?: (scope: VideoToolScope) => void;
-  /** v0.10.2 · 由 useMLCapabilities 注入. tool.requiredPrompt 不在 supported 集合 → 置灰. */
+  /** 由 useMLCapabilities 注入. tool.requiredPrompt 不在 supported 集合 → 置灰. */
   isPromptSupported?: (type: string) => boolean;
   /** 工作台上下文门控（例如 scribble 必须先选中已存 Mask）。 */
   toolDisabledReasons?: Partial<Record<ToolId, string>>;
-  /** v0.10.2 · capability 加载中: AI 工具组半透 + 不可点 (避免误用回退到的 fallback). */
+  /** capability 加载中: AI 工具组半透 + 不可点 (避免误用回退到的 fallback). */
   capabilitiesLoading?: boolean;
   /** M2 · review 模式下只显示 Hand 工具. */
   reviewMode?: boolean;
-  /** v0.9.20 · 视频工作台分离单帧 bbox 与 track 工具. */
+  /** 视频工作台分离单帧 bbox 与 track 工具. */
   videoMode?: boolean;
   /**
    * 项目已启用的 tool_unit 集合 (来自 project.tool_bindings[unit].enabled)。
@@ -75,7 +75,7 @@ interface ToolDockProps {
   isVideoToolEnabled?: (t: VideoTool) => boolean;
   /** 未配置骨骼节点时保留入口但禁用，避免创建无语义的关键点数组。 */
   videoKeypointNodeCount?: number;
-  /** v0.13.3-5 · 点云 3D 台:渲染 select / box 两个 3D 工具(双栈隔离,不走 2D ToolId)。 */
+  /** 点云 3D 台:渲染 select / box 两个 3D 工具(双栈隔离,不走 2D ToolId)。 */
   threeDMode?: boolean;
   threeDTool?: ThreeDTool;
   onSetThreeDTool?: (t: ThreeDTool) => void;
@@ -95,24 +95,24 @@ function imageToolIcon(id: ToolId): IconName {
   return ALL_TOOLS.find((tool) => tool.id === id)?.icon ?? "cursor";
 }
 
-/** v0.10.2 · Tooltip + Alt+digit 副 hotkey. */
+/** Tooltip + Alt+digit 副 hotkey. */
 const TOOL_DESCRIPTORS: Record<ToolId, ToolDescriptor> = {
   select: { desc: "点选 / 移动已有标注与预标注 · ESC 回退到它", altDigit: 4 },
   box: { desc: "拖鼠标画矩形框", altDigit: 1 },
   "rotated-box": { desc: "拖框 → 顶部手柄旋转 (OBB)" },
   polygon: { desc: "逐点画多边形 (Enter 闭合)", altDigit: 2 },
-  // v0.10.28 · 折线（开放、不闭合）。Enter / 双击结束（≥2 点）。
+  // 折线（开放、不闭合）。Enter / 双击结束（≥2 点）。
   polyline: { desc: "逐点画折线 (Enter 结束, 不闭合)" },
-  // v0.10.28 · 关键点: 按 schema 依次落点 (Alt 遮挡, 右键跳过), 放满自动提交.
+  // 关键点: 按 schema 依次落点 (Alt 遮挡, 右键跳过), 放满自动提交.
   keypoint: { desc: "依次落关键点 · Alt=遮挡, 右键=跳过" },
-  // v0.10.8 · I11 Mask 编辑器：空白笔刷或精修 AI polygon 候选 (B/E 切笔刷/橡皮, 滚轮调半径)。
+  // Mask 编辑器：空白笔刷或精修 AI polygon 候选 (B/E 切笔刷/橡皮, 滚轮调半径)。
   mask: { desc: "Mask 笔刷 · B/E 切模式, 滚轮调半径, Enter 执行当前阶段主动作" },
   "smart-point": { desc: "单击 = 正向点；Alt+点 = 负向点", altDigit: 3 },
   "smart-box": { desc: "拖框作为 SAM 提示" },
   "smart-scribble": { desc: "在选中 Mask 上画正向笔迹；Alt = 负向笔迹" },
   "text-prompt": { desc: "文本召回 (右侧 AI 面板输入)" },
   exemplar: { desc: "拖框示例 → 全图相似实例 (SAM 3)" },
-  // v0.10.17 · Magic Box: 粗框 → SAM 收紧到对象紧凑外接矩形 → 落 bbox.
+  // Magic Box: 粗框 → SAM 收紧到对象紧凑外接矩形 → 落 bbox.
   "magic-box": { desc: "Magic Box · 粗框 → SAM 收紧 → 落 bbox" },
   hand: { desc: "拖拽平移画布", altDigit: 4 },
   canvas: { desc: "评论批注 (内部, 不展示)" },
@@ -168,7 +168,7 @@ const VIDEO_TOOLS: Array<{
     desc: "按骨骼模板依次落点 · Alt 遮挡 · 右键跳过",
     group: "frame",
   },
-  // v0.21.21 · 单帧 polygon/polyline (点击落点, Enter/双击闭合, Esc 取消)。
+  // 单帧 polygon/polyline (点击落点, Enter/双击闭合, Esc 取消)。
   {
     id: "polygon",
     hotkey: "P",
@@ -184,7 +184,7 @@ const VIDEO_TOOLS: Array<{
     desc: "点击落点画当前帧折线 · Enter/双击结束",
     group: "frame",
   },
-  // v0.21.23 · 交互式 SAM 单帧工具; requiredPrompt 决定后端能力门控 (不支持则置灰)。
+  // 交互式 SAM 单帧工具; requiredPrompt 决定后端能力门控 (不支持则置灰)。
   {
     id: "smart-point",
     hotkey: "S",
@@ -230,7 +230,7 @@ const VIDEO_TOOLS: Array<{
     altDigit: 2,
     group: "track",
   },
-  // v0.21.20 · polygon/polyline 轨迹关键帧 (原 polygon/polyline, 拆分后 -track 后缀)。
+  // polygon/polyline 轨迹关键帧 (原 polygon/polyline, 拆分后 -track 后缀)。
   {
     id: "polygon-track",
     label: "多边形轨迹",
@@ -262,7 +262,7 @@ const VIDEO_TOOLS: Array<{
   },
 ];
 
-// v0.13.3-5 · 点云 3D 工具:select 拾取选中 / box 点地面放置 / point-mask 框选分割。
+// 点云 3D 工具:select 拾取选中 / box 点地面放置 / point-mask 框选分割。
 const THREE_D_TOOLS: Array<{
   id: ThreeDTool;
   hotkey: string;
@@ -632,14 +632,14 @@ function AdaptiveToolDock({
 }
 
 /**
- * v0.10.2 · 左侧垂直工具栏 (Prompt-first 重构).
+ * 左侧垂直工具栏 (Prompt-first 重构).
  *
  * 工具分组:
  *   普通绘制: box, polygon
  *   ─── 分隔 ───
  *   AI 工具 (按 prompt 范式): smart-point, smart-box, text-prompt, exemplar
  *     每个工具声明 requiredPrompt; backend 不支持时按钮置灰 + tooltip 提示.
- *     v0.18.25 · 引擎/参数浮块 (InteractiveToolBar) 已移到画布顶部居中 (由 stage overlays 渲染),
+ *     引擎/参数浮块 (InteractiveToolBar) 已移到画布顶部居中 (由 stage overlays 渲染),
  *     不再贴 ToolDock 右侧; ToolDock 只负责工具按钮本身。
  *   ─── 分隔 ───
  *   视图: hand

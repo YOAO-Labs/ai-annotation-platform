@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · useClipboard 单测：覆盖 copy / paste 偏移、polygon 平移、bbox clamp。
+ * useClipboard 单测：覆盖 copy / paste 偏移、polygon 平移、bbox clamp。
  */
 import { describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";

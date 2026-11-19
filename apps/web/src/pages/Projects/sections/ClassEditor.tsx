@@ -1,5 +1,5 @@
 /**
- * v0.7.0 · ClassEditor
+ * ClassEditor
  *
  * 从 ClassesSection 抽出的受控组件：颜色 + 排序 + 删除 + 新增。
  * 由 ClassesSection（保存按钮的薄外壳）和 CreateProjectWizard（向导步骤）共用。
@@ -19,15 +19,15 @@ const CONTROL_CLASS =
 export interface ClassRow {
   name: string;
   color: string;
-  /** v0.9.5 · 英文 alias，供 SAM 文本预标 prompt 下拉直填。ASCII-only / max 50 字符。 */
+  /** 英文 alias，供 SAM 文本预标 prompt 下拉直填。ASCII-only / max 50 字符。 */
   alias?: string;
-  /** v0.17.15 · alias_to 软关联: 链接到另一工具单位的类，继承其 color/alias。null/缺省 = 不继承。 */
+  /** alias_to 软关联: 链接到另一工具单位的类，继承其 color/alias。null/缺省 = 不继承。 */
   aliasTo?: ClassRefLite | null;
 }
 
 const ALIAS_PATTERN = /^[a-zA-Z0-9 ,_-]*$/;
 
-/** v0.9.6 · 与后端 ClassConfigEntry._normalize_alias 等价的前端实现.
+/** 与后端 ClassConfigEntry._normalize_alias 等价的前端实现.
  * blur 时规范化, 让所见即所得 + DINO 召回更稳; 后端 field_validator 兜底.
  */
 function normalizeAlias(raw: string): string {
@@ -76,7 +76,7 @@ interface Props {
   renaming?: boolean;
   /** 删除前确认；返回 false 时取消删除。 */
   onConfirmDelete?: (row: ClassRow) => boolean | Promise<boolean>;
-  /** v0.17.15 · 可链接的跨工具单位类目标 (按 unit 分组)；为空 / 省略则不显示 alias_to 链接 UI。 */
+  /** 可链接的跨工具单位类目标 (按 unit 分组)；为空 / 省略则不显示 alias_to 链接 UI。 */
   linkTargets?: { unitId: string; unitLabel: string; classNames: string[] }[];
   /** 解析某 aliasTo 引用的继承 color/alias (供链接行只读预览)。 */
   resolveLinked?: (ref: ClassRefLite) => { color?: string; alias?: string };
@@ -113,7 +113,7 @@ export function ClassEditor({
   const setColor = (i: number, color: string) =>
     onChange(value.map((r, idx) => (idx === i ? { ...r, color } : r)));
   const setAlias = (i: number, raw: string) => {
-    // v0.9.6 · 输入时若含非 ASCII 提示一次 (沿用 pattern 拒绝, toast 友好提示).
+    // 输入时若含非 ASCII 提示一次 (沿用 pattern 拒绝, toast 友好提示).
     if (!ALIAS_PATTERN.test(raw)) {
       try {
         if (!sessionStorage.getItem("cfg:aliasAsciiHinted")) {
@@ -133,7 +133,7 @@ export function ClassEditor({
     onChange(value.map((r, idx) => (idx === i ? { ...r, alias } : r)));
   };
 
-  /** v0.9.6 · onBlur 触发规范化: lower / strip / 折叠空格逗号; 与后端 schema 保持一致. */
+  /** onBlur 触发规范化: lower / strip / 折叠空格逗号; 与后端 schema 保持一致. */
   const normalizeAliasOnBlur = (i: number) => {
     const cur = value[i]?.alias ?? "";
     if (!cur) return;

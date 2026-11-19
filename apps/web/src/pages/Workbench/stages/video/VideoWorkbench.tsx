@@ -67,7 +67,7 @@ export interface VideoWorkbenchProps {
   isLoading?: boolean;
   error?: unknown;
   annotations: AnnotationResponse[];
-  /** v0.21.4 · AI 候选框(全部帧); 舞台内按当前帧过滤渲染 + 采纳/驳回。 */
+  /** AI 候选框(全部帧); 舞台内按当前帧过滤渲染 + 采纳/驳回。 */
   aiBoxes?: AiBox[];
   selectedId: string | null;
   activeClass: string;
@@ -96,21 +96,21 @@ export interface VideoWorkbenchProps {
   onSelect: (id: string | null, opts?: { shift?: boolean }) => void;
   onFrameIndexChange: (frameIndex: number) => void;
   onCreate: (frameIndex: number, geom: Geom) => void;
-  /** v0.21.20 · 由绘制顶点新建 polygon/polyline track。 */
+  /** 由绘制顶点新建 polygon/polyline track。 */
   onCreatePointsTrack?: (
     type: "video_track_polygon" | "video_track_polyline",
     frameIndex: number,
     points: [number, number][],
   ) => void;
-  /** v0.21.21 · 由绘制顶点新建单帧 polygon/polyline。 */
-  /** v0.21.23 · 交互式 SAM: 提示派发 + 瞬态候选 / 点会话 (透传给 VideoKonvaStage)。 */
+  /** 由绘制顶点新建单帧 polygon/polyline。 */
+  /** 交互式 SAM: 提示派发 + 瞬态候选 / 点会话 (透传给 VideoKonvaStage)。 */
   onSamPrompt?: (prompt: VideoSamPrompt) => void;
   samCandidates?: VideoSamCandidateShape[];
   samMaskRecords?: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate?: (candidateId: string) => void;
   samActiveIdx?: number;
   samSessionPoints?: { pt: [number, number]; polarity: 1 | 0; obj?: number }[];
-  /** v0.21.27 · 框修正 · 当前帧已落的 PVS 框种子 (归一化 xyxy)。 */
+  /** 框修正 · 当前帧已落的 PVS 框种子 (归一化 xyxy)。 */
   samSessionBoxes?: { bbox: [number, number, number, number]; obj?: number }[];
   maskCandidates?: VideoMaskCandidate[];
   maskEditor?: UseMaskEditorReturn;
@@ -142,7 +142,7 @@ export interface VideoWorkbenchProps {
   onToggleLockedTrack?: (trackId: string) => void;
   onPropagateTrack?: (annotation: VideoManagedTrackAnnotation) => void;
   onCursorMove: (pt: { x: number; y: number } | null) => void;
-  // v0.11.7 · pixel-anchored issue 图钉 (按当前帧显隐 + 时间轴标记)。
+  // pixel-anchored issue 图钉 (按当前帧显隐 + 时间轴标记)。
   issuePixelFeedbacks?: AnnotationFeedback[];
   issueHighlightId?: string | null;
   annotationCommentCounts?: Record<string, number>;
@@ -253,12 +253,12 @@ const VideoWorkbenchSession = forwardRef<VideoStageControls, VideoWorkbenchProps
       () => manifest && { ...manifest, video_url: original.mediaPath ?? "" },
       [manifest, original.mediaPath],
     );
-    // v0.15.27 · 共享标注视觉规格(线宽/填充/字号/标签显隐);与图片工作台共用 common 子集。
+    // 共享标注视觉规格(线宽/填充/字号/标签显隐);与图片工作台共用 common 子集。
     const annotationVisual = useMemo(
       () => resolveAnnotationVisual(workbenchConfig.common),
       [workbenchConfig.common],
     );
-    // v0.16.5 · 视频渲染栈统一到 Konva(删旧 SVG 栈,见 ADR-0041):唯一实现,无 flag 分支。
+    // 视频渲染栈统一到 Konva(删旧 SVG 栈,见 ADR-0041):唯一实现,无 flag 分支。
     return (
       <VideoKonvaStage
         key={original.contentKey ?? "pending-original"}

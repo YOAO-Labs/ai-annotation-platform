@@ -1,5 +1,5 @@
 /**
- * v0.9.12 · HistoryTable 多选 + 批量重激活/重置测试 (BUG B-16).
+ * HistoryTable 多选 + 批量重激活/重置测试 (BUG B-16).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -48,7 +48,7 @@ function renderUI(items: PreannotateQueueItem[]) {
   );
 }
 
-describe("HistoryTable v0.9.12 多选", () => {
+describe("HistoryTable 多选", () => {
   beforeEach(() => {
     mockBulkClear.mockReset();
   });

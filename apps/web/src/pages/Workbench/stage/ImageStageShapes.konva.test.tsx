@@ -1,5 +1,5 @@
 /**
- * v0.16.0 · konva mock 范式样板(画布栈统一地基)。
+ * konva mock 范式样板(画布栈统一地基)。
  *
  * 本测试是后续视频测试迁移到 Konva 的「范式样板」:证明
  *     react-konva mock(src/test/konvaMock.tsx)+ fireEvent + getByTestId / 查 data-konva

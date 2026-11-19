@@ -2,7 +2,7 @@ import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 /**
- * v0.10.45 · /ai-pre/jobs — 统一 async_jobs AI 任务历史页.
+ * /ai-pre/jobs — 统一 async_jobs AI 任务历史页.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -44,7 +44,7 @@ function parsePage(raw: string | null): number {
 }
 
 /**
- * v0.10.38 · /ai-pre/jobs 统一 AI 任务历史 (epic 阶段 3): 「图像」 /
+ * /ai-pre/jobs 统一 AI 任务历史 (epic 阶段 3): 「图像」 /
  * 「视频」两个模态 tab。tab 用 ?tab 同步,
  * 供 ProjectDetailPanel 视频引导卡片深链 (?tab=video&project_id=)。
  */

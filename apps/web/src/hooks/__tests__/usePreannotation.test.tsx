@@ -1,5 +1,5 @@
 /**
- * v0.9.13 · usePreannotationProgress WS smoke 测试.
+ * usePreannotationProgress WS smoke 测试.
  *
  * 验证 URL 路径 /ws/projects/{id}/preannotate 拼接正确, 收消息 setProgress, 卸载清理.
  */

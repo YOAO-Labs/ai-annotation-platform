@@ -1,14 +1,14 @@
-// v0.10.8 M4-δ 收尾 · I11 · Mask 编辑器 UI 集成。
+// Mask 编辑器的 UI 集成。
 //
 // 工具职责仅声明：用户按下指针时，若 mask 编辑器未激活则以空白 buffer 入场，并向
 // ImageStage 返回 maskBrush DragInit；其余（连续 paintAt / commit / hotkey）由
 // ImageStage / WorkbenchShell / useMaskEditor 协同处理。
 //
 // 注意：实际 buffer 状态在 useMaskEditor (state/useMaskEditor.ts)；本工具与之耦合
-// 走 ctx.maskEditor（v0.10.8 在 ToolPointerContext 上扩展的字段）。
+// 走 ToolPointerContext 的 ctx.maskEditor。
 
 import type { CanvasTool as CanvasToolMeta, DragInit } from "./index";
-// v0.23.5 · WS-C · 单一 mask 编辑准入闸门 (同时检查 readOnly + is_locked)。
+// 单一 mask 编辑准入闸门 (同时检查 readOnly + is_locked)。
 import { canEditMask } from "../../state/canEditMask";
 
 export const MaskTool: CanvasToolMeta = {
@@ -18,7 +18,7 @@ export const MaskTool: CanvasToolMeta = {
   icon: "brush",
   cursor: "crosshair",
   onPointerDown: ({ pt, readOnly, imgW, imgH, maskEditor, annotationLocked }) => {
-    // v0.23.5 · WS-C · pointer 入口经 canEditMask: task readOnly 或 annotation is_locked
+    // pointer 入口经 canEditMask: task readOnly 或 annotation is_locked
     // 任一为 true → 拒绝落笔 (关闭锁定对象经 pointer 路径修改的绕过)。editorPhase 此处
     // 取 ready (落笔瞬间 buffer 已就绪或即将 beginBlank); loading/saving 由上层 session 守。
     if (
@@ -87,7 +87,7 @@ export const MaskTool: CanvasToolMeta = {
       });
       return null;
     }
-    // v0.23.5 · WS-B/A3 · 开启一笔的历史边界: 配合 ImageStage pointerup 的 endStroke,
+    // WS-B/A3 · 开启一笔的历史边界: 配合 ImageStage pointerup 的 endStroke,
     // 让图片 mask 每笔可 undo (与视频路径 VideoKonvaStage 一致)。
     maskEditor.beginStroke();
     // 立即落第一笔；连续 paintAt 由 ImageStage 在 pointermove 中线段插值。

@@ -8,7 +8,7 @@ import { type ProjectResponse } from "@/api/projects";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { projectDisplayType } from "@/utils/projectDisplay";
 
-// v0.10.28 · 卡片图标改读媒体维度 data_type (image / video / lidar).
+// 卡片图标改读媒体维度 data_type (image / video / lidar).
 const DATA_TYPE_ICONS: Record<string, IconName> = {
   image: "image",
   video: "video",
@@ -22,7 +22,7 @@ interface Props {
   onSettings: (p: ProjectResponse, section?: string) => void;
 }
 
-/** v0.7.2 · 项目网格视图 — DashboardPage 用作 list 视图的可切换姿态。
+/** 项目网格视图 — DashboardPage 用作 list 视图的可切换姿态。
  *  B-47 · 卡片操作为 [设置] [⋮(导出 / 复制 / 导入 …)] [打开]（列表视图把 ⋮ 收到末位）。
  */
 export function ProjectGrid({ projects, onOpen, canManage, onSettings }: Props) {

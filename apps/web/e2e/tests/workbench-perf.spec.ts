@@ -1,11 +1,11 @@
 /**
- * v0.10.4 M4-α · workbench longtask 观测烟囱测（最小版）。
+ * workbench longtask 观测烟囱测（最小版）。
  *
  * 当前用现有 seed task 验证：
  *   1) `window.__workbenchPerf` 在工作台 mount 后被写入；
  *   2) 鼠标拖拽 / Ctrl+滚轮缩放后 longTaskCount 保持 0 或 longTaskMaxMs<100。
  *
- * **TODO（v0.10.5+）**：扩成 ROADMAP I8.2 完整版 —— 3 张图片（2K / 8K / dense-polygon）
+ * 完整性能矩阵包括 3 张图片（2K / 8K / dense-polygon）
  * × 3 套标注密度（10 / 100 / 500 shapes），需先在 _test_seed router 加 fixture
  * 支持 (density + size 参数)。
  */

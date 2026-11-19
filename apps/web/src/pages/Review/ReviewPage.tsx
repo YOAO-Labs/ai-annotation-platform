@@ -212,7 +212,7 @@ export function ReviewPage() {
   const selectedProjectId = queueScope.project;
   const selectedBatchId = queueScope.batch;
 
-  // v0.7.1 B-18：批次树数据来自 reviewer dashboard 聚合（已扩展为「reviewing 或 review_tasks>0」）。
+  // 批次树数据来自 reviewer dashboard 聚合（已扩展为「reviewing 或 review_tasks>0」）。
   const reviewerStatsQuery = useReviewerStats();
   const reviewerStats = reviewerStatsQuery.data;
   const hasReviewerStats = reviewerStats !== undefined;
@@ -232,7 +232,7 @@ export function ReviewPage() {
   // 选中批次后 projectId 跟随；未选中走 selectedProjectId 兜底（用于「全部待审」筛选）。
   const projectId = selectedBatch?.project_id || selectedProjectId || undefined;
 
-  // v0.12.5 · 绩效页项目下钻带入的 assignee 过滤(后端 tasks 已支持 assignee_id)。
+  // 绩效页项目下钻带入的 assignee 过滤(后端 tasks 已支持 assignee_id)。
   const assigneeFilter = queueScope.assignee;
   const authOwnerKey = useAuthStore(
     (state) => `${state.user?.id ?? "anonymous"}:${state.token ?? "none"}`,
@@ -450,7 +450,7 @@ export function ReviewPage() {
     if (ids.length === 0) return;
     const actionScopeKey = queueScopeKeyRef.current;
     const actionSelectionKey = checkedIdsKeyRef.current;
-    // v0.8.8 · 单任务退回且该任务被跳过时透传 skip_reason 到第一步提示
+    // 单任务退回且该任务被跳过时透传 skip_reason 到第一步提示
     const skipReasonHint =
       ids.length === 1 ? (tasks.find((t) => t.id === ids[0])?.skip_reason ?? null) : null;
     const payload = await promptRejectReason({ count: ids.length, skipReasonHint });

@@ -72,12 +72,12 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "b" })).toEqual({ type: "setTool", tool: "box" });
     expect(dispatch({ key: "v" })).toEqual({ type: "setTool", tool: "select" });
     expect(dispatch({ key: "p" })).toEqual({ type: "setTool", tool: "polygon" });
-    // v0.10.2 · S → "ai-cycle" (具体进入哪个 AI 工具由消费层据 capabilities 决定).
+    // S → "ai-cycle" (具体进入哪个 AI 工具由消费层据 capabilities 决定).
     expect(dispatch({ key: "s" })).toEqual({ type: "setTool", tool: "ai-cycle" });
     expect(dispatch({ key: "S" })).toEqual({ type: "setTool", tool: "ai-cycle" });
   });
-  // v0.10.17 · G 单键直达 Magic Box (跳过 ai-cycle).
-  it("G → setTool magic-box (v0.10.17)", () => {
+  // G 单键直达 Magic Box (跳过 ai-cycle).
+  it("G → setTool magic-box", () => {
     expect(dispatch({ key: "g" })).toEqual({ type: "setTool", tool: "magic-box" });
     expect(dispatch({ key: "G" })).toEqual({ type: "setTool", tool: "magic-box" });
   });
@@ -89,8 +89,8 @@ describe("dispatchKey · 单键", () => {
   it("Shift+数字不再顺延切类别（Shift 变体是独立组合）", () => {
     expect(dispatch({ key: "3", shiftKey: true })).toBeNull();
   });
-  it("Alt+1/2/3/4 → setTool (v0.9.6 P2-b 备用切工具)", () => {
-    // v0.10.2 · Alt+2 → polygon, Alt+3 → ai-cycle (4 个 AI 工具循环).
+  it("Alt+1/2/3/4 → 备用工具快捷键", () => {
+    // Alt+2 → polygon, Alt+3 → ai-cycle (4 个 AI 工具循环).
     expect(dispatch({ key: "1", altKey: true })).toEqual({ type: "setTool", tool: "box" });
     expect(dispatch({ key: "2", altKey: true })).toEqual({ type: "setTool", tool: "polygon" });
     expect(dispatch({ key: "3", altKey: true })).toEqual({ type: "setTool", tool: "ai-cycle" });
@@ -410,7 +410,7 @@ describe("dispatchKey · video mode", () => {
       type: "setVideoTool",
       tool: "track",
     });
-    // v0.21.23 · 视频交互式 SAM: S/D 直达 (图片侧 S 是「AI 工具循环」, 视频只有两个 AI 工具)。
+    // 视频交互式 SAM: S/D 直达 (图片侧 S 是「AI 工具循环」, 视频只有两个 AI 工具)。
     expect(dispatch({ key: "s" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "smart-point" });
     expect(dispatch({ key: "D" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "smart-box" });
     expect(dispatch({ key: "e" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "exemplar" });
@@ -435,7 +435,7 @@ describe("dispatchKey · video mode", () => {
   });
 });
 
-describe("dispatchKey · video sampling grid (v0.10.29)", () => {
+describe("dispatchKey · video sampling grid", () => {
   const gridCtx: Partial<DispatchCtx> = { videoMode: true, samplingActive: true };
 
   it("ArrowLeft / ArrowRight → videoSeekGrid (grid jump)", () => {
@@ -564,7 +564,7 @@ describe("dispatchKey · 属性 hotkey 绑定 (D.1)", () => {
   });
 });
 
-describe("v0.10.5 M4-β · shape 状态位快捷键", () => {
+describe("shape 状态位快捷键", () => {
   it("无选中 [ → thresholdAdjust -0.05", () => {
     expect(dispatch({ key: "[" })).toEqual({ type: "thresholdAdjust", delta: -0.05 });
   });
@@ -603,11 +603,11 @@ describe("v0.10.5 M4-β · shape 状态位快捷键", () => {
     expect(dispatch({ key: "h" })).toBeNull();
     expect(dispatch({ key: "o" })).toBeNull();
   });
-  // v0.10.28 · 无选中 L → 折线工具（与选中态 L=lock 互补）。
+  // 无选中 L → 折线工具（与选中态 L=lock 互补）。
   it("无选中 L → setTool polyline", () => {
     expect(dispatch({ key: "l" })).toEqual({ type: "setTool", tool: "polyline" });
   });
-  it("F → setTool keypoint (v0.10.28; K 已被 cycleUser 占用)", () => {
+  it("F → setTool keypoint（K 用于 cycleUser）", () => {
     expect(dispatch({ key: "f" })).toEqual({ type: "setTool", tool: "keypoint" });
     expect(dispatch({ key: "F" })).toEqual({ type: "setTool", tool: "keypoint" });
   });

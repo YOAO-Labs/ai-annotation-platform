@@ -106,7 +106,7 @@ function ProgressTriple({
   );
 }
 
-/** v0.7.1 · 标注员 dashboard 的「我的批次」卡片，行版式与 ReviewerDashboard
+/** 标注员 dashboard 的「我的批次」卡片，行版式与 ReviewerDashboard
  *  「审核中批次」对齐：button-row + display_id · 项目 · 计数 + 右侧进度% + chev。
  *  额外的 状态徽章 / 提交质检 / 修改 等动作放在右侧 action 区。 */
 export function MyBatchesCard() {

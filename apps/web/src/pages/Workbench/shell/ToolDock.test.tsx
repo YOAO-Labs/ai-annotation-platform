@@ -601,7 +601,7 @@ describe("ToolDock · AI 工具三层门控", () => {
   });
 });
 
-// v0.21.23 · 视频侧交互式 SAM 工具（此前视频分支完全没有 ML 能力门控）
+// 视频侧交互式 SAM 工具也受 ML 能力门控。
 describe("ToolDock · 视频 AI 工具三层门控", () => {
   const VIDEO_AI = ["smart-point", "smart-box", "exemplar", "magic-box"];
 

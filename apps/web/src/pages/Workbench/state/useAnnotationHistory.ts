@@ -69,12 +69,12 @@ export type Command =
 
 export type LeafCommand = Exclude<Command, { kind: "batch" | "slice" | "acceptance" }>;
 
-/** v0.6.3 P1：单条非 batch 命令的实际执行。导出为纯函数便于单测。
+/** 单条非 batch 命令的实际执行。导出为纯函数便于单测。
  *  注意 cmd 在 redo / delete-undo 路径会被就地 mutate（annotationId / annotation.id），与 hook 内栈引用相同。 */
 export async function applyLeaf(cmd: LeafCommand, direction: "undo" | "redo", h: HistoryHandlers) {
   if (cmd.kind === "create") {
     if (direction === "undo") {
-      // v0.6.3 P0：tmpId 走纯本地分支，避免对未入库的 id 调 DELETE → 404
+      // tmpId 走纯本地分支，避免对未入库的 id 调 DELETE → 404
       if (cmd.annotationId.startsWith("tmp_") && h.removeLocalCreate) {
         await h.removeLocalCreate(cmd.annotationId);
       } else {
@@ -147,12 +147,12 @@ export interface HistoryHandlers {
     frameIndex: number,
     state: VideoMaskFrameState,
   ) => Promise<unknown>;
-  /** v0.6.3 P0：tmpId 上的 create undo 不能走远端（必 404）。
+  /** tmpId 上的 create undo 不能走远端（必 404）。
    *  调用方在工作台闭包内提供：从 react-query cache 删 tmpId + 从离线队列删对应 create op。 */
   removeLocalCreate?: (annotationId: string) => Promise<void> | void;
 }
 
-// v0.8.7 F8 · sessionStorage 持久化（5min TTL，避免误用过期 prediction id）
+// sessionStorage 持久化（5min TTL，避免误用过期 prediction id）
 const HIST_TTL_MS = 5 * 60 * 1000;
 const HIST_KEY_PREFIX = "wb:hist:";
 

@@ -1,5 +1,5 @@
 /**
- * v0.8.7 F3 · review 反馈环 E2E：reviewer reject 真实 UI 流。
+ * review 反馈环 E2E：reviewer reject 真实 UI 流。
  *
  * - annotator 提交（advance_task → submitted/review）
  * - reviewer 进 /projects/:id/review?task={id} → 点退回 → 两步决策弹窗选预设原因并填补充说明 → 确认
@@ -49,7 +49,7 @@ test.describe("review feedback loop", () => {
     await rejectBtn.click();
 
     // 4. 第一步选「类别错误」(wrong_label)，第二步填可选补充说明后确认
-    //    v0.10.16 起 reason_type 为结构化必填字段，reject_reason 仅存可选自由文本，
+    //    reason_type 为结构化必填字段，reject_reason 仅存可选自由文本，
     //    故显式选类型并填写补充说明，断言两者都已持久化（不依赖默认勾选顺序）。
     const choiceDialog = page.getByRole("alertdialog", { name: "退回原因（1 个任务）" });
     await expect(choiceDialog).toBeVisible();

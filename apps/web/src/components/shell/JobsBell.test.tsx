@@ -1,5 +1,5 @@
 /**
- * v0.10.16 · JobsBell 单测：badge 计数 / drawer 展开 / 空态 / 状态 pill。
+ * JobsBell 单测：badge 计数 / drawer 展开 / 空态 / 状态 pill。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -320,7 +320,7 @@ describe("JobsBell", () => {
     expect(screen.queryByTestId("job-cancel-j4")).toBeNull();
   });
 
-  // v0.11.17 · 筛选 + 终态 dismiss
+  // 筛选 + 终态 dismiss
   const mixedRows = {
     items: [
       { ...baseRow, id: "run1", status: "running" as const },

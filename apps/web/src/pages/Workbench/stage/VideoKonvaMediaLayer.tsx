@@ -48,11 +48,11 @@ function isDrawableLayer(layer: Konva.Layer | null): layer is Konva.Layer {
 }
 
 /**
- * v0.16.1 · 视频底图层(决策 A1 帧合成进 Konva)。
+ * 视频底图层(决策 A1 帧合成进 Konva)。
  *
  * 视频帧进独立的 `media-bg` Konva Layer(独立 canvas):
  *   - 播放态:`Konva.Image` 以隐藏 `<video>` 为 source,`Konva.Animation` 每帧只重绘本层
- *     (标注层 v0.16.2 起在另一 Layer,播放时静止不重绘)——A1 的 perf 关键规避。
+ *       （标注在独立 Layer，播放时不重绘该层）。
  *   - 暂停态(标注主力场景):停动画,把精确 `ImageBitmap` 设为 source 画一次,不进重绘循环。
  *
  * spike 实测(ADR-0041 决策 A)单帧合成 p95≤0.4ms,据此选定 A1。

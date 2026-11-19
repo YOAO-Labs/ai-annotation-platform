@@ -299,7 +299,7 @@ export const usersApi = {
       : apiClient.get<UserResponse[]>(path);
   },
 
-  // v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」聚合（last_seen_at >= now-7d）
+  // UsersPage 顶部 4 卡之「本周活跃」聚合（last_seen_at >= now-7d）
   page: (params: UserPageParams = {}, signal?: AbortSignal) => {
     const q = queryString(params);
     const path = `/users/query${q ? `?${q}` : ""}`;

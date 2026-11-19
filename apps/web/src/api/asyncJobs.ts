@@ -1,4 +1,4 @@
-// v0.10.16 · async_jobs API client (ROADMAP §1.7)
+// async_jobs API client (ROADMAP §1.7)
 
 import { apiClient } from "./client";
 

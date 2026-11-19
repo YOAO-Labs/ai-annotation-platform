@@ -1,7 +1,7 @@
-// v0.10.6 M4-γ · I13.2 · AttributeForm 单测：
+// AttributeForm 单测：
 // - mutable=true 字段在 context=video 时出现「逐帧」徽标；context=image / mutable 缺省时不出现
 // - 传 dirtyTracker + annotationId 时，输入改变只标 dirty，不立即 onChange；form 失焦时 flush 触发一次 onChange
-// - 不传 dirtyTracker 时维持 400ms debounce 行为（v0.6.x 兼容）
+// - 不传 dirtyTracker 时使用 400ms debounce。
 
 import { describe, expect, it, vi } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
@@ -179,7 +179,7 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
     vi.useRealTimers();
   });
 
-  // v0.16.8 回归：debounce 未到点就卸载（弹层快速关闭）时，用最新 draft 补 flush，避免「改了没保存」
+  // 回归：debounce 未到点就卸载（弹层快速关闭）时，用最新 draft 补 flush，避免「改了没保存」
   it("debounce 路径下卸载前若有未到点提交，用最新 draft 补 flush 一次", () => {
     vi.useFakeTimers();
     const onChange = vi.fn();
@@ -208,7 +208,7 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
     vi.useRealTimers();
   });
 
-  // v0.16.8：无 pending 提交时卸载不应触发任何 onChange（杜绝空 flush / 重复提交）
+  // 无 pending 提交时卸载不应触发任何 onChange（杜绝空 flush / 重复提交）
   it("无未到点提交时卸载不触发 onChange", () => {
     const onChange = vi.fn();
     const { unmount } = render(
@@ -226,7 +226,7 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
   });
 });
 
-describe("AttributeForm · v0.10.20 · I12 batch banner", () => {
+describe("AttributeForm · batch banner", () => {
   it("batchCount > 1 时在顶部渲染 banner 提示 N 个标注被选中", () => {
     const { queryByTestId, getByTestId } = render(
       <AttributeForm
@@ -242,7 +242,7 @@ describe("AttributeForm · v0.10.20 · I12 batch banner", () => {
     expect(getByTestId("attribute-form-batch-banner").textContent).toContain("3");
   });
 
-  it("v0.20.10 · origin=ai 的字段旁渲染 AI 溯源 chip; human 字段不渲染", () => {
+  it("origin=ai 的字段旁渲染 AI 溯源 chip; human 字段不渲染", () => {
     const { getByTestId, queryByTestId } = render(
       <AttributeForm
         schema={schema}
@@ -261,7 +261,7 @@ describe("AttributeForm · v0.10.20 · I12 batch banner", () => {
     expect(queryByTestId("attr-ai-origin-occluded")).toBeNull();
   });
 
-  it("v0.20.10 · 不传 attributesMeta 时不渲染任何 AI chip", () => {
+  it("不传 attributesMeta 时不渲染任何 AI chip", () => {
     const { queryByTestId } = render(
       <AttributeForm
         schema={schema}

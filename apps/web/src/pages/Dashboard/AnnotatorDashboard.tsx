@@ -283,7 +283,7 @@ export function AnnotatorDashboard() {
         <StatCard icon="layers" label="累计标注" value={stats.total_completed} />
       </div>
 
-      {/* v0.8.5 · 24-bar 当日专注时段分布 */}
+      {/* 24-bar 当日专注时段分布 */}
       <div className="mt-4">
         <Card>
           <div className={CARD_HEADER_PLAIN}>

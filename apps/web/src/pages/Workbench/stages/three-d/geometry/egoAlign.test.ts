@@ -58,7 +58,7 @@ describe("alignPsrToFrame", () => {
   });
 });
 
-describe("frameRelMatrix (v0.15.18 · 点云叠加复用)", () => {
+describe("frameRelMatrix · 点云叠加", () => {
   it("纯平移: 邻帧静止世界点经 rel 变换后 x 减去 ego 前进量", () => {
     // 邻帧 ego 在 x=0, 当前帧 ego 前进到 x=4;邻帧系里 (10,0,0) 的静止点
     // 在当前帧系应为 (6,0,0)——与 alignPsrToFrame 同口径。

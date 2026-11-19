@@ -1,9 +1,9 @@
-// v0.10.26 · 模型市场「变体」面板 — 模型市场扩展二期 ①「模型版本对比 / AB 路由 UI」的可落地片.
-// 把 v0.10.23 ModelPool 的「单容器多变体并存」暴露到 super admin 侧:
+// 模型市场「变体」面板 — 模型市场扩展二期 ①「模型版本对比 / AB 路由 UI」的可落地片.
+// 把 ModelPool 的「单容器多变体并存」暴露到 super admin 侧：
 //   - 已加载变体 (来自 health_meta.pool.loaded_variants) + 各变体 cache 命中 (cache.buckets) + LRU 近度;
 //   - 预热控件: 从 /setup.params 的变体 enum 选 (sam_variant, dino_variant) → reload(variant) 预热进显存.
 // 不含加权 AB 路由 / 版本并排对比 (仍 defer, 见 ROADMAP).
-// v0.10.36 · 按模态拆为「图像推理变体」+「视频追踪变体」两组:
+// 按模态拆为「图像推理变体」+「视频追踪变体」两组:
 //   - 图像组行为不变 (走图片池 SAM+DINO);
 //   - 视频组读 health_meta.video_pool (loaded_variants: string[]) + /setup.supported_trackers,
 //     仅 SAM 单下拉 (无 DINO), 预热调 onWarm({sam_variant}, "video") 预热独立 video tracker 池.
@@ -53,7 +53,7 @@ export interface VariantWarmTarget {
   taskType?: "image" | "video";
 }
 
-// v0.10.36 · SAM2 视频 tracker 变体常量 (图片侧 /setup.params.sam_variant.enum 缺失时回退用).
+// SAM2 视频 tracker 变体常量 (图片侧 /setup.params.sam_variant.enum 缺失时回退用).
 const SAM2_VIDEO_VARIANTS = ["tiny", "small", "base_plus", "large"];
 
 export function VariantPanel({
@@ -91,7 +91,7 @@ export function VariantPanel({
 
   const pool = backend.health_meta?.pool;
   const buckets = backend.health_meta?.cache?.buckets ?? {};
-  // v0.14.14: 优先读协议 PoolStatus.loaded_keys (key="sam=X/dino=Y"); 老字段
+  // 优先读协议 PoolStatus.loaded_keys (key="sam=X/dino=Y"); 老字段
   // loaded_variants/per_variant_lru_ts 作 fallback (gsam2 双发期; 旧 backend 兼容).
   const loaded = useMemo(() => {
     const fromKeys = loadedKeysAsGsam2ImageVariants(pool?.loaded_keys);
@@ -109,7 +109,7 @@ export function VariantPanel({
   }, [pool?.loaded_keys, pool?.per_variant_lru_ts]);
   const useRelativeAgo = (pool?.loaded_keys?.length ?? 0) > 0;
 
-  // v0.10.36 · 视频追踪: 独立 video 池 + supported_trackers.
+  // 视频追踪: 独立 video 池 + supported_trackers.
   const videoPool = backend.health_meta?.video_pool;
   const hasVideoMeta = backend.health_meta != null && "video_pool" in backend.health_meta;
   const supportedTrackers = setup?.supported_trackers ?? [];
@@ -118,7 +118,7 @@ export function VariantPanel({
     ? modalities.includes("image")
     : supportsVariants || genericVariantGroups.length > 0;
   const showVideoGroup = hasModalitySnapshot ? modalities.includes("video") : supportsVideo;
-  // v0.14.14: video pool 同样优先 loaded_keys (key 就是 sam_variant 字符串).
+  // video pool 同样优先 loaded_keys (key 就是 sam_variant 字符串).
   const videoLoaded = useMemo<string[]>(() => {
     const keys = videoPool?.loaded_keys;
     if (keys && keys.length > 0) return keys.map((k) => k.key);
@@ -126,10 +126,10 @@ export function VariantPanel({
   }, [videoPool?.loaded_keys, videoPool?.loaded_variants]);
   // 视频 SAM 候选: 优先复用图片侧 enum, 否则用 SAM2 视频变体常量.
   const videoSamEnum = samEnum.length > 0 ? samEnum : SAM2_VIDEO_VARIANTS;
-  // v0.21.x · 单档视频模型 (sam3): 无 SAM 变体维度 (无 sam_variant enum), 视频预热是
+  // 单档视频模型 (sam3): 无 SAM 变体维度 (无 sam_variant enum), 视频预热是
   // 单按钮、无下拉; gsam2 等有 sam_variant.enum 的仍走 SAM 下拉。
   const videoSingleModel = supportsVideo && samEnum.length === 0;
-  // v0.21.x · 视频权重展示名: 优先 backend /setup.video_model_version ("SAM 3.1"),
+  // 视频权重展示名: 优先 backend /setup.video_model_version ("SAM 3.1"),
   // 回落已加载 key / tracker 名。用于「视频权重」条目 (与图像「模型版本: SAM 3」对称)。
   const videoWeightLabel =
     setup?.video_model_version ?? videoLoaded[0] ?? supportedTrackers[0] ?? "视频模型";
@@ -164,7 +164,7 @@ export function VariantPanel({
     ? videoLoaded.length > 0
     : videoLoaded.includes(videoSam);
 
-  // v0.18.17 · 通用单变体后端 (如 sam3): 有 generic variant 目录但无 gsam2 sam/dino 轴, 单池单变体。
+  // 通用单变体后端 (如 sam3): 有 generic variant 目录但无 gsam2 sam/dino 轴, 单池单变体。
   // pool key 原样即变体字符串 (如 "sam3"), 不走 gsam2 sam=X/dino=Y 解析 → 单独走 raw-key 展示/预热。
   const genericImageMode =
     !supportsVariants && genericVariantGroups.length > 0 && !isMultiModelBackend;
@@ -194,7 +194,7 @@ export function VariantPanel({
     ))
   ) : (
     <>
-      {/* 图像推理变体 (走图片池); v0.10.41 起优先按持久化 modalities 门控, 未探测时回落旧 enum 判断. */}
+      {/* 图像推理变体走图片池；优先按持久化 modalities 门控，未探测时回落旧 enum 判断。 */}
       {showImageGroup && (
         <>
           {genericVariantGroups.length > 0 && (
@@ -377,7 +377,7 @@ export function VariantPanel({
         </>
       )}
 
-      {/* v0.10.36 · 视频追踪变体 (走独立 video tracker 池, 仅 SAM 无 DINO). */}
+      {/* 视频追踪变体 (走独立 video tracker 池, 仅 SAM 无 DINO). */}
       {showVideoGroup && (
         <div className={SECTION_CLASS}>
           <div className={SECTION_TITLE_CLASS}>

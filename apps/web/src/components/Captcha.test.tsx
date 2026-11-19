@@ -1,5 +1,5 @@
 /**
- * v0.8.7 · Captcha 组件单测：site key 缺省时不渲染；token 回调透传；卸载清理 widget。
+ * Captcha 组件单测：site key 缺省时不渲染；token 回调透传；卸载清理 widget。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";

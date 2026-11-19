@@ -1,10 +1,10 @@
 /**
- * v0.16.0 · 图片画框冒烟 + Konva 渲染基线(画布栈统一地基)。
+ * 图片画框冒烟 + Konva 渲染基线(画布栈统一地基)。
  *
  * 为什么独立于 annotation.spec.ts:后者验证「画框 → POST /annotations 落库链路」(交互正确性),
- * 本 spec 验证「画框后 Konva 画布的真实渲染」(像素回归)——这是 v0.16.0 为后续视频迁到
- * Konva 立的**图片渲染基线**。Konva 渲染到 canvas 无 DOM 可查,konva mock(vitest)只能验
- * 交互/props,真渲染只能靠 Playwright 截图比对。视频基线 v0.16.1 起补。
+ * 本 spec 验证「画框后 Konva 画布的真实渲染」(像素回归)。
+ * Konva 渲染到 canvas，无 DOM 可查。Vitest 中的 Konva mock 只能验证
+ * 交互/props,真实渲染由 Playwright 截图比对。
  *
  * 基线易因字体/抗锯齿环境差异 flaky,故:
  *   - 固定 viewport(setViewportSize)+ 截 workbench-stage 容器(非整页);

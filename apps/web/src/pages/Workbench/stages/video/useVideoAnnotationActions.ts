@@ -109,7 +109,7 @@ export interface VideoTrackCompositionOptions {
   annotationIds: string[];
   frameIndex?: number;
   deleteSources?: boolean;
-  // v0.10.30 · 2.5 join: gap 填充模式, 仅 join_tracks 透传给后端 gap_mode。
+  // join: gap 填充模式, 仅 join_tracks 透传给后端 gap_mode。
   gapMode?: "interpolate" | "outside";
 }
 
@@ -184,7 +184,7 @@ export function buildVideoKeypointCreatePayload(
   };
 }
 
-/** v0.21.21 · 由绘制的归一化顶点新建单帧 polygon/polyline (当前帧, 非 track)。 */
+/** 由绘制的归一化顶点新建单帧 polygon/polyline (当前帧, 非 track)。 */
 export function buildVideoPointsCreatePayload(
   type: "video_polygon" | "video_polyline",
   frameIndex: number,
@@ -201,7 +201,7 @@ export function buildVideoPointsCreatePayload(
   };
 }
 
-/** v0.21.20 · 由绘制的归一化顶点新建 polygon/polyline track (单关键帧于当前帧)。 */
+/** 由绘制的归一化顶点新建 polygon/polyline track (单关键帧于当前帧)。 */
 export function buildVideoPointsTrackCreatePayload(
   type: "video_track_polygon" | "video_track_polyline",
   frameIndex: number,
@@ -522,7 +522,7 @@ export function useVideoAnnotationActions({
     [handleVideoCreateWithClass, s.activeClass],
   );
 
-  // v0.21.20 · 由绘制顶点新建 polygon/polyline track (单关键帧于当前帧)。
+  // 由绘制顶点新建 polygon/polyline track (单关键帧于当前帧)。
   const handleVideoPointsTrackCreateWithClass = useCallback(
     (
       type: "video_track_polygon" | "video_track_polyline",
@@ -569,7 +569,7 @@ export function useVideoAnnotationActions({
     [activeToolHasOwnClasses, handleVideoPointsTrackCreateWithClass, s],
   );
 
-  // v0.21.21 · 单帧 polygon/polyline 创建 (非 track), 与 handleVideoPointsTrackCreate 平行。
+  // 单帧 polygon/polyline 创建 (非 track), 与 handleVideoPointsTrackCreate 平行。
   const handleVideoPointsCreateWithClass = useCallback(
     (
       type: "video_polygon" | "video_polyline",
@@ -897,7 +897,7 @@ export function useVideoAnnotationActions({
     (className: string) => {
       if (!s.selectedId) return false;
       const ann = annotationsRef.current.find((a) => a.id === s.selectedId);
-      // v0.21.26 · 放宽到全部视频几何 (单帧 bbox/polygon/polyline/rotated + bbox/polygon/polyline track):
+      // 放宽到全部视频几何 (单帧 bbox/polygon/polyline/rotated + bbox/polygon/polyline track):
       // 改类走 handleVideoRename (仅动 class_name, 类型无关), 快捷改类不再对点集几何静默失效。
       if (!ann || !(isAnyVideoSingleFrame(ann) || isAnyVideoTrack(ann))) return false;
       if (ann.class_name === className) return true;
@@ -1021,7 +1021,7 @@ export function useVideoAnnotationActions({
     [annotationQueryKey, annotationsRef, history, pushToast, queryClient, s, taskId],
   );
 
-  // v0.10.30 · 2.3 track 级属性默认值: 写入 annotation.attributes (顶层)。复用既有
+  // track 级属性默认值: 写入 annotation.attributes (顶层)。复用既有
   // update mutation + offline 回退路径 (同 handleVideoRename 风格), undo 用 update 命令。
   const handleUpdateTrackAttributes = useCallback(
     (ann: AnnotationResponse, attributes: Record<string, unknown>) => {
@@ -1056,7 +1056,7 @@ export function useVideoAnnotationActions({
     [enqueueOnError, enqueueOwned, history, mutations.update, queryClient, taskId],
   );
 
-  // v0.10.30 · 2.3 当前帧逐帧覆盖: 写入该帧 keyframe.attributes。复用 upsertKeyframe (保留当前帧框)
+  // 当前帧逐帧覆盖: 写入该帧 keyframe.attributes。复用 upsertKeyframe (保留当前帧框)
   // + handleVideoUpdate (geometry 单条 keyframe 变化 → videoKeyframe undo 命令)。
   const handleUpdateKeyframeAttributes = useCallback(
     (ann: AnnotationResponse, frameIndex: number, attributes: Record<string, unknown>) => {
@@ -1070,7 +1070,7 @@ export function useVideoAnnotationActions({
     [handleVideoUpdate],
   );
 
-  // v0.10.30 · 2.6 Propagate: 把 fromFrame 处框复制到后续/向前 N 帧, 合成单条 undo 命令。
+  // Propagate: 把 fromFrame 处框复制到后续/向前 N 帧, 合成单条 undo 命令。
   const handlePropagateKeyframe = useCallback(
     (
       ann: AnnotationResponse,

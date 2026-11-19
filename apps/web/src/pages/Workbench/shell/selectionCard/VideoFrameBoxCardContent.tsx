@@ -19,7 +19,7 @@ export interface VideoFrameBoxCardContentProps {
   /**
    * 视频单帧标注(不属任何轨迹): video_bbox / video_polygon / video_polyline /
    * video_rotated_bbox / video_keypoint / video_mask。
-   * v0.21.26 起承接全部单帧几何(此前仅 video_bbox);帧定位 + 指标 + 属性 + 改类 / 删除。
+   * 支持单帧几何的帧定位、指标、属性、改类和删除。
    */
   annotation: AnnotationResponse;
   imageWidth: number | null;
@@ -45,10 +45,10 @@ function formatTimecode(sec: number): string {
 }
 
 /**
- * v0.16.14 · 选中视频「单帧标注」的浮动卡内容。
+ * 选中视频「单帧标注」的浮动卡内容。
  * 单帧几何不属任何轨迹,会被右栏轨迹面板过滤掉而「啥也不显示」;这里补齐帧定位
  * (F{n} · 时间)+ 结构化指标 + 属性 + 跳到该帧 / 改类 / 删除。
- * v0.21.26 起除 video_bbox 外, 也承接 video_polygon / video_polyline / video_rotated_bbox
+ * 支持 video_bbox、video_polygon、video_polyline 和 video_rotated_bbox
  * (指标由 geometryMetrics 按几何类型给出: 顶点数 / 面积 / 周长 / 旋转角等)。
  */
 export function VideoFrameBoxCardContent({

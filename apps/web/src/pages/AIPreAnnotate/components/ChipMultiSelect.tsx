@@ -1,5 +1,5 @@
 /**
- * v0.21.0 收尾优化 · 通用 chip 多选 (原 StageCard 内部 helper 抽出), 供项目侧 StageCard 与
+ * 通用 chip 多选，供项目侧 StageCard 与
  * 全局侧 GlobalStageInspector 共用. 选中集合即语义值, 空集=全部 (由调用方解读). conflictKeys
  * 命中的 chip 标红. allowFreeText=true 时额外渲染文本输入 (datalist 补全), 可加任意值; 且把
  * "已选但不在 options 里"的值也渲染成 chip 保证可见可删.

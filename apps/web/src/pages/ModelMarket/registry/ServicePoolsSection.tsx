@@ -2,7 +2,7 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useFocusedListPagination } from "./useFocusedListPagination";
 /**
- * v0.23.4 P3 · registry "服务池" tab.
+ * registry "服务池" tab.
  *
  * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: the pool table keeps its
  * 身份/成员/容量/关联项目/状态/操作 columns, but now owns the toolbar that

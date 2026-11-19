@@ -1,5 +1,5 @@
 /**
- * v0.6.6 · CommentInput.serialize 单元测试。
+ * CommentInput.serialize 单元测试。
  *
  * 覆盖 ROADMAP 列出的 4 类边界：
  *  - chip 紧邻 chip：两个 mention 直接相连，offset 不能错位

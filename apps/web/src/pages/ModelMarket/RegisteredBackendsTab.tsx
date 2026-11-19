@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 P3 · 注册管理 tab — orchestrator shell.
+ * 注册管理 tab — orchestrator shell.
  *
  * Plan §4.3 / §5（模型市场多 TAB UI 优化 · 阶段一）：this file is the only
  * place that owns the registry queries, the registry URL state and the

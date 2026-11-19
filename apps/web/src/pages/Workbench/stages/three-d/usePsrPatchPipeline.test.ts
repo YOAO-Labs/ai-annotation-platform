@@ -1,4 +1,4 @@
-// v0.16.x 第 3 批 · usePsrPatchPipeline 防抖落库管线单测(B 类里少见可单测者):
+// 第 3 批 · usePsrPatchPipeline 防抖落库管线单测(B 类里少见可单测者):
 // fake timers 锁定 250ms 防抖 / 校验门槛 / box_3d 才入 history / selectedId 守卫。
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

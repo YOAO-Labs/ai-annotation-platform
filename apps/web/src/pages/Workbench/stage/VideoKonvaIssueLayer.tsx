@@ -30,7 +30,7 @@ interface VideoKonvaIssueLayerProps {
 }
 
 /**
- * v0.16.2 · 视频 issue 图钉层(Konva Layer "issue",render-only)。
+ * 视频 issue 图钉层(Konva Layer "issue",render-only)。
  *
  * 旧 VideoIssueLayer(SVG)的 Konva 对应物:只渲染 anchor_position.frame === 当前帧 的图钉,
  * 坐标像素空间(归一化 × size),status/severity 配色复用 shadcn tokens。

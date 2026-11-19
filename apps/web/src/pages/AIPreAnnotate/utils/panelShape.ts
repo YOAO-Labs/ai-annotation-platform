@@ -1,5 +1,5 @@
 /**
- * v0.14.16 · 批跑预标面板的 capability 驱动变形 (纯函数, 便于单测).
+ * 批跑预标面板的 capability 驱动变形 (纯函数, 便于单测).
  *
  * 不同 backend 的 model 字段集天然不同: YOLO 闭集检测器输出形态固定 (只 bbox)、无 prompt
  * (supported_prompts=['none'], 文本框实为类别白名单); gsam2 支持框/掩膜两种几何 + text prompt;
@@ -71,7 +71,7 @@ export function derivePanelShape(
 }
 
 /**
- * v0.14.18 · 文本 prompt 批量路径 (gsam2 「找全图」) 的面板形态.
+ * 文本 prompt 批量路径 (gsam2 「找全图」) 的面板形态.
  *
  * 文本批量是**后端级**能力 (detection 出框 + segmentation 出掩膜, 由 output_mode 在后端内部编排),
  * 任何单 model 都表达不全 (#3 回归: primaryModel=detection → 输出锁 box / 变体仅 dino)。
@@ -104,11 +104,11 @@ export interface VariantSource {
 }
 
 /**
- * v0.14.18 · 当前路径的 variant 来源 (修 #3 回归).
+ * 当前路径的 variant 来源 (修 #3 回归).
  *
  * - doc (OCR/版面) → 选中文档 model 的逐 model 变体;
  * - 几何闭集 (yolo 等) → 选中 task model 的逐 model 变体;
- * - 文本 prompt 批量 (gsam2 / sam3) → v0.18.12 起 model-first: **选中文本 task model 的逐 model 变体**
+ * - 文本 prompt 批量 (gsam2 / sam3) → **选中文本 task model 的逐 model 变体**
  *   (检测 model 只 dino; 分割 model sam+dino)。取代旧的「顶层 union」兜底 (选检测时不再白显 SAM)。
  *   textModel 缺位时回落顶层 topSupportedVariants (能力未就位的安全兜底)。
  */

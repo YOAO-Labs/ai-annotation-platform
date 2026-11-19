@@ -1,4 +1,4 @@
-// v0.10.18 · API duration ring buffer 用于 PerfHud 浏览器侧 p95 指标.
+// API duration ring buffer 用于 PerfHud 浏览器侧 p95 指标.
 // 简单实现: 60s 滑动窗口, 每条记录 { t: 完成时间戳 ms, d: 耗时 ms }.
 // 老条目按访问时(getApiP95)惰性过滤; 内存上限 1024 条防爆.
 

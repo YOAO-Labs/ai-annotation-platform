@@ -1,9 +1,8 @@
 /**
- * v0.15.24 · 相机图「2D 框种 3D 框」视锥选点纯几何(与 WebGL / renderer 无关, jsdom 可单测)。
+ * 相机图「2D 框种 3D 框」视锥选点纯几何(与 WebGL / renderer 无关, jsdom 可单测)。
  *
- * 联合标注 epic Phase 1:在相机投影视图上拖一个 2D 矩形 → 选出投影落在矩形内的点云点 →
- * 上层 autofit.psrFromPoints 拟合 box_3d 初值。读方向(3D→2D 投影)v0.13.4 已完成,本模块
- * 补「像素矩形 → 视锥内点」的写方向起点。
+ * 在相机投影视图上拖一个像素矩形，选出投影落在矩形内的点云点。
+ * 上层 autofit.psrFromPoints 用这些点拟合 box_3d 初值。
  *
  * ── 选点不建 4 个视锥平面,而是复用前向投影(projection.projectPoints)──
  *   对每个点前向投影到像素 + 相机系深度;保留「相机前方 且 像素落在矩形内」者。O(N),与

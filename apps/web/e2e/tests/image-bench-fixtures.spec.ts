@@ -1,5 +1,5 @@
 /**
- * v0.10.10 · I8.2 · image-bench 基准 fixture 单场景执行。
+ * image-bench 基准 fixture 单场景执行。
  *
  * 通过环境变量选场景：
  *   IMAGE_BENCH_SIZE        - 2k | 8k | polygon-dense（默认 2k）

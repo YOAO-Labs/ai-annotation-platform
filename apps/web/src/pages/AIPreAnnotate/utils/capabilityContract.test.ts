@@ -1,5 +1,5 @@
 /**
- * v0.19.3 WS3 · 能力判据跨端契约 (前端侧)。
+ * 能力判据跨端契约 (前端侧)。
  *
  * 与后端 pytest (tests/test_pipeline_validation.py) 共读同一份 fixture
  * (src/__fixtures__/capability-validation-cases.json)。本测把 fixture 的 model_caps /

@@ -19,7 +19,7 @@ export interface RegisterPayload {
 }
 
 export interface RegisterResponse {
-  // v0.12.0 · 需邮箱验证时为 null（不自动登录）
+  // 需邮箱验证时为 null（不自动登录）
   access_token: string | null;
   token_type: string;
   user: MeResponse;
@@ -182,7 +182,7 @@ export const invitationsApi = {
   openRegister: (payload: OpenRegisterPayload) =>
     apiClient.publicPost<RegisterResponse>("/auth/register-open", payload),
 
-  // v0.12.0 · 邮箱验证
+  // 邮箱验证
   verifyEmail: (token: string) =>
     apiClient.publicPost<{ message: string }>("/auth/verify-email", { token }),
   resendVerification: (email: string) =>

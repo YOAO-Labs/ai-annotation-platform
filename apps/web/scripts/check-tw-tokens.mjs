@@ -154,7 +154,7 @@ function checkChunk(value) {
   }
 
   // 暗色配对: 对每个 (text|bg|border)-<hue>-600 检查同 className 是否有 dark:(...)-<hue>-400.
-  // v0.17.7: 修正匹配 — 容许 `!` 修饰符 + 中间变体前缀(hover:/focus: 等).
+  // 修正匹配 — 容许 `!` 修饰符 + 中间变体前缀(hover:/focus: 等).
   const hueRe = new RegExp(`\\b(!)?(text|bg|border)-(${SEMANTIC_HUES.join("|")})-600\\b`, "g");
   let hm;
   while ((hm = hueRe.exec(value)) !== null) {

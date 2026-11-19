@@ -1,5 +1,5 @@
 /**
- * RegisteredBackendsTab 单测 · v0.23.4 P3 重构。
+ * RegisteredBackendsTab 单测。
  *
  * 重构后 RegisteredBackendsTab 是一个编排壳：
  *   - topology / runtime-snapshot / gpu-resources / overview / all 五个查询；
@@ -330,7 +330,7 @@ function currentSearch(): string {
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
-describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
+describe("RegisteredBackendsTab · 服务池和成员", () => {
   beforeEach(() => {
     mockPushToast.mockReset();
     mockDeleteRegistryMutate.mockReset();

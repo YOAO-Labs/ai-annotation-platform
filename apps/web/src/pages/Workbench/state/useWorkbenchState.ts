@@ -11,18 +11,18 @@ import type { BboxCreationMode } from "../stage/ImageStage.helpers";
 
 export type { VideoToolScope, VideoToolSelection } from "../stage/videoToolUnits";
 
-// v0.10.2 · Tool union 扩展: 旧 "sam" 拆为 4 个独立 AI 工具 (smart-point / smart-box /
+// Tool union 扩展: 旧 "sam" 拆为 4 个独立 AI 工具 (smart-point / smart-box /
 // text-prompt / exemplar), 每个绑定一个 prompt 范式. 状态层仅保留 polarity (smart-point
 // 用) 和 aiToolParams (InteractiveToolBar 用); samSubTool 由 tool 派生, 不再独立持有.
 export type Tool =
   // 选择工具：点选 / 移动已有标注与预标注；默认工具，ESC 回退到它。
   | "select"
   | "box"
-  // v0.10.28 · 旋转框 (OBB): 先拖轴对齐矩形, 提交后用旋转手柄调角度.
+  // 旋转框 (OBB): 先拖轴对齐矩形, 提交后用旋转手柄调角度.
   | "rotated-box"
   | "hand"
   | "polygon"
-  // v0.10.28 · 折线（开放、不闭合）。
+  // 折线（开放、不闭合）。
   | "polyline"
   | "canvas"
   | "mask"
@@ -31,16 +31,16 @@ export type Tool =
   | "smart-scribble"
   | "text-prompt"
   | "exemplar"
-  // v0.10.17 · 复用 SAM bbox prompt 返回的 mask, 取紧凑外接矩形落 bbox 标注 (Magic Box).
+  // 复用 SAM bbox prompt 返回的 mask, 取紧凑外接矩形落 bbox 标注 (Magic Box).
   | "magic-box"
-  // v0.10.28 · 关键点 (COCO 范式).
+  // 关键点 (COCO 范式).
   | "keypoint";
 // 视频工具栏保留选择与创建工具；平移不再作为 VideoTool 模式。
-// v0.21.21 · 单帧 vs 轨迹拆成独立工具 (对齐 box=单帧 / track=轨迹 先例):
+// 单帧 vs 轨迹拆成独立工具 (对齐 box=单帧 / track=轨迹 先例):
 //   polygon / polyline        = 点击落点画单帧 video_polygon / video_polyline;
-//   polygon-track / polyline-track = 画 polygon/polyline 轨迹关键帧 (原 v0.21.20 的 polygon/polyline)。
+//     polygon-track / polyline-track = 绘制 polygon/polyline 轨迹关键帧。
 // 四者都走点击累加顶点绘制 (与 box/track 拖拽绘制正交)。
-// v0.21.23 · 交互式 SAM 单帧工具 (smart-point / smart-box): 在当前帧点/框提示后端,
+// 交互式 SAM 单帧工具 (smart-point / smart-box): 在当前帧点/框提示后端,
 //   候选采纳后落单帧 video_polygon。与图片侧同名工具语义一致, 但底图走当前帧 JPEG。
 export type VideoTool =
   | "select"
@@ -58,11 +58,11 @@ export type VideoTool =
   | "smart-box"
   | "exemplar"
   | "magic-box";
-// v0.13.3-5 · 点云 3D 工作台工具态(双栈隔离,不复用 2D ToolId)。
+// 点云 3D 工作台工具态(双栈隔离,不复用 2D ToolId)。
 export type ThreeDTool = "select" | "box" | "point-mask" | "measure";
 
 /**
- * v0.10.2 · 派生型 SAM 子工具, 仅作 ImageStage / AIInspectorPanel 等老消费者的兼容外观.
+ * 派生型 SAM 子工具, 仅作 ImageStage / AIInspectorPanel 等老消费者的兼容外观.
  * 取值由 tool 决定; tool 不是 AI 工具时为 null.
  */
 export type SamSubTool = "point" | "bbox" | "scribble" | "text" | "exemplar";
@@ -70,7 +70,7 @@ export type SamSubTool = "point" | "bbox" | "scribble" | "text" | "exemplar";
 /** SAM-point 子工具下的 polarity, "+" / "-" 键切换; 仅 smart-point 时有意义. */
 export type SamPolarity = "positive" | "negative";
 
-/** v0.10.2 · 由 tool 派生 samSubTool, 给老消费者用 (ImageStage / AIInspectorPanel). */
+/** 由 tool 派生 samSubTool, 给老消费者用 (ImageStage / AIInspectorPanel). */
 export function toolToSamSubTool(tool: Tool): SamSubTool | null {
   switch (tool) {
     case "smart-point":
@@ -79,7 +79,7 @@ export function toolToSamSubTool(tool: Tool): SamSubTool | null {
       return "bbox";
     case "smart-scribble":
       return "scribble";
-    // v0.10.17 · Magic Box 也是 bbox prompt; 共用 InteractiveToolBar 的 bbox subtool UI.
+    // Magic Box 也是 bbox prompt; 共用 InteractiveToolBar 的 bbox subtool UI.
     case "magic-box":
       return "bbox";
     case "text-prompt":
@@ -91,7 +91,7 @@ export function toolToSamSubTool(tool: Tool): SamSubTool | null {
   }
 }
 
-/** v0.6.4：canvas 工具激活时的草稿状态。
+/** canvas 工具激活时的草稿状态。
  *  CommentInput 点「在题图上绘制」→ beginCanvasDraft；ImageStage 在 canvas tool 下
  *  读取 active + shapes 渲染 + 写入新笔触；用户点 Done → endCanvasDraft 把结果
  *  挂到 pendingResult，CommentInput 监听后回写并清空。 */
@@ -160,7 +160,7 @@ export type EditingClass = {
   /** 已落库标注自身的工具单位；改类/属性不得复用当前激活工具的类别域。 */
   toolUnitId?: string;
   anchor?: { left: number; top: number };
-  // v0.14.17 · 采纳时选类: 非空时该弹窗不是"改已存标注的类", 而是"为采纳某预测选项目标签",
+  // 采纳时选类: 非空时该弹窗不是"改已存标注的类", 而是"为采纳某预测选项目标签",
   // commit 时走 accept(override_class_name) 而非 update(class_name). 复用同一 ClassPickerPopover.
   // B-57 · toolUnitId: 预测自身的工具单位 (如 polygon→region), 让 popover 按它取类别集合,
   // 而非当前激活工具 (bbox) 的集合 — 否则采纳多边形时只列出矩形框的类, 选不到正确类别。
@@ -203,17 +203,17 @@ export function useWorkbenchState() {
   const [videoFrameIndex, setVideoFrameIndex] = useState(0);
   const [hiddenVideoTrackIds, setHiddenVideoTrackIds] = useState<Set<string>>(() => new Set());
   const [lockedVideoTrackIds, setLockedVideoTrackIds] = useState<Set<string>>(() => new Set());
-  // v0.10.30 · session 级 track 颜色覆盖：trackId -> oklch 颜色字符串（取色器写入）。
+  // session 级 track 颜色覆盖：trackId -> oklch 颜色字符串（取色器写入）。
   const [trackColorOverrides, setTrackColorOverrides] = useState<Record<string, string>>(
     () => ({}),
   );
-  // v0.10.2 · samSubTool 改为派生 (见 toolToSamSubTool); polarity + aiToolParams 仍是 state.
+  // samSubTool 改为派生 (见 toolToSamSubTool); polarity + aiToolParams 仍是 state.
   const [samPolarity, setSamPolarity] = useState<SamPolarity>("positive");
   // exemplar 子工具输出形态 (box/mask/both); 会话级.
   const [exemplarOutputMode, setExemplarOutputMode] = useState<TextOutputMode>("mask");
-  /** v0.10.2 · InteractiveToolBar 维护的后端参数 (来自 /setup.params schema). 切换工具时重置. */
+  /** InteractiveToolBar 维护的后端参数 (来自 /setup.params schema). 切换工具时重置. */
   const [aiToolParams, setAiToolParams] = useState<Record<string, unknown>>({});
-  // v0.10.23 · 模型变体 (sam_variant / dino_variant) 从 aiToolParams 拆出: 落点 AI 面板, 会话级,
+  // 模型变体 (sam_variant / dino_variant) 从 aiToolParams 拆出: 落点 AI 面板, 会话级,
   // 切工具不重置 (设置型). 值在 run 时合进 context (链路见 useInteractiveAI.extraParams).
   const [aiVariant, setAiVariant] = useState<Record<string, unknown>>({});
   const samSubTool = useMemo(() => toolToSamSubTool(tool), [tool]);
@@ -251,11 +251,11 @@ export function useWorkbenchState() {
   });
   const [leftOpen, setLeftOpenRaw] = useState(workbenchLayout.leftOpen);
   const [rightOpen, setRightOpenRaw] = useState(workbenchLayout.rightOpen);
-  // v0.20.19 · 右栏属性区折叠态: 走 workbench.layout 服务端偏好, 与 leftOpen/rightOpen 同套持久。
+  // 右栏属性区折叠态: 走 workbench.layout 服务端偏好, 与 leftOpen/rightOpen 同套持久。
   const [attrPanelCollapsed, setAttrPanelCollapsedRaw] = useState(
     workbenchLayout.attrPanelCollapsed,
   );
-  // v0.20.22 · AI 待审 / 人工分组折叠 + 讨论区完全收起 (照抄 attrPanelCollapsed 范式)。
+  // AI 待审 / 人工分组折叠 + 讨论区完全收起 (照抄 attrPanelCollapsed 范式)。
   const [aiSectionCollapsed, setAiSectionCollapsedRaw] = useState(
     workbenchLayout.aiSectionCollapsed,
   );
@@ -393,7 +393,7 @@ export function useWorkbenchState() {
   }, []);
   /** 同任务内剪贴板（仅本会话内存）。 */
   const [clipboard, setClipboard] = useState<Annotation[]>([]);
-  /** v0.6.4：canvas 批注草稿。reviewer / annotator 在题图上画红圈时使用。*/
+  /** canvas 批注草稿。reviewer / annotator 在题图上画红圈时使用。*/
   const [canvasDraft, setCanvasDraft] = useState<CanvasDraft>({
     active: false,
     annotationId: null,
@@ -558,7 +558,7 @@ export function useWorkbenchState() {
     resetVideoStageUi,
     trackColorOverrides,
     setVideoTrackColor,
-    // v0.10.2 · 派生 samSubTool (read-only) + polarity + AI 工具参数.
+    // 派生 samSubTool (read-only) + polarity + AI 工具参数.
     samSubTool,
     samPolarity,
     setSamPolarity,

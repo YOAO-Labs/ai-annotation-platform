@@ -20,7 +20,7 @@ export function useMLBackends(projectId: string | undefined) {
   });
 }
 
-// v0.19.0 · ADR-0044 · 全部全局 backend + 本项目启用态/覆盖 (项目设置启用清单)。
+// ADR-0044 · 全部全局 backend + 本项目启用态/覆盖 (项目设置启用清单)。
 // query key 复用 ["ml-backends", projectId] 前缀, 让 invalidateBackendQueries 一并失效。
 export function useAvailableMLBackends(projectId: string | undefined) {
   return useQuery({
@@ -63,8 +63,8 @@ export function useMLBackendUnload(projectId: string) {
 export function useMLBackendReload(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    // v0.10.26 · variant 可选; 缺省预热默认变体 (旧「重载」按钮行为不变).
-    // v0.10.36 · taskType 可选; "video" 预热独立 video tracker 池.
+    // variant 可选; 缺省预热默认变体 (旧「重载」按钮行为不变).
+    // taskType 可选; "video" 预热独立 video tracker 池.
     mutationFn: ({
       backendId,
       variant,

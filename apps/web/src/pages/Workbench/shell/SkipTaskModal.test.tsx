@@ -1,5 +1,5 @@
 /**
- * v0.8.7 F7 · SkipTaskModal 单测：
+ * SkipTaskModal 单测：
  * - 默认选中 image_corrupt → 提交按钮可用 → onConfirm 触发
  * - 选中 other 时 textarea 出现，note 空时禁用提交
  * - 选中 other 后填 note → 提交透传 (other, note)

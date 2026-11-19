@@ -4,9 +4,9 @@ import { Icon, type IconName } from "./Icon";
 import { Sparkline } from "./Sparkline";
 
 /**
- * StatCard —— 统计卡(v0.17.2,module.css → Tailwind)。
+ * StatCard —— 统计卡。
  * 保持原布局(图标-左 + 标签 + 数值 + trend + sparkline),仅 token 化:中性卡 + 发丝边,
- * trend 走设计 §2.2 emerald/rose。更丰富的「彩色图标片」范式留待 Dashboard 迁移(v0.17.3)。
+ * trend 走设计 §2.2 emerald/rose。
  */
 interface StatCardProps {
   icon?: IconName;

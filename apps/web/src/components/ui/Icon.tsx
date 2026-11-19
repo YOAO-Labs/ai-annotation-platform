@@ -130,7 +130,7 @@ const ICON_MAP = {
   "alert-triangle": AlertTriangle,
   arrowRight: ArrowRight,
   bell: Bell,
-  // v0.10.13 · E1 · 标注指引图标
+  // 标注指引图标
   book: BookOpen,
   bot: Bot,
   box: Box,

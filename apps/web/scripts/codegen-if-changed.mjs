@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// v0.7.5 · 仅在 snapshot 比生成产物新（或缺产物）时跑 codegen，加速 `pnpm build`。
-// v0.18.30 · 扩展为多 snapshot 检查: OpenAPI 类型 + capability registry 受控词表。
+// 仅在 snapshot 比生成产物新（或缺产物）时跑 codegen，加速 `pnpm build`。
+// 扩展为多 snapshot 检查: OpenAPI 类型 + capability registry 受控词表。
 //
 // 触发重新生成的条件（任一）：
 //   1. 任一生成产物 (types.gen.ts / capabilityVocab.gen.ts) 不存在

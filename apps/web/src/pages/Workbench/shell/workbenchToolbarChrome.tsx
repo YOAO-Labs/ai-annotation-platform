@@ -1,4 +1,4 @@
-// v0.21.27 · U-pvs-1 · 工作台顶部居中悬浮工具条的共享外观 chrome。
+// 工作台顶部居中悬浮工具条的共享外观 chrome。
 //
 // 抽自 InteractiveToolBar（SAM 交互工具条），供它与视频 tracker 传播工具条
 // (VideoTrackerPropagateDialog) 共用同一套壳/字段标签/下拉/分隔符风格 —— 让两者

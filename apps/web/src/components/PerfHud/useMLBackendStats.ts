@@ -26,7 +26,7 @@ export interface BackendSnapshot {
     gpu_temperature_celsius?: number | null;
     gpu_power_watts?: number | null;
     // 老 gsam2 backend 把 image/video pool loaded 数量注入 gpu_info 兜底;
-    // v0.14.14 起 pool/video_pool.current_size 是更准来源, 这里保留 fallback 一版.
+    // 优先使用 pool/video_pool.current_size；缺失时回退到 gpu_info。
     image_pool_loaded_variants?: unknown[] | null;
     video_pool_loaded_variants?: unknown[] | null;
   } | null;
@@ -59,7 +59,7 @@ export interface BackendSnapshot {
     active_sessions?: number | null;
     idle_seconds?: number | null;
   } | null;
-  /** v0.22.3 WS4 · 有效计算设备观测 (GPU 静默退回 CPU 告警用)。 */
+  /** 有效计算设备观测 (GPU 静默退回 CPU 告警用)。 */
   compute?: MLBackendCompute | null;
   timestamp?: string;
 }
@@ -84,7 +84,7 @@ function snapshotKey(snap: BackendSnapshot): string {
 }
 
 /**
- * v0.9.11 PerfHud · 订阅 /ws/ml-backend-stats, 维护 60s ring buffer.
+ * PerfHud · 订阅 /ws/ml-backend-stats, 维护 60s ring buffer.
  * 仅在 PerfHud 浮窗 visible 时建连; 关闭即断 (节省后端 1s pull).
  */
 export function useMLBackendStats() {
@@ -103,7 +103,7 @@ export function useMLBackendStats() {
       return;
     }
     // ws_router 在 main.py 无 prefix 注册, 路径直接是 /ws/ml-backend-stats (与 /ws/prediction-jobs 一致).
-    // v0.9.13 host/proto 拼接迁到 buildWsUrl helper.
+    // host/proto 拼接迁到 buildWsUrl helper.
     const url = buildWsUrl("/ws/ml-backend-stats", { token });
     let ws: WebSocket | null;
     setStatus("connecting");

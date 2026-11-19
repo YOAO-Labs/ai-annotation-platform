@@ -219,9 +219,9 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
   const toStatus = payload.to_status as string | undefined;
   const reopen = Boolean(payload.reopen as boolean | undefined);
 
-  // v0.7.0：batch.rejected 复用同一行渲染，但 payload 字段不同
+  // batch.rejected 复用同一行渲染，但 payload 字段不同
   const isBatchRejected = item.type === "batch.rejected";
-  // v0.10.27：导出完成/失败复用同一行；payload 含 project_display_id / format / download_url / error
+  // 导出完成/失败复用同一行；payload 含 project_display_id / format / download_url / error
   const isExport = item.target_type === "export";
   const isJob = item.target_type === "async_job";
   const displayId = isBatchRejected

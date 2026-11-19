@@ -53,12 +53,12 @@ function formatTimecode(sec: number): string {
 }
 
 /**
- * v0.21.26 · 选中「点集轨迹」(video_track_polygon / video_track_polyline)的浮动卡内容。
+ * 选中「点集轨迹」(video_track_polygon / video_track_polyline)的浮动卡内容。
  *
- * 点集轨迹的逐关键帧编辑(顶点对应 / 参数化插值 / 关键帧表)仍归 v0.21.20 多几何 track epic;
- * 本卡是「管理层补齐」的最小可用面:选中即显示当前帧几何指标 + 类别 + 帧定位,并提供
- * 改类 / 显隐 / 锁定 / 删除整条轨迹 —— 取代此前「空白卡、无任何操作」的现状。刻意不复用
- * bbox 轨迹卡 VideoTrackCardContent(其深度假设 keyframe.bbox),避免污染正在工作的 bbox 路径。
+ * 此卡不负责逐关键帧编辑（顶点对应、参数化插值、关键帧表）。
+ * 本卡显示当前帧几何指标、类别和帧位置，并提供
+ * 改类、显隐、锁定和删除整条轨迹。不复用
+ * VideoTrackCardContent，因为 bbox 轨迹卡依赖 keyframe.bbox。
  */
 export function VideoPointsTrackCardContent({
   annotation,

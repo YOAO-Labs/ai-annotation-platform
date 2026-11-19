@@ -1,6 +1,6 @@
-// 有状态 GOP decoder session(v0.23.14)。
+// 有状态 GOP decoder session。
 //
-// v0.23.13 的 decodePlanToBitmap 每次都新建 decoder、从 keyframe 重解整段 GOP —— 同 GOP
+// 的 decodePlanToBitmap 每次都新建 decoder、从 keyframe 重解整段 GOP —— 同 GOP
 // 逐帧前进时会平方级重复提交(30 帧 GOP 走到末尾需 1+2+…+30=465 个 chunk)。本 session
 // 把这条路径优化成有界、可取消、可诊断的持久会话:同一 GOP 内向前逐帧只提交尚未解码的
 // access unit;后退 / 跨 GOP / identity 变化时确定性 reset。

@@ -2,7 +2,7 @@ import { Switch as ShadcnSwitch } from "@/components/shadcn/ui/switch";
 import { cn } from "@/lib/utils";
 
 /**
- * Switch —— shadcn(Radix)适配层(v0.17.2)。
+ * Switch —— shadcn(Radix)适配层。
  * 保留原有 `{checked,onChange,disabled,label,title,data-testid}` API(调用点零改动),
  * 开关本体与键盘/role 由 Radix 兜底。
  */

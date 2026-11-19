@@ -109,7 +109,7 @@ function maskTrackAnn(id: string, trackId: string, frame = 0): AnnotationRespons
 const base = { visual: DEFAULT_ANNOTATION_VISUAL, selectedId: null };
 
 describe("deriveVideoFrameViews", () => {
-  it("v0.21.21 · 单帧 polygon: entry 带 points + 外接盒 geom, 实线, 只在所属帧显示", () => {
+  it("单帧 polygon: entry 带 points + 外接盒 geom, 实线, 只在所属帧显示", () => {
     const ann = polygonAnn("sp1", 3, [
       [0.1, 0.1],
       [0.5, 0.1],
@@ -130,7 +130,7 @@ describe("deriveVideoFrameViews", () => {
     expect(otherFrame.entries).toHaveLength(0);
   });
 
-  it("v0.21.21 · 单帧 polyline: entry 带 points + open=true, 只在所属帧显示", () => {
+  it("单帧 polyline: entry 带 points + open=true, 只在所属帧显示", () => {
     const ann = polylineAnn("sl1", 7, [
       [0.1, 0.1],
       [0.9, 0.9],
@@ -147,7 +147,7 @@ describe("deriveVideoFrameViews", () => {
     ).toHaveLength(0);
   });
 
-  it("v0.21.22 · 单帧 OBB: entry 四角旋转顶点 (angle=0 时轴对齐), 只在所属帧显示", () => {
+  it("单帧 OBB: entry 四角旋转顶点 (angle=0 时轴对齐), 只在所属帧显示", () => {
     const ann = {
       id: "obb1",
       class_name: "car",
@@ -198,7 +198,7 @@ describe("deriveVideoFrameViews", () => {
     ).toHaveLength(0);
   });
 
-  it("v0.21.20 · polyline track: entry 带 points + open=true, 插值帧虚线", () => {
+  it("polyline track: entry 带 points + open=true, 插值帧虚线", () => {
     const ann = polylineTrackAnn("l1", "line1", [
       {
         frame_index: 0,
@@ -236,7 +236,7 @@ describe("deriveVideoFrameViews", () => {
     ]);
   });
 
-  it("v0.21.20 · polygon track: entry 带 points + 外接盒 geom, 插值帧虚线", () => {
+  it("polygon track: entry 带 points + 外接盒 geom, 插值帧虚线", () => {
     const ann = polygonTrackAnn("p1", "poly1", [
       {
         frame_index: 0,
@@ -516,7 +516,7 @@ describe("deriveVideoFrameViews", () => {
     expect(v.labels.find((l) => l.key === "pending-draft")?.text).toBe("person");
   });
 
-  describe("carryOverGhosts(跨网格帧续写参考框, v0.21.12)", () => {
+  describe("carryOverGhosts (跨网格帧续写参考框)", () => {
     const kf = (frame_index: number, x: number) => ({
       frame_index,
       bbox: { x, y: 0.1, w: 0.2, h: 0.2 },

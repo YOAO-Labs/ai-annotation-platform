@@ -1,5 +1,5 @@
 /**
- * v0.9.12 · ProjectDetailPanel 单测 (BUG B-17 多选 batch + 串/并行预标).
+ * ProjectDetailPanel 单测 (BUG B-17 多选 batch + 串/并行预标).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -29,14 +29,14 @@ const mockUpdatePreferences = vi.fn();
 vi.mock("@/hooks/useProjects", () => ({
   useProject: (id: string) => mockUseProject(id),
   useProjects: () => ({ data: [], isLoading: false }),
-  // v0.9.13 起 ProjectDetailPanel 调用 useUpdateProject 持久化 chips/threshold; mock 默认 noop
+  // ProjectDetailPanel 调用 useUpdateProject 持久化 chips/threshold；mock 默认 noop
   useUpdateProject: () => ({
     mutate: mockUpdateProjectMutate,
     mutateAsync: mockUpdateProjectMutateAsync,
     isPending: false,
   }),
 }));
-// v0.9.13 起 useBatchEventsSocket 在 mount 时发起 ws upgrade, MSW 没装 ws handler 时
+// useBatchEventsSocket 在 mount 时发起 WebSocket 连接；此测试未装 ws handler，
 // libuv stream assert → worker crash. 单测里直接 noop 即可 (WS 行为另有 useBatchEventsSocket 自己的 smoke 测试).
 vi.mock("@/hooks/useBatchEventsSocket", () => ({
   useBatchEventsSocket: () => undefined,
@@ -73,7 +73,7 @@ vi.mock("@/hooks/usePreannotation", async () => {
   return {
     ...actual,
     useTriggerPreannotation: () => mockUseTrigger(),
-    // v0.18.6 起 ProjectDetailPanel 订阅预标进度 WS; 单测 noop 避免 ws upgrade 崩 worker
+    // ProjectDetailPanel 订阅预标进度 WS；单测用 noop 跳过连接。
     // (同 useBatchEventsSocket)。逐阶段实时徽标的快照消费另由更聚焦的测试覆盖。
     usePreannotationProgress: () => ({
       progress: null,
@@ -144,7 +144,7 @@ function renderUI(extras: Partial<{ summary: any }> = {}) {
   );
 }
 
-describe("ProjectDetailPanel v0.9.12", () => {
+describe("ProjectDetailPanel", () => {
   beforeEach(() => {
     setAuthRole("super_admin");
     mockTriggerMutate.mockReset();
@@ -283,9 +283,9 @@ describe("ProjectDetailPanel v0.9.12", () => {
     expect(screen.queryByRole("button", { name: /保存公共编排|保存全局编排/ })).toBeNull();
   });
 
-  it("空选中时配置区常驻 · prompt 表单仍显示但运行按钮禁用 (v0.14.16)", () => {
+  it("空选中时配置区常驻 · prompt 表单仍显示但运行按钮禁用", () => {
     renderUI();
-    // v0.14.16 配置区常驻: 配置面板 (含 prompt) 不再被『先选批次』gate, 未选也可预先调参 / 存预设;
+    // 配置区常驻: 配置面板 (含 prompt) 不再被『先选批次』gate, 未选也可预先调参 / 存预设;
     // 防误触发的不变量改由「运行按钮禁用」承担, 而非隐藏表单.
     expect(screen.getByPlaceholderText(/car, person/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /跑预标/ })).toBeDisabled();
@@ -478,7 +478,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /跑预标.*1 批/ }));
 
-    // v0.18.12 统一 wire: 变体走 model_variants (独立字段), params 只留非变体阈值。
+    // 统一 wire: 变体走 model_variants (独立字段), params 只留非变体阈值。
     await waitFor(() => {
       expect(mockTriggerMutate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -564,9 +564,9 @@ describe("ProjectDetailPanel v0.9.12", () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  // v0.18.5 / v0.18.16 · 多阶段下游 backend 门控: 单 backend 兜底提示 vs 双 backend 可编排。
+  // 多阶段下游 backend 门控: 单 backend 兜底提示 vs 双 backend 可编排。
   // 加阶段已移入 DAG 画布 (lazy, 测试里渲染 Suspense 占位), 故此处只断言两列编排区的兜底/引导文案。
-  describe("多阶段下游 backend 门控 (v0.18.16)", () => {
+  describe("多阶段下游 backend 门控", () => {
     it("没有兼容目录模型时提示启用或发布兼容模型", () => {
       // 默认 mockUseMLBackends 只有 bk1 (单 backend)。
       renderUI();
@@ -587,7 +587,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
     });
   });
 
-  // v0.14.9 · 能力声明协议 v2: backend models[] 含 ocr / doc_layout 时的任务类型分流.
+  // 能力声明协议 v2: backend models[] 含 ocr / doc_layout 时的任务类型分流.
   describe("OCR / 文档版面任务类型", () => {
     function withOcrCapabilities() {
       mockCapabilitiesAPI.mockResolvedValue({
@@ -614,7 +614,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText(/car, person/)).toBeInTheDocument();
       });
-      // v0.20.5 · 已无「任务类型」tab; 这是几何/文本 backend, 不应出现 OCR/版面 model 选项。
+      // 已无「任务类型」tab; 这是几何/文本 backend, 不应出现 OCR/版面 model 选项。
       expect(screen.queryByRole("option", { name: /OCR/ })).toBeNull();
     });
 
@@ -622,7 +622,7 @@ describe("ProjectDetailPanel v0.9.12", () => {
       withOcrCapabilities();
       renderUI();
       fireEvent.click(screen.getAllByRole("checkbox", { name: /选择/ })[0]);
-      // v0.20.5 · 不再有「OCR 文字识别」tab; OCR/版面 model 进统一「模型任务」下拉。
+      // 不再有「OCR 文字识别」tab; OCR/版面 model 进统一「模型任务」下拉。
       await waitFor(() => {
         expect(screen.getByRole("option", { name: "OCR" })).toBeInTheDocument();
       });

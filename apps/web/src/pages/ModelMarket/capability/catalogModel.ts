@@ -26,7 +26,7 @@ export function groupModels(items: FlatModel[], groupBy: CatalogGroupBy) {
     let label = "未知";
     if (groupBy === "backend") {
       key = item.backendId;
-      // v0.14.12 · group header 只用 backend 名 (不再前缀项目名). 同一 backend
+      // group header 只用 backend 名 (不再前缀项目名). 同一 backend
       // 注册到 N 个项目时仍是 N 个 group, 但区分由「注册状态」列承担, 不靠 header。
       label = item.backendName;
     } else if (groupBy === "task") {

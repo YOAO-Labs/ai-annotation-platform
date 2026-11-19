@@ -76,7 +76,7 @@ function previewToolUnit(annotation: AnnotationResponse) {
 function previewProjectConfig(toolBindings: Record<string, unknown> | null | undefined) {
   const configs: Record<string, ClassesConfig> = {};
   const schemas: Record<string, KeypointSchema> = {};
-  // v0.11.27 · 遮挡样式 key 跨工具单位并集（含禁用单位），与工作台/复核
+  // 遮挡样式 key 跨工具单位并集（含禁用单位），与工作台/复核
   // annotationToBox 的输入一致，保证预览的虚线+半透遮挡视觉与工作台相同。
   const occludedKeys = new Set<string>();
   for (const [unit, raw] of Object.entries(toolBindings ?? {})) {

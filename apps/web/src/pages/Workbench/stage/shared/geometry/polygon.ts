@@ -51,7 +51,7 @@ export function isSelfIntersecting(points: Pt[]): { ok: boolean; edges?: [number
 }
 
 /**
- * v0.10.4 I2.2 · 增量自相交检测：只检查与顶点 `changedIdx` 相邻的 2 条边
+ * 增量自相交检测：只检查与顶点 `changedIdx` 相邻的 2 条边
  * （边 (changedIdx-1, changedIdx) 与 (changedIdx, changedIdx+1)）是否与
  * 其它非相邻边相交。O(n)，用于顶点拖拽 / 增删时的实时校验。
  *

@@ -2,7 +2,7 @@ import polygonClipping, { type MultiPolygon, type Ring } from "polygon-clipping"
 
 export type Geom = { x: number; y: number; w: number; h: number };
 
-/** 用于 IoU 计算的形状：bbox 必填，polygon 可选（v0.5.4 起 polygon 走精确算法）。 */
+/** 用于 IoU 计算的形状：bbox 必填，polygon 可选；提供 polygon 时走精确算法。 */
 export type ShapeForIoU = Geom & { polygon?: [number, number][] };
 
 /** axis-aligned IoU on normalized geometry. 0 when 不重叠。 */
@@ -70,7 +70,7 @@ function shapeToMulti(s: ShapeForIoU): MultiPolygon | null {
 }
 
 /**
- * 形状无关 IoU（v0.5.4）：
+ * 形状无关 IoU：
  * - bbox vs bbox：精确（走原 iou()）
  * - 任一为 polygon：用 polygon-clipping 求精确交并
  *

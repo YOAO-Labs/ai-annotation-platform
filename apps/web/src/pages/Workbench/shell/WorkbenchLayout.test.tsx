@@ -1,4 +1,4 @@
-// v0.10.18 · WorkbenchLayout focused render tests.
+// WorkbenchLayout focused render tests.
 // 验证布局 shell 把七个稳定面板交给工作区,
 // 可选模块 (deleteConfirm / guidePanel) 不传时不渲染.
 

@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · LoginPage 单测：已登录跳转 / 表单提交 / 错误提示 / loading 态 /
+ * LoginPage 单测：已登录跳转 / 表单提交 / 错误提示 / loading 态 /
  * eye toggle / 注册入口可见性；Issue #123 · 登录返回目标过滤错误页与角色默认首页。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

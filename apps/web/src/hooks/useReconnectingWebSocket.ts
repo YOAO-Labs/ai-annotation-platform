@@ -92,7 +92,7 @@ export function useReconnectingWebSocket(
       attempt += 1;
       setRetries(attempt);
       setState("reconnecting");
-      // v0.10.18 · PerfHud 浏览器侧累计 WS 重连数
+      // PerfHud 浏览器侧累计 WS 重连数
       bumpWsReconnectCount();
       reconnectTimer = setTimeout(connect, delay);
     };

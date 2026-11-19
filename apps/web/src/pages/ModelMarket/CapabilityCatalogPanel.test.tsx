@@ -1,7 +1,7 @@
-// v0.14.11 · CapabilityCatalogPanel 双层视图测试.
+// CapabilityCatalogPanel 双层视图测试.
 // 覆盖:
 // - 0 backend + groupBy=task → 9 张协议卡 + onboarding 横幅;
-// - 切换 groupBy=backend → 退回旧空态 (v0.14.10 行为, 不渲染空协议卡);
+// - 切换 groupBy=backend → 显示旧空态，不渲染空协议卡；
 // - 搜索 "ocr" → 仅 OCR 协议卡可见。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -436,7 +436,7 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
   });
 
   it("同 URL 跨多项目注册时, groupBy=backend 只渲染一组 + 注册状态列聚合项目名", async () => {
-    // v0.14.12 · backendRefs 按 URL 去重 (避免重复 fetch + 重复显示).
+    // backendRefs 按 URL 去重 (避免重复 fetch + 重复显示).
     const sharedBackend = (projectId: string) => ({
       id: `${projectId}-bk`,
       project_id: projectId,
@@ -493,7 +493,7 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
   });
 
   it("backend 上报越界字段 → capabilities.warnings → ModelCard 显示 ⚠ 徽标", async () => {
-    // v0.18.29 · 协议契约校验: backend 上报越界 prompt「boxes」, 平台 /capabilities 带 warnings,
+    // 协议契约校验: backend 上报越界 prompt「boxes」, 平台 /capabilities 带 warnings,
     // 模型市场该 model 卡显示 ⚠ + 可读原因 (按 model_id 关联)。
     mockOverview.mockResolvedValue({
       projects: [

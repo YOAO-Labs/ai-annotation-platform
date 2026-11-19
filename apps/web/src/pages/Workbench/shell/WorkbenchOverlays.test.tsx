@@ -183,7 +183,7 @@ describe("WorkbenchOverlays", () => {
   });
 });
 
-// v0.21.23 · 视频侧 SAM popover 走 fixed anchor (画布 vp 不在这层, 由画布换算好传下来)。
+// 视频侧 SAM popover 走 fixed anchor (画布 vp 不在这层, 由画布换算好传下来)。
 describe("WorkbenchOverlays · SAM 候选类选择器的两种定位", () => {
   it("给了 anchor → fixed 定位, 不依赖 imageOverlayEnabled / stageGeom", () => {
     render(

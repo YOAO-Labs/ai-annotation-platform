@@ -101,7 +101,7 @@ function makeMember(
     route_inflight: opts.route_inflight ?? 0,
     circuit_open: opts.circuit_open ?? false,
     registry_state: opts.registry_state ?? "connected",
-    // metrics-driven — always null in v0.23.4
+    // Routing metrics are not available in this fixture.
     last_selected_at: null,
     selection_count_window: null,
     rejection_count_window: null,
@@ -291,7 +291,7 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     fireEvent.click(screen.getByRole("button", { name: /展开服务池成员/ }));
     expect(await screen.findByText("grounded-sam2-a")).toBeInTheDocument();
 
-    // metrics sentinel — v0.23.4 metrics are null; rendered as 「暂无路由指标」
+    // Missing routing metrics render as 「暂无路由指标」.
     expect(screen.getAllByText("暂无路由指标").length).toBeGreaterThanOrEqual(1);
 
     // collapse

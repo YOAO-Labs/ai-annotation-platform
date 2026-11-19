@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 P3 · tiny shared presentational helpers used by every registry
+ * tiny shared presentational helpers used by every registry
  * section. Kept in one file to avoid a sprawl of one-off micro-components
  * (plan §10: "不为每个字段创建组件").
  */

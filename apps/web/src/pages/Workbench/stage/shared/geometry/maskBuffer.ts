@@ -1,4 +1,4 @@
-// v0.10.7 M4-δ · I11 · Mask 编辑器 v1 数据层：离屏 alpha 缓冲 + 笔刷 / 橡皮 / clear /
+// Mask 编辑器 v1 数据层：离屏 alpha 缓冲 + 笔刷 / 橡皮 / clear /
 // fromPolygon / toAlphaImageData。
 //
 // 设计取舍：
@@ -19,7 +19,7 @@ export interface MaskBufferOptions {
 
 /**
  * 脏区半开矩形 [x0, x1) × [y0, y1)，像素坐标。供渲染层增量 putImageData 用。
- * v0.10.10 加入；典型用法：`const rect = buffer.consumeDirty(); if (rect) ctx.putImageData(...)`。
+ * 典型用法：`const rect = buffer.consumeDirty(); if (rect) ctx.putImageData(...)`。
  */
 export interface DirtyRect {
   x0: number;
@@ -261,7 +261,7 @@ export class MaskBuffer {
 
   /**
    * 切片版 toAlphaImageData：只输出 [x0, x1) × [y0, y1) 区域的 RGBA 缓冲。
-   * v0.10.10 新增，配合 `consumeDirty()` 让渲染层做增量 `putImageData`。
+   * 配合 `consumeDirty()` 让渲染层做增量 `putImageData`。
    *
    * 长度 = (x1-x0) * (y1-y0) * 4；R/G/B = 0，A = mask alpha。
    * rect 必须已 clamp 到画布（与 `consumeDirty` 返回的脏区一致）；越界静默返空。

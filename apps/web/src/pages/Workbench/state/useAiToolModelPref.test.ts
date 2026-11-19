@@ -1,5 +1,5 @@
 /**
- * v0.18.25 · useAiToolModelPref 单测 (与 useInteractiveBackendPref 对称).
+ * useAiToolModelPref 单测 (与 useInteractiveBackendPref 对称).
  *
  * 覆盖 claude[bot] P1 同形修复点 (登出清 byBackend + unmount flush pending)。
  */
@@ -14,7 +14,7 @@ import { useAiToolModelPref } from "./useAiToolModelPref";
 const getPreferencesMock = vi.fn();
 const updatePreferencesMock = vi.fn();
 
-// v0.21.17 · hook 拉取改走共享 useUserPreferences (react-query), 需 QueryClientProvider。
+// hook 拉取改走共享 useUserPreferences (react-query), 需 QueryClientProvider。
 let queryClient: QueryClient;
 const wrapper = ({ children }: { children: ReactNode }) =>
   createElement(QueryClientProvider, { client: queryClient }, children);

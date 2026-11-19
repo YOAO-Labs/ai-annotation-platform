@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · useDashboard 系列 hooks 单测：验证 queryKey 与 queryFn 调用入参。
+ * useDashboard 系列 hooks 单测：验证 queryKey 与 queryFn 调用入参。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
@@ -145,7 +145,7 @@ describe("useDashboard hooks", () => {
       wrapper: makeWrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // v0.12.6 (A3)：useAdminPersonDetail 签名扩为 (userId, period, project)，
+    // (A3)：useAdminPersonDetail 签名扩为 (userId, period, project)，
     // project 默认 undefined 仍会透传到第三参。
     expect(mockApi.getAdminPersonDetail).toHaveBeenCalledWith(
       "u1",

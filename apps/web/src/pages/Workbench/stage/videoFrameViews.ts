@@ -32,11 +32,10 @@ import type { VideoReferenceConfig } from "./videoReferencePredict";
 const DEFAULT_REFERENCE_CONFIG: VideoReferenceConfig = { mode: "off", preset: "stable" };
 
 /**
- * v0.16.2 · 视频标注层的渲染派生(纯函数,栈无关)。
+ * 视频标注层的渲染派生(纯函数,栈无关)。
  *
  * 把「当前帧应显示哪些框 / 轨迹预览 / ghost / 标签」从 VideoStage 的内联 useMemo 抽出,
- * 供新 Konva 栈(VideoKonvaTracksLayer/OverlayLayer)消费。逻辑与 VideoStage + VideoFrameOverlay
- * 现状逐项对齐(epic §6 接受的「双 draw 路径」中 Konva 那条;v0.16.5 删旧栈后单路径)。
+ * 供 VideoKonvaTracksLayer / OverlayLayer 消费。
  *
  * **不含颜色→hex 转换 / scale 抵消**(那是各 Konva 层在 render 时按 DOM/缩放做的),返回的
  * `color` 是原始 CSS 色串、`geom`/`points` 是归一化坐标,保持本模块纯净可测。
@@ -46,9 +45,9 @@ export type VideoEntryView = {
   key: string;
   id: string;
   geom: VideoStageGeom;
-  /** v0.21.20 · polygon/polyline track 当前帧的归一化顶点; 存在时 Konva 层画 <Line> 而非 <Rect>。 */
+  /** polygon/polyline track 当前帧的归一化顶点; 存在时 Konva 层画 <Line> 而非 <Rect>。 */
   points?: [number, number][];
-  /** v0.21.20 · true = polyline (开路径, Line 不闭合); 缺省/false = polygon (闭合)。 */
+  /** true = polyline (开路径, Line 不闭合); 缺省/false = polygon (闭合)。 */
   open?: boolean;
   /** OBB 保留原始中心/尺寸/角度，渲染与命中不再退化成外接多边形。 */
   rotatedBbox?: VideoRotatedBboxGeometry;
@@ -60,7 +59,7 @@ export type VideoEntryView = {
   /** 插值帧或遮挡 → 虚线。 */
   dashed: boolean;
   occluded: boolean;
-  /** v0.21.9 · 当前帧是 AI 追出的关键帧 (source==="prediction") → 常态加区别于插值虚线的 AI 线索。 */
+  /** 当前帧是 AI 追出的关键帧 (source==="prediction") → 常态加区别于插值虚线的 AI 线索。 */
   predicted: boolean;
   labelText: string;
   /** 类别名(供 QC 密度/重叠率计算消费)。 */
@@ -108,7 +107,7 @@ export interface VideoFrameViews {
   previews: VideoTrackPreviewView[];
   ghost: VideoGhostView | null;
   /**
-   * v0.21.12 · 「跨网格帧续写」参考框:恰好上一网格帧有关键帧、未锁定、当前帧还没画的**非选中**
+   * 「跨网格帧续写」参考框:恰好上一网格帧有关键帧、未锁定、当前帧还没画的**非选中**
    * 轨迹(选中那条由 `ghost` 承)。让新网格帧上「其余待续轨迹」可见 + 可命中,不必回上一帧 / 右栏选。
    */
   carryOverGhosts: VideoGhostView[];
@@ -135,7 +134,7 @@ export interface DeriveVideoFrameViewsInput {
   referenceConfig?: VideoReferenceConfig;
   /** pending 草稿(画一半 / 待确认);仅当前帧透传。 */
   pendingDraft?: { geom: VideoStageGeom; className: string } | null;
-  /** v0.21.12 · 采样网格步长;用于「上一网格帧」(gridPrev)判定「跨网格帧续写」集合 S。缺省 1。 */
+  /** 采样网格步长;用于「上一网格帧」(gridPrev)判定「跨网格帧续写」集合 S。缺省 1。 */
   samplingStep?: number;
 }
 
@@ -202,7 +201,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
         ),
       );
     } else if (isVideoPolygon(ann) && ann.geometry.frame_index === frameIndex) {
-      // v0.21.21 · 单帧 polygon: 外接盒作 geom (标签/选中锚点) + points 供 <Line closed>。
+      // 单帧 polygon: 外接盒作 geom (标签/选中锚点) + points 供 <Line closed>。
       if (!visibleInReviewMode("legacy", reviewDisplayMode)) continue;
       const entry = buildEntryView(
         ann,
@@ -217,7 +216,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       );
       entries.push({ ...entry, points: ann.geometry.points });
     } else if (isVideoPolyline(ann) && ann.geometry.frame_index === frameIndex) {
-      // v0.21.21 · 单帧 polyline: 同 polygon 但开路径 (Line 不闭合、不填充)。
+      // 单帧 polyline: 同 polygon 但开路径 (Line 不闭合、不填充)。
       if (!visibleInReviewMode("legacy", reviewDisplayMode)) continue;
       const entry = buildEntryView(
         ann,
@@ -232,7 +231,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       );
       entries.push({ ...entry, points: ann.geometry.points, open: true });
     } else if (isVideoRotatedBbox(ann) && ann.geometry.frame_index === frameIndex) {
-      // v0.21.22 · 单帧 OBB: 四角旋转顶点作闭合 Line (复用 polygon 渲染路径), 外接盒作 geom。
+      // 单帧 OBB: 四角旋转顶点作闭合 Line (复用 polygon 渲染路径), 外接盒作 geom。
       if (!visibleInReviewMode("legacy", reviewDisplayMode)) continue;
       const corners = rotatedBboxCorners(ann.geometry);
       const entry = buildEntryView(
@@ -280,7 +279,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
         ),
       );
     } else if (isVideoPolygonTrack(ann) && !hiddenTrackIds.has(ann.geometry.track_id)) {
-      // v0.21.20 · polygon track: 解析当前帧多边形 → 外接盒作 geom (标签/选中锚点) + points 供 <Line>。
+      // polygon track: 解析当前帧多边形 → 外接盒作 geom (标签/选中锚点) + points 供 <Line>。
       const resolved = resolveVideoPolygonTrackAtFrame(ann.geometry, frameIndex);
       if (!resolved || !visibleInReviewMode(resolved.source, reviewDisplayMode)) continue;
       currentFrameTrackIds.add(ann.geometry.track_id);
@@ -297,7 +296,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       );
       entries.push({ ...entry, points: resolved.points });
     } else if (isVideoPolylineTrack(ann) && !hiddenTrackIds.has(ann.geometry.track_id)) {
-      // v0.21.20 · polyline track: 同 polygon 但开路径 (Line 不闭合)。
+      // polyline track: 同 polygon 但开路径 (Line 不闭合)。
       const resolved = resolveVideoPolylineTrackAtFrame(ann.geometry, frameIndex);
       if (!resolved || !visibleInReviewMode(resolved.source, reviewDisplayMode)) continue;
       currentFrameTrackIds.add(ann.geometry.track_id);
@@ -420,7 +419,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
     }
   }
 
-  // v0.21.12 · 跨网格帧续写参考框(集合 S 的非选中成员):恰好上一网格帧有关键帧、未锁定/未隐藏、
+  // 跨网格帧续写参考框(集合 S 的非选中成员):恰好上一网格帧有关键帧、未锁定/未隐藏、
   // 当前帧还没画,且不在当前帧 entries(无插值实框)。选中那条已由上面的 `ghost` 承,这里排除。
   // gridPrev 用 frameIndex 当 maxFrame(上界钳位对「更早的帧」无影响),step=1 时退化为 frameIndex-1。
   const carryOverGhosts: VideoGhostView[] = [];
@@ -520,7 +519,7 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
   return { entries, previews, ghost, carryOverGhosts, labels };
 }
 
-/** v0.21.20 · 多边形顶点的轴对齐外接盒 (归一化); 供 polygon track 的标签/选中锚点定位。 */
+/** 多边形顶点的轴对齐外接盒 (归一化); 供 polygon track 的标签/选中锚点定位。 */
 function boundsOfPoints(points: [number, number][]): VideoStageGeom {
   if (points.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
   let minX = Infinity,

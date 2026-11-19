@@ -1,4 +1,4 @@
-// v0.16.14 · ImageSelectionCardContent 单测:
+// ImageSelectionCardContent 单测:
 // - 渲染 改类/隐藏/锁定/删除 操作 + 结构化指标网格(bbox 像素 / polygon 顶点)
 // - 各操作回调透传正确的 annotationId / flag / value
 // - 有属性 schema 时渲染 AttributeForm,改值经 onUpdateAttributes 上抛

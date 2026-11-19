@@ -13,7 +13,7 @@ interface ClassPaletteProps {
   classes: string[];
   recent?: string[];
   activeClass?: string | null;
-  /** v0.5.4：项目级 classes_config，决定每个类别的颜色覆盖。空时回落 hash。 */
+  /** 项目级 classes_config，决定每个类别的颜色覆盖。空时回落 hash。 */
   classesConfig?: ClassesConfig;
   /** readOnly 时点击无效，仅作为图例 + 快捷键速查（左侧常驻面板用）。 */
   onPick?: (cls: string) => void;

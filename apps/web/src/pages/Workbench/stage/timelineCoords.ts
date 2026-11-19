@@ -1,6 +1,6 @@
 // 时间轴帧 ↔ 百分比坐标换算的单一来源 (single source of truth)。
 //
-// v0.21.15 WS1: 从 VideoPlaybackOverlay 的 frameLeft / frameFromPointer / rangeStyle 三处内联
+// 从 VideoPlaybackOverlay 的 frameLeft / frameFromPointer / rangeStyle 三处内联
 // 公式抽出, 先以固定窗口 {from:0, to:maxFrame} 注入 —— 此步纯重构, 零行为变更。WS2 起窗口可收窄为
 // 可见帧子区间 (横向 zoom), 届时点位 / 区间刷选 / 密度条全部经此换算, 保证同一坐标基准。
 
@@ -29,7 +29,7 @@ export function pctToFrame(ratio: number, win: TimelineWindow): number {
   return Math.max(win.from, Math.min(win.to, Math.round(frame)));
 }
 
-// —— v0.21.15 WS2 · 横向缩放/平移 ——
+// —— 横向缩放/平移 ——
 // 缩放/平移的窗口可为分数帧 (避免反复缩放的整数取整漂移); 渲染与反解不受影响 (pctToFrame 末端取整)。
 
 /** 最小可见跨度 (帧): 放大到此即停, 避免聚合密度桶在过小窗口里被误读成精确单帧。 */
@@ -81,7 +81,7 @@ export function panWindow(
   return clampWindow({ from: win.from + deltaFrames, to: win.to + deltaFrames }, maxFrame, minSpan);
 }
 
-// v0.21.16 · 尺子刻度步长: 选一个"整齐"帧步长 (1/2/2.5/5×10ⁿ), 使可见窗口内约 6 个标签。
+// 尺子刻度步长: 选一个"整齐"帧步长 (1/2/2.5/5×10ⁿ), 使可见窗口内约 6 个标签。
 // 随缩放窗口跨度变化自动切档, 长视频缩放后不会挤成一坨或稀到没参照。
 export function niceFrameStep(span: number): number {
   const target = Math.max(1, span / 6);

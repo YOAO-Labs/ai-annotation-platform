@@ -18,7 +18,7 @@ export interface PreannotateQueueResponse {
   items: PreannotateQueueItem[];
 }
 
-// v0.9.12 · BUG B-16 多选批量清理 + B-17 项目卡片聚合
+// BUG B-16 多选批量清理 + B-17 项目卡片聚合
 export type BulkClearMode = "predictions_only" | "reset_to_draft";
 
 export interface BulkClearRequest {
@@ -43,7 +43,7 @@ export interface PreannotateProjectSummary {
   project_name: string;
   project_display_id?: string | null;
   type_key: string;
-  // v0.10.28 · 媒体维度数据类型 (image / video / lidar).
+  // 媒体维度数据类型 (image / video / lidar).
   data_type: string;
   ml_backend_id?: string | null;
   ml_backend_name?: string | null;
@@ -60,7 +60,7 @@ export interface PreannotateProjectSummaryResponse {
 }
 
 export const adminPreannotateApi = {
-  /** v0.9.6 · 列出 pre_annotated 状态批次 + prediction/failed 计数. */
+  /** 列出 pre_annotated 状态批次 + prediction/failed 计数. */
   queue: (
     limit = 50,
     options: { projectId?: string; offset?: number; signal?: AbortSignal } = {},
@@ -88,10 +88,10 @@ export const adminPreannotateApi = {
     return { items };
   },
 
-  /** v0.9.12 B-16 · 多选批量清理 prediction (predictions_only=回 active / reset_to_draft=全重置). */
+  /** 多选批量清理 prediction (predictions_only=回 active / reset_to_draft=全重置). */
   bulkClear: (payload: BulkClearRequest) =>
     apiClient.post<BulkClearResponse>(`/admin/preannotate-queue/bulk-clear`, payload),
 
-  /** v0.9.12 B-17 · 项目卡片聚合 (仅返回有 ml_backend 的项目). */
+  /** 项目卡片聚合 (仅返回有 ml_backend 的项目). */
   summary: () => apiClient.get<PreannotateProjectSummaryResponse>(`/admin/preannotate-summary`),
 };

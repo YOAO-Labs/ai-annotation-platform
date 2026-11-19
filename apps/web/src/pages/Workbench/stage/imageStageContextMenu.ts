@@ -33,7 +33,7 @@ interface BuildImageContextMenuItemsArgs {
     flag: "z_order" | "is_locked" | "is_hidden",
     value: number | boolean,
   ) => void;
-  // v0.20.19 · 全局 UI 开关: 二次推理面板显隐 (非 per-标注状态)。缺省不显示该项。
+  // 全局 UI 开关: 二次推理面板显隐 (非 per-标注状态)。缺省不显示该项。
   secondaryBarHidden?: boolean;
   onToggleSecondaryBar?: () => void;
 }
@@ -211,7 +211,7 @@ export function buildImageContextMenuItems({
     },
   );
 
-  // v0.20.19 · 全局 UI 项 (独立分区): 二次推理面板显隐, 与上面 per-标注项区隔。
+  // 全局 UI 项 (独立分区): 二次推理面板显隐, 与上面 per-标注项区隔。
   if (onToggleSecondaryBar) {
     items.push(
       { id: "secondary-bar-divider", divider: true, label: "" },

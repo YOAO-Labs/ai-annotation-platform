@@ -1,7 +1,7 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
 /**
- * v0.10.28 · 关键点工具 (COCO 范式)。
+ * 关键点工具 (COCO 范式)。
  * 交互：按当前类别 keypoint_schema.nodes **依次** 落点：
  *   - 左键           → 放下一个可见点 (v=2)；
  *   - Alt + 左键      → 当前节点标记为「被遮挡」(v=1，位置仍记录)；

@@ -1,7 +1,7 @@
 import { pointCloudManifestQueryKey } from "@/api/pointCloudOriginals";
 import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 /**
- * v0.15.20 · FramePicker 的 Layer 2 相机图缩略图数据源。
+ * FramePicker 的 Layer 2 相机图缩略图数据源。
  *
  * neighbors(k) 反查 ±k 邻帧的 (task_id, frame_index),逐帧拉 PointCloudManifest
  * Shares the owner-scoped manifest key with usePointCloudManifest.

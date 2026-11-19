@@ -1,5 +1,5 @@
 /**
- * v0.21.4 · 当前视频帧 → JPEG Blob。
+ * 当前视频帧 → JPEG Blob。
  *
  * 视频工作台把当前帧解码成 ImageBitmap 缓存(useVideoBitmapCache);单题 AI 与交互式 SAM
  * 需把它编码成 JPEG 随 multipart 传后端(client 供图路径)。优先 OffscreenCanvas.convertToBlob;
@@ -41,7 +41,7 @@ export async function imageBitmapToJpeg(bitmap: ImageBitmap, quality = 0.9): Pro
 }
 
 /**
- * v0.21.23 · <video> 元素当前显示帧 → JPEG。
+ * <video> 元素当前显示帧 → JPEG。
  * 元数据未就绪(videoWidth 为 0)时返回 null,由调用方判定「帧确实还没到」。
  */
 export async function videoElementToJpeg(

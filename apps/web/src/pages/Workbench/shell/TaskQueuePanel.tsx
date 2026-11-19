@@ -65,7 +65,7 @@ interface TaskQueuePanelProps {
   onDetachPalette?: () => void;
   floatingSection?: "queue" | "palette";
   /**
-   * v0.13.3-5 · 左栏色板默认是只读图例(2D 落框时弹窗/数字键选类)。点云 3D 台没有落框弹窗,
+   * 左栏色板默认是只读图例(2D 落框时弹窗/数字键选类)。点云 3D 台没有落框弹窗,
    * 放置新框直接取 activeClass,故 3D 下让色板可点选(classPickable),点击即设 activeClass。
    */
   classPickable?: boolean;
@@ -379,7 +379,7 @@ export function TaskQueuePanel({
             </FilterGroup>
           )}
 
-          {/* v0.6.8 B-15：owner 视角且无任何批次时给出明确入口，避免误以为「100 条就是全部」 */}
+          {/* owner 视角且无任何批次时给出明确入口，避免误以为「100 条就是全部」 */}
           {isOwner && (!batches || batches.length === 0) && onGoToBatchSettings && (
             <div className="flex items-center justify-between gap-2 mx-3.5 mt-1.5 px-2.5 py-2 border border-dashed border-border rounded-[var(--radius-sm)] bg-background text-muted-foreground text-xs">
               <span>未分批次 · 任务统一在「未归类」</span>
@@ -394,7 +394,7 @@ export function TaskQueuePanel({
             </div>
           )}
 
-          {/* v0.7.1 B-15：非 owner 视角且未分到批次 → 显式提示，避免误以为「列表无尽，但只看见 100」 */}
+          {/* 非 owner 视角且未分到批次 → 显式提示，避免误以为「列表无尽，但只看见 100」 */}
           {!isOwner && (!batches || batches.length === 0) && (
             <div className="mx-3.5 mt-1.5 px-2.5 py-2 border border-dashed border-border rounded-[var(--radius-sm)] bg-background text-muted-foreground text-xs">
               暂未被分派到批次 · 联系项目管理员分配

@@ -1,5 +1,5 @@
 /**
- * v0.15.20 · 跨帧延续 / 区间插值的「目标帧」选择器。
+ * 跨帧延续 / 区间插值的「目标帧」选择器。
  *
  * 替代 CrossFrameInterpolateBar 的裸数字输入:
  * - Layer 1:回显当前 / 目标帧在 scene 内的位置 + 语义步进(+5 / +10 / 到末帧)+ 数字兜底;
@@ -7,7 +7,7 @@
  * - Layer 2:相机图缩略图条(±5 邻帧),点缩略图即设目标帧;无相机图的帧降级为占位,
  *   整条无图时不渲染(回落纯 Layer 1)。
  * 由 3D 画布右键菜单的「延续到指定帧 / 向后插值填充」触发,fixed 定位在鼠标点。
- * v0.17.6 · module.css → Tailwind。
+ * module.css → Tailwind。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrameNeighbors } from "@/hooks/useFrameNeighbors";
@@ -17,7 +17,7 @@ import { useNeighborFrameThumbs } from "./useNeighborFrameThumbs";
 
 export type FramePickerMode = "propagate" | "interpolate";
 
-// v0.17.6 · Tailwind class constants (was FramePicker.module.css).
+// Tailwind class constants (was FramePicker.module.css).
 const POPOVER =
   "fixed left-[var(--frame-picker-left)] top-[var(--frame-picker-top)] z-workbench-modal w-[280px] max-w-[90vw] p-3 flex flex-col gap-2.5 bg-card border border-border rounded-lg shadow-lg text-sm text-foreground";
 const TITLE = "font-semibold text-sm text-foreground";

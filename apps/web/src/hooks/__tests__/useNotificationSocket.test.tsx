@@ -317,7 +317,7 @@ describe("useNotificationSocket", () => {
     mount();
     expect(MockWebSocket.instances.length).toBe(1);
     expect(MockWebSocket.instances[0].url).toContain("token=old-token");
-    // v0.9.11 修复: WS URL 从错误的 /api/v1/ws/notifications 改为 /ws/notifications
+    // 修复: WS URL 从错误的 /api/v1/ws/notifications 改为 /ws/notifications
     // (ws_router 在 main.py 是 app.include_router(ws_router) 无 prefix).
     expect(MockWebSocket.instances[0].url).toMatch(/\/ws\/notifications/);
     expect(MockWebSocket.instances[0].url).not.toMatch(/\/api\/v1\/ws\/notifications/);

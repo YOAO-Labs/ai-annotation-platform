@@ -175,9 +175,9 @@ test.describe("annotation workbench", () => {
   }
 
   /**
-   * v0.10.2 · Prompt-first ToolDock + capability 协商.
+   * Prompt-first ToolDock + capability 协商.
    * mock /setup 返回 grounded-sam2 (point/bbox/text), 断言:
-   *   ① smart-point / smart-box 可点 (v0.14.18 · text-prompt 已归批量线, 不在工具栏)
+   *   ① smart-point / smart-box 可点 (text-prompt 归批量线，不在工具栏)
    *   ② exemplar 工具置灰 (aria-disabled="true")
    *   ③ AIToolDrawer 在 smart-point 激活时出现
    *   ④ 点击 stage 触发 /interactive-annotating, body.context.type === "point"
@@ -272,7 +272,7 @@ test.describe("annotation workbench", () => {
     // ② exemplar 工具置灰
     await expect(exemplarBtn).toHaveAttribute("aria-disabled", "true");
 
-    // ③ 激活 smart-point → 画布顶部交互工具栏出现 (v0.18.25 AIToolDrawer 退役改 InteractiveToolBar)
+    // ③ 激活 smart-point → 画布顶部出现 InteractiveToolBar
     await pointBtn.click();
     await expect(pointBtn).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("interactive-tool-capsule")).toBeVisible();
@@ -289,7 +289,7 @@ test.describe("annotation workbench", () => {
   });
 
   /**
-   * v0.10.2 · sam3 capability → exemplar 工具可用; smart-point 置灰; 拖框 → exemplar dispatch.
+   * sam3 capability → exemplar 工具可用; smart-point 置灰; 拖框 → exemplar dispatch.
    */
   test("Prompt-first · sam3 capability → exemplar dispatch", async ({ page, seed }) => {
     const data = await seed.owned();
@@ -370,7 +370,7 @@ test.describe("annotation workbench", () => {
 
     // 拖框 → exemplar
     // 注意：选中 AI 工具会打开 AIToolDrawer 悬浮参数面板，覆盖画布左侧约 1/3
-    // （v0.10.x「AI 参数迁至悬浮面板」）。拖框起点须落在面板右侧的空白画布区，
+    // 拖框起点须落在悬浮参数面板右侧的空白画布区，
     // 否则 pointerdown 命中面板而非 Konva canvas，samProbe 不会触发。
     const stage = page.getByTestId("workbench-stage");
     const box = await stage.boundingBox();

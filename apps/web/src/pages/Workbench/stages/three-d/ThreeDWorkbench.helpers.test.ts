@@ -1,7 +1,7 @@
 vi.mock("./pointCloudAssetCache", () => ({
   acquireCameraImageAddress: async (url: string) => ({ url, release: vi.fn() }),
 }));
-// v0.16.x 第 2 批 · ThreeDWorkbench PSR 表单纯逻辑测试守护(伴随从 schedulePatch /
+// 第 2 批 · ThreeDWorkbench PSR 表单纯逻辑测试守护(伴随从 schedulePatch /
 // handleFieldBlur 提炼,锁定字段校验与 form→geometry 转换行为)。
 import { afterEach, describe, it, expect, vi } from "vitest";
 import {

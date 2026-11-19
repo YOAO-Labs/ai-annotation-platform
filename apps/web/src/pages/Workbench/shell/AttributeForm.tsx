@@ -19,30 +19,30 @@ export interface AttributeFormProps {
   /** Keep creation drafts current before an immediate submit or cancellation. */
   immediate?: boolean;
   /**
-   * v0.10.20 · I12 多选批量编辑模式: > 1 时在表单顶部渲染 banner 提示「N 个标注被选中, 修改将应用到全部」。
+   * 多选批量编辑模式: > 1 时在表单顶部渲染 banner 提示「N 个标注被选中, 修改将应用到全部」。
    * 实际 bulk-update 路径由调用方在 onChange 中分发 (走 useAnnotationBulkUpdate);
    * 表单本身只负责 UI 提示与初始值展示 (取第一个选中标注的属性).
    */
   batchCount?: number;
   /**
-   * v0.10.6 M4-γ · I13.2：可选环境位。
+   * 可选环境位。
    * - `image`（默认）：忽略 `field.mutable` 标记，行为完全 = immutable，向后兼容。
    * - `video`：mutable 字段视觉上展示「mutable」徽标，未来由 video 工作台接 keyframe override 路径。
    */
   context?: "image" | "video";
   /**
-   * v0.10.6：可选 dirty tracker（useDirtyTracker 返回值）。传入时启用「批量改 → blur 一次 commit」路径：
+   * 可选 dirty tracker（useDirtyTracker 返回值）。传入时启用「批量改 → blur 一次 commit」路径：
    * - 用户连续改 attribute 字段时，dirty 累积但 onChange 立即同步本地 draft；
    * - 表单失焦（blur 出 form 容器）时调用 flush，调用方据此决定何时真正 PATCH。
-   * 不传时维持原 400ms debounce 行为（v0.6.x）。
+   * 不传 dirtyTracker 时使用 400ms debounce。
    */
   dirtyTracker?: DirtyTracker;
-  /** v0.10.6：dirty tracker 模式下，需要 annotationId 才能 mark / flush。 */
+  /** dirty tracker 模式下，需要 annotationId 才能 mark / flush。 */
   annotationId?: string;
   /** 隐藏内部「属性」标题行：外层（侧栏底部折叠头 / 悬浮框）已承载标题时使用，避免重复。 */
   hideHeading?: boolean;
   /**
-   * v0.20.10 · 属性级溯源: {key: {origin, model_ref?}}。仅含 origin=ai 的键;
+   * 属性级溯源: {key: {origin, model_ref?}}。仅含 origin=ai 的键;
    * 命中的字段旁渲染一枚极轻 AI chip（hover 显 model）。人工改该属性并保存后,
    * 后端会删对应 meta,刷新后 chip 自然消失。
    */
@@ -56,7 +56,7 @@ export interface AttributeFormProps {
   shortcutRegion?: boolean;
 }
 
-/** v0.20.10 · AI 溯源 chip 的 hover 文案: 尽量显 model / backend。 */
+/** AI 溯源 chip 的 hover 文案: 尽量显 model / backend。 */
 function aiChipTitle(entry: AttributeMetaEntry | undefined): string {
   const ref = entry?.model_ref;
   const parts: string[] = [];
@@ -125,14 +125,14 @@ export function AttributeForm({
   const [regionActive, setRegionActive] = useState(false);
   const regionRef = useRef<HTMLDivElement>(null);
   const lastFromUpstream = useRef<Record<string, unknown>>(attributes ?? {});
-  // v0.10.6：保留最新 draft 引用，blur flush 时取最新值上抛
+  // 保留最新 draft 引用，blur flush 时取最新值上抛
   const draftRef = useRef(draft);
   const immediateRef = useRef(immediate);
   immediateRef.current = immediate;
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
-  // v0.16.8：保留最新 onChange，卸载补 flush（见底部 cleanup）时用最新回调，避免闭包捕获首渲染的旧 onChange
+  // 保留最新 onChange，卸载补 flush（见底部 cleanup）时用最新回调，避免闭包捕获首渲染的旧 onChange
   const onChangeRef = useRef(onChange);
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -180,7 +180,7 @@ export function AttributeForm({
     }, 400) as unknown as number;
   };
 
-  // v0.10.6：form 整体 blur 时（焦点离开 form 容器）flush
+  // form 整体 blur 时（焦点离开 form 容器）flush
   const handleFormBlur = (e: React.FocusEvent<HTMLDivElement>) => {
     // relatedTarget 仍在 form 内 → 字段间跳转，不算 blur 出
     if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
@@ -199,7 +199,7 @@ export function AttributeForm({
     }
   };
 
-  // v0.16.8 修复「改属性看似改了实则没保存」：debounce 路径下，组件卸载前若仍有未到点的提交
+  // 修复「改属性看似改了实则没保存」：debounce 路径下，组件卸载前若仍有未到点的提交
   // （如 ClassPickerPopover 内联属性编辑 <400ms 内关闭弹层），用最新 draft 补 flush 一次，
   // 避免待提交的 onChange 被 clearTimeout 丢弃。debounceRef 为 null（已 flush / dirty 模式）时不触发，杜绝重复提交。
   useEffect(
@@ -243,7 +243,7 @@ export function AttributeForm({
         <span className="inline-flex items-center gap-1.5 text-xs text-foreground">
           {f.label}
           {f.required && <span className="ml-1 text-status-danger">*</span>}
-          {/* v0.20.10 · AI 属性溯源 chip: origin=ai 的字段旁一枚极轻标记, hover 显 model。 */}
+          {/* AI 属性溯源 chip: origin=ai 的字段旁一枚极轻标记, hover 显 model。 */}
           {attributesMeta?.[f.key]?.origin === "ai" && (
             <span
               title={aiChipTitle(attributesMeta[f.key])}
@@ -253,7 +253,7 @@ export function AttributeForm({
               ✦ AI
             </span>
           )}
-          {/* v0.10.6 M4-γ · I13.2：视频任务下 mutable 字段标记徽标，提示「逐 keyframe 可变」语义。 */}
+          {/* 视频任务下 mutable 字段标记徽标，提示「逐 keyframe 可变」语义。 */}
           {context === "video" && f.mutable === true && (
             <span
               title="逐 keyframe 可变（mutable）"
@@ -439,12 +439,12 @@ export function AttributeForm({
   );
 }
 
-/** v0.6.4：description 支持 markdown（链接 / 加粗 / 列表 / 换行）。
+/** description 支持 markdown（链接 / 加粗 / 列表 / 换行）。
  *  hover 或 focus 时弹出 popover，点击外部关闭。链接强制 target=_blank。
  *  GFM 启用，但禁 raw HTML（react-markdown 默认不开 rehype-raw，避免 XSS）。
  */
 function DescriptionPopover({ description }: { description: string }) {
-  // v0.7.0：迁移到 usePopover（统一 click-outside + ESC 行为）
+  // 迁移到 usePopover（统一 click-outside + ESC 行为）
   const pop = usePopover();
   const containerRef = useRef<HTMLSpanElement | null>(null);
 

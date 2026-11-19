@@ -90,7 +90,7 @@ export const AI_PRE_SCENES: ScreenshotScene[] = [
     target: "docs-site/user-guide/images/projects/ai-pre-history-search.png",
   },
   // NOTE: ai-pre/empty-alias 已移除 —— PromptComposer（旧「类别无 alias」警告所在）在
-  // v0.10.40 ai-pre 重构（项目卡片 + ProjectDetailPanel）中已删除，无对应 UI 可截。
+  // ai-pre 重构（项目卡片 + ProjectDetailPanel）中已删除，无对应 UI 可截。
   {
     name: "wizard/step4-backend",
     requiresML: true,

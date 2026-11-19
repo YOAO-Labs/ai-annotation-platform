@@ -1,5 +1,5 @@
 /**
- * v0.23.4 · runtimeTopology view-model tests.
+ * runtimeTopology view-model tests.
  *
  * Covers the Appendix A.5 golden fixture matrix plus the negative assertions
  * (forbidden behaviors): missing values must NOT render as 0 / healthy / idle,
@@ -292,7 +292,7 @@ describe("F_metrics_absent · 负向断言", () => {
     expect(NO_METRICS_LABEL).toBe("暂无路由指标");
   });
 
-  it("capacity limit 恒为 null（v0.23.3 合同无 max_concurrency）", () => {
+  it("capacity limit 恒为 null（后端合同不提供 max_concurrency）", () => {
     const vm = mergeTopologyAndSnapshot(makeTopology(), makeSnapshot());
     expect(vm.pools[0].capacity.limit).toBeNull();
     // Execution counts come from the current routing-state observation; these stay.

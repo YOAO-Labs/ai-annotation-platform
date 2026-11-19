@@ -1,4 +1,4 @@
-// v0.16.14 · geometryMetrics 单测:
+// geometryMetrics 单测:
 // - bbox 像素 / 占图比 / 位置 / 宽高比;无 imgW/imgH 时降级
 // - polygon 鞋带面积 + 周长 + 占图比;多连通域总面积
 // - polyline 总长;keypoint 可见计数;rotated 旋转角

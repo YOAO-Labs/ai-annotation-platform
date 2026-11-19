@@ -18,8 +18,8 @@ import { RuntimeObservePanel } from "./RuntimeObservePanel";
 import { ProtocolCatalogPanel } from "./ProtocolCatalogPanel";
 import { ModelDirectoryPanel } from "./ModelDirectoryPanel";
 
-// v0.9.12 BUG B-14 · 删 failed tab; 失败预测已迁到 /ai-pre/jobs?status=failed.
-// v0.23.4 P4 · FailedPredictionsTab.tsx + ObserveBackendsPanel.tsx 已删除
+// BUG B-14 · 删 failed tab; 失败预测已迁到 /ai-pre/jobs?status=failed.
+// FailedPredictionsTab.tsx + ObserveBackendsPanel.tsx 已删除
 // （审计确认无任何 import；旧注释提及的引用已不存在）。
 //
 // 页面骨架（plan §3）：一个 H1 → 主 TAB（line 变体）→ 当前主 Panel。父页面
@@ -87,7 +87,7 @@ export function ModelMarketPage() {
         <h1 className="mb-1 text-xl font-semibold">模型市场</h1>
         <p className="text-sm text-muted-foreground">
           查找模型、了解协议能力，或管理模型服务与运行状态。
-          {/* v0.10.38 · 视频追踪任务监控已迁至 /ai-pre/jobs 视频 tab (epic 阶段 3) */}
+          {/* 视频追踪任务监控已迁至 /ai-pre/jobs 视频 tab (epic 阶段 3) */}
         </p>
       </div>
 

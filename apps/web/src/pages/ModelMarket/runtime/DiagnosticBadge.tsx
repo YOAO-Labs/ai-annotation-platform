@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 · diagnostic severity badge with affected-objects count.
+ * diagnostic severity badge with affected-objects count.
  *
  * Plan §7.2: severity badges use icon + text (never color-only). The badge
  * shows the affected-object count so an operator can scan scope at a glance;

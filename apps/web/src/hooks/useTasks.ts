@@ -695,7 +695,7 @@ export function useSubmitTask() {
   });
 }
 
-// v0.8.7 F7 · 跳过任务（标注员遇图像损坏 / 无目标 / 不清晰）
+// 跳过任务（标注员遇图像损坏 / 无目标 / 不清晰）
 export function useSkipTask() {
   const qc = useQueryClient();
   return useMutation({

@@ -3,7 +3,7 @@ import { listStyles } from "@/components/ui/listStyles";
 import { useFocusedListPagination } from "./useFocusedListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 P3 · registry "实例" tab.
+ * registry "实例" tab.
  *
  * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: the table is for configuring
  * and locating physical endpoints. Main columns collapse to six —

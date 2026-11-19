@@ -1,6 +1,6 @@
 /**
- * v0.9.3 · IoU 候选裁剪索引（rbush 同类分桶）。
- * v0.10.4 I2.3 · 追加 `buildVertexIndex`：对密集 polygon 顶点做空间分桶 + viewport 粗筛。
+ * IoU 候选裁剪索引（rbush 同类分桶）。
+ * 追加 `buildVertexIndex`：对密集 polygon 顶点做空间分桶 + viewport 粗筛。
  *
  * 用途：
  * - `buildIoUIndex`: WorkbenchShell 计算 dimmedAiIds 时避免对每个 AI 框扫全部 user 框。
@@ -64,7 +64,7 @@ export function buildIoUIndex(boxes: Array<ShapeForIoU & { cls: string }>): IoUC
   };
 }
 
-// v0.10.4 I2.3 · 单 polygon 顶点空间索引（归一化 [0,1]）。
+// 单 polygon 顶点空间索引（归一化 [0,1]）。
 // 给定 viewport bbox，O(log n) 返回可见顶点下标集合。
 interface IndexedVertex extends BBox {
   idx: number;

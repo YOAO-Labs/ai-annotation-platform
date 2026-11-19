@@ -1,5 +1,5 @@
 /**
- * v0.13.4 · 3D→2D 相机投影纯函数内核 (世界/lidar 点 → 相机像素)。
+ * 3D→2D 相机投影纯函数内核 (世界/lidar 点 → 相机像素)。
  *
  * 与 WebGL/renderer/浏览器无关 —— 只做矩阵·向量算术, 可在 jsdom 下单测。
  * 供图像 overlay 把点云 / 3D 框角点投到相机图上画框线 (角点经 box3d.ts
@@ -47,7 +47,7 @@ export interface ProjectionResult {
   /** 该点是否在相机前方 (w > 0)。 */
   visible: boolean[];
   /**
-   * v0.15.24 · 该点的相机系深度 (= 透视除法的 w; 内参末行 [0,0,1] 时即相机系 z, 单位米)。
+   * 该点的相机系深度 (= 透视除法的 w; 内参末行 [0,0,1] 时即相机系 z, 单位米)。
    * 供视锥选点的深度门控 (frustum.depthGate) 取最近簇用; 相机后方点为负。
    */
   depths: number[];

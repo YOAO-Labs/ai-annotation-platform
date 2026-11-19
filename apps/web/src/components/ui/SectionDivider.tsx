@@ -1,5 +1,5 @@
 /**
- * SectionDivider —— 分区标题分隔(v0.17.2,module.css → Tailwind)。
+ * SectionDivider —— 分区标题分隔。
  */
 interface SectionDividerProps {
   label: string;

@@ -1,5 +1,5 @@
 /**
- * v0.9.8 · Topbar 全局预标 job 徽章.
+ * Topbar 全局预标 job 徽章.
  *
  * 紫色徽章显示 in-progress job 数, 0 时不渲染. 点击展开 popover 列每个 job
  * (项目名 / 进度 / 跳转链接), 让 admin 跑完后切到别处也能看到。

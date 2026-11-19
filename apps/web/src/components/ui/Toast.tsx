@@ -6,7 +6,7 @@ import { Toaster } from "@/components/shadcn/ui/sonner";
 import { copyToClipboard } from "@/lib/clipboard";
 
 /**
- * Toast —— sonner 适配层(v0.17.2)。
+ * Toast —— sonner 适配层。
  * 保留 `useToastStore.push({msg,sub?,kind?})` API(~104 调用点零改动),内部委托 sonner 的 toast()。
  * `ToastRack` 改为渲染 sonner `<Toaster/>`(已接 useTheme 主题),App.tsx 挂载点零改动。
  * 位置/配色对齐旧 rack:top-right + richColors(success/warning/error 语义色)。

@@ -78,7 +78,7 @@ export function useTransitionBatch(projectId: string) {
   });
 }
 
-// v0.x · 整批送审：提交批次内所有 pending / in_progress 任务并推进到 reviewing。
+// 整批送审：提交批次内所有 pending / in_progress 任务并推进到 reviewing。
 export function useSubmitBatch(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -94,7 +94,7 @@ export function useSubmitBatch(projectId: string) {
   });
 }
 
-// v0.7.3 · 多选批量操作
+// 多选批量操作
 export function useBulkArchiveBatches(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -141,7 +141,7 @@ export function useBulkActivateBatches(projectId: string) {
   });
 }
 
-// v0.7.3 · 批次操作历史
+// 批次操作历史
 export function useBatchAuditLogs(
   projectId: string,
   batchId: string | null,
@@ -155,7 +155,7 @@ export function useBatchAuditLogs(
   });
 }
 
-// v0.7.3 · 未归类任务数
+// 未归类任务数
 export function useUnclassifiedTaskCount(projectId: string) {
   return useQuery({
     queryKey: ["unclassified-count", projectId],
@@ -256,7 +256,7 @@ export function useRejectBatch(projectId: string) {
   });
 }
 
-// v0.7.6 · 终极重置到 draft
+// 终极重置到 draft
 export function useResetBatch(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -271,7 +271,7 @@ export function useResetBatch(projectId: string) {
   });
 }
 
-// v0.9.15 · ADR-0008 admin-lock
+// ADR-0008 admin-lock
 export function useAdminLockBatch(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -295,7 +295,7 @@ export function useAdminUnlockBatch(projectId: string) {
   });
 }
 
-// v0.9.15 · Bulk approve/reject
+// Bulk approve/reject
 export function useBulkApproveBatches(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

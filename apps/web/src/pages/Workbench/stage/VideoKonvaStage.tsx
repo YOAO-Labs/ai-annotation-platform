@@ -159,7 +159,7 @@ import { VideoStageCommentBadges } from "./VideoStageCommentBadges";
 import type { AiBox } from "../state/transforms";
 import styles from "./VideoKonvaStage.module.css";
 
-/** v0.21.23 · SAM 提示框描边色，与图片侧 SAM_CANDIDATE_STROKE 同值（canvas 数据域颜色）。 */
+/** SAM 提示框描边色，与图片侧 SAM_CANDIDATE_STROKE 同值（canvas 数据域颜色）。 */
 const SAM_PROBE_STROKE = "#a855f7";
 const EMPTY_SAM_CANDIDATES: VideoSamCandidateShape[] = [];
 const EMPTY_SAM_MASK_RECORDS: RasterMaskRenderRecord<"interactive">[] = [];
@@ -192,14 +192,14 @@ interface VideoKonvaStageProps {
   isSourceReady?: () => boolean;
   frameIndex?: number;
   autoFitOnResize?: boolean;
-  /** v0.21.11 · 选中自动聚焦(common.focusSelectionEnabled); 关闭时选中不移动视口。 */
+  /** 选中自动聚焦(common.focusSelectionEnabled); 关闭时选中不移动视口。 */
   focusSelectionEnabled?: boolean;
-  /** v0.21.12 · 轨迹「续写后自动前进」(video.trackContinueAutoAdvance); 续写完自动选中下一条待续轨迹。 */
+  /** 轨迹「续写后自动前进」(video.trackContinueAutoAdvance); 续写完自动选中下一条待续轨迹。 */
   trackContinueAutoAdvance?: boolean;
   performanceTier?: WorkbenchCommonPreferences["performanceTier"];
   onFrameIndexChange?: (frameIndex: number) => void;
   annotations?: AnnotationResponse[];
-  /** v0.21.4 · AI 候选(全部帧); 舞台内按当前帧过滤视频几何渲染 + 采纳/驳回。 */
+  /** AI 候选(全部帧); 舞台内按当前帧过滤视频几何渲染 + 采纳/驳回。 */
   aiBoxes?: AiBox[];
   selectedId?: string | null;
   hiddenTrackIds?: Set<string>;
@@ -232,13 +232,13 @@ interface VideoKonvaStageProps {
   /** 光标归一化坐标上报(供状态栏坐标读出);离开画布时上报 null。 */
   onCursorMove?: (pt: { x: number; y: number } | null) => void;
   onCreate?: (frameIndex: number, geom: { x: number; y: number; w: number; h: number }) => void;
-  /** v0.21.20 · 由绘制顶点新建 polygon/polyline track (单关键帧于当前帧)。 */
+  /** 由绘制顶点新建 polygon/polyline track (单关键帧于当前帧)。 */
   onCreatePointsTrack?: (
     type: "video_track_polygon" | "video_track_polyline",
     frameIndex: number,
     points: [number, number][],
   ) => void;
-  /** v0.21.21 · 由绘制顶点新建单帧 polygon/polyline (video_polygon/video_polyline)。 */
+  /** 由绘制顶点新建单帧 polygon/polyline (video_polygon/video_polyline)。 */
   onCreatePoints?: (
     type: "video_polygon" | "video_polyline",
     frameIndex: number,
@@ -264,16 +264,16 @@ interface VideoKonvaStageProps {
       | VideoTrackPolygonGeometry
       | VideoTrackPolylineGeometry,
   ) => void;
-  /** v0.21.23 · 交互式 SAM 提示松手 (归一化坐标)；由 shell 取当前帧图请求候选。 */
+  /** 交互式 SAM 提示松手 (归一化坐标)；由 shell 取当前帧图请求候选。 */
   onSamPrompt?: (prompt: VideoSamPrompt) => void;
-  /** v0.21.23 · 交互式 SAM 的瞬态候选（不落库；采纳时才建标注）。 */
+  /** 交互式 SAM 的瞬态候选（不落库；采纳时才建标注）。 */
   samCandidates?: VideoSamCandidateShape[];
   samMaskRecords?: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate?: (candidateId: string) => void;
   samActiveIdx?: number;
   /** 当前点会话已落的正/负点（多点精修可视化）。 */
   samSessionPoints?: { pt: [number, number]; polarity: 1 | 0; obj?: number }[];
-  /** v0.21.27 · 框修正 · 当前帧已落的 PVS 框种子（归一化 xyxy）。 */
+  /** 框修正 · 当前帧已落的 PVS 框种子（归一化 xyxy）。 */
   samSessionBoxes?: { bbox: [number, number, number, number]; obj?: number }[];
   /** 追踪任务尚未接受的 mask 候选；使用 job 级内容端点解码。 */
   maskCandidates?: VideoMaskCandidate[];
@@ -289,7 +289,7 @@ interface VideoKonvaStageProps {
     options: VideoTrackConversionOptions,
   ) => void;
   onDelete?: (annotation: AnnotationResponse) => void;
-  /** v0.21.4 · AI 候选采纳 / 驳回(贴框快捷条, 复用图片工作台的 handleAcceptPrediction/Reject)。 */
+  /** AI 候选采纳 / 驳回(贴框快捷条, 复用图片工作台的 handleAcceptPrediction/Reject)。 */
   onAcceptPrediction?: (b: AiBox) => void;
   onRejectPrediction?: (b: AiBox) => void;
   onPropagateTrack?: (annotation: VideoManagedTrackAnnotation) => void;
@@ -298,9 +298,9 @@ interface VideoKonvaStageProps {
   maskKeyframeActions?: VideoMaskKeyframeActionHandlers;
   /** 时间轴章节(从工作台 shell 透传)。 */
   chapters?: VideoTimelineChapter[];
-  /** v0.21.13 · 章节 × 时间轴联动控制器 (刷选建章节 / resize / hover)。 */
+  /** 章节 × 时间轴联动控制器 (刷选建章节 / resize / hover)。 */
   timelineChapterControls?: VideoTimelineChapterControls;
-  /** v0.21.14 WS3 · AI 传播对话框打开时在时间轴高亮的影响范围。 */
+  /** AI 传播对话框打开时在时间轴高亮的影响范围。 */
   propagateRange?: VideoLoopRegion | null;
   trackerReview?: TrackerReviewProjection | null;
   reviewReference?: VideoTrackContextBarProps["reviewReference"];
@@ -319,7 +319,7 @@ const CONTEXT_MENU_DRAG_THRESHOLD_PX = 5;
 const noop = () => {};
 
 /**
- * 视频 Konva 渲染栈容器(v0.16.1–v0.16.5)。
+ * 视频 Konva 渲染栈容器。
  *
  * 底图/播放/标注/交互/右键菜单全栈进 Konva,并补齐旧 SVG 栈的 chrome 奇偶性:
  * VideoPlaybackOverlay(时间轴)、Minimap、VideoQcWarnings。关键帧跳转改由画布内
@@ -494,7 +494,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
     const maskCreationOwnerRef = useRef<{ tool: VideoTool; frameIndex: number } | null>(null);
     const maskToolActive = videoTool === "mask" || videoTool === "mask-track";
 
-    // v0.16.3 · 交互:选中轨迹(供 track 工具画框落关键帧 + ghost 可编辑判定)。
+    // 交互:选中轨迹(供 track 工具画框落关键帧 + ghost 可编辑判定)。
     const selectedTrack = useMemo(() => {
       const a = annotations.find((x) => x.id === selectedId);
       return a && isVideoTrack(a) ? a : null;
@@ -610,7 +610,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       setContextMenuTargetId(null);
     }, [contextMenu]);
 
-    // v0.21.9 · 预测帧集合 (video_bbox 帧号 + video_track_bbox 关键帧号, 去重升序); 喂时间轴预测密度轨。
+    // 预测帧集合 (video_bbox 帧号 + video_track_bbox 关键帧号, 去重升序); 喂时间轴预测密度轨。
     const predictedFrames = useMemo(() => collectPredictedFrames(aiBoxes), [aiBoxes]);
 
     // ---- useVideoPlaybackController ----
@@ -985,8 +985,8 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       ? samMaskRecords
       : [];
 
-    // v0.21.4 · AI 候选按当前帧过滤(镜像 deriveVideoFrameViews 的视频几何帧过滤)。
-    // v0.21.9 WS2 · 检测式轨迹候选(video_track_bbox)也纳入: 用 resolveTrackAtFrame 解出当前帧框,
+    // AI 候选按当前帧过滤(镜像 deriveVideoFrameViews 的视频几何帧过滤)。
+    // 检测式轨迹候选(video_track_bbox)也纳入: 用 resolveTrackAtFrame 解出当前帧框,
     //   与逐帧 video_bbox 候选同层渲染(此前只在侧栏可见、画布不画)。
     const frameAiBoxes = useMemo(() => {
       const maskBounds = new Map(
@@ -1007,9 +1007,9 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       [frameAiBoxes, selectedId],
     );
 
-    // v0.21.11 · 当前帧三类对象(AI 待审 / 人工 video_bbox / 轨迹当前帧视图)分类 + 空间排序,
+    // 当前帧三类对象(AI 待审 / 人工 video_bbox / 轨迹当前帧视图)分类 + 空间排序,
     // 供 Tab 同类流转 / ` 跨类跳转。人工 vs 轨迹按 annotation.geometry 类型判别; AI 用扁平 x/y。
-    // v0.21.12 · 跨网格帧续写待续轨迹(carryOverGhosts)并入「轨迹」类一起循环。
+    // 跨网格帧续写待续轨迹(carryOverGhosts)并入「轨迹」类一起循环。
     // fix · 选中轨迹的参考虚影(ghost)也必须并入「轨迹」类, 否则选中它时 Tab 只在两条间弹
     //       (根因见 collectFrameCategories.selectedTrackGhost 注释)。
     const frameCategories = useMemo(() => {
@@ -1060,7 +1060,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       [frameCategories, onSelect, selectedId],
     );
 
-    // v0.21.11 WS2 · 焦点联动: 把对象平移居中(仅出视口/过小才动, 保守不打断已在视口的选中)。
+    // 焦点联动: 把对象平移居中(仅出视口/过小才动, 保守不打断已在视口的选中)。
     const focusObject = useCallback(
       (id: string) => {
         if (!viewportSize.w || !viewportSize.h || !size.w || !size.h) return;
@@ -1173,7 +1173,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
     });
     const { drag } = interaction;
 
-    // v0.21.20/21 · polygon/polyline 绘制 (点击落点, Enter/双击闭合)。与拖拽 bbox 正交。
+    // polygon/polyline 绘制 (点击落点, Enter/双击闭合)。与拖拽 bbox 正交。
     // 四工具: polygon/polyline = 单帧几何; polygon-track/polyline-track = 轨迹关键帧。
     const pointsDraft = useVideoPolygonDraft();
     const pointsOwnerRef = useRef<VideoDrawingDraft | null>(null);
@@ -1279,7 +1279,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
             return;
           }
         }
-        // v0.23.5 · WS-C · 视频 mask 落点经 canEditMask: 同时检查 task readOnly、选中轨迹 lock、
+        // 视频 mask 落点经 canEditMask: 同时检查 task readOnly、选中轨迹 lock、
         // annotation is_locked, 关闭锁定对象经视频 pointer 路径修改的绕过。
         const selectedTrackId = selectedManagedTrack?.geometry.track_id;
         const maskEditable =
@@ -1590,8 +1590,8 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
 
     const preview = useMemo<VideoPreviewBox | null>(() => {
       if (!drag) return null;
-      // v0.21.23 · smart-box / exemplar 的提示框预览 (紫色, 与图片侧 SAM 候选同色); point 无框可画。
-      // v0.21.26 · exemplar 的 mode==="exemplar" 也画框 (此前只画 "bbox", 导致 exemplar 拖框全程无预览、体感像坏了)。
+      // smart-box / exemplar 的提示框预览 (紫色, 与图片侧 SAM 候选同色); point 无框可画。
+      // exemplar 模式也显示拖框预览。
       if (drag.kind === "samProbe") {
         return drag.mode === "bbox" || drag.mode === "exemplar"
           ? { geom: normalizeGeom(drag.start, drag.current), color: SAM_PROBE_STROKE }
@@ -1686,7 +1686,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       return null;
     })();
 
-    // v0.16.4 · 右键上下文菜单
+    // 右键上下文菜单
     const selectedAnnotation = useMemo(
       () => annotations.find((ann) => ann.id === selectedId) ?? null,
       [annotations, selectedId],
@@ -1722,7 +1722,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
       [frameIndex, selectedManagedTrack],
     );
 
-    // v0.21.12 · 粘轨迹态提示数据: 轨迹显示编号 + 当前帧是否已有关键帧(切「延展 / 同帧新建」措辞)。
+    // 粘轨迹态提示数据: 轨迹显示编号 + 当前帧是否已有关键帧(切「延展 / 同帧新建」措辞)。
     // 仅轨迹工具 + 有选中轨迹时非空 → 显式化「下一次画框归属选中轨迹」这一隐式模型。
     const stickyTrackHint = useMemo(() => {
       if (videoTool !== "track" || !selectedTrack) return null;
@@ -1843,7 +1843,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
           pickTopVideoEntryAt(pickables, point, { size });
         if (!hit) return;
         const hitAnn = annotations.find((a) => a.id === hit.id);
-        // v0.21.26 · 命中的不是「可建菜单」的视频几何 → 只选中, 不弹空菜单
+        // 命中的不是「可建菜单」的视频几何 → 只选中, 不弹空菜单
         // (此前对 polygon/polyline 无条件 openAt 却给空 [], 表现为「弹一个没条目的菜单」)。
         if (!hitAnn || (!isAnyVideoSingleFrame(hitAnn) && !isAnyVideoTrack(hitAnn))) {
           if (hitAnn) onSelect?.(hit.id);
@@ -1975,7 +1975,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
           fitViewport();
           return;
         }
-        // v0.24 · 0 让位给第十个类别键；实际尺寸改为 Shift+物理 Digit0
+        // 0 让位给第十个类别键；实际尺寸改为 Shift+物理 Digit0
         // （Shift+0 的产出字符随布局变化，故按 e.code 判定，与 Backquote 反向键同一先例）。
         if (e.code === "Digit0" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault();
@@ -2019,7 +2019,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
 
     // useImperativeHandle 委托给 controller.controls,再覆盖 deleteSelectedTrackKeyframe。
     // (captureCurrentFrameJpeg 由 controller.controls 提供, 见 useVideoPlaybackController。)
-    // v0.21.23 · 归一化 → 屏幕坐标; 类选择器 popover 的 fixed anchor 用它 (与 onPendingDraw 同式)。
+    // 归一化 → 屏幕坐标; 类选择器 popover 的 fixed anchor 用它 (与 onPendingDraw 同式)。
     const normToClient = useCallback(
       (pt: { x: number; y: number }) => {
         const rect = containerRef.current?.getBoundingClientRect();
@@ -2377,9 +2377,8 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
     const creationEnabled =
       (videoTool === "box" || videoTool === "track" || videoTool === "rotated-box") &&
       (!isVideoToolEnabled || isVideoToolEnabled(videoTool));
-    // v0.21.23 · 交互式 SAM 工具同样用十字光标 (提示落点即分割位置)。
-    // v0.21.26 · 复用交互层同一谓词 isSamProbeTool (含 exemplar / magic-box), 修此前漏登记这两个
-    // 工具 → 选中后无十字光标、体感像未进入工具的问题。
+    // 交互式 SAM 工具同样用十字光标 (提示落点即分割位置)。
+    // 与交互层共用 isSamProbeTool，使 exemplar / magic-box 也使用十字光标。
     const samProbeTool = isSamProbeTool(videoTool);
     const cursorClass = issueNavigationPending
       ? "cursor-wait"
@@ -2577,7 +2576,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
               scale={vp.scale}
               visual={visual}
             />
-            {/* v0.21.4 · AI 候选层(当前帧 video_bbox); select 工具下可点选。 */}
+            {/* AI 候选层(当前帧 video_bbox); select 工具下可点选。 */}
             <VideoKonvaAiLayer
               boxes={frameAiBoxes}
               size={size}
@@ -2798,7 +2797,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
                   </Layer>
                 );
               })()}
-            {/* v0.21.23 · 交互式 SAM 候选 + 点会话（瞬态，不落库；置顶且不吃事件）。 */}
+            {/* 交互式 SAM 候选 + 点会话（瞬态，不落库；置顶且不吃事件）。 */}
             {displayedSamMaskRecords.length > 0 && (
               <Layer name="sam-native-mask-candidates" listening={false}>
                 {[...displayedSamMaskRecords]
@@ -2908,7 +2907,7 @@ export const VideoKonvaStage = forwardRef<VideoStageControls, VideoKonvaStagePro
             onOpenAnnotationComments={onOpenAnnotationComments}
             interactive={annotationCommentBadgesInteractive}
           />
-          {/* v0.21.4 · AI 候选贴框快捷条(采纳 / 忽略), 复用图片工作台 SelectionOverlay。 */}
+          {/* AI 候选贴框快捷条(采纳 / 忽略), 复用图片工作台 SelectionOverlay。 */}
           {selectedAiBox && !readOnly && videoTool === "select" && (
             <SelectionOverlay
               box={selectedAiBox}

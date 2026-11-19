@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · auth E2E：登录页 → dashboard、错密码、未登录访问受保护路由跳登录。
+ * auth E2E：登录页 → dashboard、错密码、未登录访问受保护路由跳登录。
  */
 import { test, expect } from "../fixtures/seed";
 

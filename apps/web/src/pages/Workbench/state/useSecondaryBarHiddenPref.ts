@@ -5,7 +5,7 @@ import { useToastStore } from "@/components/ui/Toast";
 import { useAuthStore } from "@/stores/authStore";
 
 /**
- * v0.20.19 · 二次推理面板显隐偏好 (跨设备)。
+ * 二次推理面板显隐偏好 (跨设备)。
  *
  * 真值源 = 服务端 `User.preferences.ui.secondary_bar_hidden` (经 authStore 响应式订阅)。
  * 与 useTheme 同范式: 切换时乐观更新 authStore + PATCH `{ui:{secondary_bar_hidden}}`

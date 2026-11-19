@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · Histogram 组件单测：bar 渲染、xLabels 首末、markers 标签、空值容错。
+ * Histogram 组件单测：bar 渲染、xLabels 首末、markers 标签、空值容错。
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";

@@ -24,7 +24,7 @@ import { useAbortableImage } from "@/pages/Workbench/stage/useAbortableImage";
 
 type DiffMode = "final" | "raw" | "diff";
 
-// v0.8.8 · skip_reason 枚举到中文标签
+// skip_reason 枚举到中文标签
 function skipReasonLabel(reason: string): string {
   switch (reason) {
     case "image_corrupt":
@@ -92,7 +92,7 @@ export function ReviewWorkbench({
   const meUserId = useAuthStore((s) => s.user?.id);
   useSessionStats(taskId, project?.id ?? task?.project_id ?? null, "review", meUserId ?? null);
 
-  // v0.6.5: 进入审核页时调 claim（幂等），冻结标注员的 withdraw 入口；
+  // 进入审核页时调 claim（幂等），冻结标注员的 withdraw 入口；
   // 仅在 status=review 时调用，避免对 completed/rejected 任务多余请求。
   const claimMut = useReviewClaim();
   const [claimInfo, setClaimInfo] = useState<ReviewClaimResponse | null>(null);
@@ -111,7 +111,7 @@ export function ReviewWorkbench({
     [annotationsData, selectedId, taskId],
   );
 
-  // v0.11.27 · 遮挡样式 key 并集（跨工具单位），复核界面与工作台保持一致的遮挡视觉。
+  // 遮挡样式 key 并集（跨工具单位），复核界面与工作台保持一致的遮挡视觉。
   const occludedKeys = useMemo(() => {
     const keys = new Set<string>();
     const tb = project?.tool_bindings ?? {};

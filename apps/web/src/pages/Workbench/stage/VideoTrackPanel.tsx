@@ -43,17 +43,17 @@ interface VideoTrackPanelProps {
   onDeleteTrack?: (annotation: VideoTrackAnnotation) => void;
   onBatchRenameTracks?: (className: string) => void;
   onBatchDeleteTracks?: () => void;
-  /** v0.22.2 · M2 · 批量 AI 追踪: 对多选轨迹一次发起多源追踪 (单 job 各回填各自源)。 */
+  /** M2 · 批量 AI 追踪: 对多选轨迹一次发起多源追踪 (单 job 各回填各自源)。 */
   onBatchTrackTracks?: () => void;
   onAggregateSelectedBboxes?: () => void;
   onMergeSelectedTracks?: () => void;
   canMergeSelectedTracks?: boolean;
-  /** v0.21.14 · 合并禁用时按当前选择态给出动态原因 (差在哪); 可用时为 null。 */
+  /** 合并禁用时按当前选择态给出动态原因 (差在哪); 可用时为 null。 */
   mergeDisabledReason?: string | null;
-  // v0.10.30 · 2.5 Join: 选中两条同类且帧号不重叠的轨迹时跳连, gapMode 由 ComposeDialog 选定。
+  // Join: 选中两条同类且帧号不重叠的轨迹时跳连, gapMode 由 ComposeDialog 选定。
   onJoinSelectedTracks?: (gapMode: VideoTrackGapMode) => void;
   canJoinSelectedTracks?: boolean;
-  /** v0.21.14 · 跳连禁用时按当前选择态给出动态原因; 可用时为 null。 */
+  /** 跳连禁用时按当前选择态给出动态原因; 可用时为 null。 */
   joinDisabledReason?: string | null;
   /** 选中的轨迹是否全部已隐藏 / 已锁定 —— 决定切换按钮的图标与文案。 */
   allSelectedTracksHidden?: boolean;
@@ -61,7 +61,7 @@ interface VideoTrackPanelProps {
   onToggleSelectedTracksHidden?: () => void;
   onToggleSelectedTracksLocked?: () => void;
   reviewDisplayMode?: DiffMode;
-  // v0.10.30 · 1A 选色器: session 级覆盖 (trackId → oklch), 未接线时回落到 classColor。
+  // 1A 选色器: session 级覆盖 (trackId → oklch), 未接线时回落到 classColor。
   trackColorOverrides?: Record<string, string>;
   onSetTrackColor?: (trackId: string, colorToken: string | null) => void;
   /** 「轨迹」分组头折叠态 (受控, 走 workbench.layout 服务端持久)。缺省 = 展开;
@@ -83,7 +83,7 @@ function sourceChipClass(source: VideoFrameEntry["source"] | null): string | nul
 }
 
 /**
- * v0.21.9 · 轨迹关键帧来源迷你条: 沿帧区间 bucket 化 (最多 40 桶, 防大量关键帧撑爆 DOM),
+ * 轨迹关键帧来源迷你条: 沿帧区间 bucket 化 (最多 40 桶, 防大量关键帧撑爆 DOM),
  * AI 追出的关键帧 (source==="prediction") 着 violet (对齐本面板 source chip 语言), 人工帧着中性。
  * 全人工轨迹不渲染 (省视觉噪音, 只在有 AI 追帧时提示"哪几段是 AI 补的")。
  */
@@ -178,7 +178,7 @@ export function VideoTrackPanel({
   const [joinOpen, setJoinOpen] = useState(false);
   // 当前打开取色器的 trackId; null 表示关闭。
   const [colorPickerTrackId, setColorPickerTrackId] = useState<string | null>(null);
-  // v0.21.26 · 点击「更多操作 ⋮」钉住该行操作条(此前 ⋮ 是死按钮, onClick 仅 stopPropagation);
+  // 点击「更多操作 ⋮」钉住该行操作条；
   // hover 仍可临时浮出, 点击则常驻(便于触屏 / 无 hover 环境)。
   const [actionsPinnedId, setActionsPinnedId] = useState<string | null>(null);
   const canEditColor = !readOnly && Boolean(onSetTrackColor);

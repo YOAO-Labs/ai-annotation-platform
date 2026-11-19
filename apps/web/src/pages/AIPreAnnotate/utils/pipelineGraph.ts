@@ -1,6 +1,6 @@
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 /**
- * v0.18.16 · 受限树形流水线 → react-flow 图的纯函数层.
+ * 受限树形流水线 → react-flow 图的纯函数层.
  *
  * stagesGraph ({sid, parentSid}, parentSid="root"=源) 仍是唯一真值; 这里把它派生成 react-flow
  * 的 nodes/edges (分层布局) + 提供编辑期校验 (改父合法性 / 加子门控 / 级联后代 / 深度)。所有函数
@@ -19,7 +19,7 @@ import type { PipelineSource, PipelineStagePayload } from "@/hooks/usePreannotat
 
 export interface StageEntry {
   sid: string;
-  /** v0.21.5 · 输入节点(编排首节点)parentSid=null; 其余为父 sid。源不再是合成的画布外 root,
+  /** 输入节点(编排首节点)parentSid=null; 其余为父 sid。源不再是合成的画布外 root,
    *  而是 stagesGraph 内一条 parentSid=null 的普通 entry。 */
   parentSid: string | null;
 }
@@ -34,9 +34,9 @@ export type StageRole = {
 export const ROOT_SID = "root";
 
 /**
- * v0.21.6 · 首模型 stage 的固定 sid (输入节点唯一子, 承接原源检测/tracker 模型配置)。
- * 输入节点=纯数据源(不绑模型), 首模型 stage=后端 stage 0(parent_stage=null)。母计划 frame/video
- * 双分支(多首模型 stage)留 v0.21.7; 本版单首模型 stage 用此固定 sid, cfg 绑它。
+ * 首模型 stage 使用固定 sid（承接源检测或 tracker 配置）。
+ * 输入节点是纯数据源，不绑模型；首模型对应后端 stage 0 (parent_stage=null)。
+ * 首模型阶段使用固定 sid，配置绑定在该阶段。
  */
 export const SOURCE_SID = "source";
 
@@ -174,9 +174,9 @@ export interface SourceModelLike {
 }
 
 /**
- * v0.21.5 · 输入节点"内生形态"。此前 v0.21.1 WS0 的 deriveSourceShape 从 model.supported_inputs
- * 反推源类型, 现退役 —— 源类型 (data_type) / 执行单位 (execution_unit) 改由输入节点
- * `source:{}` 直接携带 (SSOT 前移到 graph)。角色 / 产物仍随 model.task (detection→目标检测 /
+ * 输入节点描述数据源和执行单位，而不是模型能力。
+ * 输入节点的 `source` 携带源类型 (data_type) 和执行单位 (execution_unit)。
+ * 角色和产物仍随 model.task (detection→目标检测 /
  * tracker→视频追踪), 因为输入节点仍绑一个源检测/追踪模型。
  */
 export interface SourceNodeShape {
@@ -236,12 +236,12 @@ export interface StageCaps {
   acceptsBboxPrompt: boolean;
   producesAttributes: boolean;
   /**
-   * v0.19.2 WS1 · 选中 model 是否产类别属性 (output_attribute_types 含 "class")。
+   * 选中 model 是否产类别属性 (output_attribute_types 含 "class")。
    * undefined = model 未自报属性类型 (无法判, 不警示); false = 自报了但不含 class。
    */
   producesClass?: boolean;
   /**
-   * v0.19.3 WS2 · 选中 model 是否可批量 (resource_profile.batchable)。
+   * 选中 model 是否可批量 (resource_profile.batchable)。
    * undefined = 未自报 (老 backend, 不警示); false = 自报交互/有状态, 不能进批量预标。
    */
   batchable?: boolean;
@@ -279,7 +279,7 @@ export function stageWarning(
 
 /**
  * 每 sid 深度 (输入节点=0, 首模型 stage=1, 子=父+1)。
- * v0.21.6 · 输入节点是纯数据源不计模型层 → depth 0; MAX_DEPTH=3 因此指模型 stage 的 1..3 三层
+ * 输入节点是纯数据源不计模型层 → depth 0; MAX_DEPTH=3 因此指模型 stage 的 1..3 三层
  * (输入→检测→子检测→分类)。顺父链递归求值, **与数组顺序无关** —— 改父后子可能排在新父之前,
  * 不能假设父先于子出现 (否则深度被低估 → canAddChild 误判 → 造出超深)。带环兜底。
  */
@@ -325,7 +325,7 @@ export function subtreeHeight(graph: StageEntry[], sid: string): number {
  * sid 是否产几何 (可作下游的父)。
  * - 输入节点(parentSid=null): 纯数据源, 恒 true (其源模型子可挂)。
  * - 源式 stage(父=输入节点): 源检测/tracker 模型, 恒产几何 (payload 由 cfg 管、不在复合器,
- *   故不能靠 producesGeometry(payload); 结构性判为 true, 与 v0.21.5「源恒产几何」一致)。
+ *     不依赖 producesGeometry(payload)，直接判定为产几何。
  * - 其余下游 stage: 按 producesGeometry(payload)。
  */
 function sidProducesGeometry(
@@ -357,13 +357,13 @@ export interface ReparentCheck {
 }
 
 /**
- * 把 childSid 改挂到 newParentSid 是否合法 (把 0.18.15 受限树形 gating 反向约束进 DAG):
+ * 按受限树形编排约束检查能否把 childSid 改挂到 newParentSid：
  * 1. 不自连 / 不连回原父 (无意义)。
  * 2. 无环: newParent 不能是 child 的后代。
  * 3. 父产几何 (源恒产几何)。
  * 4. 改父后整子树深度 ≤ MAX_DEPTH。
  * 单父由树模型天然保证 (改父=替换入边)。
- * 子侧 supported_inputs 可达性不在此判 —— 由端点 422 兜底 (与 0.18.15 一致)。
+ * 子侧 supported_inputs 可达性由端点校验，不满足时返回 422。
  */
 export function canReparent(
   graph: StageEntry[],
@@ -409,12 +409,12 @@ export interface GraphNodeModel {
   producesGeometry: boolean;
   canAddChild: boolean;
   conflict: boolean;
-  // v0.21.1 WS0 · 输入节点「源类型」徽标 (图像 / 视频) + 计数标签 (检出 / 轨迹); 下游为 undefined。
+  // 输入节点「源类型」徽标 (图像 / 视频) + 计数标签 (检出 / 轨迹); 下游为 undefined。
   sourceTypeLabel?: string;
   sourceCountLabel?: string;
-  // v0.21.5 · 输入节点「执行单位」徽标 (整段序列 / 逐帧); 下游为 undefined。
+  // 输入节点「执行单位」徽标 (整段序列 / 逐帧); 下游为 undefined。
   executionUnitLabel?: string;
-  // ── v0.18.16 §13 信息增强 ──
+  // ── 节点能力与可达性信息 ──
   /** backend 名 (副标题); 看不出用哪个后端是主要痛点。 */
   backendName?: string;
   /** 已配置就绪 (payload != null); 否则节点显「待配置」虚线。 */
@@ -475,7 +475,7 @@ export function buildFlow(
 
   const nodes: Node<StageNodeData>[] = models.map((m) => ({
     id: m.sid,
-    // v0.21.5 · 单一 node type; 输入 handle 由 parentSid==null 在节点组件内决定 (去 source/stage 二分)。
+    // 单一 node type; 输入 handle 由 parentSid==null 在节点组件内决定 (去 source/stage 二分)。
     type: "stage",
     position: { x: (depth[m.sid] - 1) * COL_W, y: yBySid[m.sid] ?? 0 },
     data: { ...m, selected: m.sid === selectedSid },

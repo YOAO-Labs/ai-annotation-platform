@@ -1,4 +1,4 @@
-// v0.14.11 · 协议能力卡片 — 一张卡 = 一个协议 task; 卡内挂载已注册 backend 的 model.
+// 协议能力卡片 — 一张卡 = 一个协议 task; 卡内挂载已注册 backend 的 model.
 // 卡内已接入模型直接复用 ModelCard, 与 groupBy=backend/infra 等其他分组视图字段对齐;
 // 空态仍引导注册。
 //
