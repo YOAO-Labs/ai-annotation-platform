@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.9.16
 status: stable
 last_reviewed: 2026-09-07
 ---
@@ -168,7 +167,7 @@ AI 工具产出的都是**单帧**标注，不是轨迹。它们是否出现，�
 
 ## 轨迹拆分 / 合并 / 跳连
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench/video-track-compose-dialog.png — 跳连对话框两种 gap 模式 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench/video-track-compose-dialog.png — 跳连对话框两种 gap 模式 [manual] -->
 
 对齐 CVAT 的 track 组织能力：
 
@@ -247,7 +246,7 @@ AI 结果无需先落库就能核对，画布与右栏统一用 **violet** 表�
 
 ## 质量提示
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench/video-track-qc-warnings.png — 画布左上角质量提示浮层 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench/video-track-qc-warnings.png — 画布左上角质量提示浮层 [manual] -->
 
 工作台会在画布左上角提示基础质量问题：
 

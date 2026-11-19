@@ -2,7 +2,6 @@
 title: Runbook：PG 连接池耗尽
 audience: [ops]
 type: how-to
-since: v0.9.0
 status: stable
 last_reviewed: 2026-07-11
 ---

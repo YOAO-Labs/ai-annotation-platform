@@ -1,10 +1,5 @@
 # Codecov 配置
 #
-# v0.7.6 · 引入 yml，target 显式化（backend 60% / frontend 8%），双 informational
-# v0.8.3 · frontend 切硬阻断：实测 lines 10.88%（v0.7.6 baseline 8.68% 之上 + 8 个新
-#         测试文件），target 取 10% 留 0.88pp 容差防抖动；backend 同步切硬阻断（60%+
-#         已稳定）。下一版（v0.8.4+）逐步推 frontend 向 ROADMAP P2 列出的 25%。
-#
 # 失败语义：
 #   project status 比对当前 PR 与 base 分支总覆盖率，低于 (target - threshold) 即红
 #   patch status 仅检查本 PR 新增 / 修改行的覆盖率，鼓励新代码带测试

@@ -73,7 +73,7 @@ S3 endpoint 只填写服务地址，用户名和密码放入密钥字段；地�
 - **永久硬拒绝**：回环（`127.0.0.1`）、链路本地（含云元数据 `169.254.169.254`）、组播、未指定（`0.0.0.0`）和保留网段即使写入白名单也一律拒绝。容器内访问宿主机请走 Docker 网关 IP。
 - 若运维配置了部署主机 SFTP 地址，超管可点击 **添加部署主机** 预填 host 与端口，但仍须手工填写专用只读 staging 账号并将其加入白名单。
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/connector-allowlist.png — 超管连接器主机白名单配置面板；标注红框：白名单条目列表 + 添加输入框 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/datasets/connector-allowlist.png — 超管连接器主机白名单配置面板；标注红框：白名单条目列表 + 添加输入框 [manual] -->
 
 ### 从连接器复制导入数据集
 
@@ -81,7 +81,7 @@ S3 endpoint 只填写服务地址，用户名和密码放入密钥字段；地�
 
 从导入向导打开**管理存储位置**时，当前会话和数据集的文本字段暂存于当前标签页；返回向导后恢复一次。文件、凭据和作业内容不会暂存，文件需重新选择；关闭标签页后不保证恢复。若浏览器存储写入失败，向导会保留当前输入并阻止跳转。发现旧版、损坏、不支持的版本或冲突草稿时，先在向导中逐条恢复或确认丢弃；无法解析的原文可复制以便手动恢复。新旧草稿并存时，需先恢复或明确丢弃当前草稿，不能直接用旧版覆盖。恢复旧版时先写入当前格式并读回核验，再移除旧记录；写入失败保留旧值，恢复后消费失败则保留当前记录供重试。
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/connector-import-step.png — 导入向导「连接器导入」子面板；标注红框：source_path 输入框 / 递归开关 / Include globs 输入框 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/datasets/connector-import-step.png — 导入向导「连接器导入」子面板；标注红框：source_path 输入框 / 递归开关 / Include globs 输入框 [manual] -->
 
 <details>
 <summary>连接器导入请求结构示例（点击展开）</summary>

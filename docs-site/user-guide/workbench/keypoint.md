@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.10.28
 status: stable
 last_reviewed: 2026-07-12
 ---

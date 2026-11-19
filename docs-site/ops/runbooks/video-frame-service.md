@@ -2,7 +2,6 @@
 title: Runbook：视频帧服务
 audience: [ops]
 type: how-to
-since: v0.9.25
 status: stable
 last_reviewed: 2026-10-24
 ---

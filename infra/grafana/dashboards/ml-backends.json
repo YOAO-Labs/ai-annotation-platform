@@ -12,7 +12,7 @@
       }
     ]
   },
-  "description": "v0.11.20 · ML backend / GPU 监控：显存 / 利用率 / 温度功耗 / 推理延迟 / cache。指标由 grounded-sam2 + sam3 的 /metrics 暴露，按 service label 区分 backend（裸名统一，v0.11.19）。",
+  "description": "ML backend / GPU 监控：显存、利用率、温度、功耗、推理延迟和缓存。指标由 grounded-sam2 与 sam3 的 /metrics 暴露，按 service 标签区分后端。",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,

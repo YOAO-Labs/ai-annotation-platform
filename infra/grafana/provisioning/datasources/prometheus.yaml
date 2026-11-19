@@ -1,4 +1,4 @@
-# v0.8.8 · Grafana auto-provision datasource。
+# Grafana auto-provision datasource。
 # Grafana 启动时自动注册，无需 admin 手动创建。
 apiVersion: 1
 

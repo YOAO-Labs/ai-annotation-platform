@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 检查维护型正文页是否包含稳定的归属与复核 frontmatter。
- * 标题由页面 H1 生成，`since` 仅作可选历史元数据，因此不强制要求。
+ * 页面标题取自 H1；发布沿革不属于当前文档的元数据。
  * 跳过目录首页、自动生成文件、redirects/、示例源码、maintainers/ 维护材料，
  * 以及 dev/adr/、changelog/、roadmap/ 等构建期镜像。
  *

@@ -1,7 +1,6 @@
 ---
 audience: [annotator, reviewer, project_admin, super_admin]
 type: reference
-since: v0.6.0
 status: stable
 last_reviewed: 2026-10-20
 ---

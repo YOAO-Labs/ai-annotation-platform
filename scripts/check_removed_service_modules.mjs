@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // scripts/check_removed_service_modules.mjs
 //
-// Permanent repo-wide guard: after v0.23.2 deletes the 23 legacy service
-// facade modules, this scanner ensures no active code, test, script, config or
-// current-state doc references them by any import form or string.
+// Reject references to removed service facades in active code, tests, scripts,
+// configuration and current documentation, including string-based imports.
 //
 // Usage:
 //   node scripts/check_removed_service_modules.mjs                 # active scan
@@ -154,8 +153,7 @@ function main() {
       console.error(`  ${o}`);
     }
     console.error(
-      `\nThese modules were permanently deleted in v0.23.2. ` +
-        `Use the new domain-package paths instead. ` +
+      `\nUse the domain-package paths instead of the removed service modules. ` +
         `See docs/migration/2026-07-17-v0.23.2-service-import-cutover.md.`,
     );
     process.exit(1);

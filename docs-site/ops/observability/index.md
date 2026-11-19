@@ -2,7 +2,6 @@
 title: 可观测性 / 运维监控
 audience: [ops, dev]
 type: reference
-since: v0.8.7
 status: stable
 last_reviewed: 2026-10-26
 ---
@@ -154,7 +153,7 @@ production 不建议把 prometheus / grafana 跟应用塞同一 docker-compose�
 
 ---
 
-## 3. ML Backend GPU 指标接入（自动发现，v0.11.19）
+## 3. ML Backend GPU 指标接入（自动发现）
 
 ML backend（grounded-sam2 / sam3 / 后续接入的任意 backend）的 `/metrics` 由 Prometheus 的 `ml-backends` job 自动抓取，**无需手改 `prometheus.yml`**：
 
@@ -193,13 +192,13 @@ ML backend（grounded-sam2 / sam3 / 后续接入的任意 backend）的 `/metric
 >
 > **dev 前提**：`pnpm dev:api` 默认 `uvicorn --port 8000`（绑 `127.0.0.1`），prometheus 容器经 host-gateway 抓不到——http_sd 与**既有 `anno-api` job 同此前提**。要在 dev 抓到，用 `uvicorn app.main:app --reload --port 8000 --host 0.0.0.0` 起 api；或按上一条用 static 兜底，target 写 bridge gateway `172.17.0.1:<host 映射端口>`（dev 下 backend 的 service DNS 未必解析）。
 >
-> 与超管 PerfHud 的关系：两套通道、同一数据源（`/metrics` 与 `/health` 共用同一次 NVML/psutil 采样）。PerfHud 实时一眼看（无历史），Prometheus 留 14d 时序做趋势/告警。Grafana 的 `ML Backends` dashboard（`infra/grafana/dashboards/ml-backends.json`，v0.11.20，provisioning 自动加载）据此渲染。
+> 与超管 PerfHud 的关系：两套通道、同一数据源（`/metrics` 与 `/health` 共用同一次 NVML/psutil 采样）。PerfHud 实时一眼看（无历史），Prometheus 留 14d 时序做趋势/告警。Grafana 的 `ML Backends` dashboard（`infra/grafana/dashboards/ml-backends.json`，provisioning 自动加载）据此渲染。
 
 ---
 
 ## 4. 告警
 
-**ML backend GPU 告警已落地**（v0.11.21）：`infra/prometheus/alerts.yml` 提供 `MLBackendDown`（`up==0` 持续 5m）/ `GPUMemoryHigh`（显存 >90% 持续 10m）/ `InferenceLatencyHigh`（P95 >10s 持续 10m）三条规则，随 `monitoring` profile 的 `alertmanager`（9093）经 SMTP 发邮件 —— dev 投递到 mailpit（见 `infra/alertmanager/alertmanager.yml`），生产换真实 SMTP。`MLBackendDown` 只覆盖 `ml-backends` job 的 target（由 http_sd 从 `state != disconnected` 的 backend 生成），主动 disconnect 的 backend 不会误报。排查见 [ML Backend 不可用 runbook](/ops/runbooks/ml-backend-down)。
+**ML backend GPU 告警**：`infra/prometheus/alerts.yml` 提供 `MLBackendDown`（`up==0` 持续 5m）/ `GPUMemoryHigh`（显存 >90% 持续 10m）/ `InferenceLatencyHigh`（P95 >10s 持续 10m）三条规则，随 `monitoring` profile 的 `alertmanager`（9093）经 SMTP 发邮件 —— dev 投递到 mailpit（见 `infra/alertmanager/alertmanager.yml`），生产换真实 SMTP。`MLBackendDown` 只覆盖 `ml-backends` job 的 target（由 http_sd 从 `state != disconnected` 的 backend 生成），主动 disconnect 的 backend 不会误报。排查见 [ML Backend 不可用 runbook](/ops/runbooks/ml-backend-down)。
 
 其余 HTTP / Celery / Sentry 相关不在仓库内强制产出（不同团队偏好不一），下面是建议规则：
 
@@ -213,7 +212,7 @@ ML backend（grounded-sam2 / sam3 / 后续接入的任意 backend）的 `/metric
 
 ---
 
-## 5. ML Backend pool 观测口径 (v0.14.14)
+## 5. ML Backend pool 观测口径
 
 各 backend 的 `/health.pool` 统一为 `PoolStatus`（协议 §4.3），运维 / 模型市场都从同一结构读：
 
@@ -255,7 +254,7 @@ ML backend（grounded-sam2 / sam3 / 后续接入的任意 backend）的 `/metric
 | `model_load_ms: int \| null`              | 本次 disk→GPU 加载毫秒（`cache_hit=True` 时通常 `0`）                                     |
 | `pool_state: {current_size, cap} \| null` | 轻量 pool 快照（按需开启，常态 `null` 避免响应体膨胀）                                    |
 
-**前端冷启动 UX**：响应回来后调 `recordPredictCacheHit(backendId, variants, cache_hit)` 写入本会话 Map，下次同 variant 调用前查 `isVariantHot()` 决定按钮文案。pool LRU evict 后误判一次不可避免（前端 Map 还以为热的），但下次响应里 `cache_hit=false` 会自我修正。v0.14.13 的 `sessionStorage` 猜测保留作老 backend (未上报 `cache_hit`) 的 fallback，v0.14.15 删除。
+**前端冷启动提示**：`isVariantHot()` 按 backend 和变体读取会话缓存，决定是否提示冷启动。同步推理返回 `cache_hit` 时更新缓存；未上报则保持原值。异步预标成功只表示该变体当时已加载，之后可能被 LRU 淘汰。
 
 **显式预热（`POST /warmup`）**：运维 / 用户可在不消耗推理算力的前提下把指定 variant 权重加载到 pool。响应 `evicted` 字段回填本次因 cap 上限淘汰的 key 名，供前端 toast 提示。例：
 

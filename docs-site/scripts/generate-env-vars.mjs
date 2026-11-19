@@ -27,7 +27,6 @@ const HEADER = `---
 title: 环境变量参考
 audience: [dev, ops]
 type: reference
-since: v0.9.0
 status: stable
 last_reviewed: ${today}
 ---
@@ -38,20 +37,6 @@ last_reviewed: ${today}
 > 修改环境变量说明请编辑 \`.env.example\` 中的注释，再运行 \`pnpm docs:gen-env-vars\`。
 
 `;
-
-function stripReleaseMarkers(text) {
-  return (
-    text
-      .replace(/\bv\d+\.\d+(?:\.\d+)?\+?\s*[·:：]\s*/g, "")
-      .replace(/§[A-Z]\s*[·:：]\s*/g, "")
-      .replace(/\s*[（(]v\d+\.\d+(?:\.\d+)?\+?(?:[^）)]*)[）)]/g, "")
-      // A version inside a filename or path is an exact input, not provenance.
-      .replace(/(?<![\w./-])v\d+\.\d+(?:\.\d+)?\+?(?![\w./-])\s*/g, "")
-      // 仅清掉「带空白」的空括号（例如版本标记被剥光后留下的 `(  )`），
-      // 保留无空白的空括号 `()`，避免误伤代码片段里的 `decode()` / `generate_key()` 等。
-      .replace(/[（(]\s+[）)]/g, "")
-  );
-}
 
 function parseEnvExample(content) {
   const lines = content.split("\n");
@@ -69,7 +54,7 @@ function parseEnvExample(content) {
 
     // Section title comment: # 数据库 (PostgreSQL)
     if (/^#\s+\S/.test(trimmed) && currentSection === null) {
-      const title = stripReleaseMarkers(trimmed.replace(/^#\s+/, ""));
+      const title = trimmed.replace(/^#\s+/, "");
       currentSection = { title, rows: [] };
       sections.push(currentSection);
       pendingComments = [];
@@ -94,7 +79,7 @@ function parseEnvExample(content) {
       const commentedVar = trimmed.match(/^#\s*([\w_]+)=(.*)$/);
       if (commentedVar) {
         const [, key, defaultVal] = commentedVar;
-        const desc = stripReleaseMarkers(pendingComments.join(" ").trim());
+        const desc = pendingComments.join(" ").trim();
         pendingComments = [];
         currentSection.rows.push({
           key,
@@ -103,7 +88,7 @@ function parseEnvExample(content) {
           optional: true,
         });
       } else {
-        pendingComments.push(stripReleaseMarkers(trimmed.replace(/^#\s*/, "")));
+        pendingComments.push(trimmed.replace(/^#\s*/, ""));
       }
       continue;
     }
@@ -118,7 +103,7 @@ function parseEnvExample(content) {
     const varMatch = trimmed.match(/^([\w_]+)=(.*)$/);
     if (varMatch) {
       const [, key, defaultVal] = varMatch;
-      const desc = stripReleaseMarkers(pendingComments.join(" ").trim());
+      const desc = pendingComments.join(" ").trim();
       pendingComments = [];
       currentSection.rows.push({
         key,

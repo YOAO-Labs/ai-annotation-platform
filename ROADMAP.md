@@ -18,7 +18,7 @@
 ### 超大图 Tile 与 Raster Mask 客户端计算
 
 详见
-[v0.23.21–v0.23.25 超大图 Tile 与 Raster Mask 客户端计算 Epic](docs/plans/archive/2026-07-31-v0.23.21-v0.23.25-large-image-tile-webgpu-epic.md)。
+[超大图 Tile 与 Raster Mask 客户端计算 Epic](docs/plans/archive/2026-07-31-v0.23.21-v0.23.25-large-image-tile-webgpu-epic.md)。
 
 - 在可获得的无 flag Linux Wayland 与 Windows D3D12 客户端补齐 one-pass correctness、长会话、p95、
   fallback rate，以及超大图 tile 首屏、pan/zoom 帧率、长会话 plateau 与 DPR A/B；没有机器时保持
@@ -27,9 +27,9 @@
 - Raster Mask 仍受单边 8192、总计 67,108,864 pixels 和 morphology ROI 16,777,216 pixels 约束；
   超大图背景可超过该上限，扩大 Mask 协议另立版本。
 
-### 3D 标注工作台 0.24.x
+### 3D 标注工作台
 
-详见[v0.24.x 3D 标注工作台优化 Epic](docs/plans/archive/2026-08-14-v0.24.x-3d-workbench-optimization-epic.md)。
+详见[3D 标注工作台优化 Epic](docs/plans/archive/2026-08-14-v0.24.x-3d-workbench-optimization-epic.md)。
 
 - WebGPU 点云渲染保持默认关闭的实验功能：跨厂商验证仍缺 Intel/AMD（`not tested`），Safari 长序列
   曾停在 geometry 完成前，待复现诊断；验证完成前不得移除实验标记或默认启用。已完成平台与实测口径见
@@ -118,7 +118,7 @@
 - [长期规划（12 个月以外）](ROADMAP/2026-05-12-long-term-strategy.md)
 - [CVAT / Label Studio 取经合集](ROADMAP/2026-05-18-cvat-labelstudio-inspiration.md)
 - [视频工作台路线](ROADMAP/2026-05-21-video-workbench-roadmap.md)
-- [v0.24.x 3D 标注工作台优化 Epic](docs/plans/archive/2026-08-14-v0.24.x-3d-workbench-optimization-epic.md)
+- [3D 标注工作台优化 Epic](docs/plans/archive/2026-08-14-v0.24.x-3d-workbench-optimization-epic.md)
 
 架构反模式与决策底线统一维护在
 [取经合集 §6](ROADMAP/2026-05-18-cvat-labelstudio-inspiration.md#6-避坑清单保持当前选择不要走回头路)，

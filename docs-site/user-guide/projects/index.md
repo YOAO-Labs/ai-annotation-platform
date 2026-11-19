@@ -24,7 +24,7 @@ last_reviewed: 2026-10-26
 
 </div>
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: ProjectsPage「新建项目」按钮高亮。 -->
+<!-- TODO IMAGE_CHECKLIST: ProjectsPage「新建项目」按钮高亮。 -->
 
 当当前筛选条件下没有项目时，列表会显示空状态。先确认筛选条件，再通过 **新建项目** 创建第一个项目，或先导入数据集后在向导中关联。
 
@@ -134,7 +134,7 @@ last_reviewed: 2026-10-26
 
 ![向导步骤](../images/projects/wizard-steps.png)
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 6 步 wizard 各步关键截图（类型 / 类别 / 属性 / AI 接入 / 数据 / 成员），可拼成一张长图。 -->
+<!-- TODO IMAGE_CHECKLIST: 6 步 wizard 各步关键截图（类型 / 类别 / 属性 / AI 接入 / 数据 / 成员），可拼成一张长图。 -->
 
 ![向导模型服务配置](../images/projects/wizard-step4-backend.png)
 
@@ -185,7 +185,7 @@ scene 模式适合“一个连续场景被拆成多个 task”的项目，例如
 
 ## 从已有项目复制配置
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/projects/copy-config-banner.png — 向导顶部预填 banner + 复制指引 checkbox [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/projects/copy-config-banner.png — 向导顶部预填 banner + 复制指引 checkbox [manual] -->
 
 如果新项目的类别、属性、AI 接入或渲染配置与既有项目相同（或大致相同），可以直接复制配置：
 

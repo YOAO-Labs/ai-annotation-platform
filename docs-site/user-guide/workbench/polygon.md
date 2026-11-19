@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.1.0
 status: stable
 last_reviewed: 2026-09-08
 ---
@@ -34,7 +33,7 @@ last_reviewed: 2026-09-08
 
 ### 调整已有对象
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/polygon/vertex-insert-alt.png — 按住 Alt 悬停边上光标变「+」的瞬间 -->
+<!-- TODO IMAGE_CHECKLIST: images/polygon/vertex-insert-alt.png — 按住 Alt 悬停边上光标变「+」的瞬间 -->
 
 - 选中已有多边形，鼠标悬停在**边**上 → 出现「+」图标，按住 `Alt` 后单击边插入新顶点
 - 拖动顶点 → 修改形状

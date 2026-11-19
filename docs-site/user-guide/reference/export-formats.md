@@ -1,7 +1,6 @@
 ---
 audience: [project_admin, super_admin]
 type: reference
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-24
 ---
@@ -10,7 +9,7 @@ last_reviewed: 2026-10-24
 
 ![导出格式选择](../images/export/format-select.png)
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 导出对话框，COCO / YOLO / 原生 JSON 选项 + 当前选中状态 + 导出范围（项目 / 批次）。 -->
+<!-- TODO IMAGE_CHECKLIST: 导出对话框，COCO / YOLO / 原生 JSON 选项 + 当前选中状态 + 导出范围（项目 / 批次）。 -->
 
 项目 Dashboard 的「导出」入口会打开居中的导出弹窗。导出目标可多选，一次导出产出**一个**压缩包：勾选单个目标时落包根，勾选多个目标时各目标落各自的 `{target}/` 子目录。
 
@@ -156,7 +155,7 @@ COCO 单文件可同时承载多种几何：
 - `bbox`：矩形框（也作为 polygon / keypoint 标注的外接框）。
 - `segmentation`：polygon / multi_polygon 标注的多边形顶点（像素坐标；孔洞/多连通域的完整还原留作后续）。
 - `keypoints` + `num_keypoints`：keypoint 标注的 `[x,y,v,…]`（v=0 未标注 / 1 遮挡 / 2 可见）。骨架拓扑写在对应 `categories[].keypoints`（节点名）+ `categories[].skeleton`（连线，COCO 1-indexed），直接来自项目 keypoint 工具单位的 `keypoint_schema`。
-- `attributes.__track_id`：跨帧同一对象的 `track_id`（启用 `include_attributes` 时）。<!-- since v0.21.2 · ADR-0045：原 `__group_id`（Ctrl+G 组号），编组下线后统一到 track_id -->
+- `attributes.__track_id`：跨帧同一对象的 `track_id`（启用 `include_attributes` 时）。
 
 > `rotated_bbox` / `polyline` 无 COCO 原生表示，不进 COCO（rotated 走 `YOLO 旋转框`，polyline 走 原生 JSON）；被跳过的条数记在 `info.skipped_annotations`。
 
@@ -239,7 +238,7 @@ names:
 
 ### 图像 YOLO ZIP 包目录树
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/export/yolo-dir-tree.png — 解压后 YOLO 单目标导出包目录树（terminal 截图）；标注红框：labels/ 镜像层级。[manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/export/yolo-dir-tree.png — 解压后 YOLO 单目标导出包目录树（terminal 截图）；标注红框：labels/ 镜像层级。[manual] -->
 
 **单目标**（只勾一个 YOLO 变体）落包根，托管图片和标签使用平行 Task 层级：
 

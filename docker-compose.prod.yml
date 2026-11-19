@@ -132,7 +132,7 @@ services:
 
   # 以下 worker/beat 服务已在 docker-compose.yml 定义，这里仅叠加生产环境配置：
   # env_file 注入 ENVIRONMENT/SECRET_KEY/SENTRY 等全部生产变量，environment 覆盖硬编码的 infra 凭据。
-  # v0.19.5 起 celery-worker-gpu / celery-worker-cpu 是设备感知预标路由的两条独立 worker
+  # celery-worker-gpu / celery-worker-cpu 是设备感知预标路由的两条独立 worker
   # (ml = GPU, ml.cpu = CPU), 必须与 celery-worker 同等注入生产 env, 否则用 dev 凭据连不上 DB/MinIO
   # 且 ENVIRONMENT/SECRET_KEY 缺失会触发生产断言失败拒启 → ml.cpu 队列永远无消费者。
   celery-worker-maintenance:

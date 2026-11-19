@@ -165,7 +165,7 @@ function rewriteLinks(text, srcRel) {
   return rewritten;
 }
 
-// 版本号自然倒序：0.10.x 在 0.9.x 之前
+// 按版本号的各个数值段倒序排列，不按文件名字典序排列。
 function compareVersionDesc(a, b) {
   const pa = a
     .replace(/\.md$/, "")

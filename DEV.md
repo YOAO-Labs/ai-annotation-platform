@@ -2100,8 +2100,8 @@ curl -fsS http://localhost:8001/health
 
 - **请求**：`POST /predict { task: { id, file_path }, context: { type, ... } }`
 - **`context.type`**：`point` / `bbox` / `text`
-- **v0.9.4 phase 2 字段**：`output: "box" | "mask" | "both"`（仅 type=text 生效，默认 mask 老前端兼容）
-- **v0.9.4 phase 3 字段**：`simplify_tolerance: float | null`（仅 mask/both 路径，默认 1.0；像素级；调高减顶点 / 调低保细节；顶点 > 200 后端 logger.warning）
+- **输出类型**：`output: "box" | "mask" | "both"`（仅 type=text 生效，默认 mask，兼容旧客户端）
+- **轮廓简化**：`simplify_tolerance: float | null`（仅 mask/both 生效，默认 1.0 像素；调高可减少顶点；顶点超过 200 时后端记录告警）
 - 完整协议见 [docs-site/dev/reference/ml-backend-protocol.md](docs-site/dev/reference/ml-backend-protocol.md)
 
 ### `mask_utils` 共享包

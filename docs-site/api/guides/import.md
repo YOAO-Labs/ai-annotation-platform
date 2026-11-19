@@ -1,7 +1,6 @@
 ---
 audience: [dev]
 type: reference
-since: v0.10.15
 status: stable
 last_reviewed: 2026-11-19
 ---

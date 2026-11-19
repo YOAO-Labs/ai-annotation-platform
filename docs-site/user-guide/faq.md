@@ -2,7 +2,6 @@
 title: 常见问题 (FAQ)
 audience: [annotator, project_admin, reviewer, super_admin]
 type: reference
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-26
 ---

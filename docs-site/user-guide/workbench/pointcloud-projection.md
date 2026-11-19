@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.13.4
 status: stable
 last_reviewed: 2026-09-05
 ---
@@ -36,13 +35,13 @@ schema 详情见 [点云 / 多模态数据集导入格式 · 标定 JSON schema]
 
 ## 3D→2D 投影
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench-pointcloud-projection/overlay-wireframe.png — 相机面板线框投影 overlay + 「正对」角标 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench-pointcloud-projection/overlay-wireframe.png — 相机面板线框投影 overlay + 「正对」角标 [manual] -->
 
 选中（或悬停）3D 框时，可见相机面板实时重绘投影线框（类别色）。可见角点最多的相机显示「· 正对」，用于快速定位主确认视角；图库仍保持朝向顺序，不因选框重排。拉宽或缩窄图库时，图像和投影按同一比例缩放；隐藏或切换标签后暂停覆盖层绘制，重新显示时使用当前帧与选中状态。
 
 ## 2D→3D 反选与命中测试
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench-pointcloud-projection/click-to-select-3d.png — 点击投影框联动主视图高亮 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench-pointcloud-projection/click-to-select-3d.png — 点击投影框联动主视图高亮 [manual] -->
 
 单击相机面板里的投影区域时，系统在画布坐标系做逐框扫描：
 

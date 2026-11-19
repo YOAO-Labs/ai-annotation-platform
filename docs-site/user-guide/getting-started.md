@@ -46,7 +46,7 @@ flowchart LR
 
 </div>
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 登录页全屏；标注红框：邮箱输入、密码输入、登录按钮、「忘记密码」链接。1920×1080，浏览器框架可保留。 -->
+<!-- TODO IMAGE_CHECKLIST: 登录页全屏；标注红框：邮箱输入、密码输入、登录按钮、「忘记密码」链接。1920×1080，浏览器框架可保留。 -->
 
 窄屏布局和密码恢复示例可按需展开：
 
@@ -59,7 +59,7 @@ flowchart LR
 
 ![忘记密码](./images/getting-started/forgot-password.png)
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 忘记密码页；输入邮箱后的成功 toast 截图。 -->
+<!-- TODO IMAGE_CHECKLIST: 忘记密码页；输入邮箱后的成功 toast 截图。 -->
 
 </details>
 
@@ -84,7 +84,7 @@ flowchart LR
 <details>
 <summary>查看首页和平台导航示例</summary>
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/getting-started/annotator-dashboard.png — 标注员仪表盘全屏，标注红框：产能/质量分区 + 「打开」按钮 -->
+<!-- TODO IMAGE_CHECKLIST: images/getting-started/annotator-dashboard.png — 标注员仪表盘全屏，标注红框：产能/质量分区 + 「打开」按钮 -->
 
 桌面端可点击侧边栏顶部的按钮收起导航，仅显示图标；悬停图标可查看入口名称。展开后拖动右侧边缘可调整宽度（200–320px），双击边缘恢复默认 220px。也可用 Tab 聚焦边缘，以左右方向键每次调整 10px，Home / End 调至最小／最大宽度。收起状态和展开宽度保存在当前浏览器中；窄屏仍使用完整的抽屉导航。
 

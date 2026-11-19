@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.10.28
 status: stable
 last_reviewed: 2026-09-10
 ---
@@ -32,7 +31,7 @@ last_reviewed: 2026-09-10
 
 ## 编辑已有旋转框
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench/rotated-bbox-rotate.png — 旋转约 30° 后状态 + 角度值 -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench/rotated-bbox-rotate.png — 旋转约 30° 后状态 + 角度值 -->
 
 - 单击 → 选中（顶部出现旋转手柄，四角及四边出现 8 个缩放手柄）。
 - 拖动旋转手柄 → 改变角度（顺时针，区间 `[0, 360)`，半开区间，不含 360°）。角度跟随画面中的手柄方向，不受图片长宽比或画布缩放影响。

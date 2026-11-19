@@ -1,7 +1,6 @@
 ---
 audience: [project_admin, super_admin]
 type: how-to
-since: v0.10.15
 status: stable
 last_reviewed: 2026-08-15
 ---

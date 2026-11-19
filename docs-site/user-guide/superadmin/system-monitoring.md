@@ -2,7 +2,6 @@
 title: 系统监控
 audience: [super_admin]
 type: reference
-since: v0.8.7
 status: stable
 last_reviewed: 2026-10-26
 ---

@@ -2,7 +2,6 @@
 title: 生产部署（Docker Compose）
 audience: [ops]
 type: how-to
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-26
 ---
@@ -153,7 +152,7 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 | `MODEL_POOL_BUILD_TIMEOUT`         | `30`   | pool 满 + 并发 miss 时排队等显存腾挪的超时（秒），超时返回 503「显存繁忙，稍后重试」。                                                         |
 | `IDLE_UNLOAD_SECONDS`              | `600`  | 空闲 N 秒后自动卸载模型释放显存；`<=0` 关闭定时卸载（仍可手动 `POST /unload`）。                                                               |
 | `IDLE_CHECK_INTERVAL`              | `60`   | 上面空闲判断的轮询间隔（秒）。                                                                                                                 |
-| `VIDEO_MODEL_POOL_CAP`             | `1`    | v0.10.35 · sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                               |
+| `VIDEO_MODEL_POOL_CAP`             | `1`    | sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                                          |
 | `VIDEO_MODEL_POOL_BUILD_TIMEOUT`   | `60`   | video 池满 + 并发 miss 时排队等显存的超时（秒）。                                                                                              |
 | `VIDEO_TRACKER_MAX_WINDOW_FRAMES`  | `16`   | 单窗口最大帧数；提高前须按目标设备重新验证。                                                                                                   |
 | `VIDEO_TRACKER_MAX_CONTEXT_FRAMES` | `64`   | 同一 session 的源帧上下文上限；大于窗口时启用跨窗能力。                                                                                        |

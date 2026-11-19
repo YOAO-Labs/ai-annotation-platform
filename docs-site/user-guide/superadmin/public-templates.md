@@ -1,7 +1,6 @@
 ---
 audience: [super_admin]
 type: how-to
-since: v0.10.14
 status: stable
 last_reviewed: 2026-10-14
 ---
@@ -15,7 +14,7 @@ last_reviewed: 2026-10-14
 
 ## 模板创建权限说明
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/superadmin/public-templates/scope-selector.png — 可见范围下拉「公共」选项 disabled（非超管视角） [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/superadmin/public-templates/scope-selector.png — 可见范围下拉「公共」选项 disabled（非超管视角） [manual] -->
 
 ### 通用（适用所有角色 ≥ project_admin）
 

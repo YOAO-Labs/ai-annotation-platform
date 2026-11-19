@@ -4,9 +4,9 @@
 >
 > 父 Epic：[图像 / 视频栅格 Mask 能力统一](2026-07-21-raster-mask-workbench-unification-epic.md)
 >
-> 硬前置：[v0.23.11 Mask 质检、审阅与格式生态](archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)
+> 硬前置：[Mask 质检、审阅与格式生态](archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)
 >
-> 排期：当前不占用发布版本；在 3D 标注工作台 0.24.x 完成且出现明确项目需求后重新评估。
+> 排期：当前不占用发布版本；在 3D 标注工作台优化完成且出现明确项目需求后重新评估。
 >
 > 这是新的数据语义，不把 instance Mask 字段复用成 class-map；进入实现前必须新增 ADR-0055。
 
@@ -61,7 +61,7 @@ ADR 至少比较：
 
 ### P2 · 图片工作台
 
-- 类别笔刷、橡皮到 void、套索增减、flood fill、组件和形态学复用 v0.23.9 operation core。
+- 类别笔刷、橡皮到 void、套索增减、flood fill、组件和形态学复用已有的 Mask 编辑操作。
 - 当前类别 painting 自动替换目标像素的旧 class；冲突策略始终可见。
 - panoptic 模式支持 thing 实例选择 / 新建与 stuff 类直接绘制。
 - 图层显示 class palette、segment boundary、void、只看当前类 / 实例和冲突区域。
@@ -72,7 +72,7 @@ ADR 至少比较：
 - 支持标注项目采样帧的 semantic / panoptic map，时间轴显示已标 / AI / 未标 / void。
 - AI propagate 可生成帧 map，但未运行推理的帧不能被 UI 标成已标。
 - instance track 可显式合成 panoptic thing segments；stuff 由 frame map 提供。
-- 邻帧复制、局部纠错和窗口重传播复用 v0.23.8，但输出 map candidate。
+- 邻帧复制、局部纠错和窗口重传播复用视频 Mask 纠错流程，但输出 map candidate。
 - 长视频存储、frame sampling 与导出前全帧要求必须在任务创建时明确。
 
 ## 4. AI 工作流
@@ -83,7 +83,7 @@ ADR 至少比较：
 - 支持文本 / 类别列表、点 / 框 / scribble 和已有 map correction。
 - AI candidate 带 class / segment metadata、置信度和 unknown / void 区域。
 - 多模型结果合并必须通过冲突策略和审阅，不按响应顺序静默覆盖。
-- 大图 / 长视频用 tile / window job，保持 v0.23.10 资源预算。
+- 大图 / 长视频用 tile / window job，沿用大画布的资源预算。
 
 ### P5 · Instance → Panoptic 合成
 

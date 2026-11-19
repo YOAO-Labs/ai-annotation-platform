@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.13.3
 status: stable
 last_reviewed: 2026-09-05
 ---
@@ -116,7 +115,7 @@ Scene 时间轴的「跨帧任务」会打开当前 Scene 的 3D 跨帧任务中
 
 ### 相机 RGB 上色
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench/pointcloud-rgb-colorize.png — 相机上色前后对比 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench/pointcloud-rgb-colorize.png — 相机上色前后对比 [manual] -->
 
 设置「相机上色」（默认关）：逐点投影到各标定相机像面采样像素 RGB，主视图和三视图一致跟随；无标定的点回退高度色带。开启后自动按 z-test 剔除被前景遮挡的背景点（容差 10cm），避免背景墙面被前景车辆“染色”。常规渲染路径在持久 worker 中完成颜色与深度计算；实验渲染路径会缓存解码后的相机图和相邻帧遮挡深度，并由 GPU 直接采样纹理，不读取 Canvas 像素。
 
@@ -134,7 +133,7 @@ Scene 时间轴的「跨帧任务」会打开当前 Scene 的 3D 跨帧任务中
 
 ### 深度热力图
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench/pointcloud-depth-heatmap.png — 深度热力图 + figcaption 深度读数 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench/pointcloud-depth-heatmap.png — 深度热力图 + figcaption 深度读数 [manual] -->
 
 设置「深度提示」：相机图叠深度热力图（近=红、远=蓝），鼠标 hover 显示最近点深度。该开关存入账号级工作台设置，跨浏览器同步。
 

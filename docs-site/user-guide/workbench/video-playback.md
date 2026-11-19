@@ -78,7 +78,7 @@ J/K/L 播放支持 `0.25x / 0.5x / 1x / 2x / 4x` 档位。反向播放按帧步�
 
 ## 帧采样与软网格导航
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/video-playback/sampling-config.png — 项目设置帧采样配置区（mode/target_fps/frame_step） [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/video-playback/sampling-config.png — 项目设置帧采样配置区（mode/target_fps/frame_step） [manual] -->
 
 视频项目可在「项目设置」里配置**帧采样**（对应 `VideoSamplingConfig` 的 `mode` / `target_fps` / `frame_step` 三个字段），把逐帧标注约束在一张更稀疏的「网格」上，减少要标的帧数。采样有两种填法（二选一）：
 
@@ -141,7 +141,7 @@ off-grid 关键帧只影响该轨迹在网格点之间的插值取值，不污�
 
 ## 章节
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/video-playback/chapter-sidebar.png — 章节侧栏含彩色色带 + 章节列表 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/video-playback/chapter-sidebar.png — 章节侧栏含彩色色带 + 章节列表 [manual] -->
 
 <DocsVideo
   src="/media/video/video-chapter.mp4"
