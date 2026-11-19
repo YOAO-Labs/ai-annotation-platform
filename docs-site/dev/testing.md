@@ -68,6 +68,8 @@ last_reviewed: 2026-10-26
 | 仓库脚本与文档工具：`scripts/test_*.py`、`scripts/*.test.mjs`、`docs-site/scripts/*.test.mjs`、`docs-site/dev/examples/{echo-ml-backend,mock-v2-backend}/tests`                                                                           | 后端 CI 在 API 环境显式执行 `python -m pytest ../../scripts` 并上传 JUnit；Node 按 workflow 中列出的入口执行；文档 `pnpm --filter docs-site check:all`，示例各自 `uv run --extra test pytest -q`   | API 默认 pytest 不收集仓库 `scripts`；新增接线后的既有失败仍须报告，不用删测或 skip 变绿。文档检查与示例测试各有入口，手动执行不能记作远端 CI 通过。                                         |
 | 实验：`apps/api/experiments/tests`、`apps/audit-summary/*_test.go`                                                                                                                                                                        | 手动工作流 `.github/workflows/backend-go-experiment.yml`：API 项目下 `uv run pytest -q experiments/tests`；Go 项目下 `go test -race ./...`                                                         | 不在 API 默认 `tests` 根内；手动工作流不是常规 API 分片的通过证据。                                                                                                                          |
 
+Web 工具按运行器分开：`apps/web/scripts` 中的测试随 Vitest 执行；`pnpm --filter web screenshots:test` 从 `apps/web/e2e/screenshots` 递归选择 `*.test.mjs` 和 `*.test.ts`，用 Node 22、FFmpeg 和 ffprobe 实跑。`Frontend verification` 上传 `web-media-tool-tests` JUnit；Linux 不接受空选集、空报告或跳过的用例。这里验证录制工具和临时媒体文件，不运行截图产品场景，不授予浏览器或 GPU 采集资格。
+
 浏览器要按**用例**而非仅按 spec 归类：产品 E2E 以真实服务、用户行为和持久结果为证据；浏览器集成可使用受控替身或源码入口；视觉／渲染资格另负责像素、renderer、资源与设备。Mask native 使用 `playwright.mask-product.config.ts` 及 `vite preview` 验证构建产物。1080p 真实 Worker 完成／取消／失败用例独立位于 `e2e/browser-integration/mask-worker.spec.ts`，其配置只启动 Vite 和静态测试页面，不需要 API、认证或数据库。两者分别生成报告，Worker 的 skip／not-run／空报告不能算通过，也不能计入构建产物黑盒成功。
 
 已知条件边界须保留在报告中：Mask 用 `@mask-native`／`@mask-readonly` 标签按 `PLAYWRIGHT_RASTER_MASK_MATRIX` 静态选择，默认功能集不选择这两组标签，不把另一开关下的场景混入选集并记作 skip；AI inspector 的真实请求场景需 `PLAYWRIGHT_AI_REQUEST_WORKER=1` 和专用 API/Celery broker；WebCodecs 用例在未强制要求精确解码时可因能力不足跳过。原先只有显式跳过的视频 smoke 已移除，精确视频验收仍走现有专用场景。共享 runtime 的图片测试使用 `pytest.importorskip("PIL.Image")`。这些是源码中的例子，并非全部 skip 清单；缺依赖、collection error、取消或未选择均不可记为通过。
@@ -272,7 +274,7 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
 
 ```bash
 cd apps/web
-pnpm test                  # 一次性运行全部单测
+pnpm test                  # 一次性运行 Vitest
 pnpm test:watch            # 监听模式
 pnpm test:coverage         # 运行并检查覆盖率阈值
 ```

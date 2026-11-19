@@ -2,6 +2,8 @@
 
 > 状态：阶段 E 的本地集成验收已完成。第 16 节的阶段 F 正在实施：N4 四个切片、N6-K 已完成限定验收，N5 已按产品语言计划完成。N5 后的 T1／T2 联合验收未通过：默认验证器停在 ordinary 清理，后 17 组未运行。N6 后继及 J1／J2 四个批准门保持关闭；本轮不授权公开发布或生产采用。
 >
+> 分工：T1／T2 联合验收由 `feat/backend-opt` 执行并对账，本工作树不重跑。与联合门独立的 Web 治理证据见 [G1／G6 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)。
+>
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
 > 目标：让测试真正保护公开行为、数据所有权和可替换能力，并随模组与插件边界迁移；消除已证实的假绿、遗漏执行和测试设施耦合，不以测试数量、目录数量或覆盖率数字代替验收。
@@ -827,6 +829,10 @@ Native 验收包含真实安装、冻结函数体、owner／ACL、事务及迁�
 共享 MinIO 保持运行；以下三个桶因归属证据不足而保留，不能仅按名称删除：`aap-wt-d44ff55fcbb18c58-test-accepted-inputs`、`aap-wt-23d18b50cacd8a44-dev-accepted-inputs`、`aap-wt-37bb4c8bebcd0a83-test-datasets`。可取得的归属恢复记录已归档到 `retained-ownership-journals/`。用户 `.gitignore`、既有 stash、`feat-plugin-opt` 和日常环境不在本轮清理范围。
 
 证据根目录为 `.worktree/test-language-gates/`：`owner-case-ledger.final.json`、`script-runtime-case-ledger.final.json`、`native-case-ledger.final.json`、`notifications-cold-final-v4.json`、受保护的原始报告及 `mask-worker/sanitized/`。全局 `seed.reset` 仍是显式串行夹具例外；未宣称整个仓库、远端 CI、独立发行 wheel、真实模型／GPU 或其他浏览器渠道完成。产品语言与导入导航的实际窗口见命名计划 12.7。
+
+### 12.15 G1／G6：Web 测试的执行归属与行为合同
+
+Web 录制与媒体工具已从仅本地命令接入 `Frontend verification`。工具用例由 Node 递归选择，包体积和精确帧基准的脚本测试仍由 Vitest 负责，截图产品场景仍由 Playwright 负责。[测试指南](../../docs-site/dev/testing.md)记录日常入口；[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/web-governance-run-ledger.md)区分真实执行与负对照。本切片不改变阶段 F 批准门。
 
 ## 13. 下一轮阶段并行安排
 
