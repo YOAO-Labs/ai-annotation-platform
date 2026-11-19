@@ -713,15 +713,22 @@ Cleanup 保留原临时存储配置，API 仅获 `.probe-media-cache/` 下的对
 会提交极大 Audit ID 的维护／冷消费者测试各用独立 profile，避免不可回滚的序列或
 归档夹具影响后续消费者；验收记录保留三条预检 Audit 事件，不把它们当成测试产生的写入。
 会提交固定演示账号的父级 seed 测试也独立运行，避免其 `admin` 账号影响其他验收。
+历史角色审计会临时替换 PostgreSQL 实例级的 `legacy_runtime` LOGIN；视频跟踪冷 worker
+会提交没有夹具数据集归属的作业。两者各用自己的完整文件和独占实例，不与截图准备或回收共库。
 图片身份导入和 installed scale CLI 分别使用独占 profile。公开关系和独立 Node 探针完成后，
 验证器在数据库出生身份、准确用户／项目集合及无其他客户端的守卫下，仅退役自己的
 准备探针，再执行各自的空业务库场景；未知行或级联依赖使准备失败，不执行全表清空。
 源码 CLI 与独立安装 CLI 的资格分别记录，不能相互替代。
-Workspace、Notifications 和 Audit 的独立 Node 对照依赖须分别安装在
+Workspace、Notifications、Audit 和 Jobs 的独立 Node 对照依赖须分别安装在
 `apps/<模块>/conformance/node` 自身：在各目录执行
 `pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts`；
 已准备离线缓存时可加 `--offline`。验证器在创建数据库或容器前检查这些依赖，
 不会借用共享 Node 安装，也不需要重复安装已就绪的工作树根依赖。
+完整门和涉及 Workspace `remote_python` 的安装制品验收，还需将
+`AAP_WORKSPACE_RUNTIME_PYTHON` 指向当前候选按 `apps/workspace/uv.lock` 安装的独立解释器：
+用私有 `UV_PROJECT_ENVIRONMENT` 执行 `uv sync --project apps/workspace --frozen --no-dev --extra runtime --no-editable`。
+不要借用 API 源码环境或旧安装来证明当前提供方。日常只验受影响的文件或 node ID，用
+`--test-file` 定向；只有默认入口的同候选完整结果才能记为 T1。
 普通 Identity 消费者的精确八函数包含接受后 API Key 事实读取，以及 JWT 撤销状态和凭据
 代次读取：分别服务于 `identity_request_authority` 和 `token_blacklist` 的事务内重验。
 这不授权私有表、凭据哈希或撤销写命令；各操作账号仍须断言自己的准确能力集合。

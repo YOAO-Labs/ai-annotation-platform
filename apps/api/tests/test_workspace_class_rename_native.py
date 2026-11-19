@@ -342,32 +342,62 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
     test_engine,
 ):
     await assert_owned_test_database(test_engine)
-    old_sql = (
-        _ROOT / "apps/api/alembic/sql/0257_workspace_configuration.sql"
-    ).read_text()
-    # Replay the frozen definitions against the installed owner namespaces.
-    old_step = next(
-        statement.strip()
-        for statement in old_sql.split("-- aap-statement-break")
-        if statement.strip().startswith(
-            f"CREATE FUNCTION {historical(_SCHEMA)}.configuration_step("
-        )
-    ).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+    sql_dir = _ROOT / "apps/api/alembic/sql"
+    frozen_columns = json.loads(
+        (sql_dir / "0261_workspace_project_queries.schema.json").read_text()
+    )["x-project-row-columns"]
     new_statements = (
-        (_ROOT / "apps/api/alembic/sql/0268_workspace_class_rename.sql")
+        (sql_dir / "0268_workspace_class_rename.sql")
         .read_text()
         .split("-- aap-statement-break")
     )
-    async with test_engine.connect() as owner:
+    async with test_engine.connect() as owner, AsyncSession(bind=owner) as session:
         transaction = await owner.begin()
         try:
+            actor = await create_user(
+                session,
+                "project_admin",
+                f"replay-{uuid.uuid4().hex}@example.test",
+                "Replay",
+            )
+            project = await create_project(session, owner_id=actor.id)
+            project.guide_assets_revision = 7
+            await session.flush()
+            read_row = text(
+                f"SELECT {_SCHEMA}._class_rename_project_row(:id, 'key_share')"
+            )
+            params = {"id": project.id}
+            current_row = decode_project_row(
+                await owner.scalar(read_row, params), target_id=project.id
+            )
+            assert current_row["name"] == project.name
+            assert current_row["guide_assets_revision"] == 7
             before = await _function_metadata(owner)
             assert len(before) == 3
             for metadata in before.values():
                 assert metadata["owner"] == "workspace_code"
                 assert metadata["security_definer"] is True
                 assert "search_path=pg_catalog, pg_temp" in metadata["settings"]
-            await owner.exec_driver_sql(current(old_step))
+            # The 0268 caller uses the 0261 exact-key serializer, not the
+            # current one, which also requires guide_assets_revision.
+            for filename, function in (
+                ("0257_workspace_configuration.sql", f"{_SCHEMA}.configuration_step"),
+                (
+                    "0261_workspace_project_queries.sql",
+                    "yoao_workspace_project_query_v1._project_row_json",
+                ),
+            ):
+                prefix = f"CREATE FUNCTION {historical(function)}("
+                statements = (
+                    (sql_dir / filename).read_text().split("-- aap-statement-break")
+                )
+                (definition,) = (
+                    s.strip() for s in statements if s.strip().startswith(prefix)
+                )
+                replacement = definition.replace(
+                    "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1
+                )
+                await owner.exec_driver_sql(current(replacement))
             legacy = await _function_metadata(owner)
             step_key = next(key for key in before if ".configuration_step(" in key)
             for key in ("oid", "owner", "acl"):
@@ -376,22 +406,8 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
                 if statement.strip():
                     await owner.exec_driver_sql(current(statement.strip()))
             assert await _function_metadata(owner) == before
-            async with AsyncSession(bind=owner) as session:
-                actor = await create_user(
-                    session,
-                    "project_admin",
-                    f"replay-{uuid.uuid4().hex}@example.test",
-                    "Replay",
-                )
-                project = await create_project(session, owner_id=actor.id)
-                raw = await owner.scalar(
-                    text(
-                        f"SELECT {_SCHEMA}._class_rename_project_row(:id, 'key_share')"
-                    ),
-                    {"id": project.id},
-                )
-                row = decode_project_row(raw, target_id=project.id)
-                assert row["name"] == project.name
+            frozen_row = json.loads(await owner.scalar(read_row, params))
+            assert frozen_row == {field: current_row[field] for field in frozen_columns}
         finally:
             await transaction.rollback()
 
