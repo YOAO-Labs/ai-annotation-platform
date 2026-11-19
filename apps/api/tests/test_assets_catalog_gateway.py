@@ -1209,6 +1209,11 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                     assert os.pread(stage.file.fileno(), 4, 0)
                     blocked = await _cleanup_owned(owner, run)
                     assert blocked.status_code == 409, blocked.text
+                    detail = blocked.json()["detail"]
+                    assert (detail["code"], detail["reason"]) == (
+                        "fixture_prediction_retirement_blocked",
+                        "original_reader_pending",
+                    )
                     async with test_engine.connect() as observer:
                         assert await observer.scalar(
                             text(
@@ -1282,18 +1287,36 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                     ),
                     {"job": job_id, "run": run.run_id, "dataset": dataset_id},
                 )
-                assert (
-                    await observer.scalar(
+                retirements = dict(
+                    (
+                        await observer.execute(
+                            text(
+                                "SELECT version.id,retirement.state "
+                                "FROM yoao_assets_v1.fixture_media_versions AS version "
+                                "LEFT JOIN yoao_assets_v1.fixture_media_version_retirements AS retirement "
+                                "ON retirement.version_id=version.id "
+                                "WHERE version.run_id=:run AND version.dataset_id=:dataset"
+                            ),
+                            {"run": run.run_id, "dataset": dataset_id},
+                        )
+                    ).all()
+                )
+                assert {version["id"] for version in versions} <= retirements.keys()
+                assert all(state == "absent" for state in retirements.values())
+                neighbor_proofs = (
+                    await observer.execute(
                         text(
-                            "SELECT count(*) FROM yoao_assets_v1.fixture_media_versions AS version "
-                            "LEFT JOIN yoao_assets_v1.fixture_media_version_retirements AS retirement "
-                            "ON retirement.version_id=version.id "
-                            "WHERE version.run_id=:run AND version.dataset_id=:dataset "
-                            "AND retirement.state IS DISTINCT FROM 'absent'"
+                            "SELECT r.state,yoao_assets_v1.fixture_dataset_media_retired(r.id,d.id) "
+                            "FROM yoao_fixture_v1.fixture_runs r "
+                            "JOIN yoao_fixture_v1.fixture_run_resources f ON f.run_id=r.id "
+                            "JOIN public.datasets d ON d.id=f.resource_id "
+                            "WHERE r.id=:run AND f.kind='dataset' AND f.state='published'"
                         ),
-                        {"run": run.run_id, "dataset": dataset_id},
+                        {"run": neighbor.run_id},
                     )
-                    == 0
+                ).all()
+                assert neighbor_proofs and all(
+                    row == ("open", None) for row in neighbor_proofs
                 )
             assert (
                 await asyncio.to_thread(_read_versions, reader, neighbor_versions)
