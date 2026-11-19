@@ -614,3 +614,7 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 验收器只记录了 `local-resources` 的 `WorktreeError`，没有原始错误消息。人工退役前实测仍有空闲的 fixture 数据库会话和未清理的 fixture store，不能倒推为唯一触发原因。现场留证后已退役本轮的 2 个宿主进程、4 个容器、3 个卷、2 个网络、3 个临时目录、pytest 临时数据及独立工作树。另移除 4 个被替代的验收镜像，保留 18 个已有安装字节证明的候选镜像。退役回执：`joint-ff860a543-3/{environment-retirement,worktree-retirement,superseded-images-retirement}.json`。
 - 失败归类：控制台与 ordinary JUnit 的 314 个失败／错误节点 ID 集合一致。52 个模块中的 **213 个节点**报同一数据库拒绝码 `fixture_dataset_job_scope_unknown`（201 失败、12 错误）。更早的 `screenshot_restore[known]` 夹具清理已收到 HTTP 409 `fixture_dataset_job_unsettled`；两者先后可证，但不能据此认定同一作业导致全部 213 项失败。T2 截图目录的 14 个错误均在 setup：`SeedSetupRefused`，随后 owner 进程退出 1；不是 14 个截图内容断言失败。其余问题不能归入这一条链，例如三条偏好测试尝试在不存在的 `aap_identity_v1` schema 下建函数。
 - 下一次先在新的一次性数据库按顺序执行该 409 用例和一个被拒绝的作业写入，清理前记录两者的 fixture run、dataset、job 标识和状态。若不共享阻塞记录，就拆开归因；另用独立用例复验旧命名和两条不稳定的收集 ID。定向结果不能替代联合验收，也不作为放宽清理守卫的依据。归类与代表节点见同目录 `failure-triage.json`。
+
+## 联合验收后的定向复验：截图清理与作业写入
+
+- 收集对账与运行时故障分开处理。`test_owned_admission_rejects_an_incomplete_api_proof` 的 actor／task 反例改用固定的 pytest ID，不改变提交的随机 UUID 或 `invalid_request` 断言。两次独立 `--collect-only` 得到相同的四条 ID，且两次的随机值确实不同；见 `t1-gate/job-scope-pair-770367803-3/collection-ids-{1,2}.json`。

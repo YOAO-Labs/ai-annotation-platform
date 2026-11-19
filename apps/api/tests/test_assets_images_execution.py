@@ -1105,10 +1105,14 @@ async def test_owned_retry_keeps_an_unpinned_ready_generation_and_records_a_fres
 @pytest.mark.parametrize(
     "field,value,code",
     [
-        ("actor_id", str(uuid.uuid4()), "invalid_request"),
+        pytest.param(
+            "actor_id", str(uuid.uuid4()), "invalid_request", id="actor-mismatch"
+        ),
         ("mode", "system", "invalid_request"),
         ("api_key_fingerprint", "not-a-digest", "invalid_request"),
-        ("task_id", str(uuid.uuid4()), "invalid_request"),
+        pytest.param(
+            "task_id", str(uuid.uuid4()), "invalid_request", id="task-mismatch"
+        ),
     ],
 )
 async def test_owned_admission_rejects_an_incomplete_api_proof(
