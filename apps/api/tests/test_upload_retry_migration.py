@@ -462,6 +462,10 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
         assert blocked.value.orig.sqlstate == "23505"
         assert await _rows(connection) == history
 
+    # The forward namespace cutovers treat any other client of this database as
+    # a live caller. Release the pooled pre-upgrade connection before alembic
+    # opens its own; the test reconnects afterwards.
+    await engine.dispose()
     await asyncio.to_thread(command.upgrade, config, "head")
     async with engine.begin() as connection:
         assert (
@@ -642,6 +646,9 @@ async def test_forward_upgrade_refuses_unproven_shared_keys_atomically(
         before_schema = await _retry_schema(connection)
         before_contract = await _installed_contract(connection)
 
+    # The same cutover drain fence applies to this refused upgrade; keep its
+    # failure attributable to the shared-key history rather than this engine.
+    await engine.dispose()
     with pytest.raises(IntegrityError) as refused:
         await asyncio.to_thread(command.upgrade, config, "head")
     assert refused.value.orig.sqlstate == "23505"
