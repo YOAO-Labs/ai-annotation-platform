@@ -79,7 +79,7 @@ from app.utils.raster_mask_rle import (
 MAX_RLE_OBJECT_BYTES = 4 * 1024 * 1024
 RLE_OBJECT_PREFIX = "raster-masks/sha256"
 
-# v0.23.5 · ADR-0052 §D6 · encoding markers carried inside ``coco_rle_ref``
+# ADR-0052 §D6 · encoding markers carried inside ``coco_rle_ref``
 # (additive — legacy uncompressed ``.json`` refs keep ``encoding="coco_rle_ref"``).
 COCO_RLE_REF_ENCODING = "coco_rle_ref"
 COCO_RLE_GZIP_ENCODING = "coco_rle_gzip"  # legacy request/reference marker
@@ -795,7 +795,7 @@ async def validate_mask_geometry_for_task(
         return
 
     if geom_type == "raster_mask":
-        # v0.23.6 · 图片掩码验证
+        # 图片掩码验证
         if task.dataset_item_id is None:
             raise RasterMaskContractError(
                 status_code=422,
@@ -1114,7 +1114,7 @@ def canonical_rle_bytes(rle: dict[str, Any]) -> bytes:
 
 
 def canonical_rle_bytes_gzip(rle: dict[str, Any]) -> tuple[bytes, bytes]:
-    """v0.23.5 · ADR-0052 §D6 · canonical bytes + gzip wrapper.
+    """ADR-0052 §D6 · canonical bytes + gzip wrapper.
 
     SHA-256 is taken over the **uncompressed canonical bytes** (``data``) so
     that the digest matches the legacy uncompressed ``.json`` path; only the
@@ -1137,7 +1137,7 @@ def rle_object_key(digest: str) -> str:
 
 
 def rle_gzip_object_key(digest: str) -> str:
-    """v0.23.5 · ADR-0052 §D6 · ``.json.gz`` content-addressed key (same digest)."""
+    """ADR-0052 §D6 · ``.json.gz`` content-addressed key (same digest)."""
     return f"{RLE_OBJECT_PREFIX}/{digest[:2]}/{digest[2:4]}/{digest}.json.gz"
 
 
@@ -1156,7 +1156,7 @@ def build_rle_reference(rle: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_rle_gzip_reference(rle: dict[str, Any]) -> dict[str, Any]:
-    """v0.23.5 · ADR-0052 §D6 · gzip variant of :func:`build_rle_reference`.
+    """ADR-0052 §D6 · gzip variant of :func:`build_rle_reference`.
 
     ``object_key`` ends in ``.json.gz`` and ``storage_encoding`` is ``gzip``;
     reference ``encoding`` remains ``coco_rle_ref``. ``sha256`` / ``bytes`` / ``runs`` / ``size`` are

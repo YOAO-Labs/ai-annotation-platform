@@ -1,4 +1,4 @@
-"""v0.23.5 · ADR-0052 §D6 · gzip transport contract for ``coco_rle`` mask objects.
+"""ADR-0052 §D6 · gzip transport contract for ``coco_rle`` mask objects.
 
 Mask canonical JSON can run into the MiB range for 4K / multi-instance masks.
 The gzip transport layer keeps wire / object-storage size under control while
@@ -21,7 +21,7 @@ from __future__ import annotations
 import gzip
 import zlib
 
-# v0.23.5 · ADR-0052 §D6 · bounded decompress constants (module-level so tests
+# ADR-0052 §D6 · bounded decompress constants (module-level so tests
 # and callers can import the same source of truth).
 # NOTE: ``MAX_UNCOMPRESSED_BYTES`` mirrors ``MAX_RLE_OBJECT_BYTES`` in
 # ``app.services.raster_mask_storage`` (both 4 MiB per ADR-0048 / ADR-0052).

@@ -1,4 +1,4 @@
-"""v0.11.22 · BatchService.split 新增语义覆盖。
+"""批次拆分的选择与分配规则测试。
 
 1. n_batches=1：把全部未归类任务注入一个新建批次（修复「分包选单个批次无法注入 task」缺口）。
 2. shuffle=False：顺序切分，按 task 创建顺序（_splittable_task_ids 的 order_by）分配，不打乱。
@@ -147,7 +147,7 @@ async def test_sequential_split_preserves_creation_order(
 async def test_assign_tasks_chunks_assign_all(
     db_session: AsyncSession, super_admin, monkeypatch
 ):
-    """v0.12.0 B5 · _assign_tasks 分块回写 batch_id：跨多块的长 list 仍全量分配。
+    """_assign_tasks 分块回写 batch_id：跨多块的长 list 仍全量分配。
 
     用 monkeypatch 把分块大小压到 7（远小于 30 条），强制走多轮 UPDATE，
     覆盖分块循环的边界，而无需真造 5000 条。

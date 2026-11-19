@@ -208,7 +208,7 @@ def test_onboarding_preferences_reject_unknown_project_state_fields():
     ) in errors
 
 
-# ── v0.24 · workbench.shortcuts（账号级快捷键覆盖）────────────────────────
+# ── workbench.shortcuts（账号级快捷键覆盖）────────────────────────
 
 
 def test_shortcuts_accept_valid_binding_entry_and_dump_by_alias():

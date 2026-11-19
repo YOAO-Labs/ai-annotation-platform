@@ -1,4 +1,4 @@
-"""v0.11.16 · 存储连接器 schema。
+"""存储连接器 schema。
 
 Out **绝不含密钥字段**，仅以 secret_set:bool 表达"是否已配密钥"。
 config 仅含非密钥项（endpoint/host/bucket/username/path），可原样回吐。

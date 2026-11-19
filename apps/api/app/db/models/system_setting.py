@@ -10,7 +10,7 @@ from app.db.base import Base
 
 
 class SystemSetting(Base):
-    """v0.8.1 · 运行时可编辑系统设置。
+    """运行时可编辑系统设置。
 
     key: 配置项名（蛇形小写，与 Settings 字段对齐）
     value_type: int / str / bool（仅展示用，反序列化由 service 按 key 路由）

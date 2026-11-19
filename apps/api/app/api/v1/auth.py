@@ -37,7 +37,7 @@ router = APIRouter()
 
 class ForgotPasswordRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
-    # v0.8.7 · Cloudflare Turnstile token；TURNSTILE_ENABLED=False 时忽略。
+    # Cloudflare Turnstile token；TURNSTILE_ENABLED=False 时忽略。
     captcha_token: str | None = Field(default=None, repr=False)
 
     @field_validator("email")

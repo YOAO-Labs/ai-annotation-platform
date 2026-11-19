@@ -84,7 +84,7 @@ def test_v2_empty_model_variants_still_passes_class_filter():
 
 
 def test_prompt_takes_precedence_text_path():
-    """v0.18.12 统一 wire · prompt 非空 → 走文本扁平路径 (即便带 model_variants)。
+    """统一 wire · prompt 非空 → 走文本扁平路径 (即便带 model_variants)。
 
     gsam2/sam3 现同时发 prompt + model_id + model_variants(sam/dino); 必须落文本路径
     (顶层 params/output/阈值), 而非 v2 嵌套路径 (后端按顶层读 box_threshold)。几何 backend
@@ -129,7 +129,7 @@ def test_flat_text_path_unchanged():
     assert ctx["type"] == "text"
     assert ctx["text"] == "car"
     assert ctx["output"] == "box"
-    # 项目级阈值先写, 再被 params 覆盖 (与 v0.14.9 行为一致).
+    # 项目级阈值先写入，再由 params 覆盖。
     assert ctx["box_threshold"] == 0.3
     assert ctx["text_threshold"] == 0.25
 

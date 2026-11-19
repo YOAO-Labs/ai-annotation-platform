@@ -1,11 +1,8 @@
-"""v0.9.6 · /admin/preannotate-queue 简化版.
+"""/admin/preannotate-queue：列出预标已就绪、等待人工审核的批次。
 
 返回"AI 预标已就绪 (batch.status='pre_annotated') 的批次列表" + 各自的
 prediction_count / failed_count / last_run_at, 让 admin 在 /ai-pre 页面看到
 "哪些批次跑完了, 需要去工作台接管 review".
-
-完整 job 历史追踪 (含已结束/已重置批次, 当时 prompt / cost / 耗时) 需要新增
-prediction_jobs 表 + worker 写入逻辑, 推迟到 v0.9.7.
 """
 
 from __future__ import annotations
@@ -161,7 +158,7 @@ async def list_preannotate_queue(
     return PreannotateQueueResponse(items=items)
 
 
-# ── v0.9.12 BUG B-16 · 多选批量清理 prediction / 重激活 ────────────────────────
+# ── 多选批量清理 prediction / 重激活 ────────────────────────
 
 
 class BulkClearRequest(BaseModel):
@@ -192,7 +189,7 @@ async def bulk_clear_preannotate(
     db: AsyncSession = Depends(get_db),
     actor_id: uuid.UUID = Depends(get_current_user_id),
 ) -> BulkClearResponse:
-    """v0.9.12 B-16 · 批量清理 /ai-pre 已就绪卡片.
+    """批量清理 /ai-pre 已就绪卡片.
 
     - predictions_only: 仅清 prediction / failed_prediction / prediction_jobs / prediction_metas;
       batch.status 从 PRE_ANNOTATED 回 ACTIVE (避免 "状态 PRE_ANNOTATED 但 prediction 已空" 矛盾态).
@@ -211,7 +208,7 @@ async def bulk_clear_preannotate(
     return BulkClearResponse(**result)
 
 
-# ── v0.9.12 BUG B-17 · /ai-pre 项目卡片网格的聚合数据源 ─────────────────────────
+# ── /ai-pre 项目卡片网格的聚合数据源 ─────────────────────────
 
 
 class PreannotateProjectSummary(BaseModel):
@@ -246,11 +243,11 @@ async def list_preannotate_project_summary(
         require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
     ),
 ) -> PreannotateProjectSummaryResponse:
-    """v0.9.12 B-17 · 给 ProjectCardGrid 提供 per-project 聚合.
+    """给 ProjectCardGrid 提供 per-project 聚合.
 
     仅返回有「已启用」全局 backend 的项目 (EXISTS project_ml_backend_pool WHERE enabled).
-    v0.10.38 · 撤回 v0.10.36 的 data_type="image" 过滤: 模态分流改到前端 ProjectDetailPanel
-    (image 走文本批量预标, video 走引导卡片+job 历史), summary 返回 data_type 供前端路由.
+    summary 返回 data_type 供前端 ProjectDetailPanel 按模态区分入口：
+    图像走文本批量预标，视频走引导卡片和 job 历史。
     """
     project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
     stmt = select(project_rows_alias)
@@ -303,7 +300,7 @@ async def list_preannotate_project_summary(
     )
     eligible_counts = {pid: int(cnt) for pid, cnt in eligible_res.all()}
 
-    # v0.10.49 · prediction_jobs 已收敛进 async_jobs，最近预标时间改查 kind=batch_predict
+    # prediction_jobs 已收敛进 async_jobs，最近预标时间改查 kind=batch_predict
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     job_rows = await JobsDomainQueryPostgresData(db).latest_batch_prediction_times(

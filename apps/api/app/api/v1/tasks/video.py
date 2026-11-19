@@ -246,7 +246,7 @@ async def get_point_cloud_manifest(
 
     cameras.sort(key=lambda c: c.name)
 
-    # v0.13.11 · 取主点云所在 Dataset 的 axis_convention,前端用它把 PCD positions 与各相机
+    # 取主点云所在 Dataset 的 axis_convention,前端用它把 PCD positions 与各相机
     # extrinsic 旋转归一化到 ISO 8855。无 primary_lidar item / 无 metadata key → None,
     # 前端按 "iso_8855" (= identity) 处理,保持向后兼容。
     axis_convention = None
@@ -255,7 +255,7 @@ async def get_point_cloud_manifest(
         if primary_item is not None:
             axis_convention = primary_item.axis_convention
 
-    # v0.14.0 · scene 字段透出:仅当 primary_lidar item 有 scene_id 时挂上,
+    # scene 字段透出:仅当 primary_lidar item 有 scene_id 时挂上,
     # 前端用做跨帧导航的合法 backing(本期不消费 UX,仅显示在调试面板)。
     scene_id_out: uuid.UUID | None = None
     scene_name_out: str | None = None
@@ -283,7 +283,7 @@ async def get_point_cloud_manifest(
                     if row.scene_id == scene.scene_id and row.frame_index is not None
                 }
             )
-            # v0.15.0 · 本帧 ego pose 透出;无位姿行(历史/非 nuScenes) → None
+            # 本帧 ego pose 透出;无位姿行(历史/非 nuScenes) → None
             if primary_item.frame_index is not None:
                 ego_pose_out = await scene_pose_svc.get_frame_pose(
                     db,
@@ -1222,7 +1222,7 @@ async def track_video(
         get_video_tracker_job_dispatcher
     ),
 ):
-    """v0.22.1 · B · 任务级追踪 (画布级入口): source_annotation_id 可选——给出即延展该轨迹,
+    """B · 任务级追踪 (画布级入口): source_annotation_id 可选——给出即延展该轨迹,
     缺省则为无源检测 (文本/种子), 新建轨迹类别由 target_class_name 指定。旧的
     /tracks/{annotation_id}:propagate 仍保留 (延展快捷路径)。"""
     task = await _load_task_or_404(db, task_id)
@@ -1251,7 +1251,7 @@ async def track_video(
             "annotation_id": str(payload.source_annotation_id)
             if payload.source_annotation_id
             else None,
-            # v0.22.2 · M · 多选批量: 记录批量延展的源轨迹 ids (多源时 annotation_id 为 None)。
+            # M · 多选批量: 记录批量延展的源轨迹 ids (多源时 annotation_id 为 None)。
             "source_annotation_ids": [str(a) for a in payload.source_annotation_ids]
             if payload.source_annotation_ids
             else None,

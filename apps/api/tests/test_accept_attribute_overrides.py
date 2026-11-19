@@ -1,4 +1,4 @@
-"""v0.18.3 · 采纳预测时带 attribute_overrides (工作台候选属性审阅 + 分步采纳).
+"""采纳预测时带 attribute_overrides (工作台候选属性审阅 + 分步采纳).
 
 多阶段预标的 select 属性可在采纳前改值, 经 accept 端点 attribute_overrides 原子落库;
 内部键 (_shape_index) 不被 override 干扰。
@@ -83,7 +83,7 @@ async def test_accept_without_overrides_keeps_predicted_attrs(
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    # v0.20.22 · 响应仅含本次新建 (单 shape → 1 条), 不再是整题全量。
+    # 响应仅含本次新建 (单 shape → 1 条), 不再是整题全量。
     assert len(data) == 1
     ann = data[0]
     assert ann["source"] == "prediction_based"
@@ -105,7 +105,7 @@ async def test_accept_with_overrides_applies_edited_values(
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert len(data) == 1  # v0.20.22 · 只返回本次新建
+    assert len(data) == 1  # 只返回本次新建的标注
     ann = data[0]
     assert ann["source"] == "prediction_based"
     assert ann["attributes"]["color"] == "white"  # 改后值落库

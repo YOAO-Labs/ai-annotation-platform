@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §12.3 + v0.23.4 Appendix A.7 · topology + runtime-snapshot tests.
+"""Topology and runtime-snapshot tests (ADR-0050 §12.3).
 
 Covers:
 * role-scoped topology (Super Admin full detail vs Project Admin server-trimmed);
@@ -228,7 +228,7 @@ async def test_runtime_snapshot_super_admin_only(
         "gpu",
         "residency",
     }
-    # gpu + residency honestly marked stale (not bundled in v0.23.3 snapshot).
+    # GPU and residency are marked stale because the snapshot omits those sources.
     gpu_src = next(s for s in body["sources"] if s["name"] == "gpu")
     assert gpu_src["stale"] is True
     assert gpu_src["error"] == "not_bundled_in_v0_23_3"

@@ -1,4 +1,4 @@
-"""v0.11.23 · 删除/解绑批次时级联重置 task 状态 + 清 AI 预标。
+"""删除/解绑批次时级联重置 task 状态 + 清 AI 预标。
 
 删批次不再只解绑：批次内非 pending task 重置为 pending（保留人工标注、软删 AI 标注、
 删 predictions），避免 review/completed 孤儿化 + 重分包后再预标叠加重复标注。

@@ -1,4 +1,4 @@
-"""v0.8.6 F1 · 协议 context.type 扩 text。
+"""协议 context.type 扩 text。
 
 InteractiveRequest.context 仍是开放 dict（与 backend 协商空间不锁死），
 但 schema docstring 与协议文档 §2.2 列出的 4 种 type 要随版本同步。
@@ -36,7 +36,7 @@ def test_interactive_request_accepts_polygon_type():
 
 
 def test_interactive_request_accepts_text_type():
-    """v0.9.x Grounded-SAM-2 文本批量入口 — schema 必须不拒绝。"""
+    """Grounded-SAM-2 文本批量入口 — schema 必须不拒绝。"""
     req = InteractiveRequest(
         task_id=uuid.uuid4(),
         context={"type": "text", "text": "ripe apples"},
@@ -59,7 +59,7 @@ def test_interactive_request_default_context_empty_dict():
     assert req.context == {}
 
 
-# ─── v0.9.8 · MLBackendCreate / MLBackendUpdate URL host blacklist ──────────
+# ─── MLBackendCreate / MLBackendUpdate URL host blacklist ──────────
 
 
 import pytest  # noqa: E402

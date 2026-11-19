@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §B.3 · routing contracts: enums, dataclasses, error codes.
+"""ADR-0050 §B.3 · routing contracts: enums, dataclasses, error codes.
 
 Frozen in P0 (plan appendix §B). P2/P3 implement against these types; deviation needs
 an ADR amendment. These are pure data types — no Redis / DB / network access.
@@ -22,7 +22,7 @@ from typing import Any
 class RouterMode(str, enum.Enum):
     """``ML_BACKEND_ROUTER_MODE``: off / observe / enforce.
 
-    off / observe keep legacy instance dispatch (behavior = v0.23.2); observe additionally
+    off / observe leave legacy instance dispatch unchanged; observe additionally
     computes would-select in a shadow namespace and records diagnostics without gating.
     enforce uses router-selected instances and fails closed on Redis/topology uncertainty.
     """

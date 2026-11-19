@@ -1,4 +1,4 @@
-"""v0.20.11 · 选中框单框二次推理 service 层覆盖 (Q1b).
+"""选中框单框二次推理 service 层覆盖 (Q1b).
 
 mock 掉图像加载 / 对象存储 / 模型执行端口, 只验编排 + 产物归位:
 - attributes 型: 属性 union 回原框, attributes_meta 标 origin=ai
@@ -292,7 +292,7 @@ async def test_label_prefix_on_written_keys(
 async def test_attributes_respects_human_edits_and_reuses_ai_slots(
     db_session, super_admin, monkeypatch, _patch_io
 ):
-    """守护 v0.20.10 溯源规则: 人工手改过的属性键 (缺省即 human) 二次推理不再顶回;
+    """二次推理不覆盖人工编辑的属性键（缺省来源为 human）；
     上次 AI 写的键 (origin=ai) 可被再次 AI 覆盖并刷新 model_ref。"""
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
@@ -490,7 +490,7 @@ async def test_geometry_unknown_class_falls_back(
 
 @pytest.mark.asyncio
 async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch_io):
-    """v0.20.21 · 极小框 (退化 ROI) 不再静默返回空, 改明确 422 (不伪装成没结果)。"""
+    """极小框 (退化 ROI) 不再静默返回空, 改明确 422 (不伪装成没结果)。"""
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     task = await create_task(db_session, project_id=proj.id)
@@ -531,7 +531,7 @@ async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch
 
 @pytest.mark.asyncio
 async def test_non_croppable_geometry_raises_400(db_session, super_admin, monkeypatch):
-    """v0.20.21 · 门1 能转 LS shape 但门2 取不到外接框的几何 (如 polyline) → 明确 400。"""
+    """门1 能转 LS shape 但门2 取不到外接框的几何 (如 polyline) → 明确 400。"""
     # polyline 门1 → polylinelabels, 门2 _box_bbox_pct 非 rectangle/polygon → None → 400。
     # 400 在读图 / 裁 crop 之前触发, 用 fake annotation 即可 (不落库)。
     _patch_predict(monkeypatch, [])  # 不应被调用
@@ -609,7 +609,7 @@ async def test_non_croppable_geometry_raises_400(db_session, super_admin, monkey
 async def test_non_croppable_geometry_variants_raise_400(
     db_session, super_admin, monkeypatch, geo_type, geometry
 ):
-    """v0.20.21 · 门2 兜底覆盖: 除 polyline 外, rotated_bbox / keypoint / multi_polygon
+    """门2 兜底覆盖: 除 polyline 外, rotated_bbox / keypoint / multi_polygon
     (走 _box_bbox_pct → None 路径) 都应提前 400, 不静默返回空。"""
     _patch_predict(monkeypatch, [])  # 不应被调用
     fake_ann = types.SimpleNamespace(

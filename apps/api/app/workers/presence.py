@@ -1,4 +1,4 @@
-"""v0.8.3 · 在线状态扫描任务
+"""在线状态扫描任务
 
 每 2 分钟扫描一次：把 status='online' 但超 OFFLINE_THRESHOLD_MINUTES 未刷新
 last_seen_at 的用户置 'offline'。

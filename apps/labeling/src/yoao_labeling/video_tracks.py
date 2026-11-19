@@ -7,12 +7,12 @@ VIDEO_FRAME_MODES = {"keyframes", "all_frames"}
 
 
 def is_polygon_track(geometry: dict) -> bool:
-    """v0.21.20 · geometry 是否为 polygon track (关键帧存 points 而非 bbox)。"""
+    """geometry 是否为 polygon track (关键帧存 points 而非 bbox)。"""
     return geometry.get("type") == "video_track_polygon"
 
 
 def is_polyline_track(geometry: dict) -> bool:
-    """v0.21.20 · geometry 是否为 polyline track (开路径 points, 不闭合)。"""
+    """geometry 是否为 polyline track (开路径 points, 不闭合)。"""
     return geometry.get("type") == "video_track_polyline"
 
 
@@ -44,7 +44,7 @@ def sorted_keyframes(geometry: dict) -> list[dict]:
 
 
 def clean_keyframe(kf: dict, *, include_attributes: bool = True) -> dict:
-    # v0.21.20 · polygon 关键帧存 points, bbox 关键帧存 bbox; 按存在的形状键保留。
+    # polygon 关键帧存 points, bbox 关键帧存 bbox; 按存在的形状键保留。
     row: dict = {
         "frame_index": int(kf.get("frame_index", 0)),
         "source": kf.get("source", "manual"),
@@ -231,7 +231,7 @@ def _best_rotation_offset(a: list[list[float]], b: list[list[float]]) -> int:
 
 
 def lerp_polygon(before: dict, after: dict, ratio: float) -> list[list[float]]:
-    """v0.21.20 · polygon 关键帧插值: 弧长参数化重采样到公共顶点数 + 旋转对齐后逐点 lerp。"""
+    """polygon 关键帧插值: 弧长参数化重采样到公共顶点数 + 旋转对齐后逐点 lerp。"""
     a = [p for p in (before.get("points") or []) if len(p) >= 2]
     b = [p for p in (after.get("points") or []) if len(p) >= 2]
     if not a:
@@ -286,7 +286,7 @@ def _resample_open_polyline(points: list, n: int) -> list[list[float]]:
 
 
 def lerp_polyline(before: dict, after: dict, ratio: float) -> list[list[float]]:
-    """v0.21.20 · polyline (开路径) 关键帧插值: 开路径弧长重采样到公共顶点数 + 逐点 lerp。
+    """polyline (开路径) 关键帧插值: 开路径弧长重采样到公共顶点数 + 逐点 lerp。
 
     与 lerp_polygon 的区别: 开路径重采样 (首尾端点固定对应) + 无旋转对齐 (端点即对应)。
     """
@@ -309,7 +309,7 @@ def lerp_polyline(before: dict, after: dict, ratio: float) -> list[list[float]]:
 
 
 def _shape_fields(kf: dict, *, points: bool) -> dict:
-    """v0.21.20 · 按 track 类型取关键帧形状字段: polygon/polyline→points, bbox→bbox。"""
+    """按 track 类型取关键帧形状字段: polygon/polyline→points, bbox→bbox。"""
     if points:
         return {"points": [list(pt) for pt in (kf.get("points") or [])]}
     return {"bbox": kf.get("bbox") or {}}
@@ -561,7 +561,7 @@ def _first_keyframe_frame(geometry: dict) -> int:
 
 
 def derive_track_number(tracks: list[tuple[Any, dict]]) -> dict[Any, int]:
-    """v0.10.30 · D-2.1a 确定性派生 track_number, 不持久化。
+    """D-2.1a 确定性派生 track_number, 不持久化。
 
     输入: task 内所有 active video_track 的 ``(annotation_id, geometry)`` 列表。
     规则: 按首关键帧 ``frame_index`` 升序、并列再按 ``track_id`` 字典序, 返回

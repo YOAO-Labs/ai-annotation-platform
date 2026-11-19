@@ -371,7 +371,7 @@ async def reconcile_screenshot_backends(
             continue
         backend = selected[spec.required_backend]
         await service.set_enabled(project.id, backend.id, True)
-        # v0.23.3 ADR-0050 · 项目主绑定存 pool id; set_enabled 内部已解析 registry→pool。
+        # ADR-0050 · 项目主绑定存 pool id; set_enabled 内部已解析 registry→pool。
         pool_id = await service.pool_id_for_registry(backend.id)
         register_seed_project_projection(db, project.id)
         project.ml_backend_pool_id = pool_id

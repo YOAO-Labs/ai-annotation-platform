@@ -46,7 +46,7 @@ VIDEO_PATH = "http://example/clip.mp4"
 
 
 def _jpeg_bytes(width: int = 32, height: int = 24) -> bytes:
-    """Minimal valid JPEG — v0.23.5 WS-D D2 requires PIL-decodable frames."""
+    """Minimal JPEG that the frame validator can decode with Pillow."""
     buf = io.BytesIO()
     Image.new("RGB", (width, height), (8, 16, 32)).save(buf, format="JPEG")
     return buf.getvalue()

@@ -236,7 +236,7 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
     await db_session.refresh(job)
     await db_session.refresh(annotation)
 
-    # v0.21.28 · 候选流: 完成 = 暂存待审, annotation 未回填 (仍原始 bbox)。
+    # 候选流: 完成 = 暂存待审, annotation 未回填 (仍原始 bbox)。
     assert job.status == "pending_review"
     assert annotation.annotation_type == "bbox"
     assert job.staged_result and job.staged_result["results"]
@@ -605,7 +605,7 @@ def _job(from_frame=0, to_frame=3) -> VideoTrackerJob:
 
 
 def test_apply_tracker_results_writes_polygon_keyframes():
-    """v0.21.20 · polygon track: 保留多边形 points 关键帧 + video_track_polygon 类型。"""
+    """polygon track: 保留多边形 points 关键帧 + video_track_polygon 类型。"""
     from app.services.video_tracking.runner import apply_tracker_results
 
     annotation = _polygon_track_annotation()
@@ -729,7 +729,7 @@ async def test_tracker_worker_preserves_partial_results_on_cancel(
     await db_session.refresh(job)
     await db_session.refresh(annotation)
 
-    # v0.21.28 · 候选流: 取消也**暂存**部分结果 (annotation 未回填), 可 accept 部分。
+    # 候选流: 取消也**暂存**部分结果 (annotation 未回填), 可 accept 部分。
     assert job.status == "cancelled"
     assert annotation.annotation_type == "video_bbox"  # 未回填 (仍原始类型)
     assert job.staged_result and job.staged_result["results"]
@@ -757,11 +757,11 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
         is_interactive=True,
         enabled_pool=True,
         extra_params={},
-        # v0.21.25 阶段 R · runner 按 supported_trackers 路由, backend 须声明能力。
+        # runner 按 supported_trackers 路由, backend 须声明能力。
         health_meta={"capabilities": {"supported_trackers": ["sam2_video"]}},
     )
     project.ml_backend_pool_id = pool.id
-    # v0.19.0 ADR-0044 · get_project_backend 优先 project.ml_backend_pool_id 且需项目「已启用」
+    # ADR-0044 · get_project_backend 优先 project.ml_backend_pool_id 且需项目「已启用」
     db_session.add(
         ProjectMLBackendPool(project_id=task.project_id, pool_id=pool.id, enabled=True)
     )
@@ -982,11 +982,11 @@ async def test_tracker_worker_marks_low_confidence_backend_results_outside(
         is_interactive=True,
         enabled_pool=True,
         extra_params={},
-        # v0.21.25 阶段 R · runner 按 supported_trackers 路由, backend 须声明能力。
+        # runner 按 supported_trackers 路由, backend 须声明能力。
         health_meta={"capabilities": {"supported_trackers": ["sam3_video"]}},
     )
     project.ml_backend_pool_id = pool.id
-    # v0.19.0 ADR-0044 · get_project_backend 优先 project.ml_backend_pool_id 且需项目「已启用」
+    # ADR-0044 · get_project_backend 优先 project.ml_backend_pool_id 且需项目「已启用」
     db_session.add(
         ProjectMLBackendPool(project_id=task.project_id, pool_id=pool.id, enabled=True)
     )
@@ -1173,7 +1173,7 @@ async def _run_seed_test(db_session, super_admin, monkeypatch, *, direction, out
 
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
-    # v0.21.28 · 候选流: seed/续窗行为在 run 期间捕获 (adapter.seeds), 完成 = 暂存待审。
+    # 候选流: seed/续窗行为在 run 期间捕获 (adapter.seeds), 完成 = 暂存待审。
     assert job.status == "pending_review"
     return adapter, annotation.geometry
 
@@ -1260,7 +1260,7 @@ async def test_tracker_seed_falls_back_to_last_valid_when_window_all_outside(
     }
 
 
-# ── v0.10.49 · worker 按专表最终状态同步 async_jobs（修双写漂移）─────────────
+# ── worker 按专表最终状态同步 async_jobs（修双写漂移）─────────────
 
 
 async def _run_worker_with_final_status(
@@ -1744,7 +1744,7 @@ async def test_accept_mask_candidate_validates_source_dimensions_before_commit(
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
 
 
-# ── v0.23.3 ADR-0050 §11 · tracker job-scope pin + would-select evidence ──────
+# ── ADR-0050 §11 · tracker job-scope pin + would-select evidence ──────
 
 
 @pytest.mark.asyncio

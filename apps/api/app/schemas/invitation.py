@@ -95,7 +95,7 @@ class RegisterRequest(BaseModel):
 
 
 class RegisterResponse(BaseModel):
-    # v0.12.0 · 需邮箱验证时不自动登录：access_token 为 None + email_verification_required=True，
+    # 需邮箱验证时不自动登录：access_token 为 None + email_verification_required=True，
     # 前端据此显示「验证邮件已发送」而非进站。邀请注册 / 无需验证时照常返回 token。
     access_token: str | None = Field(default=None, repr=False)
     token_type: str = "bearer"
@@ -131,7 +131,7 @@ class OpenRegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     name: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=8, max_length=128, repr=False)
-    # v0.8.7 · Cloudflare Turnstile token；TURNSTILE_ENABLED=False 时忽略，
+    # Cloudflare Turnstile token；TURNSTILE_ENABLED=False 时忽略，
     # production 启用后必填且必须通过 siteverify。
     captcha_token: str | None = Field(default=None, repr=False)
 

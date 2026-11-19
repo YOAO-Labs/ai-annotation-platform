@@ -1,7 +1,7 @@
-"""I18 · AnnotationFeedback service.
+"""AnnotationFeedback service.
 
-ADR-0027 第二阶段 (v0.10.20): 旧 bug_reports / annotation_comments / tasks.reject_reason
-写路径加双写, 通过 mirror_* helper 在同事务内 INSERT 新表 + 失败一起回滚.
+ADR-0027：旧 bug_reports / annotation_comments / tasks.reject_reason 的
+写路径通过 mirror_* 在同一事务中插入反馈表；失败时两边一起回滚。
 """
 
 from __future__ import annotations
@@ -307,7 +307,7 @@ class FeedbackService:
         return await self._attach(result.feedback)
 
     # ------------------------------------------------------------------
-    # ADR-0027 第二段 (v0.10.20) · 旧三表双写 mirror helpers
+    # ADR-0027 · 旧反馈来源的同事务镜像写入
     #
     # 设计: 各 helper 接受 legacy 模型实例, 提取字段构造 AnnotationFeedback INSERT
     # 在同一 session/事务中执行. 调用方在 legacy 写后立刻调, db.commit() 时一起落库;
@@ -317,8 +317,7 @@ class FeedbackService:
     async def mirror_bug_report(self, bug_report) -> AnnotationFeedback:
         """legacy bug_reports.INSERT 后镜像写入 annotation_feedbacks (kind=bug)."""
         # project_id NOT NULL in annotation_feedbacks; bug_reports.project_id may be null
-        # → 该情况下不 mirror (无项目归属的 bug 仍只在 bug_reports 存在; v0.10.21 切单源时
-        #   单独处理 — 那批通常是登录页 / 未进项目的 bug 反馈)
+        # 无项目归属的反馈只保存在 bug_reports；常见于登录页等无项目上下文。
         if bug_report.project_id is None:
             logger.debug(
                 "[ADR-0027] skip mirror bug_report=%s (project_id is null)",

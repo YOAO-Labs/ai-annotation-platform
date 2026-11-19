@@ -1,4 +1,4 @@
-"""v0.18.1 · 多阶段预标注 ROI 裁剪 (路径 B M1).
+"""多阶段预标注的 ROI 裁剪。
 
 平台按上游检测框 bbox 裁 crop, 以 data URI (base64) 内联喂下游分类 backend——backend
 无感, 只收到一张小图跑它本就支持的分类, 把结果塞 attributes 返回 (协议 §3 已有能力)。
@@ -22,12 +22,12 @@ from yoao_assets_mask_content.codec import validate_coco_rle, validate_reference
 
 @dataclass
 class CropBatch:
-    """v0.18.4 · crop_inputs_from_boxes 的返回: 喂下游的 inputs + 几何跳过统计。
+    """crop_inputs_from_boxes 的返回: 喂下游的 inputs + 几何跳过统计。
 
     skipped_geometry: 命中本阶段路由 (类别匹配) 但因几何不支持 (非 bbox / 旋转框 / 退化框)
     无法裁 crop 而被跳过的父框数。供逐阶段统计暴露「N 框因几何不支持未富集」, 不再静默。
 
-    transforms: v0.18.15 · ``{box_idx_str: {ox, oy, sx, sy}}`` —— 每个裁出的 crop 在原图的
+    transforms: ``{box_idx_str: {ox, oy, sx, sy}}``，每个 crop 在原图的
         仿射变换 (归一化图像空间: crop 左上角 + 宽高占图比例), 供 :func:`remap_geometry_to_image`
         把下游在 crop 上检出的几何反投影回原图坐标。不写进 ``inputs`` (线格式零变化, 不泄漏给 backend)。
     """
@@ -63,7 +63,7 @@ class _CropBuffer(io.BytesIO):
 def box_class_name(box: Mapping) -> str | None:
     """从 LS 标准 shape 或原生 raster-mask 父框提取 class_name。
 
-    v0.18.2 · parent_class_filter 类别路由用。v0.18.15 · 兼容 polygon 父框。
+    用于 parent_class_filter 类别路由，也支持 polygon 父框。
     原生 ``geometry.type == "raster_mask"`` 父框读映射后的 ``class_name``。取不到返回 None。
     """
     if (box.get("geometry") or {}).get("type") == "raster_mask":
@@ -82,7 +82,7 @@ def box_class_name(box: Mapping) -> str | None:
 def _polygon_bbox_pct(value: Mapping) -> tuple[float, float, float, float] | None:
     """polygon value.points ([[x,y],...] 百分比 0-100) → 外接框 (x, y, w, h) 百分比。
 
-    v0.18.15 · polygon 父框取外接框作 ROI。点不足 / 非法返回 None。
+    polygon 父框取外接框作 ROI。点不足 / 非法返回 None。
     """
     pts = value.get("points")
     if not isinstance(pts, (list, tuple)) or len(pts) < 3:
@@ -145,7 +145,7 @@ def _box_bbox_pct(
 ) -> tuple[float, float, float, float] | None:
     """父框 → 外接框 (x, y, w, h) 百分比 (0-100)。
 
-    v0.18.15 · 统一 rectanglelabels (轴对齐 bbox, 旋转框跳过) 与 polygonlabels (取外接框)。
+    统一 rectanglelabels (轴对齐 bbox, 旋转框跳过) 与 polygonlabels (取外接框)。
     原生 raster-mask 父框取已校验 RLE 的精确前景外接框。
     其余几何 / 非法返回 None (调用方计入 skipped_geometry)。
     """
@@ -218,13 +218,13 @@ def crop_inputs_from_boxes(
         mask_objects: 原生父框已校验的可移植 RLE 对象, 按 sha256 索引。
         pad: 按框宽高比例外扩的边界 padding (0.05 = 各边外扩 5%)。
         jpeg_quality: crop 重编码 JPEG 质量。
-        parent_class_filter: v0.18.2 · 只对 class_name 在此集合的父框裁 crop (空/None=全部)。
+        parent_class_filter: 只裁剪 class_name 在此集合的父框（空或 None 表示不限）。
             类别路由: 不同下游阶段设不相交类别集 = 不同类走不同模型。
-        delivery: v0.18.4 · crop 投递方式。``"data_uri"`` (默认, 纯函数自足, 单测/已知支持
+        delivery: crop 投递方式。``"data_uri"`` (默认, 纯函数自足, 单测/已知支持
             ``data:`` 的后端) 内联 base64; ``"presigned"`` (worker 生产默认) 经 ``upload_fn``
             上传对象存储回 URL——对所有走 ``httpx.get`` 的下游后端 (gsam2/sam3) 通用。
-        upload_fn: v0.18.4 · ``delivery="presigned"`` 时必传, ``(box_idx, jpeg_bytes) -> url``。
-        cache: v0.18.4 · 可选 ``{cache_key: input}``。并行兄弟阶段 target 同一批父框时复用
+        upload_fn: ``delivery="presigned"`` 时必传, ``(box_idx, jpeg_bytes) -> url``。
+        cache: 可选 ``{cache_key: input}``。并行兄弟阶段处理同一批父框时复用
             已裁/已上传 crop, 不重复裁剪 + 重编码 + 重上传。**调用方需为每个父阶段传独立 cache**
             (或在 cache key 里包 parent_stage), 否则 depth-3 阶段的子下标 (中间几何) 会与
             root_boxes 的 (idx, pad) 撞键, 喂错图 (claude[bot] P1)。
@@ -275,7 +275,7 @@ def crop_inputs_from_boxes(
         if crop.width <= 0 or crop.height <= 0:
             skipped_geometry += 1
             continue
-        # v0.18.14 · 嵌套裁剪越深裁得越小, 短边过小的 crop 上采样后画质崩坏; 低于阈值跳过
+        # 嵌套裁剪越深裁得越小, 短边过小的 crop 上采样后画质崩坏; 低于阈值跳过
         # (计 skipped_geometry), 父框靠 on_failure=keep_parent 保留。0=不守卫 (向后兼容)。
         if min_crop_side_px and (
             crop.width < min_crop_side_px or crop.height < min_crop_side_px
@@ -297,7 +297,7 @@ def crop_inputs_from_boxes(
                 "ascii"
             )
         inp = {"id": str(idx), "file_path": file_path}
-        # v0.18.15 · crop→原图仿射变换 (归一化图像空间), 供 remap_geometry_to_image 反投影。
+        # crop→原图仿射变换 (归一化图像空间), 供 remap_geometry_to_image 反投影。
         transform = {
             "ox": left_int / img_w,
             "oy": top_int / img_h,
@@ -318,7 +318,7 @@ def crop_inputs_from_boxes(
 
 @dataclass
 class GeometryPromptBatch:
-    """v0.18.12 · geometry-prompt 投递 (下游 box-seg stage) 的返回。
+    """geometry-prompt 投递 (下游 box-seg stage) 的返回。
 
     prompts: 喂下游 ``tasks[].prompts[]`` 的框列表, 每项 ``{box:[x1,y1,x2,y2], parent_box_idx}``,
         box 为原图归一化坐标 [0,1]。skipped_geometry: 命中类别路由但几何不支持被跳过的父框数。
@@ -357,7 +357,7 @@ def geometry_prompts_from_boxes(
             continue
         if filter_set is not None and box_class_name(box) not in filter_set:
             continue
-        # v0.18.15 · 统一支持 rectanglelabels (旋转框跳过) 与 polygonlabels (取外接框);
+        # 统一支持 rectanglelabels (旋转框跳过) 与 polygonlabels (取外接框);
         # 原生 raster-mask 父框取已校验 RLE 的精确外接框。
         pct = _box_bbox_pct(box, mask_objects)
         if pct is None:
@@ -402,7 +402,7 @@ def collect_geometry_shapes(seg_results: list, boxes: list[Mapping]) -> list[Map
 
 
 def compose_transforms(outer: dict, inner: dict) -> dict:
-    """v0.18.15 · 链式 crop 变换合成 (depth-3): inner 相对 outer crop, 返回 inner 相对原图的变换。
+    """链式 crop 变换合成 (depth-3): inner 相对 outer crop, 返回 inner 相对原图的变换。
 
     归一化图像空间下: ``inner`` 的偏移先按 ``outer`` 缩放再叠加 ``outer`` 偏移, 缩放相乘。
     """
@@ -456,7 +456,7 @@ def _polygon_rings(value: Mapping) -> list[Sequence]:
 def remap_geometry_to_image(shapes: list[Mapping], transform: Mapping) -> list[dict]:
     """把下游在 crop 上检出的几何反投影回原图百分比坐标。
 
-    v0.18.15 · ``transform={ox,oy,sx,sy}`` 为 crop 在原图的归一化偏移 + 缩放
+    ``transform={ox,oy,sx,sy}`` 为 crop 在原图的归一化偏移 + 缩放
     (见 :class:`CropBatch`)。rectanglelabels (x/y/width/height) 与 polygonlabels (points)
     都按 ``img_pct = (offset + crop_norm * scale) * 100`` 反投影, 其中 ``crop_norm`` 由
     :func:`_crop_coord_scale` 按 backend 实际口径归一。不改入参, 返回新列表;
@@ -574,7 +574,7 @@ def merge_classify_attributes(
         boxes: 父框 LS result 列表 (原地修改, 写入 box["attributes"])。
         classify_results: 下游 ``client.predict`` 返回的 PredictionResult 列表。
         write_keys: 本阶段声明写哪些属性键 (原始键); None=全取下游返回的键。
-        label: v0.18.14 · 设了则写回键加 f"{label}_" 前缀 (子物体命名空间, 如 hat_color);
+        label: 设了则写回键加 f"{label}_" 前缀（子物体命名空间，如 hat_color）；
             缺省写原始键 (双阶段零退化)。前缀在 write_keys 过滤之后施加。
 
     Returns:

@@ -1,4 +1,4 @@
-"""v0.12.1 · B6 流式导出 DB 集成 + 对拍。
+"""流式导出 DB 集成 + 对拍。
 
 覆盖：
 - iter_export_chunks 分块（chunk_size=2 跨多块）的 task 顺序 / annotation 集合 == _load_data 全量。

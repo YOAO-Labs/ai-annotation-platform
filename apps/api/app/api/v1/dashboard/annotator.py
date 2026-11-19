@@ -288,7 +288,7 @@ async def annotator_dashboard(
         )
         daily_counts.append(day_result.scalar() or 0)
 
-    # v0.8.4 · 效率看板 L2 字段：基于 task_row.assigned_at / submitted_at / reopened_count
+    # 效率看板 L2 字段：基于 task_row.assigned_at / submitted_at / reopened_count
     # 中位单题耗时（仅本人 + assigned_at IS NOT NULL + submitted_at 在过去 30d）
     cutoff_30d = now - timedelta(days=30)
     duration_rows = (
@@ -372,7 +372,7 @@ async def annotator_dashboard(
     # 周目标：ProjectMember.weekly_target → Identity weekly_target_default → 200
     weekly_target = getattr(current_user, "weekly_target_default", None) or 200
 
-    # v0.8.4.1 hotfix · 接通 task_events 真实数据（与 0.8.3 心跳基座并行开发遗留）
+    # 根据 task_events 计算活跃度。
     # active_minutes_today: 当日累计 duration_ms / 60000
     active_ms_row = (
         await db.execute(
@@ -386,7 +386,7 @@ async def annotator_dashboard(
     ).first()
     active_minutes_today = int((active_ms_row.ms if active_ms_row else 0) // 60000)
 
-    # v0.8.5 · 24-bar 当日专注时段：按 EXTRACT(hour) 聚合 duration_ms → 分钟
+    # 24-bar 当日专注时段：按 EXTRACT(hour) 聚合 duration_ms → 分钟
     hour_rows = (
         await db.execute(
             select(
@@ -452,11 +452,11 @@ async def my_batches(
         require_roles(*DASHBOARD_PLATFORM_ROLES)
     ),
 ):
-    """v0.7.1 B-17 · 标注员视角的「我的批次」：仅返回当前用户被分派、且处于
+    """标注员视角的「我的批次」：仅返回当前用户被分派、且处于
     active / annotating / rejected / reviewing 的批次。让标注员从 dashboard
     一眼看到自己手里的批次进度，并直接「提交质检」/ 查看 reviewer 留言。
 
-    super_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤（v0.7.2 单值）。"""
+    super_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤。"""
     visible_statuses = ["active", "annotating", "rejected", "reviewing"]
 
     visible_projects = project_search_scope(current_user)
@@ -571,7 +571,7 @@ async def my_batches(
         for request, poster_url in zip(video_cover_requests, video_posters, strict=True)
     }
 
-    # v0.7.2 · 单值语义 — 一 batch 一审核员
+    # 单值语义 — 一 batch 一审核员
     project_user_map: dict = {}
     for b, _, _ in rows:
         if b.reviewer_id is not None:
@@ -637,7 +637,7 @@ async def my_batches(
     return items
 
 
-# ─── v0.8.4 · 管理员人员看板 ───────────────────────────────────────────────────
+# ─── 管理员人员看板 ───────────────────────────────────────────────────
 
 
 @router.get("/me/performance", response_model=MyPerformance)
@@ -646,7 +646,7 @@ async def my_performance(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.12.3 · 标注员自助绩效（取经合集 §4.1 个人页）。
+    """标注员自助绩效（取经合集 §4.1 个人页）。
 
     任意已认证用户看**自己**的 4 周趋势 + 耗时直方图，并叠加团队（annotator 群体）
     每周平均产出作对标基线。强制 self，不接受他人 user_id。

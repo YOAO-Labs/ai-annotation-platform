@@ -17,7 +17,7 @@ from app.db.base import Base
 
 
 class MLBackendRegistry(Base):
-    """v0.19.0 · 全局 ML backend 注册表(ADR-0044)。
+    """全局 ML backend 注册表(ADR-0044)。
 
     backend 实例从「项目子资源」上提为「全局注册项」: 一个物理 backend(url) 注册一次,
     能力快照 health_meta.capabilities 单份真值,所有启用项目共享。
@@ -91,16 +91,15 @@ class MLBackendRegistry(Base):
 
 
 class ProjectMLBackendPool(Base):
-    """v0.23.3 ADR-0050 · 项目 × 服务池关联(原 ADR-0044 ``ProjectMLBackend``)。
+    """项目与服务池的启用关联（ADR-0050）。
 
-    项目层退化为「启用开关 + 项目级覆盖」: enabled 控制该项目能否选用此服务池;
-    default_variants 是项目级变体覆盖(可空,空=用全局默认), 覆盖语义改为 pool 级。
+    enabled 决定该项目能否选用此服务池；default_variants 是项目级变体覆盖。
+    覆盖按池划分；缺省沿用全局默认。
     预标 / DAG 下游 / backends>=2 门控读 enabled=true 集合。
 
-    v0.23.3 把 ``registry_id`` 改为 ``pool_id``: 项目不再绑定单个物理实例,
-    而是绑定一个可包含多个等价副本的服务池 (ADR-0050)。原 ``registry_id``
-    列经 alembic 0132 迁移为 ``pool_id`` (singleton backfill 保证每 registry
-    恰有一个 singleton pool, off mode 行为不变)。
+    ``pool_id`` 指向服务池而非单个物理实例，池可包含多个等价副本。
+    Alembic 0132 将旧 ``registry_id`` 关联迁移为 ``pool_id``：
+    每个注册实例先分配 singleton pool，保留 off 模式派发行为。
     """
 
     __tablename__ = "project_ml_backend_pool"
@@ -116,7 +115,7 @@ class ProjectMLBackendPool(Base):
         ForeignKey("projects.id", ondelete="CASCADE"),
         index=True,
     )
-    # v0.23.3 · 原 registry_id 迁移为 pool_id (ADR-0050 singleton backfill)。
+    # 原 registry_id 迁移为 pool_id (ADR-0050 singleton backfill)。
     # 项目启用和主池必须一致; 禁用主池时显式清空或先换主池, 不能留悬空引用。
     pool_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -125,7 +124,7 @@ class ProjectMLBackendPool(Base):
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # 项目级业务覆盖(可空)。阈值(box/text)已退役: per-backend 调参由运行时按 /setup.params
-    # 通用渲染, 项目级单值 project.box_threshold 兜底。变体覆盖 v0.23.3 改为 pool 级。
+    # 通用渲染以项目级单值 project.box_threshold 兜底；变体覆盖按服务池划分。
     default_variants: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

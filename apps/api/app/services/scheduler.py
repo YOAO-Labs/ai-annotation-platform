@@ -45,7 +45,7 @@ def visible_batch_statuses_for_project_role(project_role: str | None) -> list[st
     return []
 
 
-# v0.7.0：按角色分拆可见性集合。
+# 按角色分拆可见性集合。
 # 标注员能看到 active / annotating（自己分派的批次）+ rejected（特例：让他们看到 reviewer 留言并重做）。
 # Reviewer 能看到 active / annotating / reviewing（跨批次审核），不受 assigned_user_ids 约束。
 ANNOTATOR_VISIBLE_BATCH_STATUSES = ["active", "annotating", "rejected"]
@@ -67,7 +67,7 @@ def batch_visibility_clause(
 
     super_admin / 项目 owner 走 is_privileged_for_project 越权放行，不调本 helper。
 
-    v0.7.2：从 list 语义切换为单值（batch.annotator_id）。
+    用单值 batch.annotator_id 筛选标注员归属。
     调用方需自行 JOIN TaskBatch。
     """
     if project_role == ProjectRole.REVIEWER.value:
@@ -272,7 +272,7 @@ async def _filter_assignable_task_ids(
     *,
     project_role: str | None = None,
 ) -> set[uuid.UUID]:
-    """v0.14.1 · 在 task_ids 子集内套用与 get_next_task 主路径一致的可标候选约束,
+    """在 task_ids 子集内套用与 get_next_task 主路径一致的可标候选约束,
     额外排除被**他人**持有的未过期锁。返回可分配的 task_id 集合。"""
     already_annotated = (
         select(annotation_row.id)
@@ -339,7 +339,7 @@ async def _next_same_scene_task(
     batch_id: uuid.UUID | None,
     project_role: str | None = None,
 ) -> Task | None:
-    """v0.14.1 · scene 连续标注: 找"用户最近提交 task 的同 scene 下一帧"可标 task。
+    """scene 连续标注: 找"用户最近提交 task 的同 scene 下一帧"可标 task。
 
     - 找用户在 window 内最近创建的 active annotation → 其 task → scene_id + frame_index
     - 在该 scene 内取 frame_index 严格大于当前帧的、按帧升序第一个可分配 task
@@ -476,7 +476,7 @@ async def get_next_task(
     if not project:
         return None
 
-    # v0.14.1 · scene 连续标注优先(默认 OFF, 既有项目零回归): 显式打开后, 在套用既有
+    # scene 连续标注优先(默认 OFF, 既有项目零回归): 显式打开后, 在套用既有
     # sampling 策略前, 优先返回"用户最近提交 task 的同 scene 下一帧"。找不到则回退。
     if project.prefer_same_scene_continuation:
         scene_task = await _next_same_scene_task(
@@ -498,7 +498,7 @@ async def get_next_task(
                 return scene_task
 
     # 3. Build candidate query: unlabeled, not already annotated by this user.
-    # v0.11.30 · 相关 NOT EXISTS 取代 NOT IN(子查询)：标注员标注量大时 NOT IN 会让
+    # 相关 NOT EXISTS 取代 NOT IN(子查询)：标注员标注量大时 NOT IN 会让
     # Postgres 物化整个 task_id 集合（大表热路径放大）；NOT EXISTS 可直接走索引短路。
     already_annotated = (
         select(annotation_row.id)
@@ -522,7 +522,7 @@ async def get_next_task(
                 task_row.batch_id.is_(None),
                 and_(
                     batch_row.status.in_(["active", "annotating"]),
-                    batch_row.admin_locked.is_(False),  # v0.9.15 · ADR-0008
+                    batch_row.admin_locked.is_(False),  # 管理员锁定时不派单（ADR-0008）
                 ),
             ),
         )
@@ -553,7 +553,7 @@ async def get_next_task(
 
     # 5. Apply sampling strategy (batch priority as primary sort)
     if project.sampling == "uncertainty":
-        # v0.11.30 · 相关标量子查询取每 task 最低预测分，取代 outerjoin Prediction：
+        # 相关标量子查询取每 task 最低预测分，取代 outerjoin Prediction：
         # outerjoin 会按预测条数行扇出（一 task 多 prediction）再对扇出行排序，大表代价高。
         min_pred_score = (
             select(func.min(prediction_row.score))

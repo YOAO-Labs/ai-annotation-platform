@@ -18,12 +18,12 @@ from app.db.models.user import User
 from app.services.project_access import is_privileged_for_project
 from app.services.identity_contracts import IdentityActorFacts
 
-# v0.7.3：owner-only 逆向迁移白名单。命中时必须传 reason（1-500 字），写入 audit_log.detail_json.reason。
+# owner-only 逆向迁移白名单。命中时必须传 reason（1-500 字），写入 audit_log.detail_json.reason。
 REVERSE_TRANSITIONS: set[tuple[str, str]] = {
     (BatchStatus.ARCHIVED, BatchStatus.ACTIVE),
     (BatchStatus.APPROVED, BatchStatus.REVIEWING),
     (BatchStatus.REJECTED, BatchStatus.REVIEWING),
-    # v0.9.5：丢弃 AI 预标 predictions 重置（owner 兜底，需 reason）
+    # 丢弃 AI 预标 predictions 重置（owner 兜底，需 reason）
     (BatchStatus.PRE_ANNOTATED, BatchStatus.ACTIVE),
 }
 
@@ -59,10 +59,10 @@ def bulk_preannotation_eligible_condition(batch_model=TaskBatch):
     )
 
 
-# v0.7.0：transition 鉴权矩阵 — (from, to) 元组 → 允许角色集合 / 特殊判定
+# transition 鉴权矩阵 — (from, to) 元组 → 允许角色集合 / 特殊判定
 # 'owner' = super_admin 或项目 owner（require_project_owner 等价）
 # 'reviewer' = super_admin / project_admin(owner) / reviewer
-# 'annotator_assigned' = 标注员且 user_id == batch.annotator_id（v0.7.2 单值语义）
+# 'annotator_assigned' = 标注员且 user_id == batch.annotator_id
 def _is_owner(user: User | IdentityActorFacts, project: Project) -> bool:
     """Privileged owner for the batch state machine.
 
@@ -94,7 +94,7 @@ def _is_reviewer(
 def _is_annotator_assigned(
     user: User | IdentityActorFacts, batch: TaskBatch, project_role: str | None = None
 ) -> bool:
-    """v0.7.2：单值语义 — batch.annotator_id == user.id。"""
+    """单值语义 — batch.annotator_id == user.id。"""
 
     if project_role != ProjectRole.ANNOTATOR.value:
         return False
@@ -109,7 +109,7 @@ def assert_can_transition(
     *,
     project_role: str | None = None,
 ) -> None:
-    """v0.7.0：按 (from, to) 校验角色权限，403 携带可读 detail。
+    """按 (from, to) 校验角色权限，403 携带可读 detail。
     语法层（VALID_TRANSITIONS）由 transition() 内部检查；本函数只做角色门禁。
 
     项目化后由调用方传入已解析的 ``project_role``（``batch.py``/``api/v1/batches.py``
@@ -118,7 +118,7 @@ def assert_can_transition(
     src = batch.status
     dst = target_status
 
-    # v0.7.3：逆向迁移（撤销归档 / 重开审核 / 跳标复审）owner-only，非 owner 直接拒
+    # 逆向迁移（撤销归档 / 重开审核 / 跳标复审）owner-only，非 owner 直接拒
     if (src, dst) in REVERSE_TRANSITIONS:
         if not _is_owner(user, project):
             raise HTTPException(
@@ -143,13 +143,13 @@ def assert_can_transition(
             status_code=403, detail="active -> annotating is auto-driven only"
         )
 
-    # v0.9.5：active → pre_annotated 仅 batch_predict task 内部驱动；REST 一律拒绝
+    # active → pre_annotated 仅 batch_predict task 内部驱动；REST 一律拒绝
     if (src, dst) == (BatchStatus.ACTIVE, BatchStatus.PRE_ANNOTATED):
         raise HTTPException(
             status_code=403, detail="active -> pre_annotated is auto-driven only"
         )
 
-    # v0.9.5：pre_annotated → annotating 与 active 同语义，scheduler 内部驱动
+    # pre_annotated → annotating 与 active 同语义，scheduler 内部驱动
     if (src, dst) == (BatchStatus.PRE_ANNOTATED, BatchStatus.ANNOTATING):
         raise HTTPException(
             status_code=403, detail="pre_annotated -> annotating is auto-driven only"

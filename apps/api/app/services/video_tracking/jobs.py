@@ -1315,13 +1315,13 @@ async def create_tracker_job(
                     f"{payload.model_key}"
                 ),
             )
-    # v0.22.2 · M · 多选批量: source_annotation_ids 有 ≥1 条 → 多源分支。各源在 from_frame 处
+    # M · 多选批量: source_annotation_ids 有 ≥1 条 → 多源分支。各源在 from_frame 处
     # 的几何写成带 source_annotation_id + obj_id (1..N) 的 seed; annotation_id 强制 NULL (§8 ·
     # 多源不认单主, accept 各 obj 各回填各源, 见 _seed_source_map)。obj_id 与 instance_id ==
     # str(obj_id) 契约一致。单数 source_annotation_id (单源延展) / 无源路径保持现状不变。
     multi_source_ids = payload.source_annotation_ids or []
     seed_prompt: dict = {}
-    # v0.23.5 · WS-D · D4 · record source annotation versions at job creation
+    # record source annotation versions at job creation
     # so accept_tracker_job can detect a concurrent mutation of any source
     # annotation and refuse with 409 instead of last-writer-wins. Keyed by the
     # stringified annotation id (matches ``_seed_source_map``'s keying).
@@ -1344,7 +1344,7 @@ async def create_tracker_job(
                 }
             )
         seed_prompt = {"seeds": seeds}
-    # v0.22.1 · B · 源轨迹可选: 无源检测 (annotation_id is None) 不加载 source / 不查 polyline,
+    # B · 源轨迹可选: 无源检测 (annotation_id is None) 不加载 source / 不查 polyline,
     # 新建轨迹类别由 payload.target_* 显式指定。有源延展保留 polyline 400 拒绝。
     elif annotation_id is not None:
         annotation = await _load_annotation(db, task, annotation_id, user.id)
@@ -1371,10 +1371,10 @@ async def create_tracker_job(
         db, ctx, task, payload, user, privileged=privileged
     )
 
-    # v0.22.1 · B · 无源检测 (无单主且非多源) 才存显式目标类别; 有源延展 / 多源批量各自继承源。
+    # B · 无源检测 (无单主且非多源) 才存显式目标类别; 有源延展 / 多源批量各自继承源。
     prompt = {
         **(payload.prompt or {}),
-        # v0.22.2 · M · 多源 seeds (各 obj_id ↔ 各源) 覆盖 payload.prompt 里同名键。
+        # M · 多源 seeds (各 obj_id ↔ 各源) 覆盖 payload.prompt 里同名键。
         **seed_prompt,
         **({"sam_variant": payload.sam_variant} if payload.sam_variant else {}),
         **({"text": payload.text} if payload.text else {}),
@@ -1388,7 +1388,7 @@ async def create_tracker_job(
             if payload.exemplars
             else {}
         ),
-        # v0.23.5 · WS-D · D4 · snapshot of source annotation versions at job
+        # snapshot of source annotation versions at job
         # creation; accept_tracker_job re-reads with_for_update and 409s on
         # any drift. Source-backed legacy jobs without this proof fail closed.
         **(
@@ -1501,7 +1501,7 @@ async def accept_tracker_job(
     actor_id: uuid.UUID | None = None,
     privileged: bool = False,
 ) -> VideoTrackerJobOut:
-    """v0.21.28 · 接受候选: 把 job.staged_result 应用到 annotation, status=ACCEPTED。"""
+    """接受候选: 把 job.staged_result 应用到 annotation, status=ACCEPTED。"""
     try:
         row = await _runner.accept_tracker_job(
             db, job_id, actor_id=actor_id, privileged=privileged
@@ -1516,7 +1516,7 @@ async def accept_tracker_job(
 async def discard_tracker_job(
     db: AsyncSession, job_id: uuid.UUID, *, actor_id: uuid.UUID
 ) -> VideoTrackerJobOut:
-    """v0.21.28 · 丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。"""
+    """丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。"""
     try:
         row = await _runner.discard_tracker_job(db, job_id, actor_id=actor_id)
     except _runner.TrackerJobStateConflict as exc:

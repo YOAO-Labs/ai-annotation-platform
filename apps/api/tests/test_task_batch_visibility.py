@@ -366,7 +366,7 @@ async def test_unassigned_batch_visible_to_all_members(
 async def test_unbatched_filter_returns_only_orphan_tasks(
     httpx_client, db_session, super_admin, annotator
 ):
-    """v0.12.0 B5 · list_tasks?unbatched=true 仅返回 batch_id IS NULL 的未归类任务。
+    """list_tasks?unbatched=true 仅返回 batch_id IS NULL 的未归类任务。
 
     B-OTHER 内的已归类任务 + 一条 batch_id=NULL 的未归类孤儿，
     super_admin 用 unbatched=true 应只看见后者。

@@ -787,7 +787,7 @@ def image_bytes_to_array(data: bytes) -> Any:
         return np.asarray(img.convert("RGB"))
 
 
-# ── v0.10.29 · 视频帧逻辑采样网格 helper (纯函数, 供导出 / 前端共用) ──────
+# ── 视频帧逻辑采样网格 helper (纯函数, 供导出 / 前端共用) ──────
 #
 # 采样只是项目级导航/打点网格的视图层 (决策 D1/D2): frame_index 永远是源视频
 # 帧号, 这里只从配置派生「步长 step」与「采样帧列表」。算法见计划 §1。
@@ -824,7 +824,7 @@ def derive_sampled_frames(frame_count: int, step: int) -> list[int]:
     return list(range(0, frame_count, step))
 
 
-# ── v0.10.29 · 长视频 sparse timetable helper (计划 §1.2, 纯函数) ─────────
+# ── 长视频 sparse timetable helper（纯函数）──────────────────────────
 #
 # 超长视频不必给每帧都存一行 VideoFrameIndex(frame_index, pts_ms)。改成 sparse:
 # 只持久化「锚点帧」(stride 网格上的真值 pts_ms), 中间帧的 pts_ms 由相邻锚点线性
@@ -922,7 +922,7 @@ def resolve_pts_ms_sparse(
     return last_pts
 
 
-# ── v0.10.29 · chunk warmup look-ahead 选择 (计划 §1.6, 纯函数) ───────────
+# ── chunk warmup look-ahead 选择（纯函数）─────────────────────────────
 
 
 def warmup_chunk_ids(

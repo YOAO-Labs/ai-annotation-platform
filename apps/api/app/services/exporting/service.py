@@ -214,7 +214,7 @@ class VideoBoundaryExportError(UnsupportedExportError):
 
 
 def _assert_image_export_supported(project: Project, export_format: str) -> None:
-    # v0.10.28 · 媒体维度判断改用 data_type; video 子类型路由 (video-track vs
+    # 媒体维度判断改用 data_type; video 子类型路由 (video-track vs
     # video-mm) 仍用 type_key.
     if project.data_type == "video":
         if project.type_key == "video-track":
@@ -274,7 +274,7 @@ def _clean_video_single_frame_geometry(geometry: dict) -> dict:
     return row
 
 
-# ── v0.10.43 · 多几何 → COCO 写入 helper（坐标归一化 [0,1]，写入时去归一化到像素） ──
+# ── 多几何 → COCO 写入 helper（坐标归一化 [0,1]，写入时去归一化到像素） ──
 
 
 def _aabb_from_rings(
@@ -514,7 +514,7 @@ class ExportService:
     async def _load_predictions(
         self, project_id: uuid.UUID, task_ids: list[uuid.UUID]
     ) -> list[Prediction]:
-        """v0.10.15 · AAP JSON 导出需要 predictions[] 双数组."""
+        """AAP JSON 导出需要 predictions[] 双数组."""
         if not task_ids:
             return []
         pred_q = (
@@ -570,7 +570,7 @@ class ExportService:
             list[Task], dict[uuid.UUID, list[Annotation]], dict[uuid.UUID, SpatialItem]
         ]
     ]:
-        """v0.12.1 · B6-1 · 按 task 分块惰性产出 (tasks, ann_by_task, dataset_items)。
+        """按 task 分块惰性产出 (tasks, ann_by_task, dataset_items)。
 
         导出 per-file 格式（YOLO 镜像 / 视频逐序列）的内存与 task 数解耦：不再
         `_load_data` 全量 `list().all()`，而是先取**轻量 task id 列表**（十万 UUID ≈ 1.6MB，
@@ -578,7 +578,7 @@ class ExportService:
 
         不用 `db.stream()` 服务端游标：游标占用连接，迭代中再发 annotation/item 查询会
         在同一连接上冲突（"another operation in progress"）。id 列表 + 分块水合规避该坑，
-        与 v0.12.0 split 分块同构。
+        与批次拆分使用相同的分块方式。
 
         annotation 已做 export 副本 + class 过滤（与 `_load_data` 语义一致）；几何/格式维度的
         分组留给打包层（YOLO bbox vs 视频 track/bbox）。
@@ -670,7 +670,7 @@ class ExportService:
 
             dataset_items = await self._load_dataset_items(tasks)
             yield tasks, ann_by_task, dataset_items
-            # v0.12.1 · 释放 session 身份映射，否则分块加载的 Task/Annotation/DatasetItem
+            # 释放 session 身份映射，否则分块加载的 Task/Annotation/DatasetItem
             # ORM Task/Annotation 行会全部滞留 identity map，内存仍随 task 数线性增长。
             # 消费方在本轮已写盘完成；expunge 后已加载属性仍可读（expire_on_commit=False），
             # 不影响 dataset_items_all 等后续引用。
@@ -892,7 +892,7 @@ class ExportService:
             )
         _assert_image_export_supported(project, "coco")
 
-        # v0.10.17 · COCO categories 按 tool_unit 分组. tool_bindings 提供 N 个工具
+        # COCO categories 按 tool_unit 分组. tool_bindings 提供 N 个工具
         # 单位, 每单位贡献一段 categories; supercategory = tool_unit_id; category.id
         # 全局唯一. 同名类不去重 (强隔离). cat_map 由 (tool_unit_id, class_name) → id 查.
         # 兼容: tool_bindings 为空 (理论上不应出现, 全部已 backfill) 时派生空类集.
@@ -904,8 +904,8 @@ class ExportService:
             for unit_id, binding in tb.items():
                 if not isinstance(binding, dict) or not binding.get("enabled"):
                     continue
-                # v0.10.43 · keypoint 单元的类别附 COCO keypoints(节点名) + skeleton(edges,
-                # COCO 1-indexed)，直接派生自 ToolBinding.keypoint_schema（v0.10.28 已落）。
+                # keypoint 单元的类别附 COCO keypoints(节点名) + skeleton(edges,
+                # COCO 1-indexed)，直接派生自 ToolBinding.keypoint_schema。
                 kp_names: list[str] | None = None
                 kp_skeleton: list[list[int]] | None = None
                 if unit_id == "keypoint":
@@ -962,7 +962,7 @@ class ExportService:
                     return v
             return 0
 
-        # v0.10.27 · 像素坐标改用 DatasetItem.width/height 真值, 缺失再回退常量。
+        # 像素坐标改用 DatasetItem.width/height 真值, 缺失再回退常量。
         items = (
             dataset_items
             if dataset_items is not None
@@ -1048,7 +1048,7 @@ class ExportService:
                 row["keypoints"], row["num_keypoints"] = kp
             if include_attributes:
                 attrs = dict(ann.attributes or {})
-                # v0.21.2 · ADR-0045 · 跨帧同一对象标识 → COCO attributes.__track_id
+                # ADR-0045 · 跨帧同一对象标识 → COCO attributes.__track_id
                 # (原 group_id 高位段 __group_id; 跨帧语义已统一到 track_id)。
                 if getattr(ann, "track_id", None) is not None:
                     attrs["__track_id"] = ann.track_id
@@ -1307,7 +1307,7 @@ class ExportService:
             await self._axis_convention_by_task(tasks) if axis_frame == "source" else {}
         )
 
-        # v0.10.31 · 视频项目: 给每个 task block 填 media_type + video 子块.
+        # 视频项目: 给每个 task block 填 media_type + video 子块.
         is_video = project.data_type == "video"
         dataset_items = await self._load_dataset_items(tasks) if is_video else {}
 
@@ -1330,7 +1330,7 @@ class ExportService:
                     AnnotationEntry(
                         geometry=geometry,
                         class_name=ann.class_name,
-                        # v0.10.17 · 工具维度绑定 (1.1+).
+                        # 工具维度绑定 (1.1+).
                         tool_unit_id=getattr(ann, "tool_unit_id", None) or "bbox",
                         attributes=ann.attributes or {},
                         confidence=ann.confidence,
@@ -1442,7 +1442,7 @@ class ExportService:
                 type_key=project.type_key,
                 classes_config=derive_classes_config(project.tool_bindings),
                 attribute_schema=derive_attribute_schema(project.tool_bindings),
-                # v0.10.17 · 工具维度绑定 (1.1+).
+                # 工具维度绑定 (1.1+).
                 tool_bindings=project.tool_bindings or {},
                 rendering_config=project.rendering_config or {},
                 annotation_guide=getattr(project, "annotation_guide", None),

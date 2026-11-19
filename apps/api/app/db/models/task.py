@@ -19,7 +19,7 @@ from app.db.base import Base
 
 
 class RejectReasonType(str, enum.Enum):
-    """v0.10.16 · reviewer 驳回结构化枚举。收紧到 4 类，前端 4 个预设按钮一一映射。"""
+    """reviewer 驳回结构化枚举。收紧到 4 类，前端 4 个预设按钮一一映射。"""
 
     MISSING = "missing"  # 漏标
     EXTRA = "extra"  # 多标
@@ -30,7 +30,7 @@ class RejectReasonType(str, enum.Enum):
 class Task(Base):
     __tablename__ = "tasks"
 
-    # v0.11.30 · 大表查询地基索引（与迁移 0090 同步，经 10 万行 EXPLAIN 实测保留）。
+    # 大表查询地基索引（与迁移 0090 同步，经 10 万行 EXPLAIN 实测保留）。
     # 单列索引仍由各列的 index=True 声明；此处补两条热路径所需的组合。
     __table_args__ = (
         Index("ix_tasks_project_created_id", "project_id", "created_at", "id"),
@@ -39,7 +39,7 @@ class Task(Base):
             "batch_id",
             postgresql_where=text("is_labeled = false"),
         ),
-        # v0.12.0 · 未归类池 cursor 分页（与迁移 0091 同步）。
+        # 未归类池 cursor 分页（与迁移 0091 同步）。
         Index(
             "ix_tasks_project_unbatched",
             "project_id",
@@ -81,7 +81,7 @@ class Task(Base):
     assignee_is_override: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # v0.8.4 · 分派时间戳（效率看板「平均单题耗时」分母 = submitted_at - assigned_at）
+    # 分派时间戳（效率看板「平均单题耗时」分母 = submitted_at - assigned_at）
     assigned_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -100,7 +100,7 @@ class Task(Base):
         index=True,
     )
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
-    # v0.6.5 · 状态机锁定相关
+    # 状态机锁定相关
     submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -157,7 +157,7 @@ class Task(Base):
     reject_reason_type: Mapped[str | None] = mapped_column(
         String(20), nullable=True, index=True
     )
-    # v0.8.7 F7 · 任务跳过：标注员遇图像损坏/无目标/不清晰时直转 reviewer 复核
+    # 任务跳过：标注员遇图像损坏/无目标/不清晰时直转 reviewer 复核
     skip_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     skipped_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

@@ -1,5 +1,5 @@
 """dev-only · 建一个 OCR 项目(region 多边形工具 + text/language/orientation 属性)+ 一张
-文字图(RapidOCR 自带 ch_en_num.jpg),供 rapidocr-backend 端到端预标实测(v0.20.0 WS4)。
+文字图（RapidOCR 自带 ch_en_num.jpg），用于 rapidocr-backend 端到端预标。
 
 幂等:固定 display_id(P-OCR / DS-OCR),已存在则跳过。
 

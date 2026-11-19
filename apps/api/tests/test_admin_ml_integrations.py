@@ -1,4 +1,4 @@
-"""v0.9.3 · /admin/ml-integrations/overview 端到端测试。"""
+"""/admin/ml-integrations/overview 端到端测试。"""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ async def test_overview_groups_backends_by_project(
     b2, b2_pool = await create_registry_with_pool(
         db_session, name="b2", url="http://y:9000", state="disconnected"
     )
-    # v0.19.0 ADR-0044 · overview 按项目「已启用」全局 backend 分组。
+    # ADR-0044 · overview 按项目「已启用」全局 backend 分组。
     db_session.add(
         ProjectMLBackendPool(project_id=proj.id, pool_id=b1_pool.id, enabled=True)
     )
@@ -108,7 +108,7 @@ async def test_overview_includes_ai_enabled_project_without_backend(
     assert body["total_backends"] == 0
 
 
-# ── v0.9.6 · /probe + /runtime-hints ──────────────────────────────────
+# ── /probe + /runtime-hints ──────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -204,7 +204,7 @@ async def test_runtime_hints_null_when_not_set(httpx_client, super_admin, monkey
     assert res.json()["ml_backend_default_url"] is None
 
 
-# ── v0.10.26 · 容器直连观测 /observe + /observe/smoke-test ──────────────
+# ── 容器直连观测 /observe + /observe/smoke-test ──────────────
 
 
 def _probe_fact(health, *, ok=True, status_code=200, error=None, latency_ms=3):

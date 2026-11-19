@@ -33,7 +33,7 @@ class Prediction(Base):
     ml_backend_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ml_backend_registry.id", ondelete="SET NULL")
     )
-    # v0.23.3 ADR-0050 · requested pool (单阶段 = 请求的池; 多阶段聚合 = root stage pool)。
+    # ADR-0050 · requested pool (单阶段 = 请求的池; 多阶段聚合 = root stage pool)。
     # ml_backend_id 永远表示实际执行的 selected registry instance; 多阶段聚合时每
     # stage / invocation 的双 ID lineage 存 PredictionMeta.extra.pipeline.selections[]。
     ml_backend_pool_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -42,7 +42,7 @@ class Prediction(Base):
     )
     model_version: Mapped[str | None] = mapped_column(String(100))
     score: Mapped[float | None] = mapped_column(Float)
-    # v0.10.17 · 与 Annotation.tool_unit_id 对齐; to_internal_shape 按 result.type 推断.
+    # 与 Annotation.tool_unit_id 对齐; to_internal_shape 按 result.type 推断.
     tool_unit_id: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="bbox", default="bbox"
     )
@@ -66,7 +66,7 @@ class Prediction(Base):
         server_default="[]",
         default=list,
     )
-    # v0.10.25 · ADR-0006 Stage 2：predictions 按月 RANGE 分区，分区键 created_at 必须进 PK。
+    # ADR-0006 · 按 created_at 月分区，分区键必须包含在主键中。
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), primary_key=True, server_default=func.now()
     )
@@ -74,7 +74,7 @@ class Prediction(Base):
 
 class PredictionMeta(Base):
     __tablename__ = "prediction_metas"
-    # v0.10.25 · 复合 FK 指向分区表 predictions(id, created_at)；prediction_created_at
+    # 复合 FK 指向分区表 predictions(id, created_at)；prediction_created_at
     # 为冗余分区键列，写入路径在 prediction flush 后回填。
     __table_args__ = (
         ForeignKeyConstraint(
@@ -123,7 +123,7 @@ class FailedPrediction(Base):
     ml_backend_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ml_backend_registry.id", ondelete="SET NULL")
     )
-    # v0.23.3 ADR-0050 · 失败所在的 requested pool; 选择前失败 instance id 可为 null。
+    # ADR-0050 · 失败所在的 requested pool; 选择前失败 instance id 可为 null。
     ml_backend_pool_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ml_backend_service_pools.id", ondelete="SET NULL"),
@@ -131,12 +131,12 @@ class FailedPrediction(Base):
     model_version: Mapped[str | None] = mapped_column(String(100))
     error_type: Mapped[str] = mapped_column(String(100), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    # v0.8.6 F6 · 重试机制
+    # 重试机制
     retry_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0", default=0
     )
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # v0.8.8 · admin "永久放弃"软上限超过 max=3 的死项；soft-delete 不物理删
+    # admin "永久放弃"软上限超过 max=3 的死项；soft-delete 不物理删
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     extra: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict

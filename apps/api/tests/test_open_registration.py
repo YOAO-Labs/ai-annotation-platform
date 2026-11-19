@@ -1,4 +1,4 @@
-"""v0.7.7 · Open registration tests."""
+"""Open registration tests."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def reset_rate_limiter():
 async def test_open_register_captcha_required_when_enabled(
     httpx_client: AsyncClient, enable_open_registration, reset_rate_limiter
 ):
-    """v0.8.7 · turnstile_enabled=True 且未带 token 时 400 captcha_failed。"""
+    """turnstile_enabled=True 且未带 token 时 400 captcha_failed。"""
     with (
         patch("app.services.captcha_service.settings.turnstile_enabled", True),
         patch("app.services.captcha_service.settings.turnstile_secret_key", "sk"),
@@ -140,7 +140,7 @@ async def test_open_register_captcha_required_when_enabled(
 async def test_open_register_captcha_token_valid_passes(
     httpx_client: AsyncClient, enable_open_registration, reset_rate_limiter
 ):
-    """v0.8.7 · turnstile_enabled=True 且 token 通过校验时正常注册。"""
+    """turnstile_enabled=True 且 token 通过校验时正常注册。"""
     with (
         patch("app.services.captcha_service.settings.turnstile_enabled", True),
         patch("app.services.captcha_service.settings.turnstile_secret_key", "sk"),

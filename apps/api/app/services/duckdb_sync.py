@@ -1,4 +1,4 @@
-"""v0.10.16 · PostgreSQL → DuckDB 增量同步（ROADMAP §1.6）。
+"""PostgreSQL → DuckDB 增量同步（ROADMAP §1.6）。
 
 设计：
 - DuckDB 文件路径来自 settings.duckdb_path（默认 ./data/duckdb/analytics.duckdb）。
@@ -74,7 +74,7 @@ def _ensure_dir(path: str) -> None:
 
 
 def _connect_writer() -> duckdb.DuckDBPyConnection:
-    """v0.10.16 · 同步 worker 用的可写连接；初始化 schema。"""
+    """同步 worker 用的可写连接；初始化 schema。"""
     _ensure_dir(settings.duckdb_path)
     con = duckdb.connect(settings.duckdb_path, read_only=False)
     con.execute(_SYNC_STATE_DDL)
@@ -106,7 +106,7 @@ def _set_high_water(con: duckdb.DuckDBPyConnection, source: str, ts: datetime) -
 
 
 async def sync_task_events(db: AsyncSession) -> dict:
-    """v0.10.16 · 增量同步 task_events（带 task.reject_reason_type 反向 join）。"""
+    """增量同步 task_events（带 task.reject_reason_type 反向 join）。"""
     con = _connect_writer()
     try:
         watermark = _get_high_water(con, "task_events")
@@ -161,7 +161,7 @@ async def sync_task_events(db: AsyncSession) -> dict:
 
 
 async def sync_audit_logs(db: AsyncSession) -> dict:
-    """v0.10.16 · 增量同步 audit_logs（仅近 31 天数据进 DuckDB）。"""
+    """增量同步 audit_logs（仅近 31 天数据进 DuckDB）。"""
     con = _connect_writer()
     try:
         watermark = _get_high_water(con, "audit_logs")
@@ -209,14 +209,14 @@ async def sync_audit_logs(db: AsyncSession) -> dict:
 
 
 async def sync_all(db: AsyncSession) -> dict:
-    """v0.10.16 · 顺序同步两类源表，返回各 source 的结果。"""
+    """顺序同步两类源表，返回各 source 的结果。"""
     out_te = await sync_task_events(db)
     out_al = await sync_audit_logs(db)
     return {"task_events": out_te, "audit_logs": out_al}
 
 
 def _connect_reader() -> duckdb.DuckDBPyConnection:
-    """v0.10.16 · FastAPI 只读连接（read_only=True）。若文件不存在抛 FileNotFoundError。
+    """FastAPI 只读连接（read_only=True）。若文件不存在抛 FileNotFoundError。
 
     调用方应在每次请求里开/关连接（DuckDB 连接是线程局部的）。
     """

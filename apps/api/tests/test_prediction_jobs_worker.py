@@ -1,6 +1,6 @@
-"""v0.10.49 · preannotation application 写入单测（async_jobs 单一真值）.
+"""preannotation application 写入单测（async_jobs 单一真值）.
 
-v0.10.49 收敛后 prediction_jobs 专表已删，application command 直接以 async_jobs 为工作状态。
+async_jobs 是批量预标工作状态的唯一来源。
 覆盖：
 1. Worker failure hook 把 running async_job 翻成 failed + 写 error_message
 2. Worker failure hook 跳过已 completed async_job 不覆盖
@@ -88,7 +88,7 @@ async def _seed_project_and_backend(
     db.add(proj)
     await db.flush()
 
-    # v0.19.0 ADR-0044 · backend 现为全局注册项; worker 直接 db.get(registry), 无需项目启用关联
+    # ADR-0044 · backend 现为全局注册项; worker 直接 db.get(registry), 无需项目启用关联
     backend = MLBackendRegistry(
         id=uuid.uuid4(),
         name="g-sam2",
@@ -266,7 +266,7 @@ async def test_legacy_frame_execution_rejects_missing_retained_manifest_before_o
 async def test_run_batch_accumulates_total_cost(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
-    """v0.10.49 · _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result."""
+    """_run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result."""
     from app.application import preannotation_execution as execution
     from app.db.models.task import Task
     from yoao_inference_contract.execution import ModelTaskResult
@@ -719,7 +719,7 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
 async def test_run_batch_stops_on_cooperative_cancel(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
-    """v0.10.51 · batch_predict 在任务边界看到 cancel_requested 后落 cancelled。"""
+    """batch_predict 在任务边界看到 cancel_requested 后落 cancelled。"""
     from app.db.models.task import Task
     from yoao_inference_contract.execution import ModelTaskResult
     from tests.inference_execution_test_ports import patch_batch_execution
@@ -1011,7 +1011,7 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
 async def test_delete_backend_blocked_by_running_batch_predict(
     db_session: AsyncSession, monkeypatch, super_admin
 ):
-    """v0.10.49 · 拓扑删除服务读 async_jobs(payload.ml_backend_id) 判断是否有
+    """拓扑删除服务读 async_jobs(payload.ml_backend_id) 判断是否有
     running batch_predict，有则拒删；job 落终态后同一条链路真正删除 Registry。"""
     from types import SimpleNamespace
 

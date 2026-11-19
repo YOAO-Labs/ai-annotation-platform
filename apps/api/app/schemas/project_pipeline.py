@@ -1,4 +1,4 @@
-"""v0.21.0 · ProjectPipeline 请求 / 响应 schema."""
+"""ProjectPipeline 请求 / 响应 schema."""
 
 from __future__ import annotations
 

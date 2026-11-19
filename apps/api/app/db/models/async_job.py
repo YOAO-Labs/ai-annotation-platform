@@ -1,9 +1,9 @@
-"""v0.10.16 · 统一异步任务表 async_jobs（ROADMAP §1.7）。
+"""统一异步任务表 async_jobs（ROADMAP §1.7）。
 
 所有长任务（batch_predict / video_tracker / audit_archive / predictions_import /
 export 等）在 enqueue / progress / finish 三时点写入此表。
 
-v0.10.49 · batch_predict 已收敛为单一真值（prediction_jobs 专表删除），
+batch_predict 已收敛为单一真值（prediction_jobs 专表删除），
 domain 字段进 payload/result JSONB。video_tracker 保留 video_tracker_jobs 专表
 （带活标注 FK + 运行时状态机，见 ROADMAP/2026-05-23-async-jobs-unification.md）。
 """
@@ -21,7 +21,7 @@ from app.db.jobs_lifecycle import install_jobs_owner_mapping
 
 
 class AsyncJobKind(str, enum.Enum):
-    """v0.10.16 · 异步任务类型枚举。新加 kind 时同时更新前端 i18n 与铃铛文案。"""
+    """异步任务类型枚举。新加 kind 时同时更新前端 i18n 与铃铛文案。"""
 
     BATCH_PREDICT = "batch_predict"  # 项目 / 批次预标
     VIDEO_TRACKER = "video_tracker"  # 视频追踪

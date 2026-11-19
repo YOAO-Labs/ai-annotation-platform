@@ -1,4 +1,4 @@
-"""v0.7.8 · 登录注册改进 + 安全加固 + 治理合规 测试套件。"""
+"""邀请限流、会话撤销、审计完整性和 GDPR 测试。"""
 
 from __future__ import annotations
 
@@ -135,8 +135,8 @@ async def test_project_export_creates_audit_log(
     db_session.add(project)
     await db_session.flush()
 
-    # v0.10.27 导出异步化: POST 创建 async_job 并返回 202; 审计日志仍同步落库。
-    # v0.10.43 · format → targets 多目标。
+    # 导出返回 202 并创建 async_job，审计日志仍同步写入。
+    # format → targets 多目标。
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export"
         "?targets=mots&video_overlap_policy=z_order&mots_frame_base=1",

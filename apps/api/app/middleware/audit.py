@@ -30,7 +30,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
     全自动写请求审计：
       - 仅匹配 /api/v1 + 写方法（POST/PATCH/PUT/DELETE）
       - 在 call_next 之后写入，绝不阻塞主响应
-      - v0.7.6：默认走所选异步任务队列，投递失败时回退同步
+      - 默认走所选异步任务队列，投递失败时回退同步
       - 任何异常被吞掉，仅 logger.warning，永不影响响应
       - actor 仅取认证依赖写入的 Identity principal，不自行解析凭据
     """

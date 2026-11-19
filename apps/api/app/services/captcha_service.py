@@ -1,4 +1,4 @@
-"""Cloudflare Turnstile CAPTCHA verification (v0.8.7).
+"""Cloudflare Turnstile CAPTCHA verification.
 
 `turnstile_enabled=False` 时 short-circuit 返 True，本地开发与 CI 不需配置 key。
 production 启用后向 challenges.cloudflare.com/turnstile/v0/siteverify POST

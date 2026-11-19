@@ -255,7 +255,7 @@ async def test_append_item_after_link_creates_tasks_for_linked_projects(
 
 @pytest.mark.asyncio
 async def test_link_project_no_default_batch(db_session: AsyncSession, super_admin):
-    """v0.7.3：link_project 不再创建「{数据集} 默认包」batch；新建 task 全部 batch_id=NULL，
+    """link_project 不再创建「{数据集} 默认包」batch；新建 task 全部 batch_id=NULL，
     走「未归类任务」语义，由用户主动 split 归到 batch。"""
     from app.db.models.task_batch import TaskBatch
 
@@ -296,7 +296,7 @@ async def test_link_project_no_default_batch(db_session: AsyncSession, super_adm
 
 @pytest.mark.asyncio
 async def test_unlink_project_hard_deletes_tasks(db_session: AsyncSession, super_admin):
-    """v0.6.7 二修 B-10：unlink 应级联删除该 dataset 在该 project 下的 task，project.total_tasks 归零。"""
+    """unlink 应级联删除该 dataset 在该 project 下的 task，project.total_tasks 归零。"""
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=10)
     project = await _seed_project(db_session, user.id)
@@ -332,7 +332,7 @@ async def test_unlink_project_hard_deletes_tasks(db_session: AsyncSession, super
 async def test_unlink_cascades_user_split_batches(
     db_session: AsyncSession, super_admin
 ):
-    """v0.7.3 fix：用户把 dataset 任务 split 到 2 个 batch 后取消关联，2 个 batch 都应被清理。
+    """用户把 dataset 任务 split 到 2 个 batch 后取消关联，2 个 batch 都应被清理。
     管理员手工建的与该 dataset task 无关的空草稿不受影响；B-DEFAULT 永远保留。"""
     from app.db.models.task_batch import TaskBatch
     from app.services.display_id import next_display_id
@@ -344,7 +344,7 @@ async def test_unlink_cascades_user_split_batches(
     await DatasetTaskCreationWorkflow(db_session).link_project(
         ds.id, project.id, actor_id=user.id
     )
-    # v0.7.3：link 不再自建 batch，task 全部 batch_id=NULL；用户随后调 split
+    # link 不再自建 batch，task 全部 batch_id=NULL；用户随后调 split
 
     tasks = (
         (await db_session.execute(select(Task).where(Task.project_id == project.id)))
@@ -414,7 +414,7 @@ async def test_unlink_cascades_user_split_batches(
 async def test_unlink_cascades_legacy_default_batch(
     db_session: AsyncSession, super_admin
 ):
-    """v0.7.3：历史数据兼容 —— 老库里残留的「{数据集} 默认包」batch 在 unlink 时同样应清掉。
+    """历史数据兼容 —— 老库里残留的「{数据集} 默认包」batch 在 unlink 时同样应清掉。
     模拟方法：link 之后手工补一个挂 dataset_id 的 batch 持有所有 task。"""
     from app.db.models.task_batch import TaskBatch
     from app.services.display_id import next_display_id
@@ -460,7 +460,7 @@ async def test_unlink_cascades_legacy_default_batch(
 
 @pytest.mark.asyncio
 async def test_unclassified_count_endpoint(httpx_client, db_session, super_admin):
-    """v0.7.3：未归类任务计数端点 — 给 BatchesSection 顶部横带用。"""
+    """未归类任务计数端点 — 给 BatchesSection 顶部横带用。"""
     user, token = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=5)
     project = await _seed_project(db_session, user.id)
@@ -479,7 +479,7 @@ async def test_unclassified_count_endpoint(httpx_client, db_session, super_admin
 
 @pytest.mark.asyncio
 async def test_project_datasets_endpoint(httpx_client, db_session, super_admin):
-    """v0.7.3：项目侧 GET /projects/{id}/datasets — 列出已关联 dataset，含 task 数。"""
+    """项目侧 GET /projects/{id}/datasets — 列出已关联 dataset，含 task 数。"""
     user, token = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=3)
     ds.name = "DS-A"
@@ -506,7 +506,7 @@ async def test_project_datasets_endpoint(httpx_client, db_session, super_admin):
 async def test_link_unlink_relink_no_double_count(
     db_session: AsyncSession, super_admin
 ):
-    """v0.6.7 B-10：link → unlink → re-link 不出现 double-count。hard-unlink 下 task 真删 + 重 link 重新创建。"""
+    """link → unlink → re-link 不出现 double-count。hard-unlink 下 task 真删 + 重 link 重新创建。"""
     user, _ = super_admin
     ds = await _seed_dataset(db_session, user.id, n_items=4)
     project = await _seed_project(db_session, user.id)

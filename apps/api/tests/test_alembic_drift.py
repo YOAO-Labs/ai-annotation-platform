@@ -1,6 +1,6 @@
-"""v0.6.6 · 检测 alembic migration 与 SQLAlchemy model 字段一致性。
+"""检测 alembic migration 与 SQLAlchemy model 字段一致性。
 
-防止 v0.6.4 那种 model 加 unique=True 但 migration 漏写的 drift 在 CI 静默累积。
+防止模型与实际数据库迁移不一致，例如模型有 unique=True 但迁移缺少约束。
 策略：alembic upgrade head 后，反射真实库 schema，与 Base.metadata 比每张表的
 列名集合 + 主键集合，不一致则 fail。
 
@@ -42,12 +42,12 @@ async def test_models_match_database(test_engine, apply_migrations):
             drift.append(f"`{tbl_name}`：库有但模型没的列 {sorted(missing_in_model)}")
 
     # 反向：库中表多于模型（可能是 alembic_version / 历史遗留 / 未注册到 __init__.py 的模型）
-    # v0.8.1 · 排除 audit_logs 月分区子表（audit_logs_y2026m04 等），它们是 PG RANGE PARTITION
+    # 排除 audit_logs 月分区子表（audit_logs_y2026m04 等），它们是 PG RANGE PARTITION
     # 的物理子分区，不在 ORM 模型层注册（用 audit_logs 父表即可）。
     audit_partitions = {
         t for t in reflected.tables if t.startswith("audit_logs_y") and len(t) >= 18
     }
-    # v0.10.25 · 排除 predictions 月 RANGE 分区子表（predictions_y2026m05 / predictions_default
+    # 排除 predictions 月 RANGE 分区子表（predictions_y2026m05 / predictions_default
     # 等），同 audit_logs 子分区，是 PG 物理分区不在 ORM 模型层注册（用 predictions 父表即可）。
     prediction_partitions = {
         t

@@ -1,7 +1,6 @@
 """批量编辑 (bulk_update) service 层覆盖.
 
-v0.21.3 · 标注编组 (group / ungroup) 持久化已删除, 相关 service 用例一并移除;
-本套聚焦保留的 bulk_update 行为:
+覆盖以下行为：
 - bulk_update partial fail (锁 / 已软删 / 不存在) 整体回滚
 - bulk_update 属性批量应用到全部 ids
 """

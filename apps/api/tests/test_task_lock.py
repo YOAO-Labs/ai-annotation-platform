@@ -1,4 +1,4 @@
-"""v0.6.5 · 任务状态机锁定与撤回 / 重开流程。
+"""任务状态机锁定与撤回 / 重开流程。
 
 覆盖场景：
 1. submit / withdraw / claim / approve / reject / reopen 状态流转完整一遍
@@ -8,8 +8,8 @@
 5. reject 持久化：reject_reason 必填、写入 DB
 6. audit：每个状态变更各产 1 条 audit_log
 
-v0.6.6 起：本文件内的 test_engine / db_session / httpx_client 已回写到 conftest.py
-（function-scoped engine + dependency_overrides[get_db]），不再需要 file-local override。
+数据库与 HTTP 客户端 fixture 来自 conftest.py
+（function-scoped engine + dependency_overrides[get_db]）。
 """
 
 from __future__ import annotations
@@ -266,7 +266,7 @@ class TestTaskLockFlow:
     async def test_reject_requires_reason_type_and_persists(
         self, httpx_client, db_session, annotator, reviewer
     ):
-        """v0.10.16: reject 必传 reason_type ∈ {missing, extra, wrong_label,
+        """reject 必传 reason_type ∈ {missing, extra, wrong_label,
         wrong_geometry}，reason 自由文本变可空补充。"""
         ann_user, ann_token = annotator
         rev_user, rev_token = reviewer

@@ -111,7 +111,7 @@ async def admin_dashboard(
     except Exception:
         pass
 
-    # v0.9.5 · pre_annotated 批次计数（Sidebar 徽章 + AdminDashboard 卡片共用）
+    # pre_annotated 批次计数（Sidebar 徽章 + AdminDashboard 卡片共用）
     from app.db.enums import BatchStatus
 
     pre_annotated_batches = (
@@ -122,7 +122,7 @@ async def admin_dashboard(
         )
     ).scalar() or 0
 
-    # v0.8.1 · 过去 30 天注册来源（按日聚合 audit_logs.action='user.register'）
+    # 过去 30 天注册来源（按日聚合 audit_logs.action='user.register'）
     cutoff_30d = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ) - timedelta(days=29)
@@ -178,7 +178,7 @@ async def admin_dashboard(
 async def _resolve_people_scope(
     db: AsyncSession, current_user: IdentityActorFacts, project: str | None
 ) -> uuid.UUID | None:
-    """v0.12.6 (A3) · 解析成员绩效的项目范围 + 强制 RBAC。
+    """解析成员绩效的项目范围 + 强制 RBAC。
 
     - super_admin：project 可选（给了就校验存在），返回 pid 或 None（全局）。
     - project_admin：project 必填且必须是其 **owner** 的项目（越权 / 不存在均返回
@@ -222,13 +222,13 @@ async def admin_people_list(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
-    """v0.8.4 · 全员效率卡片网格数据。
+    """全员效率卡片网格数据。
 
     role 过滤：annotator / reviewer / both（默认 both）
     period: today / 7d / 4w / 1m
     sort: throughput / quality / activity / weekly_compare
 
-    v0.12.6 (A3)：project 给定时所有产能/质量/活跃聚合**按该项目切分**（非全局）；
+    project 给定时所有产能/质量/活跃聚合**按该项目切分**（非全局）；
     project_admin 必须指定其项目，super_admin 可全局或任意项目。
     """
     pid = await _resolve_people_scope(db, current_user, project)
@@ -417,7 +417,7 @@ async def admin_people_list(
         for uid in user_ids:
             daily_buckets.setdefault(uid, []).append(per_user.get(uid, 0))
 
-    # v0.8.4.1 hotfix · 7d active_minutes 团队分位（替换 activity_score=50 占位）
+    # 以过去 7 天的活跃分钟数计算团队内分位。
     seven_d_start = today_start - timedelta(days=6)
     active_rows = (
         await db.execute(
@@ -551,7 +551,7 @@ async def admin_people_list(
     return AdminPeopleList(items=items, total=len(items), period=period)
 
 
-# v0.12.5 · 成员绩效 CSV 导出(A2)。
+# 成员绩效 CSV 导出(A2)。
 # 注意:必须定义在 /admin/people/{user_id} 之前,否则 "export" 会被当作 user_id 命中详情端点。
 _PEOPLE_EXPORT_COLS = [
     "user_id",
@@ -582,9 +582,9 @@ async def admin_people_export(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
-    """v0.12.5 · 成员绩效 CSV 导出。复用 admin_people_list 聚合,零重复;Excel UTF-8 BOM 防中文乱码。
+    """成员绩效 CSV 导出。复用 admin_people_list 聚合,零重复;Excel UTF-8 BOM 防中文乱码。
 
-    v0.12.6 (A3)：放行 project_admin（委托 admin_people_list 强制其项目范围）。
+    放行 project_admin（委托 admin_people_list 强制其项目范围）。
     """
     data = await admin_people_list(
         role=role,
@@ -624,9 +624,9 @@ async def admin_person_detail(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
-    """v0.8.4 · 个人详情：4 周趋势、耗时直方图、项目分布、timeline。
+    """个人详情：4 周趋势、耗时直方图、项目分布、timeline。
 
-    v0.12.6 (A3)：project 给定时产能/质量/耗时/归因聚合**按该项目切分**；
+    project 给定时产能/质量/耗时/归因聚合**按该项目切分**；
     project_admin 必须指定其项目，super_admin 可全局或任意项目。
     项目范围的 timeline 只包含可验证归属的事件，过滤在最近 50 条限制之前。
     """
@@ -644,7 +644,7 @@ async def admin_person_detail(
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="user not found")
 
-    # v0.12.6 (A3) 安全收口:project_admin 只能查其项目内的成员详情。否则可借任意
+    # 安全收口:project_admin 只能查其项目内的成员详情。否则可借任意
     # user_id + 自有 project 枚举他人存在性 + 读取全局 timeline(IDOR)。非成员 → 404。
     if current_user.role == UserRole.PROJECT_ADMIN and pid is not None:
         member = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
@@ -907,7 +907,7 @@ async def admin_person_detail(
     )
 
 
-# ── v0.8.6 F4 · 预测成本卡片 ─────────────────────────────────────────
+# ── 预测成本卡片 ─────────────────────────────────────────
 
 
 _RANGE_DAYS = {"7d": 7, "30d": 30}
@@ -919,7 +919,7 @@ async def prediction_cost_stats(
     db: AsyncSession = Depends(get_db),
     _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    """v0.8.6 F4 · 过去 N 天预测调用数 / 平均耗时 / 失败率 / 总成本。
+    """过去 N 天预测调用数 / 平均耗时 / 失败率 / 总成本。
 
     数据来源：predictions × prediction_metas × failed_predictions × ml_backends。
     异常时降级返回零，避免 Dashboard 因聚合失败黑屏。
@@ -929,7 +929,7 @@ async def prediction_cost_stats(
 
     try:
         # 主聚合：调用数 / avg / p50 / p95 / p99 / total_cost / total_tokens
-        # v0.8.7 F2 · 加 PERCENTILE_CONT(p50/p95/p99) WITHIN GROUP；postgres 原生支持。
+        # Postgres 聚合 PERCENTILE_CONT(p50/p95/p99) WITHIN GROUP。
         main = (
             await db.execute(
                 select(

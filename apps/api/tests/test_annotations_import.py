@@ -1,4 +1,4 @@
-"""v0.10.54 · POST /projects/{id}/annotations/import 端点测试 (ADR-0028).
+"""POST /projects/{id}/annotations/import 端点测试 (ADR-0028).
 
 覆盖:
 - append 默认: 导入 N 条 annotation, 校验 user_id=操作者、source 保留、

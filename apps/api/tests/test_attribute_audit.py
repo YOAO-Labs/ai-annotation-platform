@@ -1,5 +1,5 @@
-"""v0.6.6 · PATCH /tasks/{tid}/annotations/{aid} 改 attributes 时
-audit_logs 写入字段级 attribute_change 行（v0.6.3 log_many 后 round-trip 1 行）。
+"""PATCH /tasks/{tid}/annotations/{aid} 改 attributes 时
+audit_logs 为该字段写入一行 attribute_change 审计记录。
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ async def test_attribute_change_writes_one_audit_per_changed_key(
     field_keys = {r.detail_json["field_key"] for r in rows}
     assert field_keys == {"color", "occluded", "truncated"}
 
-    # 同一 PATCH 触发的所有 audit 行应共享 request_id（v0.6.6 持久化）
+    # 同一 PATCH 触发的所有审计行共享 request_id。
     request_ids = {r.request_id for r in rows}
     assert len(request_ids) == 1, f"expected 1 request_id, got {request_ids}"
     assert next(iter(request_ids)) is not None

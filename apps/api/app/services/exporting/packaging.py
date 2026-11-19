@@ -164,7 +164,7 @@ LIDAR_EXPORT_TARGETS = {
     "pointmask",
 }
 
-# v0.10.43 · 多目标导出：图像目标（yolo 旧值=yolo-det）+ 视频目标 + voc（仅同步单目标）。
+# 多目标导出：图像目标（yolo 旧值=yolo-det）+ 视频目标 + voc（仅同步单目标）。
 IMAGE_EXPORT_TARGETS = {
     "coco",
     "yolo",
@@ -184,7 +184,7 @@ ALL_EXPORT_TARGETS = (
 def clean_export_targets(targets: list[str], data_type: str | None = None) -> list[str]:
     """去重保序 + 校验目标合法。非法或空抛 ValueError（端点转 400）。
 
-    v0.10.47 · 传入项目 ``data_type`` 时按模态过滤：图像项目只接受图像目标（+ voc），
+    传入项目 ``data_type`` 时按模态过滤：图像项目只接受图像目标（+ voc），
     视频项目只接受视频目标。否则一个跨模态目标会通过端点校验、派发 job，随后在
     ``build_export_zip`` 抛 ``UnsupportedExportError`` 拖垮整批（含合法目标）。
     ``data_type=None`` 时退回旧行为（接受全集），保持向后兼容。
@@ -282,7 +282,7 @@ def _yolo_lines(
     return lines, attrs_per_line
 
 
-# v0.10.43 · YOLO 变体写入器（det/obb/seg）。det=bbox，obb=rotated_bbox 四角，
+# YOLO 变体写入器（det/obb/seg）。det=bbox，obb=rotated_bbox 四角，
 # seg=polygon/multi_polygon 归一化多边形。坐标均归一化 [0,1]；obb 在像素空间旋转再归一化。
 YOLO_TARGETS = {"yolo", "yolo-det", "yolo-obb", "yolo-seg"}
 
@@ -359,7 +359,7 @@ def _yolo_target_lines(
     return lines, attrs
 
 
-# v0.12.1 · B6 流式导出：打包函数消费 (tasks, ann_by_task, dataset_items) 的异步分块
+# 流式导出：打包函数消费 (tasks, ann_by_task, dataset_items) 的异步分块
 # 迭代器（生产由 ExportService.iter_export_chunks 流式产出，测试可喂内存 chunk），ZIP 落盘
 # tempfile 而非 io.BytesIO 攒整包，内存与 task 数解耦。
 ExportChunkIter = AsyncIterator[
@@ -527,12 +527,12 @@ async def build_export_zip(
 ) -> tuple[str, int, int]:
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
 
-    v0.12.1 · B6 · 落盘 + 流式：ZIP 写 tempfile（不再 io.BytesIO 攒整包驻留 RAM）；
+    落盘 + 流式：ZIP 写 tempfile（不再 io.BytesIO 攒整包驻留 RAM）；
     per-file 格式（YOLO 镜像）按 task 分块流式产出 annotation。COCO/原生 JSON 是单文档，
     本质要全量物化（流式 JSON 编码不在本版范围），仍由 ExportService 自加载。
     调用方（worker）负责上传后清理返回的 zip 路径；本函数内部异常时清理自身临时文件。
 
-    v0.10.43 · 多目标（方案 B）：单目标落包根（向后兼容旧布局），>1 目标各落 `{target}/` 子目录。
+    多目标（方案 B）：单目标落包根（向后兼容旧布局），>1 目标各落 `{target}/` 子目录。
     图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, native_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
@@ -597,7 +597,7 @@ async def build_export_zip(
                 pass
             return tmp_path, 0, _export_size(tmp_path)
 
-        # v0.10.31 · Phase 4.1 · 视频项目走独立组装（manifest + 视频回源脚本 + 多格式）。
+        # 视频项目走独立组装（manifest + 视频回源脚本 + 多格式）。
         if project.data_type == "video":
             needs_ann = bool(
                 {
@@ -1037,7 +1037,7 @@ def _build_video_yolo_data_yaml(classes_list: list[str]) -> str:
     )
 
 
-# ── v0.14.7 · LiDAR 标准训练格式导出 ─────────────────────────────────
+# ── LiDAR 标准训练格式导出 ─────────────────────────────────
 
 
 def _lidar_frame_key(task: Task, item: SpatialItem | None) -> str:
@@ -1110,7 +1110,7 @@ def _primary_lidar_item(
     links_by_task: dict[uuid.UUID, dict[str, tuple[TaskDatasetItemLink, SpatialItem]]],
     dataset_items: dict[uuid.UUID, SpatialItem],
 ) -> SpatialItem | None:
-    """v0.24 · chunk 内解析 task 的主点云 item(与导出循环 primary_item 同规则)。
+    """chunk 内解析 task 的主点云 item(与导出循环 primary_item 同规则)。
 
     优先 primary_lidar link,回退 task.dataset_item_id;nuScenes pose 按
     (scene, frame) 精确查询时用它收集本 chunk 实际需要的 pose 对。
@@ -1355,7 +1355,7 @@ async def _build_lidar_export_zip(
             scenes_by_id: dict[uuid.UUID, SpatialScene] = {}
             poses_by_frame: dict[tuple[uuid.UUID, int], FramePose] = {}
             if "nuscenes" in targets:
-                # v0.24 · pose 查询按 chunk 内主点云的 (scene, frame) 对过滤:
+                # pose 查询按 chunk 内主点云的 (scene, frame) 对过滤:
                 # 大 scene 跨多个 1000-task chunk 时,逐 chunk 全量拉 scene pose
                 # 会造成 ~N²/1000 行的重复加载;精确对过滤让每帧 pose 只取一次。
                 chunk_pose_pairs: set[tuple[uuid.UUID, int]] = set()
@@ -1918,7 +1918,7 @@ async def _build_lidar_export_zip(
     return tmp_path, file_count, _export_size(tmp_path)
 
 
-# ── v0.10.31 · Phase 4 视频导出组装 ──────────────────────────────────
+# ── 视频导出组装 ──────────────────────────────────
 
 _FETCH_VIDEOS_TEMPLATE = (
     FETCH_IMAGES_TEMPLATE.replace(
@@ -2112,10 +2112,10 @@ async def _build_video_export_zip(
     video_media=None,
     check_cancel=None,
 ) -> tuple[str, int, int]:
-    """视频项目 zip（v0.10.43 多目标）：单目标落根、>1 目标各落 `{target}/`；
+    """视频项目 ZIP：单目标写入根目录，多目标分别写入 `{target}/`；
     manifest.json + fetch_videos.py 共享落根（MOT/KITTI 另带 fetch_frames.py）。
 
-    v0.12.1 · B6 · 落盘 + 按 task 分块流式：逐序列文件（MOT/KITTI/yolo-frames）边遍历
+    按 task 分块流式写盘：逐序列文件（MOT/KITTI/yolo-frames）边遍历
     chunk 边写盘；video_json/native_json 单文档由 svc 自加载。ZIP 写入调用方给的 tmp_path，
     临时文件清理由调用方负责，返回 (zip 路径, 文件数, size_bytes)。
     """

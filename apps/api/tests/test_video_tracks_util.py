@@ -1,5 +1,5 @@
-"""v0.10.30 · D-2.1a derive_track_number 确定性派生单测。
-v0.21.20 · polygon track 弧长参数化插值单测。"""
+"""D-2.1a derive_track_number 确定性派生单测。
+polygon track 弧长参数化插值单测。"""
 
 from app.services.video_tracks import (
     derive_track_number,
@@ -59,7 +59,7 @@ def test_derive_track_number_unsorted_keyframes_use_min_frame():
     assert derive_track_number([("x", geometry), ("y", other)]) == {"x": 1, "y": 2}
 
 
-# ── v0.21.20 · polygon track 插值 ─────────────────────────────────
+# ── polygon track 插值 ─────────────────────────────────
 
 _SQUARE_A = [[0.0, 0.0], [0.2, 0.0], [0.2, 0.2], [0.0, 0.2]]
 _SQUARE_B = [[0.4, 0.0], [0.6, 0.0], [0.6, 0.2], [0.4, 0.2]]
@@ -131,7 +131,7 @@ def test_resolved_track_frames_polygon_keyframes_mode():
     assert all("points" in r and "bbox" not in r for r in rows)
 
 
-# ── v0.21.20 · polyline (开路径) track 插值 ─────────────────────────
+# ── polyline (开路径) track 插值 ─────────────────────────
 
 _LINE_A = [[0.0, 0.0], [0.2, 0.0], [0.4, 0.0]]
 _LINE_B = [[0.0, 0.2], [0.2, 0.2], [0.4, 0.2]]

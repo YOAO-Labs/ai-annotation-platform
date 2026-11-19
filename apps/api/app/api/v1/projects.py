@@ -841,7 +841,7 @@ async def remove_member(
 def _validate_export_targets(
     targets: list[str], data_type: str | None = None
 ) -> list[str]:
-    """v0.10.43 · 校验并去重导出目标，非法转 400。v0.10.47 · 按 data_type 过滤模态。"""
+    """按 data_type 校验、过滤并去重导出目标；非法目标返回 400。"""
     from app.services.exporting.packaging import clean_export_targets
 
     try:
@@ -926,8 +926,8 @@ async def export_project(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
 ):
-    # v0.10.27 · 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
-    # v0.10.43 · 多目标（方案 B）：一个 job 产一个 zip（>1 目标分子目录）。
+    # 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
+    # 多目标（方案 B）：一个 job 产一个 zip（>1 目标分子目录）。
     # 状态/下载走 GET /async-jobs/{id}（result.download_url 为 7d 预签名）。
     # VOC 后端保留同步 blob（前端已隐藏），仅可单选；不删避免破坏 API 契约。
     from app.services.audit import AuditService, AuditAction, export_detail
@@ -1111,7 +1111,7 @@ async def export_project(
 def _stage_supported_inputs(
     backend, model_id: str | None, *, task: str | None = None
 ) -> list[str]:
-    """v0.18.15 · 从 backend 能力快照取某 model 的 supported_inputs (一等输入契约)。
+    """从 backend 能力快照取某 model 的 supported_inputs (一等输入契约)。
 
     health_meta.capabilities.models[] 已由 extract_capabilities 规范化 (含合成默认)。
     无快照 / 无 model_id / 匹配不到 → 返回 [] (调用方据此放过门控, 保持零退化)。
@@ -1132,7 +1132,7 @@ def _stage_supported_inputs(
 
 
 def _stage_model(backend, model_id: str | None, *, task: str | None = None) -> dict:
-    """v0.19.2 WS2 · 从 backend 能力快照取某 model 的规范化条目 (无快照/匹配不到 → {})。
+    """从 backend 能力快照取某 model 的规范化条目 (无快照/匹配不到 → {})。
 
     供 dispatch-time 校验读 resource_profile / output_attribute_types。读
     health_meta.capabilities.models[] (extract_capabilities 已规范化), 不走 /instances。
@@ -1177,7 +1177,7 @@ def _stage_model(backend, model_id: str | None, *, task: str | None = None) -> d
 
 
 def _stage_device(backend, model_id: str | None) -> str | None:
-    """v0.19.5 · 取某 model 的 resource_profile.device (gpu/cpu); 无快照/未自报 → None。"""
+    """取某 model 的 resource_profile.device (gpu/cpu); 无快照/未自报 → None。"""
     from app.services.trained_models import controlled_device, is_controlled
 
     if is_controlled(model_id):
@@ -1190,7 +1190,7 @@ def _stage_device(backend, model_id: str | None) -> str | None:
 def _assert_capabilities(
     backend, model_id: str | None, where: str, *, writes_attributes: bool
 ) -> None:
-    """v0.19.3 WS1 · 派发期能力闸门: 任一能力违例 → 422 硬挡。
+    """派发期能力闸门: 任一能力违例 → 422 硬挡。
 
     判据本体抽到 services/pipeline_validation.check_capability_violations (纯函数), 与保存路径
     软提示 + 前端 stageWarning 共用同一 SSOT。batchable=false (交互/有状态) 不可批量; 写属性的
@@ -1207,7 +1207,7 @@ def _assert_capabilities(
 
 
 async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
-    """v0.19.3 WS1 · 保存编排时算「能力软提示」(不挡), 与 dispatch 422 同判据共享纯函数。
+    """保存编排时算「能力软提示」(不挡), 与 dispatch 422 同判据共享纯函数。
 
     保存是配置中途态: backend 可能未启用 / 能力快照滞后 / 先存草稿之后再换 backend, 故只软提示。
     解析不到 backend 的阶段静默跳过 (留 dispatch-time 422 作最终把关)。返回 detail 字符串列表。
@@ -1218,7 +1218,7 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
 
     svc = MLBackendService(db)
     warnings: list[str] = []
-    # v0.20.21 · 建 stage号→(caps, model_id) map, 供下面校验下游阶段的「上游产出几何可否作 ROI」。
+    # 建 stage号→(caps, model_id) map, 供下面校验下游阶段的「上游产出几何可否作 ROI」。
     stage_caps: dict[int, tuple[dict, object]] = {}
     for s in stages:
         if not isinstance(s, dict) or not s.get("ml_backend_id"):
@@ -1243,7 +1243,7 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
             writes_attributes=writes_attributes,
         )
         warnings.extend(v.detail for v in violations)
-    # v0.20.21 · 上下游几何兼容: 下游按上游框作 ROI, 上游若不产 bbox/polygon → 软提示。
+    # 上下游几何兼容: 下游按上游框作 ROI, 上游若不产 bbox/polygon → 软提示。
     for s in stages:
         if not isinstance(s, dict):
             continue
@@ -1492,7 +1492,7 @@ async def trigger_preannotation(
     if source_backend_id is None:
         raise HTTPException(status_code=422, detail="ml_backend_id 必填")
     backend = await svc.get_registry(source_backend_id)
-    # v0.19.0 ADR-0044 · 校验 backend 存在且在本项目「已启用」
+    # ADR-0044 · 校验 backend 存在且在本项目「已启用」
     # (project_ml_backend_pool.enabled, 经 pool member 解析回 registry):
     # 与下游阶段校验对称, 防止 owner 手动 POST 未启用/别项目 backend id 触发预标。
     if not backend or not await svc.is_enabled(project.id, source_backend_id):
@@ -1555,19 +1555,19 @@ async def trigger_preannotation(
     ):
         raise HTTPException(status_code=422, detail="预标注模型上下文不能超过 8 KiB")
 
-    # v0.19.2 WS2 · 源阶段 (单模型预标 / 流水线源) batchable 闸门: 交互/有状态模型不可批量。
+    # 源阶段 (单模型预标 / 流水线源) batchable 闸门: 交互/有状态模型不可批量。
     # 源阶段不写属性, class 判据不适用 (writes_attributes=False)。
     _assert_capabilities(backend, body.model_id, "源阶段", writes_attributes=False)
 
-    # v0.19.5 · 设备感知队列路由: 收集源 + 各下游阶段 model 的 device, 据此选 Celery 队列。
+    # 设备感知队列路由: 收集源 + 各下游阶段 model 的 device, 据此选 Celery 队列。
     stage_devices: list[str | None] = [_stage_device(backend, body.model_id)]
 
-    # v0.18.1 · 多阶段编排: 校验每个下游阶段的 backend 存在且归属本项目, 归一化成 worker
+    # 多阶段编排: 校验每个下游阶段的 backend 存在且归属本项目, 归一化成 worker
     # 可消费的 stage dict 列表 (uuid → str)。源阶段 backend 归属已在上面校验。
     pipeline_stages_payload: list[dict] | None = None
     if body.pipeline_stages:
         norm: list[dict] = []
-        # v0.20.21 · stage号→(caps, model_id) map, source stage is identified by parent_stage=None.
+        # stage号→(caps, model_id) map, source stage is identified by parent_stage=None.
         # 循环内填各下游 caps, 循环后校验「上游产出几何可否作下游 ROI」。
         stage_caps: dict[int, tuple[dict, object]] = {
             next(
@@ -1593,7 +1593,7 @@ async def trigger_preannotation(
                     raise HTTPException(
                         status_code=422, detail=f"stage {st.stage}: {exc}"
                     ) from exc
-                # v0.19.2 WS2 / v0.19.3 WS1 · 下游阶段能力闸门: batchable + 写属性产 class。
+                # 下游阶段能力闸门：必须可批量；写属性的分类阶段必须产出 class。
                 # 写属性的子但模型不产 class → 跑完属性恒空, 提前 422。
                 _assert_capabilities(
                     st_backend,
@@ -1602,14 +1602,14 @@ async def trigger_preannotation(
                     writes_attributes=(st.write or {}).get("target", "attributes")
                     == "attributes",
                 )
-                # v0.19.5 · 收集下游阶段 device 供队列路由。
+                # 收集下游阶段 device 供队列路由。
                 stage_devices.append(_stage_device(st_backend, st.model_id))
-                # v0.20.21 · 记本阶段 caps, 供循环后校验其作为下游父阶段时几何可否作 ROI。
+                # 记本阶段 caps, 供循环后校验其作为下游父阶段时几何可否作 ROI。
                 stage_caps[st.stage] = (
                     _stage_model(st_backend, st.model_id, task=st.task),
                     st.model_id,
                 )
-                # v0.18.15 · 按子模型 supported_inputs 解析投递方式 + 几何可达性门控。
+                # 按子模型 supported_inputs 解析投递方式 + 几何可达性门控。
                 # 产几何的子: supported_inputs 须含 bbox_prompt (geometry-prompt 路径) 或
                 # crop (普通检测器在 crop 上跑 + 坐标回映)。据此把投递方式烘焙进 input.mode,
                 # worker 直接消费 (无快照时 inputs=[] → 放过门控、不烘焙, 保持零退化)。
@@ -1643,15 +1643,15 @@ async def trigger_preannotation(
                     "roi": st.roi,
                     "write": st.write,
                     "on_failure": st.on_failure,
-                    # v0.18.14 · 卡片显示名 + 写回属性键前缀 (子物体命名空间, 如 hat_color)。
+                    # 卡片显示名 + 写回属性键前缀 (子物体命名空间, 如 hat_color)。
                     "label": st.label,
-                    # v0.18.15 · 投递模式: 用户显式 input 或按 supported_inputs 烘焙的结果。
+                    # 投递模式: 用户显式 input 或按 supported_inputs 烘焙的结果。
                     "input": resolved_input,
-                    # v0.18.2 · 键冲突策略下放到每个下游阶段, worker 末位覆盖时据此合并。
+                    # 键冲突策略下放到每个下游阶段, worker 末位覆盖时据此合并。
                     "on_key_conflict": body.on_key_conflict,
                 }
             )
-        # v0.20.21 · 上下游几何兼容闸门 (与「下游能否吃框」门对称): 下游按上游框作 ROI,
+        # 上下游几何兼容闸门 (与「下游能否吃框」门对称): 下游按上游框作 ROI,
         # 上游若完全不产 bbox/polygon → 该阶段所有父框运行期被跳过、零富集, 提前 422 硬挡。
         for st in body.pipeline_stages:
             if st.parent_stage is None or st.parent_stage not in stage_caps:
@@ -1782,7 +1782,7 @@ async def trigger_preannotation(
                 batch_id=body.batch_id,
             )
 
-    # v0.9.5 · 指定 batch 时校验归属本项目 + 状态在 active
+    # 指定 batch 时校验归属本项目 + 状态在 active
     total_tasks_hint: int | None = None
     if replay_manifest:
         total_tasks_hint = (existing_job.payload or {}).get("total_tasks")
@@ -1817,7 +1817,7 @@ async def trigger_preannotation(
             task_row.batch_id == body.batch_id,
             task_row.status == "pending",
         ]
-        # v0.11.24 · skip_predicted 下进度条分母应排除已预标 task，否则虚高
+        # skip_predicted 下进度条分母应排除已预标 task，否则虚高
         if body.predict_mode == "skip_predicted":
             hint_conds.append(task_row.total_predictions == 0)
         count_q = await db.execute(select(func.count(task_row.id)).where(*hint_conds))
@@ -1829,13 +1829,13 @@ async def trigger_preannotation(
         count_q = await db.execute(select(func.count(task_row.id)).where(*hint_conds))
         total_tasks_hint = int(count_q.scalar_one() or 0)
 
-    # v0.19.5 · 设备感知路由: 全 CPU pipeline → cpu 队列; 任一 GPU/未自报阶段 → gpu(ml) 队列 (零退化)。
+    # 设备感知路由: 全 CPU pipeline → cpu 队列; 任一 GPU/未自报阶段 → gpu(ml) 队列 (零退化)。
     queue = resolve_preannotate_queue(
         stage_devices,
         gpu_queue=settings.preannotate_gpu_queue,
         cpu_queue=settings.preannotate_cpu_queue,
     )
-    # v0.21.6 · detect-then-track: 含 tracker 阶段的 job 施加 soft 超时 (帧上限之外的双保险)。
+    # detect-then-track: 含 tracker 阶段的 job 施加 soft 超时 (帧上限之外的双保险)。
     #   单阶段源 tracker 走 body.task; 编排里的 tracker 阶段走 pipeline_stages_payload。
     has_tracker_stage = body.task == "tracker" or any(
         (s or {}).get("task") == "tracker" for s in (pipeline_stages_payload or [])
@@ -1843,7 +1843,7 @@ async def trigger_preannotation(
     has_text_stage = body.task == "text" or any(
         (s or {}).get("task") == "text" for s in (pipeline_stages_payload or [])
     )
-    # v0.21.7 · 逐帧执行单位: 从源阶段(parent_stage=None)的 source.execution_unit 提取 (norm 丢弃了
+    # 逐帧执行单位: 从源阶段(parent_stage=None)的 source.execution_unit 提取 (norm 丢弃了
     #   source, 故从原始 body.pipeline_stages 取)。frame → worker 走二级 fan-out 逐帧跑图像 backend。
     #   execution_unit 是整任务迭代粒度、非 per-stage, 故作 batch_predict 顶层参数。
     #   源阶段判据须与 _validate_pipeline_stages 一致 (恰一个 parent_stage=None); stage 号是自由整数,
@@ -2641,7 +2641,7 @@ async def trigger_preannotation(
         user_id=str(current_user.id),
         params=body.params or None,
         predict_mode=body.predict_mode,
-        # v0.14.9 · protocol v2 resolves the durable controlled model identity here.
+        # protocol v2 resolves the durable controlled model identity here.
         model_id=(
             f"trained:{frozen_model_ref['model_version_id']}"
             if frozen_model_ref
@@ -2742,8 +2742,8 @@ async def trigger_preannotation(
             "prompt": (body.prompt or "")[:200],
             # output_mode 仅文本 prompt 路径生效; 几何路径不读它, 留 None 免误导 (与 job payload 一致)
             "output_mode": body.output_mode if body.prompt else None,
-            # v0.14.10 · 协议 v2 多模型路由溯源: 记录具体 model / task 类型
-            # v0.14.18 · 增记 model_variants (实际 variant, 如 series/size=yolov8/l)
+            # 协议 v2 多模型路由溯源: 记录具体 model / task 类型
+            # 增记 model_variants (实际 variant, 如 series/size=yolov8/l)
             "model_id": body.model_id,
             "task": body.task,
             "prompt_type": body.prompt_type,
@@ -2751,7 +2751,7 @@ async def trigger_preannotation(
         },
     )
     await db.commit()
-    # v0.20.21 · both 多阶段引导: output=both 仅文本 prompt 路径生效 (见上文 job payload 注释),
+    # both 多阶段引导: output=both 仅文本 prompt 路径生效 (见上文 job payload 注释),
     # 且会对同一实例产出框+多边形两条几何; 若还配了下游阶段, 编排会把两条各当一个父框各处理
     # 一次 (重复裁剪/推理/富集) 并落两条 region。软提示、不拦截 (both 仍可跑)。
     warnings: list[str] = []
@@ -2777,7 +2777,7 @@ async def preview_orphan_tasks(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):
-    """v0.6.7 二修 B-10：预览本项目中「无源 task」（dataset_item_id 为空 / 指向已 unlink 的数据集 / 指向已删除 dataset_item）。"""
+    """预览本项目中「无源 task」（dataset_item_id 为空 / 指向已 unlink 的数据集 / 指向已删除 dataset_item）。"""
     from yoao_labeling.task_maintenance_contract import ReadSourceLessTaskCandidates
     from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
 
@@ -2810,10 +2810,10 @@ async def cleanup_orphan_tasks(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.6.7 二修 B-10：删除本项目所有「无源 task」（含 annotations / locks / comments），重算 counters。
+    """删除本项目所有「无源 task」（含 annotations / locks / comments），重算 counters。
 
-    适用场景：v0.6.0~v0.6.6 期间 link_project 写 dataset_item_id 但未持久化 batch 关系，
-    后续数据集被 unlink / 删除留下的孤儿 task。
+    适用于关联解除或数据集删除后遗留的旧任务，包括缺少批次关系、
+    仅记录 dataset_item_id 的历史任务。
     """
     result = await cleanup_source_less_tasks(db, project.id)
     if result["deleted_tasks"] == 0:
@@ -2835,7 +2835,7 @@ async def cleanup_orphan_tasks(
     return result
 
 
-# ── v0.7.3 · 项目侧关联数据集 ────────────────────────────────────────────
+# ── 项目侧关联数据集 ────────────────────────────────────────────
 
 
 @router.get("/{project_id}/datasets", response_model=list[ProjectDatasetSummary])

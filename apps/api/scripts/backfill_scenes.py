@@ -1,4 +1,4 @@
-"""v0.14.0 · 一次性脚本:对历史 dataset 补 scene + frame_index。
+"""一次性脚本:对历史 dataset 补 scene + frame_index。
 
 通过 Assets Spatial owner 回填 scene,并提供 CLI / 日志 / 错误码退出。
 

@@ -1,11 +1,11 @@
-"""v0.5.4 逐框评论路由：annotation_comments 表 CRUD + audit_log 通知钩子。
+"""逐框评论路由：annotation_comments 表 CRUD + audit_log 通知钩子。
 
 注册到 api/v1/router.py 后端点路径形如：
 - GET    /annotations/{aid}/comments
 - POST   /annotations/{aid}/comments
 - PATCH  /comments/{id}
 - DELETE /comments/{id}（软删）
-- POST   /annotations/{aid}/comment-attachments/upload-init  (v0.6.2)
+- POST   /annotations/{aid}/comment-attachments/upload-init
 """
 
 import base64
@@ -97,7 +97,7 @@ async def list_comments(
     db: AsyncSession = Depends(get_db),
     actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    """v0.8.8 · 旧端点保留作向后兼容；新调用方走 ``/comments/page`` keyset 分页。"""
+    """旧端点保留作向后兼容；新调用方走 ``/comments/page`` keyset 分页。"""
     await require_visible_annotation(db, annotation_id, actor_id)
     author = account_profiles.alias("annotation_comment_author")
     rows = (
@@ -115,7 +115,7 @@ async def list_comments(
 
 
 def _encode_comment_cursor(ts: datetime, cid: uuid.UUID) -> str:
-    """v0.8.8 · base64-urlsafe(<iso_ts>|<uuid_hex>)，与 task cursor 同款，避免 + / 在 URL 中的问题。"""
+    """base64-urlsafe(<iso_ts>|<uuid_hex>)，与 task cursor 同款，避免 + / 在 URL 中的问题。"""
     iso = ts.isoformat()
     return base64.urlsafe_b64encode(f"{iso}|{cid.hex}".encode()).decode()
 
@@ -265,7 +265,7 @@ async def list_comments_paged(
     db: AsyncSession = Depends(get_db),
     actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    """v0.8.8 · keyset 分页：DESC(created_at, id)。
+    """keyset 分页：DESC(created_at, id)。
 
     单条标注 100+ 评论时初始化卡顿明显（CommentsPanel 全量拉），改为「最新 50
     + 加载更早」按需拉取。返回 ``next_cursor=None`` 即末尾。
@@ -387,7 +387,7 @@ async def comment_attachment_upload_init(
     db: AsyncSession = Depends(get_db),
     actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    """v0.6.2：评论附件签发预签名 PUT URL。
+    """评论附件签发预签名 PUT URL。
 
     storage_key 形如 `comment-attachments/{aid}/{uuid}-{filename}`，固定前缀使得后端可
     校验 attachments[].storageKey；同时让 MinIO 桶层级清晰。"""

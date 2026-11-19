@@ -80,7 +80,7 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                     job_id=uuid.UUID(job_id),
                 ),
             )
-            # v0.10.16 · async_jobs 双写（汇总索引层；失败不阻断主流程）
+            # async_jobs 双写（汇总索引层；失败不阻断主流程）
             async_job_id: uuid.UUID | None = None
             project_id: uuid.UUID | None = None
             tracker_input_ready = None

@@ -172,7 +172,7 @@ class _TrackerSourceSubject:
     task_id: uuid.UUID
 
 
-# v0.22.2 · B-combo · 发现趟窗口帧数。multiplex 需多帧传播才在种子帧填充 obj_id (单帧窗
+# B-combo · 发现趟窗口帧数。multiplex 需多帧传播才在种子帧填充 obj_id (单帧窗
 # 不出检测), 故发现趟跑这么多帧但只取种子帧的框铸种; 取小值以压低 multiplex 显存与耗时。
 COMBO_DISCOVERY_WINDOW_FRAMES = 5
 
@@ -381,7 +381,7 @@ def _tracker_windows(
     # - sam3_video(multiplex): 视频前向显存随窗口线性增长, 大窗 OOM@24GB。
     # - sam3_video_interactive(PVS): backend wrapper 上限 SAM3_PVS_MAX_WINDOW_FRAMES(默认 16),
     #   超限会被 backend 拒; PVS 是 SAM2 式 memory 传播、显存轻于 multiplex, 但先与之齐。
-    # v0.22.2 · B-combo · sam3_video_combo 追踪趟走 PVS, 用与 PVS 齐的小分窗。
+    # B-combo · sam3_video_combo 追踪趟走 PVS, 用与 PVS 齐的小分窗。
     model = model_key or job.model_key
     start_frame = job.from_frame if from_frame is None else from_frame
     end_frame = job.to_frame if to_frame is None else to_frame
@@ -837,7 +837,7 @@ def _partition_results_by_instance(
     return primary, extras
 
 
-# v0.22.2 · M · 多选批量: 单源延展时从结果推断主实例 id, 构造单源 source_map 的键。
+# M · 多选批量: 单源延展时从结果推断主实例 id, 构造单源 source_map 的键。
 _SOLE_SOURCE_KEY = "__sole__"
 
 
@@ -850,7 +850,7 @@ def _instance_seed_obj_id(instance_id: str, fallback: int) -> int:
 def _continuation_seeds(last_geom_by_instance: dict[str, dict]) -> list[dict]:
     """多目标跨窗续追种子: 每个实例用其上一窗末帧几何 + 同一 obj_id 重播种下一窗。
 
-    v0.21.27 · U-pvs-1 · seed-驱动 tracker (PVS) 每窗是独立会话, 若只续主实例, 非主实例
+    U-pvs-1 · seed-驱动 tracker (PVS) 每窗是独立会话, 若只续主实例, 非主实例
     过一窗即丢。这里对**每个**实例各下发一条 seed (obj_id 与其 instance_id 一致 → 跨窗身份
     稳定); backend seeds 支持 geometry (自动取外接框)。text-驱动 multiplex 同样把这些框作为
     下一窗正提示，并继续按 text 发现目标。
@@ -861,7 +861,7 @@ def _continuation_seeds(last_geom_by_instance: dict[str, dict]) -> list[dict]:
     ]
 
 
-# ── v0.22.2 · B-combo · multiplex 发现 → PVS 种子铸造 ──────────────────────
+# ── B-combo · multiplex 发现 → PVS 种子铸造 ──────────────────────
 # combo (sam3_video_combo) 两趟编排的桥: 发现趟 (multiplex 按 text 在种子帧检测) 的
 # per-obj 结果 → 追踪趟 (PVS) 的逐对象种子。发现对象**无源** → 种子不带
 # source_annotation_id, 落库走成熟的无源新建 (source_map 为空 → 全部 _new_discovered_track)。
@@ -892,7 +892,7 @@ def _combo_seeds_from_discovery(
     return seeds
 
 
-# ── v0.21.28 · B-mx · text-multiplex 跨窗 IoU 关联 ─────────────────────────
+# ── B-mx · text-multiplex 跨窗 IoU 关联 ─────────────────────────
 # multiplex (sam3_video) 按 text 每窗独立会话重检测, 窗内 obj_id 稳定但**跨窗局部**
 # (窗 N 的 obj "1" 与窗 N-1 的 obj "1" 未必同物)。平台在窗边界帧按 IoU 关联, 把窗内
 # obj_id remap 成跨窗稳定的全局 instance_id (未匹配 → 新 track), 供阶段 0 分组落库。
@@ -1011,7 +1011,7 @@ def _target_from_source(source: Annotation) -> _TrackTarget:
 
 
 def _target_from_job(job: VideoTrackerJob, task: Task) -> _TrackTarget:
-    # v0.22.1 · B · 无源检测: 类别由 job.target_* 显式指定 (缺省兜底空类 / bbox 单位)。
+    # B · 无源检测: 类别由 job.target_* 显式指定 (缺省兜底空类 / bbox 单位)。
     return _TrackTarget(
         task_id=job.task_id,
         project_id=task.project_id,
@@ -1025,7 +1025,7 @@ def _target_from_job(job: VideoTrackerJob, task: Task) -> _TrackTarget:
 def _seed_source_map(
     job: VideoTrackerJob, *, prompt_snapshot: dict | None = None
 ) -> dict[str, uuid.UUID]:
-    """从 job.prompt.seeds 读 {instance_id: 源 annotation id} —— v0.22.2 · M · 多选批量。
+    """从 job.prompt.seeds 提取 {instance_id: 源 annotation id}。
 
     每个 seed 可带 source_annotation_id (该 obj 延展哪条已有轨迹); 无该字段的 seed
     (无源检测 / B-combo 发现) 不入映射。instance_id 契约 = str(obj_id)。
@@ -1116,12 +1116,12 @@ def _persist_tracker_results(
     未命中的每个 instance 各建一条新 track。
 
     source_map 语义 (instance_id → 源 annotation):
-    - 单源延展 (0.22.1 及以前): 恰一个条目 {主实例 id: 源};
-    - 多源批量 (v0.22.2 · M · 多选): N 个条目 {obj_id: 各自源}, 各回填各源;
+    - 单源延展：恰一个条目 {主实例 id: 源}；
+    - 多源批量：N 个条目 {obj_id: 各自的源}，每个实例回填其源；
     - 无源检测 / B-combo 发现: 空映射, 全部新建 (归属取自 target)。
 
     无 instance_id 的老单实例 backend: 整体回填 source_map 的唯一源 (若有), 否则新建 ——
-    与既有单 track 行为等价, 零回归。返回新建的 annotation 列表 (调用方负责 commit)。
+    返回新建的 annotation 列表，由调用方提交事务。
     """
     created: list[Annotation] = []
     if all(r.instance_id is None for r in results):
@@ -1153,7 +1153,7 @@ def _persist_tracker_results(
     return created
 
 
-# ---------- v0.21.28 · 候选/接受流: 暂存 + accept/discard ----------
+# ---------- 候选/接受流: 暂存 + accept/discard ----------
 
 
 def _serialize_results(results: list[TrackerFrameResult]) -> list[dict]:
@@ -1494,7 +1494,7 @@ async def _assert_source_versions_unchanged(
     *,
     actor_id: uuid.UUID | None,
 ) -> dict[uuid.UUID, SimpleNamespace]:
-    """v0.23.5 · WS-D · D4 · reject accept when a source annotation was mutated
+    """reject accept when a source annotation was mutated
     after the job was created.
 
     ``create_tracker_job`` snapshotted each source annotation's ``version`` into
@@ -2993,8 +2993,8 @@ async def accept_tracker_job(
         raise TrackerJobStateConflict(
             f"Video tracker job cannot be accepted from status {current_status}"
         )
-    # v0.22.1 · B · 源轨迹可选 (无源检测 → 全新建); v0.22.2 · M · 多选批量: prompt.seeds
-    # 每条可带 source_annotation_id (obj_id ↔ 源轨迹), 各实例回填各自源。
+    # 源轨迹可选。prompt.seeds 中没有源的实例新建轨迹；
+    # 各 seed 可用 source_annotation_id 绑定自己的源轨迹。
     results = _deserialize_results(rows)
     # Explicit actor only; never impersonate the job creator.
     effective_actor = actor_id
@@ -3050,7 +3050,7 @@ async def accept_tracker_job(
     else:
         # 无源检测 (画布级文本/种子发起): 全部新建, 归属取 job 显式目标类别。
         target = _target_from_job(job, task)
-    # v0.23.5 · WS-D · D4 · refuse accept if any source annotation was mutated
+    # refuse accept if any source annotation was mutated
     # between job creation and accept. Runs before _persist_tracker_results so
     # a conflict leaves annotations untouched (no last-writer-wins).
     created = _persist_tracker_results(
@@ -3099,7 +3099,7 @@ async def accept_tracker_job(
         effective_actor,
         nowait=True,
     )
-    # v0.22.2 · M · 记录本 job 触及的轨迹 id (回填源 + 新建) 供前端刷新/审计。落 job.prompt JSONB
+    # M · 记录本 job 触及的轨迹 id (回填源 + 新建) 供前端刷新/审计。落 job.prompt JSONB
     # (免 DB 迁移); accept 后 job 终态, prompt 不再被 runner 读, 写此键安全。JSONB 须重赋新 dict
     # 才能让 SQLAlchemy 检测到脏 (同一 dict 引用 in-place 改不触发 UPDATE)。
     touched = [str(src.id) for src in source_map.values()] + [
@@ -3495,7 +3495,7 @@ async def _run_tracker_job_claimed(
         )
         tracker_input_gateway = await tracker_input_gateway_context.__aenter__()
         tracker_input_gateway_entered = True
-        # v0.22.1 · B · 源轨迹可选: 无源检测 (job.annotation_id is None) 时不加载 source,
+        # B · 源轨迹可选: 无源检测 (job.annotation_id is None) 时不加载 source,
         # 种子来自 prompt (text/seeds), 主实例落库时新建。
         annotation = (
             await get_core_row(db, annotation_row, job.annotation_id)
@@ -3553,7 +3553,7 @@ async def _run_tracker_job_claimed(
             if is_correction and annotation is not None
             else None
         )
-        # v0.22.2 · B-combo · sam3_video_combo = multiplex 发现 → PVS 追踪 两趟编排。
+        # B-combo · sam3_video_combo = multiplex 发现 → PVS 追踪 两趟编排。
         # 两趟都在 sam3-backend (声明 sam3_video + sam3_video_interactive); 后端按 PVS 能力
         # 解析 (同一 backend), 追踪趟 adapter 用 PVS, 发现趟另取 multiplex adapter (见下)。
         is_combo = execution.model_key == "sam3_video_combo"
@@ -3565,7 +3565,7 @@ async def _run_tracker_job_claimed(
             if frozen_plan is not None
             else None
         )
-        # v0.21.25 (阶段 R) · 按 tracker 能力选后端而非项目单一绑定: sam3_video 挑声明了
+        # 按 tracker 能力选后端而非项目单一绑定: sam3_video 挑声明了
         # sam3_video 的 backend(sam3-backend), 而非静默落到项目绑定的 grounded-sam2。
         tracker_capability = (
             "sam3_video_interactive" if is_combo else execution.model_key
@@ -3607,7 +3607,7 @@ async def _run_tracker_job_claimed(
                 if backend is not None
                 else None
             )
-        # v0.23.3 ADR-0050 §11 · tracker pins one instance per job (stateful session).
+        # ADR-0050 §11 · tracker pins one instance per job (stateful session).
         # 经 MLBackendRouter 取得 job-scope route lease (enforce) 或记录 would-select
         # 证据 (observe); off 模式行为不变 (legacy instance dispatch)。lease 在整个 job
         # 期间按 heartbeat_interval 周期续命, job 结束时 finish/cancel exactly once。
@@ -3625,7 +3625,7 @@ async def _run_tracker_job_claimed(
             execution.to_frame - execution.from_frame + 1 - (1 if is_correction else 0),
         )
         progress = 0
-        # v0.23.3 ADR-0050 §11 · 取得 job-scope route lease (enforce) / 记录 would-select
+        # ADR-0050 §11 · 取得 job-scope route lease (enforce) / 记录 would-select
         # (observe)。tracker 整 job pin 一个实例, lease 周期 heartbeat 续命 (不能中途换实例)。
         if backend is not None:
             from yoao_inference_contract.plugin_assets import (
@@ -3790,7 +3790,7 @@ async def _run_tracker_job_claimed(
                         _sel.instance_id,
                         tracker_pool_id,
                     )
-            # v0.23.3 · pool/instance dual-ID recorded via structured log (audit lineage, §5.4).
+            # pool/instance dual-ID recorded via structured log (audit lineage, §5.4).
             log.info(
                 "tracker job %s routed pool=%s instance=%s mode=%s",
                 job_id,
@@ -3881,17 +3881,17 @@ async def _run_tracker_job_claimed(
             if is_mask_track(source_geometry)
             else source_geometry
         )
-        # v0.21.27 · U-pvs-1 · 多目标跨窗续追: 记每个实例的末帧 (非 outside) 几何, 后续窗对
+        # U-pvs-1 · 多目标跨窗续追: 记每个实例的末帧 (非 outside) 几何, 后续窗对
         # 每个实例各用其上一窗末帧几何 + 同一 obj_id 重播种 (否则非主实例过一窗即丢)。仅当
         # 有多实例 (backend 发了 ≥2 个 instance_id) 时启用; 单目标 / None-instance 不触发。
         last_geom_by_instance: dict[str, dict] = {}
-        # v0.21.28 · B-mx · text-multiplex (sam3_video) 每窗独立会话重检测, 窗内 obj_id 局部;
+        # B-mx · text-multiplex (sam3_video) 每窗独立会话重检测, 窗内 obj_id 局部;
         # 平台在窗边界帧按 IoU 关联把窗内 id remap 成跨窗稳定的全局 instance_id (未匹配 → 新
         # track)。mp_prev_boundary = 上一窗每全局实例的末帧几何; mp_next_global = 新全局 id 计数。
         associate_multiplex = execution.model_key == "sam3_video"
         mp_prev_boundary: dict[str, dict] = {}
         mp_next_global = [1]
-        # v0.21.20 · polygon track: 让 backend 逐帧保留 mask 矢量化的多边形而非降 bbox。
+        # polygon track: 让 backend 逐帧保留 mask 矢量化的多边形而非降 bbox。
         output_geometry = accepted_prompt.get("output_geometry") or (
             (
                 "mask"
@@ -4089,7 +4089,7 @@ async def _run_tracker_job_claimed(
             )
             return current_source is not None
 
-        # v0.22.2 · B-combo · 发现趟 (先于追踪窗循环, 串行 → 中间 idle 可卸载 multiplex 再载
+        # B-combo · 发现趟 (先于追踪窗循环, 串行 → 中间 idle 可卸载 multiplex 再载
         # PVS, 避两模型同容峰值)。multiplex 在种子帧按 text 检测 → per-obj 框 → 铸成 PVS 种子
         # (无源, 落库全新建)。发现不到目标即失败 (无种子无法追踪)。
         if is_combo:
@@ -4266,13 +4266,13 @@ async def _run_tracker_job_claimed(
                 source_geometry=last_geometry,
                 task_data=task_data,
                 **tracker_execution_context,
-                sam_variant=accepted_prompt.get("sam_variant"),  # v0.10.36
-                # v0.21.19 · text-driven 追踪的 text/exemplars 从 prompt JSONB 读出透传。
+                sam_variant=accepted_prompt.get("sam_variant"),
+                # text-driven 追踪的 text/exemplars 从 prompt JSONB 读出透传。
                 text=accepted_prompt.get("text"),
                 exemplars=accepted_prompt.get("exemplars"),
-                # v0.21.20 · polygon track 回填: 期望输出几何 (polygon/bbox)。
+                # polygon track 回填: 期望输出几何 (polygon/bbox)。
                 output_geometry=output_geometry,
-                # v0.21.27 · U-pvs-1 · 种子窗原始种子 / 后续窗多实例续种 (见上)。
+                # U-pvs-1 · 种子窗原始种子 / 后续窗多实例续种 (见上)。
                 seeds=window_seeds,
                 session=active_session,
                 model_id=frozen_plan.backend_compatibility[0].model_id,
@@ -4283,7 +4283,7 @@ async def _run_tracker_job_claimed(
                     "context_span_digest": window.context_span.span_digest,
                 },
             )
-            # v0.21.28 · B-mx · 逐窗缓冲结果; 窗末对 text-multiplex 做跨窗 IoU 关联 (remap
+            # B-mx · 逐窗缓冲结果; 窗末对 text-multiplex 做跨窗 IoU 关联 (remap
             # 窗内 obj_id → 全局 instance_id) 后再并入 results。非 multiplex 时缓冲即透传。
             window_results: list[TrackerFrameResult] = []
             propagation = await adapter.propagate(ctx)
@@ -4343,7 +4343,7 @@ async def _run_tracker_job_claimed(
                     job.cancel_requested_at is not None
                     or job.status == VideoTrackerJobStatus.CANCELLED.value
                 ):
-                    # v0.21.28 · 取消也暂存部分结果 (候选); multiplex 先关联本窗已收部分。
+                    # 取消也暂存部分结果 (候选); multiplex 先关联本窗已收部分。
                     if associate_multiplex and window_results and not is_correction:
                         window_results = _associate_multiplex_window(
                             window_results, mp_prev_boundary, mp_next_global

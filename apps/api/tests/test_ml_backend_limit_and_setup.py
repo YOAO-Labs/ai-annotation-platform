@@ -1,4 +1,4 @@
-"""v0.10.1 · M1 Capability 协商基础设施 (v0.19.0 ADR-0044 数据模型迁移).
+"""ML backend 能力协商、请求限流与 /setup 测试。
 
 覆盖:
 - POST /projects/{id}/ml-backends: 全局注册项按 url 复用/新建 + 为项目启用。
@@ -257,7 +257,7 @@ async def test_setup_proxy_502_when_backend_unreachable(
     assert resp.status_code == 502
 
 
-# ─── v0.14.9 · 能力声明协议 v2 — /capabilities 端点 ──────────────────────────
+# ─── 能力声明协议 v2 — /capabilities 端点 ──────────────────────────
 
 # 含 models[] 的 /setup 回放样本: OCR + 检测双模型目录。
 _SETUP_WITH_MODELS = {

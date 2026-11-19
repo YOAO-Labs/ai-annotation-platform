@@ -21,7 +21,7 @@ class OnboardingProjectSummary(BaseModel):
 
 
 class RegistrationDayPoint(BaseModel):
-    """v0.8.1 · 注册来源按日聚合：邀请 vs 开放注册。"""
+    """注册来源按日聚合：邀请 vs 开放注册。"""
 
     date: str  # YYYY-MM-DD
     invite_count: int
@@ -41,9 +41,9 @@ class AdminDashboardStats(BaseModel):
     ml_backends_total: int
     ml_backends_connected: int
     role_distribution: dict[str, int]
-    # v0.8.1 · 过去 30 天注册来源
+    # 过去 30 天注册来源
     registration_by_day: list[RegistrationDayPoint] = []
-    # v0.9.5 · AI 文本批量预标已跑完、待人工接管的批次数（Sidebar/AdminDashboard 共用）
+    # AI 文本批量预标已跑完、待人工接管的批次数（Sidebar/AdminDashboard 共用）
     pre_annotated_batches: int = 0
 
 
@@ -75,7 +75,7 @@ class ReviewingBatchItem(BaseModel):
     # 批次封面：该批第一张有缩略图的任务，用于卡片网格。presigned URL + blurhash 占位。
     thumbnail_url: str | None = None
     cover_blurhash: str | None = None
-    # v0.7.2 · 责任人可视化：审核员看到这批是谁标的（单值）
+    # 责任人可视化：审核员看到这批是谁标的（单值）
     annotator: UserBrief | None = None
 
     class Config:
@@ -86,13 +86,13 @@ class ReviewerDashboardStats(BaseModel):
     pending_review_count: int
     today_reviewed: int
     approval_rate: float
-    # v0.6.6 · 24h 滚动通过率：完成 / (完成 + 退回)，仅看过去 24 小时
+    # 24h 滚动通过率：完成 / (完成 + 退回)，仅看过去 24 小时
     approval_rate_24h: float
     total_reviewed: int
     pending_tasks: list[ReviewTaskItem]
-    # v0.7.0 · 批次级聚合：当前 reviewing 状态的批次列表
+    # 批次级聚合：当前 reviewing 状态的批次列表
     reviewing_batches: list[ReviewingBatchItem] = []
-    # v0.8.4 · 效率看板 L2 扩展
+    # 效率看板 L2 扩展
     median_review_duration_ms: int | None = None
     reopen_after_approve_rate: float | None = None
     weekly_compare_pct: float | None = None
@@ -119,7 +119,7 @@ class AnnotatorDashboardStats(BaseModel):
     total_completed: int
     personal_accuracy: float
     daily_counts: list[int]
-    # v0.8.4 · 效率看板 L2 字段（缺数据 / 心跳未落地时为 None）
+    # 效率看板 L2 字段（缺数据 / 心跳未落地时为 None）
     median_duration_ms: int | None = None
     rejected_rate: float | None = None
     reopened_avg: float | None = None
@@ -128,14 +128,14 @@ class AnnotatorDashboardStats(BaseModel):
     # 心跳侧未落地 → 暂返 null，前端 graceful degrade
     active_minutes_today: int | None = None
     streak_days: int | None = None
-    # v0.8.5 · 当日 0-23 时分钟数（按 task_events.started_at hour 聚合）
+    # 当日 0-23 时分钟数（按 task_events.started_at hour 聚合）
     hour_buckets: list[int] = []
     # M1 · 当前待重做退回任务数
     rejected_tasks_count: int = 0
 
 
 class ReviewerDashboardExtras(BaseModel):
-    """v0.8.4 · ReviewerDashboard 扩展字段（合并到 ReviewerDashboardStats）。"""
+    """ReviewerDashboard 扩展字段（合并到 ReviewerDashboardStats）。"""
 
     median_review_duration_ms: int | None = None
     rejection_rate_24h: float | None = None
@@ -144,7 +144,7 @@ class ReviewerDashboardExtras(BaseModel):
 
 
 class AdminPersonItem(BaseModel):
-    """v0.8.4 · AdminPeoplePage 卡片项。"""
+    """AdminPeoplePage 卡片项。"""
 
     user_id: str
     name: str
@@ -194,14 +194,14 @@ class AdminPersonDetail(BaseModel):
     p95_duration_ms: int | None
     # timeline 最近事件
     timeline: list[dict]
-    # v0.12.4 · 质量归因(A1)
+    # 质量归因(A1)
     reject_reason_breakdown: list[dict] = []  # [{reason_type, count, pct}]
     class_distribution: list[dict] = []  # [{class_name, count, pct}] top-N
     first_pass_yield: float | None = None
 
 
 class MyPerformance(BaseModel):
-    """v0.12.3 · 标注员自助绩效（自己 vs 团队均线，取经合集 §4.1 个人页）。"""
+    """标注员自助绩效（自己 vs 团队均线，取经合集 §4.1 个人页）。"""
 
     user_id: str
     name: str
@@ -218,14 +218,14 @@ class MyPerformance(BaseModel):
     duration_histogram: list[dict]
     p50_duration_ms: int | None
     p95_duration_ms: int | None
-    # v0.12.4 · 质量归因(A1)
+    # 质量归因(A1)
     reject_reason_breakdown: list[dict]  # [{reason_type, count, pct}]
     class_distribution: list[dict]  # [{class_name, count, pct}] top-N
     first_pass_yield: float | None  # 一次通过(无 reopen) / 提交总数
 
 
 class MyBatchItem(BaseModel):
-    """v0.7.1 B-17 · 标注员视角的批次卡片：自己被分派的、状态为
+    """标注员视角的批次卡片：自己被分派的、状态为
     active / annotating / rejected / reviewing 的批次。"""
 
     batch_id: str
@@ -247,14 +247,14 @@ class MyBatchItem(BaseModel):
     # 批次封面：该批第一张有缩略图的任务，用于卡片网格。presigned URL + blurhash 占位。
     thumbnail_url: str | None = None
     cover_blurhash: str | None = None
-    # v0.7.2 · 责任人可视化：标注员看到这批的审核员是谁（单值）
+    # 责任人可视化：标注员看到这批的审核员是谁（单值）
     reviewer: UserBrief | None = None
 
     class Config:
         from_attributes = True
 
 
-# ── v0.8.6 F4 · 预测成本统计 ─────────────────────────────────────────
+# ── 预测成本统计 ─────────────────────────────────────────
 
 
 class BackendCostBreakdown(BaseModel):
@@ -267,7 +267,7 @@ class BackendCostBreakdown(BaseModel):
 
 
 class ReviewerMiniStats(BaseModel):
-    """v0.8.7 F5.3 · ReviewWorkbench 右侧栏 mini 仪表（当日通过/退回/平均耗时）。"""
+    """ReviewWorkbench 右侧栏 mini 仪表（当日通过/退回/平均耗时）。"""
 
     approved_today: int = 0
     rejected_today: int = 0
@@ -282,7 +282,7 @@ class PredictionCostStats(BaseModel):
     failed_predictions: int = 0
     failure_rate: float = 0.0
     avg_inference_time_ms: float | None = None
-    # v0.8.7 F2 · 延迟分位数（PERCENTILE_CONT on prediction_metas.inference_time_ms）
+    # 延迟分位数（PERCENTILE_CONT on prediction_metas.inference_time_ms）
     p50_inference_time_ms: float | None = None
     p95_inference_time_ms: float | None = None
     p99_inference_time_ms: float | None = None

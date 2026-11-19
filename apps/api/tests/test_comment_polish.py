@@ -1,4 +1,4 @@
-"""v0.6.6 · 评论 polish（mentions / attachments / download）越权与校验测试。
+"""评论 polish（mentions / attachments / download）越权与校验测试。
 
 覆盖 ROADMAP 列出的 4 个边界：
   1. mentions 含非项目成员 user_id → 422

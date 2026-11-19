@@ -1,4 +1,4 @@
-"""v0.10.11 · POST /projects 加 source_project_id 支持 (从已有项目复制配置).
+"""POST /projects 加 source_project_id 支持 (从已有项目复制配置).
 
 覆盖:
 - 仅给 source_project_id, 不带其它字段 — 配置字段全部从源克隆.
@@ -44,8 +44,8 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> P
 async def _seed_backend(
     db: AsyncSession, project_id: uuid.UUID, name: str = "src-backend"
 ) -> tuple[MLBackendRegistry, MLBackendServicePool]:
-    # v0.19.0 ADR-0044 · backend 已上提为全局注册项 (无 project_id); url 全局唯一。
-    # v0.23.3 ADR-0050 · 同时建 singleton pool (克隆 / 绑定经 pool 层)。
+    # ADR-0044 · backend 已上提为全局注册项 (无 project_id); url 全局唯一。
+    # ADR-0050 · 同时建 singleton pool (克隆 / 绑定经 pool 层)。
     return await create_registry_with_pool(
         db,
         name=name,
@@ -174,7 +174,7 @@ async def test_clone_auto_derives_ml_backend_from_source(
     monkeypatch.setattr(
         "app.services.inference_backend_probe.backend_probe", lambda: probe
     )
-    # v0.23.3: 项目主绑定存 pool id (backend 经 _seed_backend 已有 singleton pool)。
+    # 项目主绑定存 pool id (backend 经 _seed_backend 已有 singleton pool)。
     src.ml_backend_pool_id = src_pool.id
     await db_session.flush()
     await db_session.commit()
@@ -189,7 +189,7 @@ async def test_clone_auto_derives_ml_backend_from_source(
     resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    # v0.19.0 ADR-0044 · clone 复用同一全局 registry id (不再复制新 backend row)
+    # ADR-0044 · clone 复用同一全局 registry id (不再复制新 backend row)
     assert data["ml_backend_id"] == str(backend.id)
     # 新项目获得一条启用关联
     from app.services.ml_backend import MLBackendService
@@ -395,7 +395,7 @@ async def test_scene_mode_uses_inherited_video_kind(
 async def test_clone_skips_annotation_guide_by_default(
     httpx_client, super_admin, db_session
 ):
-    """v0.10.13 · E1 · annotation_guide / guide_assets 不在默认克隆白名单."""
+    """annotation_guide / guide_assets 不在默认克隆白名单."""
     user, token = super_admin
     src = await _seed_project(
         db_session,
@@ -430,7 +430,7 @@ async def test_clone_skips_annotation_guide_by_default(
 async def test_clone_with_copy_annotation_guide_flag(
     httpx_client, super_admin, db_session
 ):
-    """v0.10.13 · E1 · copy_annotation_guide=true 时同时复制 guide + assets."""
+    """copy_annotation_guide=true 时同时复制 guide + assets."""
     user, token = super_admin
     asset_entry = {
         "key": f"projects/{uuid.uuid4()}/guide/bbb-pic.jpg",
@@ -466,7 +466,7 @@ async def test_clone_with_copy_annotation_guide_flag(
 async def test_copy_annotation_guide_without_source_returns_400(
     httpx_client, super_admin
 ):
-    """v0.10.13 · E1 · copy_annotation_guide 必须配合 source_project_id."""
+    """copy_annotation_guide 必须配合 source_project_id."""
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = {
@@ -482,7 +482,7 @@ async def test_copy_annotation_guide_without_source_returns_400(
 async def test_apply_template_with_explicit_field_override(
     httpx_client, super_admin, db_session
 ):
-    """v0.10.14 · E2 · template_id 路径: 显式给字段优先于模板载荷."""
+    """template_id 路径: 显式给字段优先于模板载荷."""
     from app.db.models.project_template import ProjectTemplate
 
     user, token = super_admin
@@ -521,7 +521,7 @@ async def test_apply_template_with_explicit_field_override(
 
 
 async def test_apply_nonexistent_template_404(httpx_client, super_admin):
-    """v0.10.14 · E2 · template_id 指向不存在记录 → 404."""
+    """template_id 指向不存在记录 → 404."""
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
     body = {

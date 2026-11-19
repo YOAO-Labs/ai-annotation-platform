@@ -1,4 +1,4 @@
-"""v0.14.0 · Scene service
+"""Scene service
 
 跨 task 帧序列地基的 service 层:
 - create_scene / assign_items_to_scene / list_for_dataset:CRUD

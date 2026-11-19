@@ -1,4 +1,4 @@
-"""v0.8.8 · POST /auth/refresh 单测。
+"""POST /auth/refresh 单测。
 
 覆盖：
 - happy path：刚过期的 token 换新 token；旧 token 仍可解出 sub/jti

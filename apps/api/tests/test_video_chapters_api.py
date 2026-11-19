@@ -1,8 +1,8 @@
 """视频章节端点级测试。
 
-回归 (v0.21.14): PATCH 章节起止帧后, updated_at 因 onupdate=func.now() 在 flush 后被
-expire; 若响应序列化前不 refresh, 读取 updated_at 会触发异步上下文外的惰性加载
-(MissingGreenlet) → 500。时间轴上拖章节条边界 resize 走的正是这条 PATCH。
+PATCH 章节起止帧后，flush 会让 SQLAlchemy 将更新的 updated_at 标记为
+过期；若在响应序列化前不 refresh，读取 updated_at 会在异步上下文外触发惰性加载
+(MissingGreenlet) 并返回 500。时间轴拖动章节边界使用的正是这个端点。
 """
 
 from __future__ import annotations

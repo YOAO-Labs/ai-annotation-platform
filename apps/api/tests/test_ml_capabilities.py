@@ -1,4 +1,4 @@
-"""v0.14.9 · 能力声明协议 v2 — extract_capabilities / derive_modalities 派生单测.
+"""能力声明协议 v2 — extract_capabilities / derive_modalities 派生单测.
 
 纯函数测试 (无 DB): 覆盖多模型目录解析、infra 继承/覆盖、向后兼容合成隐式单 model、
 扁平并集、模态派生。
@@ -116,7 +116,7 @@ def test_extract_passes_through_output_attribute_schema():
 
 
 def test_exemplar_capabilities_passthrough_multi_model():
-    """v0.18.23 · 多模型 backend (yolo) 的 exemplar 模型 exemplar_capabilities 透传到能力快照。"""
+    """多模型 backend (yolo) 的 exemplar 模型 exemplar_capabilities 透传到能力快照。"""
     setup = {
         "name": "yolo-backend",
         "infra": "pytorch",
@@ -142,7 +142,7 @@ def test_exemplar_capabilities_passthrough_multi_model():
 
 
 def test_exemplar_capabilities_passthrough_legacy_single_model():
-    """v0.18.23 · 老 backend (sam3) 顶层 exemplar_capabilities 经合成单 model 透传。"""
+    """老 backend (sam3) 顶层 exemplar_capabilities 经合成单 model 透传。"""
     setup = {
         "name": "sam3-backend",
         "is_interactive": True,
@@ -289,7 +289,7 @@ def test_multi_model_parses_each_entry():
 
 
 def test_classes_passthrough():
-    """v0.14.17 · 闭集类别表 (yolo model.names) 透传到 model 条目; 缺省为 []."""
+    """闭集类别表 (yolo model.names) 透传到 model 条目; 缺省为 []."""
     setup = {
         "name": "yolo-backend",
         "infra": "pytorch",
@@ -503,7 +503,7 @@ def test_legacy_grounded_sam2_synthesizes_single_model():
 
 
 def test_default_variants_passthrough():
-    """v0.14.13 · backend 自报的 default_variants 必须透传到 caps['models'][].default_variants."""
+    """backend 自报的 default_variants 必须透传到 caps['models'][].default_variants."""
     setup = {
         "name": "yolo",
         "infra": "pytorch",
@@ -629,11 +629,11 @@ def test_derive_modalities_empty_caps():
     assert derive_modalities({}) == []
 
 
-# ---------- v0.14.14: warmup_endpoint 透传 ----------
+# ---------- warmup_endpoint 透传 ----------
 
 
 def test_warmup_endpoint_true_passthrough():
-    """v0.14.14 协议 §4.4 · backend 自报 warmup_endpoint=true 时 caps 也带 true."""
+    """协议 §4.4 · backend 自报 warmup_endpoint=true 时 caps 也带 true."""
     setup = {
         "name": "yolo",
         "infra": "pytorch",

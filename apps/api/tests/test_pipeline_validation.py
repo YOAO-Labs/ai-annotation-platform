@@ -1,4 +1,4 @@
-"""v0.19.3 WS3 · 能力判据跨端契约 (后端侧) + pipeline_validation 纯函数单测。
+"""能力判据跨端契约 (后端侧) + pipeline_validation 纯函数单测。
 
 与前端 vitest (apps/web/src/pages/AIPreAnnotate/utils/capabilityContract.test.ts) 共读同一份
 fixture (apps/web/src/__fixtures__/capability-validation-cases.json)。本测喂

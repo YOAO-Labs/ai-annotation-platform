@@ -375,7 +375,7 @@ async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
 
 
 async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
-    """v0.14.2 回归：upload-zip 多 scene 同号帧 stem 不再互相覆盖。
+    """上传 ZIP 时不同 scene 的同名帧不会相互覆盖。
 
     scene_a/lidar/000.pcd 与 scene_b/lidar/000.pcd 入库 stem 都是 000。修复前
     build_tasks 在全 dataset 跑 group_frames，两 scene 的 000 帧互相 setdefault

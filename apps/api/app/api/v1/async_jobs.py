@@ -1,4 +1,4 @@
-"""v0.10.16 · 统一异步任务表 API（ROADMAP §1.7）。
+"""统一异步任务表 API（ROADMAP §1.7）。
 
 GET /async-jobs        列表（仅 owner 可见，super_admin 可见全部）
 GET /async-jobs/{id}   详情
@@ -58,7 +58,7 @@ async def list_async_jobs(
     actor_id: uuid.UUID = Depends(get_current_user_id),
     read_port: AsyncJobReadPort = Depends(get_async_job_read_port),
 ) -> AsyncJobListResponse:
-    """v0.10.16 · 当前用户可见 async_jobs 列表（super_admin 可见全部）。
+    """当前用户可见 async_jobs 列表（super_admin 可见全部）。
 
     顺序：created_at DESC。前端铃铛走 polling，默认拉最近 50 行。
     """
@@ -96,7 +96,7 @@ async def cancel_async_job(
     actor_id: uuid.UUID = Depends(get_current_user_id),
     cancellation: JobCancellationPort = Depends(get_job_cancellation_port),
 ) -> AsyncJobCancelResponse:
-    """v0.10.51 · 软取消。
+    """软取消。
 
     batch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，
     worker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。

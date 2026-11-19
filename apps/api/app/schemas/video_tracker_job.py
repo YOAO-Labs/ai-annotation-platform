@@ -18,7 +18,7 @@ TrackerJobStatus = Literal[
     "completed",
     "failed",
     "cancelled",
-    # v0.21.28 · 候选/接受流。
+    # 候选/接受流。
     "pending_review",
     "partially_reviewed",
     "accepted",
@@ -27,7 +27,7 @@ TrackerJobStatus = Literal[
 
 
 class TrackerExemplar(BaseModel):
-    """v0.21.19 · text-driven 追踪 (sam3_video) 的单个视觉示例框。
+    """text-driven 追踪 (sam3_video) 的单个视觉示例框。
 
     bbox: 归一化 xyxy [x1, y1, x2, y2]; label: True=正框(扩召回) / False=负框(排误检)。
     复用 sam3 图片侧 `Exemplar` 形状，沿用归一化坐标红线。
@@ -58,17 +58,17 @@ class VideoTrackerPropagateRequest(BaseModel):
     segment_id: UUID | None = None
     prompt: dict[str, Any] = Field(default_factory=dict)
     sam_variant: str | None = (
-        None  # v0.10.36 · 透传到 adapter context (缺省后端回退 tiny)
+        None  # 透传到 adapter context (缺省后端回退 tiny)
     )
-    # v0.21.19 · text-driven 追踪 (sam3_video): 文本 query + 可选视觉示例框。显式字段,
+    # text-driven 追踪 (sam3_video): 文本 query + 可选视觉示例框。显式字段,
     # 由 create_tracker_job 写进 prompt JSONB、adapter 透传到 backend /predict context。
     text: str | None = Field(default=None, max_length=500)
     exemplars: list[TrackerExemplar] | None = None
     output_geometry: Literal["bbox", "polygon", "mask"] | None = None
-    # v0.22.1 · B · 无源检测 (画布级发起): source_annotation_id 缺省 = 无源, 新建轨迹类别
+    # B · 无源检测 (画布级发起): source_annotation_id 缺省 = 无源, 新建轨迹类别
     # 由 target_class_name/target_tool_unit_id 显式指定。有源延展时留空 (从 path / 继承源)。
     source_annotation_id: UUID | None = None
-    # v0.22.2 · M · 多选批量: 一次对 N 条已有轨迹批量延展 (各 obj_id ↔ 各源)。给出 (≥1 条)
+    # M · 多选批量: 一次对 N 条已有轨迹批量延展 (各 obj_id ↔ 各源)。给出 (≥1 条)
     # 时走多源分支——各源写成带 source_annotation_id 的 seed、job.annotation_id 存 NULL (不认
     # 单主, 各源各回填); 单数 source_annotation_id 保留 (单源快捷/兼容)。
     source_annotation_ids: list[UUID] | None = None
@@ -132,7 +132,7 @@ class VideoTrackerJobOut(BaseModel):
     task_id: UUID
     dataset_item_id: UUID
     annotation_id: UUID | None = None
-    # v0.22.2 · M · 本 job 接受后触及的轨迹 id (回填源 + 新建)。accept 时落进 job.prompt
+    # M · 本 job 接受后触及的轨迹 id (回填源 + 新建)。accept 时落进 job.prompt
     # (免 DB 迁移), 序列化时由 _hydrate_touched_from_prompt 提到顶层。未接受的 job → None。
     touched_annotation_ids: list[UUID] | None = None
     segment_id: UUID | None = None
@@ -159,7 +159,7 @@ class VideoTrackerJobOut(BaseModel):
 
     @model_validator(mode="after")
     def _hydrate_touched_from_prompt(self) -> "VideoTrackerJobOut":
-        # v0.22.2 · M · touched_annotation_ids 存于 prompt JSONB (accept 时写), 序列化时提到
+        # M · touched_annotation_ids 存于 prompt JSONB (accept 时写), 序列化时提到
         # 顶层便于前端直接读 (无需再钻 prompt)。未接受的 job prompt 无此键 → 保持 None。
         if self.touched_annotation_ids is None:
             raw = (self.prompt or {}).get("touched_annotation_ids")

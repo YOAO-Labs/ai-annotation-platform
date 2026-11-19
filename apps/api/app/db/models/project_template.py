@@ -1,6 +1,6 @@
-"""v0.10.14 · E2 · ProjectTemplate 模型.
+"""ProjectTemplate 模型.
 
-与 v0.10.11 "从已有项目复制" 并存的独立资产:
+项目模板与「从已有项目复制」是独立入口：
 - 可手工建 / 从源项目导出
 - 可跨组织共享 (scope)
 - 携带 annotation_guide markdown 文本; 不携带 guide_assets storage key.
@@ -38,15 +38,15 @@ class ProjectTemplate(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     type_label: Mapped[str] = mapped_column(String(50), nullable=False)
     type_key: Mapped[str] = mapped_column(String(30), nullable=False)
-    # v0.10.28 · 媒体维度数据类型 (image / video / lidar); 与 Project 对齐.
+    # 媒体维度数据类型 (image / video / lidar); 与 Project 对齐.
     # backfill 见 alembic 0082.
     data_type: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="image"
     )
 
     # 模板载荷 (与 CLONEABLE_PROJECT_FIELDS 对应)
-    # v0.10.17 · 工具维度类别 / 属性绑定; 与 Project 对齐. backfill 见 alembic 0073.
-    # v0.10.22 · 旧扁平 classes / classes_config / attribute_schema 列已删除.
+    # 工具维度类别 / 属性绑定; 与 Project 对齐. backfill 见 alembic 0073.
+    # 旧扁平 classes / classes_config / attribute_schema 列已删除.
     tool_bindings: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )

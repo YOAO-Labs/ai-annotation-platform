@@ -1,4 +1,4 @@
-"""v0.23.5 · WS-D · D2 · frame upload size cap + image validation.
+"""Frame upload size cap and image validation tests.
 
 ``predict_frame`` / ``interactive_annotating_frame`` previously did an
 unbounded ``await frame.read()`` — a hostile or buggy client could OOM the

@@ -1,4 +1,4 @@
-"""v0.10.5 M4-β · annotation shape 状态位字段级 PATCH (I15).
+"""annotation shape 状态位字段级 PATCH (I15).
 
 覆盖 PATCH /tasks/{tid}/annotations/{aid} 写入 z_order / is_locked /
 is_hidden 后:

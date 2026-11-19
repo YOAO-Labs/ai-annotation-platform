@@ -1,4 +1,4 @@
-"""v0.21.0 · 命名项目编排.
+"""命名项目编排.
 
 从 Project.preannotate_pipeline 的一项目一条 JSONB 升级为可命名、可复用、
 copy-on-write 的编排库。preannotate_pipeline 列保留一版读兼容。

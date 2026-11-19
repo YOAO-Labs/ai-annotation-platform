@@ -1,4 +1,4 @@
-"""v0.10.36 · GET /video-tracker-jobs 列表 + 聚合计数端点测试."""
+"""GET /video-tracker-jobs 列表 + 聚合计数端点测试."""
 
 from __future__ import annotations
 
@@ -297,7 +297,7 @@ async def test_invalid_status_rejected(httpx_client, super_admin):
     assert res.status_code == 422
 
 
-# ── v0.21.28 · 候选/接受端点 ──────────────────────────────────────────
+# ── 候选/接受端点 ──────────────────────────────────────────
 
 
 async def _make_staged_job(db, task, item, owner_id):

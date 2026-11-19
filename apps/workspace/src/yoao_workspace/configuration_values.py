@@ -163,7 +163,7 @@ def map_retired_tool_unit(geometry_type: str | None) -> str:
 
 
 class ClassRef(BaseModel):
-    """v0.17.15 · 跨工具单位的类别引用 (alias_to 软关联链用).
+    """跨工具单位的类别引用 (alias_to 软关联链用).
 
     tool_unit_id 必须是合法 ToolUnitId; class_name 是目标 unit 内的类名.
     目标存在性不在此校验 (siblings 不可见), 由读时派生层解析时降级处理 (悬空 → 用自身值).

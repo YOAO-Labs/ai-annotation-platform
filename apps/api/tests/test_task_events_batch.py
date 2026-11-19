@@ -1,4 +1,4 @@
-"""v0.8.4 · POST /auth/me/task-events:batch + admin/people endpoints 烟测。"""
+"""POST /auth/me/task-events:batch + admin/people endpoints 烟测。"""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ async def test_admin_people_list_returns_users(httpx_client, super_admin, annota
 async def test_annotator_dashboard_active_minutes_streak_from_task_events(
     httpx_client, annotator, db_session
 ):
-    """v0.8.4.1 hotfix · 接通 task_events 后，active_minutes_today / streak_days
+    """接通 task_events 后，active_minutes_today / streak_days
     应基于真实事件（不再是 None 占位）。"""
     from app.db.models.project import Project
     from app.db.models.task import Task
@@ -240,7 +240,7 @@ async def test_annotator_dashboard_active_minutes_streak_from_task_events(
 async def test_admin_people_activity_score_from_task_events(
     httpx_client, super_admin, annotator, db_session
 ):
-    """v0.8.4.1 hotfix · activity_score 接通 task_events 后，活跃用户应高于不活跃用户。"""
+    """activity_score 接通 task_events 后，活跃用户应高于不活跃用户。"""
     from app.db.models.project import Project
     from app.db.models.task import Task
     from app.db.models.task_event import TaskEvent
@@ -326,7 +326,7 @@ async def test_admin_people_detail_ok(httpx_client, super_admin, annotator):
 
 @pytest.mark.asyncio
 async def test_annotator_dashboard_hour_buckets(httpx_client, annotator, db_session):
-    """v0.8.5 · 24-bar 当日专注时段：按 EXTRACT(hour) 聚合 duration_ms / 60000。"""
+    """24-bar 当日专注时段：按 EXTRACT(hour) 聚合 duration_ms / 60000。"""
     from app.db.models.project import Project
     from app.db.models.task import Task
     from app.db.models.task_event import TaskEvent

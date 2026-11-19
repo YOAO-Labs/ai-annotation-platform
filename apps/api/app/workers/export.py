@@ -1061,7 +1061,7 @@ async def _run_export(
                     adapter_contracts=registry.versions(targets),
                     options_digest=canonical_digest(options_payload),
                 )
-                # v0.10.43 · media 前缀 + 友好下载名（{display_id}_{dataset?}_{job[:8]}.zip）。
+                # media 前缀 + 友好下载名（{display_id}_{dataset?}_{job[:8]}.zip）。
                 media, dataset_name, project_display_id = await _scope_naming(
                     db, proj_uuid, batch_uuid, selected_task_ids
                 )
@@ -1118,7 +1118,7 @@ async def _run_export(
                     )
                     return
 
-                # 未命中：生成 ZIP（v0.12.1 · 落盘 tempfile，不再整包驻留 RAM）。
+                # 未命中：将 ZIP 写入临时文件，避免整包驻留 RAM。
                 await execution.assert_owned()
                 await _update_export_progress(db, job_uuid, 10)
                 await db.commit()

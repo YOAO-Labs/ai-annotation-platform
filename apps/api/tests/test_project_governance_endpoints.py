@@ -1,4 +1,4 @@
-"""v0.7.2 · 治理可视化 + 全局导航 端到端覆盖
+"""项目批次分派、标注审计与全局搜索的端到端测试。
 
 核心场景：
 1. TestProjectDistributeBatches — 项目级 batch 圆周分派（一 batch 一标注员 + 一审核员）+ task 联动
@@ -39,7 +39,7 @@ async def _seed_project(
     p = Project(
         id=pid,
         display_id=await next_display_id(db, "projects"),
-        name="v0.7.2 governance",
+        name="project governance test",
         type_label="图像-检测",
         type_key="image-det",
         owner_id=owner_id,
@@ -266,8 +266,7 @@ class TestAnnotationAuditTrail:
         assert resp.status_code == 201, resp.text
         ann_id = resp.json()["id"]
 
-        # update (改类到项目标签集内的另一类; v0.14.17 起 PATCH 也校验 class_name,
-        # 故须用 classes=["car","person"] 内的合法值, "truck" 会被 422 拒)
+        # PATCH 会校验项目标签集；"person" 合法，"truck" 会被 422 拒绝。
         resp = await httpx_client.patch(
             f"/api/v1/tasks/{task.id}/annotations/{ann_id}",
             json={"class_name": "person"},

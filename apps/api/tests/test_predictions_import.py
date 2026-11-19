@@ -1,4 +1,4 @@
-"""v0.10.15 · POST /projects/{id}/predictions/import 端点测试.
+"""POST /projects/{id}/predictions/import 端点测试.
 
 覆盖:
 - AAP JSON happy path (bbox / polygon / multi_polygon)
@@ -1138,7 +1138,7 @@ async def test_import_aap_json_relative_path_match_nested(
     super_admin,
     db_session: AsyncSession,
 ):
-    """v0.10.27 导入对称: file_path 带相对目录时按相对路径匹配, 同名跨目录不误匹配.
+    """导入对称: file_path 带相对目录时按相对路径匹配, 同名跨目录不误匹配.
 
     库内 task.file_path 带 dataset 前缀 (`{ds}/animals/{kind}/001.jpg`); 外部入参是
     去前缀的相对路径 (`animals/cat/001.jpg`). 相对路径层应精确命中 cat, 不命中 dog.
@@ -1405,7 +1405,7 @@ async def test_import_aap_json_default_overwrite_replaces_external_only(
     )
     assert r.status_code == 200, r.text
 
-    # 第二次不显式传 overwrite_existing: v0.10.57 起默认替换 external_import.
+    # 第二次不传 overwrite_existing，验证默认替换同源 external_import 结果。
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),

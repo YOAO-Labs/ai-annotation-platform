@@ -1,4 +1,4 @@
-"""v0.21.25 (阶段 R) · get_tracker_backend 按 tracker 能力选后端。
+"""get_tracker_backend 按 tracker 能力选后端。
 
 回归: sam3_video 此前被 get_project_backend 静默路由到项目绑定的 grounded-sam2
 (只支持 sam2_video)。按 health_meta.capabilities.supported_trackers 路由后,
@@ -18,7 +18,7 @@ from tests.factory import create_project
 
 
 async def _seed(db, *, name: str, trackers: list[str]) -> MLBackendRegistry:
-    # v0.23.3 ADR-0050 · 每 registry 需要 singleton pool 才能 set_enabled / 绑定项目。
+    # ADR-0050 · 每 registry 需要 singleton pool 才能 set_enabled / 绑定项目。
     registry, _pool = await create_registry_with_pool(
         db,
         id=uuid.uuid4(),
@@ -43,7 +43,7 @@ async def test_get_tracker_backend_routes_by_capability_not_binding(
     await svc.set_enabled(proj.id, sam2.id, True)
     await svc.set_enabled(proj.id, sam3.id, True)
     # 项目显式绑定到 sam2 (复现现网「绑定 grounded-sam2」配置)。
-    # v0.23.3: 项目主绑定存 pool id (经 sam2 的 singleton pool 解析)。
+    # 项目主绑定存 pool id (经 sam2 的 singleton pool 解析)。
     proj.ml_backend_pool_id = await svc.pool_id_for_registry(sam2.id)
     await db_session.flush()
 

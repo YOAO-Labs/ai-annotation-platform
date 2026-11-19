@@ -133,7 +133,7 @@ async def test_predict_observes_error_histogram_and_reraises():
 
 @pytest.mark.asyncio
 async def test_max_concurrency_semaphore_caps_in_flight_predictions():
-    """v0.9.12 B-17 · extra_params.max_concurrency=2 时 5 个并发 predict 同时 in-flight ≤ 2."""
+    """extra_params.max_concurrency=2 时 5 个并发 predict 同时 in-flight ≤ 2."""
     in_flight = 0
     peak = 0
     lock = asyncio.Lock()

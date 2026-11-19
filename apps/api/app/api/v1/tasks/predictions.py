@@ -88,7 +88,7 @@ async def get_predictions(
     svc = PredictionService(db)
     predictions = await svc.list_by_task(task_id, model_version=model_version)
 
-    # v0.9.5 · 一次性 join PredictionMeta 取 cost / inference_time_ms（单条费用透传）
+    # 一次性 join PredictionMeta 取 cost / inference_time_ms（单条费用透传）
     pred_ids = [p.id for p in predictions]
     meta_map: dict[uuid.UUID, tuple[int | None, float | None]] = {}
     if pred_ids:
@@ -104,10 +104,10 @@ async def get_predictions(
                 meta_map[pred_id] = (ms, cost)
 
     # 第一步：LabelStudio → 内部 schema 适配 + min_confidence 过滤
-    # v0.9.7 fix · DB 存 LabelStudio 标准 {type, value, score}, 前端期望 {type, class_name,
-    # geometry, confidence}. 在 read 路径补 adapter, DB 不动 (保持导出兼容).
-    # v0.9.11 · PredictionOut.result 类型从 list[dict] 收紧到 list[PredictionShape], 改为
-    # 内部 shape 转换后再构造 PredictionOut (避免 raw LS shape 直接验证失败).
+    # DB 以 LabelStudio {type, value, score} 存储，供导出等路径直接读取。
+    # 在读取路径适配为 {type, class_name, geometry, confidence}。
+    # PredictionOut.result 只接受 PredictionShape，
+    # 因此先转换，再构造 PredictionOut。
     from app.services.prediction import to_internal_shape
 
     def _build_out(p, shapes: list[dict]) -> PredictionOut:
@@ -373,7 +373,7 @@ async def accept_prediction(
     override_class_name: str | None = Query(
         None,
         description=(
-            "可选: 采纳时把类别落到指定项目标签 (v0.14.17). 用于预测类名既不在项目标签集、"
+            "可选: 采纳时把类别落到指定项目标签。用于预测类名既不在项目标签集、"
             "又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。"
         ),
     ),
@@ -381,7 +381,7 @@ async def accept_prediction(
         None,
         embed=True,
         description=(
-            "可选 (v0.18.3): 采纳前在工作台审阅候选属性时改过的值, 按属性键覆盖 shape 自带的 "
+            "可选: 采纳前在工作台审阅候选属性时改过的值, 按属性键覆盖 shape 自带的 "
             "attributes 原子落库 (多阶段预标的 select/multiselect 属性审阅 + 分步采纳)。"
         ),
     ),
@@ -440,7 +440,7 @@ async def accept_prediction(
             detail=exc.detail,
             headers=exc.headers,
         ) from exc
-    # v0.20.22 · 契约: None → 404 (prediction 不存在 / shape_index 越界); 成功 →
+    # 契约: None → 404 (prediction 不存在 / shape_index 越界); 成功 →
     # 仅返回本次新建的 annotation 列表。原实现另跑 list_by_task 返回整题全量,
     # 前端把全量当"刚新建"逐条 PATCH 合并 AI 候选属性 → 污染人工标注 (改动 1 根因)。
     if anns is None:

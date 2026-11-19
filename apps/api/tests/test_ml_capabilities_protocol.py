@@ -1,4 +1,4 @@
-"""v0.14.11 · GET /v1/ml-capabilities/protocol 端点测试.
+"""GET /v1/ml-capabilities/protocol 端点测试.
 
 覆盖:
 - 200 返回完整受控词表 + 元数据;

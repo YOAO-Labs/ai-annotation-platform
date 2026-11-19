@@ -1,4 +1,4 @@
-"""v0.9.5 · Batch 状态机 pre_annotated 状态合法性。
+"""Batch 状态机 pre_annotated 状态合法性。
 
 pre_annotated 是 AI 文本批量预标完成、待人工接管的中间态。
 - ACTIVE → PRE_ANNOTATED：仅 batch_predict task 内部驱动

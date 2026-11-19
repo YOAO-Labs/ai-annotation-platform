@@ -1,4 +1,4 @@
-"""v0.8.7 · Cloudflare Turnstile CAPTCHA service tests."""
+"""Cloudflare Turnstile CAPTCHA service tests."""
 
 from __future__ import annotations
 

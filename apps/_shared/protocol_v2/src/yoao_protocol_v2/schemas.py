@@ -33,7 +33,7 @@ class PredictionResult(BaseModel):
     """单 task 的预测结果壳. `result` 数组里的元素结构由具体 result.type 决定
     (rectanglelabels / polygonlabels / keypointlabels 等), 在协议文档 §3 详述.
 
-    v0.14.14 新增 cache_hit / model_load_ms / pool_state 三个可选字段供前端做冷启动反馈。
+    cache_hit / model_load_ms / pool_state 是供前端呈现冷启动状态的可选字段。
     """
 
     task: str | int | None = None
@@ -41,11 +41,11 @@ class PredictionResult(BaseModel):
     score: float | None = None
     model_version: str | None = None
     inference_time_ms: int | None = None
-    # v0.14.14 · 运行时观测字段 (None = 该 backend 不支持上报)
+    # 运行时观测字段 (None = 该 backend 不支持上报)
     cache_hit: bool | None = None
     model_load_ms: int | None = None
     pool_state: PoolStateSnapshot | None = None
-    # v0.18.18 · 交互单实例精修的 256×256 low-res logits 回灌 (base64, 见 mask_codec)。
+    # 交互单实例精修的 256×256 low-res logits 回灌 (base64, 见 mask_codec)。
     # 仅 multimask_output=False 的单 mask 路径返回 (规避多候选 index 歧义); 前端原样
     # 存储、下次点击经 context.mask_input 回传。None = 本轮不回灌。
     mask_input_next: str | None = None
@@ -60,7 +60,7 @@ class BatchPredictResponse(BaseModel):
     results: list[PredictionResult]
 
 
-# ---------- v0.14.14: /health.pool 统一 schema ----------
+# ---------- /health.pool 统一 schema ----------
 
 
 class LoadedKey(BaseModel):
@@ -85,7 +85,7 @@ class EvictRecord(BaseModel):
 
 
 class PoolStatus(BaseModel):
-    """`/health.pool` 三 backend 统一结构 (v0.14.14 起)."""
+    """`/health.pool` 的统一结构。"""
 
     cap: int
     current_size: int
@@ -93,7 +93,7 @@ class PoolStatus(BaseModel):
     last_evict: EvictRecord | None = None
 
 
-# ---------- v0.14.14: POST /warmup 端点 ----------
+# ---------- POST /warmup 端点 ----------
 
 
 class WarmupResponse(BaseModel):

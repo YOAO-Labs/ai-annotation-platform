@@ -8,7 +8,7 @@ from app.db.base import Base
 
 
 class AnnotationComment(Base):
-    """逐框评论（v0.5.4，v0.6.2 加 mentions / attachments / canvas_drawing）。"""
+    """逐框评论，支持 mentions、attachments 和 canvas_drawing。"""
 
     __tablename__ = "annotation_comments"
 

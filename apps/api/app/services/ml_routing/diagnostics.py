@@ -301,7 +301,7 @@ async def build_runtime_snapshot(
             error=None if not any_health_stale else "some_member_health_stale",
         )
     )
-    # gpu / residency: v0.23.3 does not bundle them in the snapshot. Honest gap.
+    # GPU and residency data are not included; mark both sources stale.
     sources.append(
         SourceFreshness(
             name="gpu",

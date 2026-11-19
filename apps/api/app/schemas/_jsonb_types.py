@@ -1,4 +1,4 @@
-"""v0.6.4 · 把所有 JSONB 字段的结构化 Pydantic 模型集中。
+"""把所有 JSONB 字段的结构化 Pydantic 模型集中。
 
 之前 ProjectOut/AnnotationOut/AnnotationCommentOut/AuditLogOut 里的 JSONB 列
 被声明成 `dict` / `dict[str, Any]`，OpenAPI 自动生成的 TS 类型变成
@@ -47,7 +47,7 @@ class BboxGeometry(BaseModel):
 
 
 class VideoBboxGeometry(BaseModel):
-    """v0.9.16 · 视频单帧 bbox。
+    """视频单帧 bbox。
 
     首版视频工作台只保存逐帧框，不表达 track/keyframe/interpolation。`frame_index`
     是唯一时间轴定位字段，展示层可自行换算 timecode。
@@ -64,7 +64,7 @@ class VideoBboxGeometry(BaseModel):
 
 
 class VideoPolygonGeometry(BaseModel):
-    """v0.21.21 · 视频单帧 polygon。与图片 PolygonGeometry 平行, 多一个 frame_index
+    """视频单帧 polygon。与图片 PolygonGeometry 平行, 多一个 frame_index
     定位到具体帧; 与 track/keyframe/插值无关 (那是 video_track_polygon)。points 归一化 [0,1]。
     """
 
@@ -96,7 +96,7 @@ class VideoPolygonGeometry(BaseModel):
 
 
 class VideoPolylineGeometry(BaseModel):
-    """v0.21.21 · 视频单帧开放折线 (不闭合)。与图片 PolylineGeometry 平行 + frame_index;
+    """视频单帧开放折线 (不闭合)。与图片 PolylineGeometry 平行 + frame_index;
     points 至少 2 个归一化 [0,1] 顶点。
     """
 
@@ -116,7 +116,7 @@ class VideoPolylineGeometry(BaseModel):
 
 
 class VideoRotatedBboxGeometry(BaseModel):
-    """v0.21.22 · 视频单帧旋转矩形 (OBB)。与图片 RotatedBboxGeometry 平行 + frame_index;
+    """视频单帧旋转矩形 (OBB)。与图片 RotatedBboxGeometry 平行 + frame_index;
     cx,cy 中心, w,h 边长, angle 顺时针角度 (度, [0,360))。坐标归一化 [0,1]。
     """
 
@@ -145,7 +145,7 @@ class VideoTrackKeyframe(BaseModel):
     bbox: VideoTrackBbox
     source: Literal["manual", "interpolated", "prediction"] = "manual"
     occluded: bool = False
-    # v0.10.6 M4-γ · I13.2 · mutable attribute 的逐帧覆盖。仅承载 schema 里
+    # mutable attribute 的逐帧覆盖。仅承载 schema 里
     # `mutable=true` 的属性键值；为 None 时表示该帧用 annotation.attributes
     # （track 默认值）。前端 PATCH 时只动这一字段，不污染 track 整体 attributes。
     attributes: dict[str, Any] | None = None
@@ -162,7 +162,7 @@ class VideoTrackOutsideRange(BaseModel):
 
 
 class VideoTrackGeometry(BaseModel):
-    """v0.9.17 · 视频对象轨迹。
+    """视频对象轨迹。
 
     轨迹以 compact JSON 保存，不逐帧展开写库。`track_id` 在一个 annotation 内稳定；
     `keyframes` 保存手工 / 预测关键帧，插值结果由前端按需计算。
@@ -170,7 +170,7 @@ class VideoTrackGeometry(BaseModel):
 
     type: Literal["video_track_bbox"] = "video_track_bbox"
     track_id: str = Field(min_length=1, max_length=64)
-    # v0.10.30 · 2.1 用户可编辑的语义标签 (如 "car_3"), 仅作跨任务 Re-ID 心智,
+    # 2.1 用户可编辑的语义标签 (如 "car_3"), 仅作跨任务 Re-ID 心智,
     # 不参与主键、不强制唯一。track_number 由 derive_track_number 确定性派生, 不持久化。
     semantic_label: str | None = None
     keyframes: list[VideoTrackKeyframe] = Field(min_length=1)
@@ -180,7 +180,7 @@ class VideoTrackGeometry(BaseModel):
 
 
 class VideoTrackPolygonKeyframe(BaseModel):
-    """v0.21.20 · polygon track 的单关键帧。
+    """polygon track 的单关键帧。
 
     `points` 为归一化 [0,1] 的闭合多边形顶点序列 (与图片 PolygonGeometry 同形状,
     不含 holes——track 首切片只做单连通)。帧间由弧长参数化插值 (见 video_tracks.lerp_polygon)。
@@ -205,7 +205,7 @@ class VideoTrackPolygonKeyframe(BaseModel):
 
 
 class VideoTrackPolygonGeometry(BaseModel):
-    """v0.21.20 · 视频对象轨迹 (polygon 几何)。
+    """视频对象轨迹 (polygon 几何)。
 
     与 `video_track_bbox` 平行的附加类型 (非泛化 bbox), 复用 track_id / semantic_label /
     outside 语义; keyframes 存 polygon 顶点, 帧间按弧长参数化插值 (顶点数不等时先重采样到
@@ -222,7 +222,7 @@ class VideoTrackPolygonGeometry(BaseModel):
 
 
 class VideoTrackPolylineKeyframe(BaseModel):
-    """v0.21.20 · polyline track 的单关键帧。
+    """polyline track 的单关键帧。
 
     `points` 为归一化 [0,1] 的开路径折线顶点序列 (不闭合, 至少 2 点)。帧间由开路径弧长
     参数化插值 (首尾端点固定对应, 见 video_tracks.lerp_polyline)。
@@ -246,7 +246,7 @@ class VideoTrackPolylineKeyframe(BaseModel):
 
 
 class VideoTrackPolylineGeometry(BaseModel):
-    """v0.21.20 · 视频对象轨迹 (polyline / 开路径几何)。
+    """视频对象轨迹 (polyline / 开路径几何)。
 
     与 `video_track_polygon` 平行, 但 keyframes 为不闭合折线 (无 holes / 无闭合边);
     帧间按开路径弧长参数化插值。存量轨迹零迁移。
@@ -390,7 +390,7 @@ class VideoTrackMaskGeometry(BaseModel):
 
 
 class RasterMaskGeometry(BaseModel):
-    """v0.23.6 · 图片栅格掩码几何。
+    """图片栅格掩码几何。
 
     引用不可变 COCO RLE 对象存储掩码内容，不内联像素数据。
     只允许图片 DatasetItem（视频使用 video_mask / video_track_mask）。
@@ -405,9 +405,8 @@ class RasterMaskGeometry(BaseModel):
 class PolygonGeometry(BaseModel):
     """单连通域 polygon。
 
-    v0.9.14 · holes 字段新增, 默认 [] 向后兼容。老存量 / 老前端写入仍走 type=polygon
-    + 仅 points 路径; 新 prediction 在有 hole 时把 hole 顶点列表填进 holes, 多连通域
-    走 MultiPolygonGeometry 分支。
+    简单多边形只需 points；holes 可省略，默认 []。
+    带孔的形状在 holes 中保存孔洞顶点；多连通域使用 MultiPolygonGeometry。
     """
 
     type: Literal["polygon"] = "polygon"
@@ -449,7 +448,7 @@ class MultiPolygonGeometry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ── v0.10.28 · rotated_bbox / polyline / keypoint 几何（坐标归一化 [0,1]） ──
+# ── rotated_bbox / polyline / keypoint 几何（坐标归一化 [0,1]） ──
 
 
 class RotatedBboxGeometry(BaseModel):
@@ -509,7 +508,7 @@ class KeypointGeometry(BaseModel):
 
 
 class VideoKeypointGeometry(BaseModel):
-    """v0.21.22 · 视频单帧关键点集合。与图片 KeypointGeometry 平行 + frame_index;
+    """视频单帧关键点集合。与图片 KeypointGeometry 平行 + frame_index;
     骨骼拓扑走 keypoint 工具单位的 keypoint_schema。坐标归一化 [0,1]。
     """
 
@@ -520,11 +519,11 @@ class VideoKeypointGeometry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ── v0.13.0 · 点云 3D 几何（box_3d / point_mask_3d） ──────────────────
+# ── 点云 3D 几何（box_3d / point_mask_3d） ──────────────────
 
 
 class Box3DGeometry(BaseModel):
-    """v0.13.0 · LiDAR 3D 框。center/size/rotation 各为长度 3 的列表
+    """LiDAR 3D 框。center/size/rotation 各为长度 3 的列表
     (x,y,z 米 / 长宽高 / 绕各轴弧度)。extra="allow" 容纳标定/属性等扩展字段。"""
 
     type: Literal["box_3d"] = "box_3d"
@@ -537,7 +536,7 @@ class Box3DGeometry(BaseModel):
 
 
 class PointMaskGeometry(BaseModel):
-    """v0.13.0 · 3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。"""
+    """3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。"""
 
     type: Literal["point_mask_3d"] = "point_mask_3d"
     # 上界防止单条标注 geometry 膨胀到几 MB（jsonb / 列表序列化 / AAP 导出都会被放大）。
@@ -642,7 +641,7 @@ class CanvasShape(BaseModel):
     type: CanvasShapeType
     points: list[float] = Field(min_length=2)
     stroke: str | None = None
-    # v0.10.21 I4 · 笔画 timeline. 全 Optional, 旧记录缺字段时 UI 降级不渲染时间条.
+    # 笔画 timeline. 全 Optional, 旧记录缺字段时 UI 降级不渲染时间条.
     # id: client uuid; started_at/ended_at: ms epoch.
     id: str | None = None
     started_at: float | None = None
@@ -660,7 +659,7 @@ class CanvasDrawing(BaseModel):
 
 
 class CommentAnchor(BaseModel):
-    """评论锚点。v0.9.35 起用于视频 review 的帧级定位。"""
+    """评论锚点，可定位到视频审核中的具体帧。"""
 
     kind: Literal["video_frame"]
     frame_index: int = Field(ge=0, alias="frameIndex")
@@ -699,7 +698,7 @@ class AuditDetail(BaseModel):
 
 
 class DatasetItemMetadata(BaseModel):
-    """v0.13.1 · DatasetItem.metadata_ 的结构化视图。calibration 仅点云相机项有;
+    """DatasetItem.metadata_ 的结构化视图。calibration 仅点云相机项有;
     extra="allow" 保留其它历史/未来 metadata key 不丢。"""
 
     calibration: SensorCalibration | None = None
@@ -708,7 +707,7 @@ class DatasetItemMetadata(BaseModel):
 
 
 class DatasetMetadata(BaseModel):
-    """v0.13.11 · Dataset.metadata_ 的结构化视图 (extra="allow" 留给未来扩展)。"""
+    """Dataset.metadata_ 的结构化视图 (extra="allow" 留给未来扩展)。"""
 
     axis_convention: LidarAxisConvention | None = None
 

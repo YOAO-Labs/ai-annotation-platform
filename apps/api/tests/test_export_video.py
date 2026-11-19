@@ -1,4 +1,4 @@
-"""v0.10.31 · Phase 4 视频导出纯函数单测（无 DB）。
+"""视频导出纯函数单测（无 DB）。
 
 覆盖采样网格映射（D2 重编号）+ MOT/KITTI 文本生成 + outside 省略。
 """
@@ -251,7 +251,7 @@ def test_yolo_frame_det_skips_off_grid_bboxes_and_keeps_empty_labels():
     assert labels[3][0] == []
 
 
-# ── v0.21.20 · polygon/polyline track → bbox-only 格式降级为顶点外接框 ──
+# ── polygon/polyline track → bbox-only 格式降级为顶点外接框 ──
 
 
 def test_points_to_bbox_norm_computes_bounding_box():

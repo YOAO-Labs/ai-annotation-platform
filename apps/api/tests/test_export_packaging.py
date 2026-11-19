@@ -1,4 +1,4 @@
-"""v0.10.27 · 导出打包纯函数单测（无 DB）。
+"""导出打包纯函数单测（无 DB）。
 
 覆盖 relative_path_from_file_path：剥 dataset 前缀拿相对路径（消除同名跨目录覆盖）。
 """
@@ -181,7 +181,7 @@ def test_clean_export_targets_accepts_video_yolo_frames_det():
 
 
 def test_clean_export_targets_rejects_video_target_for_image_project():
-    # v0.10.47 · 图像项目混入视频目标应在端点层就被拒，而非派发后整批失败。
+    # 图像项目混入视频目标应在端点层就被拒，而非派发后整批失败。
     with pytest.raises(ValueError, match="image project"):
         clean_export_targets(["coco", "mot"], data_type="image")
 
@@ -282,7 +282,7 @@ async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch
         attributes={"speed": 3},
     )
 
-    # v0.12.1 · 流式签名：喂内存 chunk（单块），ZIP 落盘后断言。
+    # 流式签名：喂内存 chunk（单块），ZIP 落盘后断言。
     async def _chunks():
         yield [task], {task_id: [track, bbox]}, {item_id: item}
 
@@ -312,10 +312,7 @@ async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch
 
 
 # ── polygon / polyline 几何进入视频导出（打包层白名单）─────────────────────
-#
-# 打包层此前只把 video_track_bbox / video_bbox 分组进 tracks / bboxes，其余几何被
-# **静默丢弃**：polygon 标注了却一行都导不出。连带使 v0.21.20 为 points track 写的
-# 外接框降级成了端到端死代码（只有纯函数单测覆盖，故 bug 潜伏至今）。
+# 以顶点描述的几何也必须经过打包层，不能在分组时被忽略。
 #
 # 下面两个用例的几何是 test_video_yolo_frames_zip_writes_grid_labels_and_manifest
 # 的 **points 版对偶**：外接框刻意取成与那里的 bbox 完全相同，故期望输出逐字节一致。

@@ -187,7 +187,7 @@ async def test_reconcile_creates_exact_primary_and_enabled_bindings(
     owned_stub.extra_params = {
         "seed": {"managed_by": "screenshot-seed", "profile": "screenshots"}
     }
-    # v0.23.3 ADR-0050 · 每 registry 须有 singleton pool 才能被项目启用 / 主绑定。
+    # ADR-0050 · 每 registry 须有 singleton pool 才能被项目启用 / 主绑定。
     image, image_pool = await _persist_backend(db_session, image)
     ocr, ocr_pool = await _persist_backend(db_session, ocr)
     stale, stale_pool = await _persist_backend(db_session, stale)

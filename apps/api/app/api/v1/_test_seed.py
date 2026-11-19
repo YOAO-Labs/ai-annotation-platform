@@ -2435,7 +2435,7 @@ async def _build_image_workbench_fixture(
         },
     }
 
-    # v0.8.5 · 把 annotator / reviewer 加为项目成员，否则 RequireProjectMember 会
+    # 把 annotator / reviewer 加为项目成员，否则 RequireProjectMember 会
     # 在进入 /projects/:id/annotate 时 403 弹回，annotation/batch-flow spec 走不通。
     from app.db.models.task_batch import TaskBatch
 
@@ -2445,7 +2445,7 @@ async def _build_image_workbench_fixture(
         membership_writes.add(
             project_id=project.id, user_id=user.id, role=role, assigned_by=admin.id
         )
-    # v0.8.5 · 创建一个 annotating 状态的 batch + 单值分派 annotator/reviewer，
+    # 创建一个 annotating 状态的 batch + 单值分派 annotator/reviewer，
     # 否则非特权用户在 list_tasks 中被 batch_visibility_clause 过滤为空（孤儿
     # 任务不可见），工作台显示「该项目暂无任务」。
     batch = TaskBatch(
@@ -3970,7 +3970,7 @@ async def seed_login(
 
 
 class SeedPeekResponse(BaseModel):
-    """v0.8.7 F4 · 截图自动化只读窥探：返回首个 super_admin 用户 + 首个项目 + 首个任务。
+    """截图自动化只读窥探：返回首个 super_admin 用户 + 首个项目 + 首个任务。
 
     本端点**不修改任何数据**，仅查询 LIMIT 1 → 让 `pnpm screenshots` 在
     开发者本地真实数据上跑，不破坏现有数据集 / 项目。
@@ -4070,7 +4070,7 @@ async def seed_peek(db: AsyncSession = Depends(get_db)) -> SeedPeekResponse:
 
 
 class InjectPredictionRequest(BaseModel):
-    """v0.10.10 · I11 e2e 辅助：直接 INSERT 一条 polygon prediction，
+    """e2e 辅助：直接 INSERT 一条 polygon prediction，
     绕过 ml-backend 让 mask 编辑器「AI prediction 精修」入口可测。"""
 
     task_id: str
@@ -5984,7 +5984,7 @@ async def _seed_inject_raster_prediction(db, payload, scope):
 
 
 class AdvanceTaskRequest(BaseModel):
-    """v0.8.5 · E2E 辅助：直接把 task 推到目标状态，绕过 UI 链路。
+    """E2E 辅助：直接把 task 推到目标状态，绕过 UI 链路。
 
     主要服务于 batch-flow.spec 的多角色串联（避免每个 spec 都重复画 bbox）。
     """

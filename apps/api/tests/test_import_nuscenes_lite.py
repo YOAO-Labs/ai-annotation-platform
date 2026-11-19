@@ -1,4 +1,4 @@
-"""v0.14.2 · import_nuscenes 的 lite 测试(不依赖真 4GB nuScenes 数据)。
+"""import_nuscenes 的 lite 测试(不依赖真 4GB nuScenes 数据)。
 
 在 tmp_path 造一个极小 fake nuScenes 根目录:2 个 scene、每 scene 3 个 sample、
 1 个相机(CAM_FRONT)。验证:
@@ -369,7 +369,7 @@ def _write_fake_nuscenes(
             )
             ego_lidar = f"ego-lidar-{s_i}-{i}"
             ego_cam = f"ego-cam-{s_i}-{i}"
-            # v0.15.0 · 每帧 ego 沿 x 直线前进 2m(造一段可断言差分的轨迹);
+            # 每帧 ego 沿 x 直线前进 2m(造一段可断言差分的轨迹);
             # 同 sample 的 lidar/cam ego 取同值,首帧 calib 外参计算不受影响
             ego_translation = [(s_i * 100 + i) * 2.0, 0.0, 0.0]
             ego_pose_tbl.append(
@@ -582,7 +582,7 @@ async def test_import_nuscenes_two_scenes(
         assert [r.frame_index for r in lidar_rows] == [0, 1, 2]
         assert all(r.scene_id == scene.id for r in lidar_rows)
 
-    # 3.5 v0.15.0 · 每 scene 落 3 行 ego pose:frame_index 对齐、timestamp 单调、
+    # 3.5 每 scene 落 3 行 ego pose:frame_index 对齐、timestamp 单调、
     # translation 差分 = 设定步长(2m/帧)
     from app.services import scene_pose as scene_pose_svc
 
@@ -787,7 +787,7 @@ async def test_import_nuscenes_two_scenes(
 async def test_backfill_frame_poses_restores_deleted_rows(
     tmp_path, db_session, super_admin, monkeypatch
 ):
-    """v0.15.0 · backfill 脚本:模拟 v0.15.0 前导入的库(无 pose 行)→ 补齐。"""
+    """对已导入但缺少逐帧位姿的库执行回填。"""
     from sqlalchemy import delete
 
     from app.db.models.scene_pose import SceneFramePose
@@ -835,7 +835,7 @@ async def test_backfill_frame_poses_restores_deleted_rows(
 async def test_manifest_exposes_ego_pose(
     tmp_path, db_session, httpx_client, super_admin, monkeypatch
 ):
-    """v0.15.0 · manifest 透出本帧 ego_pose(无位姿时为 null,此处验证有值路径)。"""
+    """manifest 透出本帧 ego_pose(无位姿时为 null,此处验证有值路径)。"""
     from app.db.models.task import Task
 
     user, token = super_admin

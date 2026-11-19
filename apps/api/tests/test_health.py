@@ -1,4 +1,4 @@
-"""v0.7.5 · health 端点 + CORS 配置守卫。"""
+"""health 端点 + CORS 配置守卫。"""
 
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ def test_check_celery_no_workers(monkeypatch):
 def test_check_celery_with_workers(monkeypatch):
     """celery_app.control.inspect().stats() 返回 worker dict 时 status='ok'。
 
-    v0.8.7 F2 · workers 字段从 list[str] 升级为 list[{name, last_heartbeat_seconds_ago, pool_max}]，
-    queues 字段新增（无 broker 队列时为空）。"""
+    workers 包含 name、last_heartbeat_seconds_ago 和 pool_max；
+    未发现 broker 队列时，queues 为空。"""
     from app.api import health
 
     class _FakeInspect:

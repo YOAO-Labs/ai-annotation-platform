@@ -1,4 +1,4 @@
-"""v0.7.6 · AuditMiddleware 异步化 Celery task。
+"""AuditMiddleware 异步化 Celery task。
 
 AuditMiddleware 写每条写请求一行 audit_logs，原同步 INSERT 在主请求 dispatch 后旁路 1-3ms。
 本 task 把 Audit owner 追加移出请求路径：中间件改

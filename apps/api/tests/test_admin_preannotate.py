@@ -1,7 +1,4 @@
-"""v0.9.6 · /admin/preannotate-queue 端到端测试.
-
-v0.9.12 · 加 bulk-clear (B-16) + preannotate-summary (B-17) 测试覆盖.
-"""
+"""覆盖预标队列、批量清理和按项目汇总的管理员端到端测试。"""
 
 from __future__ import annotations
 
@@ -101,7 +98,7 @@ async def test_preannotate_queue_project_filter_and_offset_cover_all_batches(
     assert invalid.status_code == 422
 
 
-# ── v0.9.12 · bulk-clear (B-16) ───────────────────────────────────────────────
+# ── 批量清理 ────────────────────────────────────────────────────────
 
 
 async def _seed_batch_with_predictions(
@@ -114,7 +111,7 @@ async def _seed_batch_with_predictions(
 
     batch = await create_batch(db, project_id=project_id, status=status)
     task = await _create_task(db, project_id=project_id, batch_id=batch.id)
-    # v0.19.0 ADR-0044 · 全局注册项 + 项目启用关联 (url 全局唯一, 故每次造唯一 url)。
+    # ADR-0044 · 全局注册项 + 项目启用关联 (url 全局唯一, 故每次造唯一 url)。
     # 不设 state → registry 默认 disconnected (summary 期望非 connected 状态)。
     backend, pool = await create_registry_with_pool(
         db, name="bk", url=f"http://x-{uuid.uuid4().hex[:8]}/", state="disconnected"
@@ -128,7 +125,7 @@ async def _seed_batch_with_predictions(
             result={"shapes": []},
         )
     )
-    # v0.10.49 · prediction_jobs 已收敛进 async_jobs（batch_id 进 payload）
+    # prediction_jobs 已收敛进 async_jobs（batch_id 进 payload）
     db.add(
         AsyncJob(
             kind="batch_predict",
@@ -520,7 +517,7 @@ async def test_preannotate_reads_are_scoped_to_project_admin_owner(
     assert foreign_batch.id != owned_batch.id
 
 
-# ── v0.9.12 · /admin/preannotate-summary (B-17) ──────────────────────────────
+# ── /admin/preannotate-summary ───────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -557,7 +554,7 @@ async def test_preannotate_summary_filters_to_projects_with_ml_backend(
 async def test_preannotate_summary_includes_all_modalities_with_data_type(
     httpx_client, db_session, super_admin
 ):
-    """v0.10.38 · 撤回 v0.10.36 的 image-only 过滤: 视频/图像项目都出现, 带 data_type 供前端分流."""
+    """图像和视频项目均可出现，data_type 供前端选择入口。"""
     from app.db.models.ml_backend_registry import ProjectMLBackendPool
     from tests.conftest import create_registry_with_pool
 

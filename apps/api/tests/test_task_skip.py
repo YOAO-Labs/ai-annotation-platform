@@ -1,4 +1,4 @@
-"""v0.8.7 F7 · POST /tasks/{id}/skip 单测。"""
+"""POST /tasks/{id}/skip 单测。"""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ async def test_skip_task_audit_log_emitted(httpx_client, db_session, super_admin
 async def test_skip_task_assigns_to_caller_when_unassigned(
     httpx_client, db_session, annotator
 ):
-    """v0.8.7 F7 · 跳过未派任务时，自动把 assignee 设为当前用户（同 submit 行为）。"""
+    """跳过未派任务时，自动把 assignee 设为当前用户（同 submit 行为）。"""
     user, token = annotator
     project, task = await _seed_project_task(db_session, user.id, status="pending")
     assert task.assignee_id is None

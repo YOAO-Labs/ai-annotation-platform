@@ -1,4 +1,4 @@
-"""v0.9.7 · /admin/ml-integrations/all + project create with ml_backend_source_id."""
+"""/admin/ml-integrations/all + project create with ml_backend_source_id."""
 
 from __future__ import annotations
 
@@ -30,8 +30,8 @@ def _patch_gpu_authority(monkeypatch) -> None:
 
 
 async def _make_backend(db, *, name="b", url="http://h:8000"):
-    """v0.19.0 ADR-0044 · backend 已上提为全局注册项 (无 project_id)。
-    v0.23.3 ADR-0050 · 同时建 singleton pool (项目创建经 ml_backend_source_id 复用需 pool)。"""
+    """ADR-0044 · backend 已上提为全局注册项 (无 project_id)。
+    ADR-0050 · 同时建 singleton pool (项目创建经 ml_backend_source_id 复用需 pool)。"""
     from tests.conftest import create_registry_with_pool
 
     registry, _pool = await create_registry_with_pool(
@@ -62,7 +62,7 @@ async def test_list_all_requires_admin(httpx_client, annotator):
 async def test_list_all_lists_registry_rows(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    """v0.19.0 ADR-0044 · url 全局唯一, /all 直接列全局注册表所有行 (不再按 source project 去重)。"""
+    """ADR-0044 · url 全局唯一, /all 直接列全局注册表所有行 (不再按 source project 去重)。"""
     _, token = super_admin
     await _make_backend(db_session, url="http://shared:8000", name="A")
     await _make_backend(db_session, url="http://other:8000", name="C")
@@ -87,7 +87,7 @@ async def test_list_all_lists_registry_rows(
 async def test_create_project_with_backend_source_reuses_registry(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    """v0.19.0 ADR-0044 · 复用已注册 backend 不复制 row, 而是为新项目建启用关联, 共享同一全局 id。"""
+    """ADR-0044 · 复用已注册 backend 不复制 row, 而是为新项目建启用关联, 共享同一全局 id。"""
     _borrowed_configuration(monkeypatch)
 
     async def probe(registry_id, probe_subject, *, timeout, limits):

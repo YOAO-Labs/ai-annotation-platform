@@ -1,4 +1,4 @@
-"""v0.14.0 · Scene inference
+"""Scene inference
 
 给已存在的 dataset 自动推断 scene 结构 + 给 items 赋 frame_index。
 

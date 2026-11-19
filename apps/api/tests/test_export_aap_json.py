@@ -1,4 +1,4 @@
-"""v0.10.15 · AAP JSON 导出端点测试.
+"""AAP JSON 导出端点测试.
 
 覆盖:
 - /projects/{id}/export?format=aap_json: schema_version + 双数组 + annotation_guide.
@@ -85,7 +85,7 @@ async def test_export_aap_json_project_envelope(
     super_admin,
     db_session: AsyncSession,
 ):
-    # v0.10.27 导出已异步化 (POST→job); 内容正确性直接断言 ExportService。
+    # 导出已异步化 (POST→job); 内容正确性直接断言 ExportService。
     user, _ = super_admin
     project, tasks, _ = await _seed(db_session, user.id)
 

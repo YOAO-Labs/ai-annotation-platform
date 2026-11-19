@@ -1,4 +1,4 @@
-"""v0.10.16 · DuckDB 固定分析面板查询（ROADMAP §1.6）。
+"""DuckDB 固定分析面板查询（ROADMAP §1.6）。
 
 仅暴露 3 个 enum 面板，**不**接收任意 SQL（防注入 + 防慢查询）。
 """
@@ -11,7 +11,7 @@ from app.services.duckdb_sync import _connect_reader
 
 
 def user_throughput_daily(days: int = 30) -> list[dict[str, Any]]:
-    """v0.10.16 · 人均日吞吐（最近 N 天 task_events.kind='annotate' 提交数）。"""
+    """人均日吞吐（最近 N 天 task_events.kind='annotate' 提交数）。"""
     days = max(1, min(int(days), 365))
     con = _connect_reader()
     try:
@@ -38,7 +38,7 @@ def user_throughput_daily(days: int = 30) -> list[dict[str, Any]]:
 
 
 def reject_rate_by_type(days: int = 30) -> list[dict[str, Any]]:
-    """v0.10.16 · reject 率按类型分布（依赖 §1.2 reject_reason_type 列）。
+    """reject 率按类型分布（依赖 §1.2 reject_reason_type 列）。
 
     分母只算 reject_reason_type IS NOT NULL 的 review 事件（旧数据不污染）。
     """
@@ -72,7 +72,7 @@ def reject_rate_by_type(days: int = 30) -> list[dict[str, Any]]:
 
 
 def activity_heatmap(days: int = 30) -> list[dict[str, Any]]:
-    """v0.12.7 · 工时热力图（按星期几 × 小时聚合 annotate 事件计数）。
+    """工时热力图（按星期几 × 小时聚合 annotate 事件计数）。
 
     用 started_at（工时实际发生时刻，比 created_at 更贴合）。
     DuckDB `dayofweek()` 约定 0=周日 .. 6=周六。
@@ -104,7 +104,7 @@ def activity_heatmap(days: int = 30) -> list[dict[str, Any]]:
 
 
 def annotation_duration_distribution(days: int = 30) -> dict[str, Any]:
-    """v0.10.16 · 标注耗时分布（p50 / p95 / 平均，单位 ms）。"""
+    """标注耗时分布（p50 / p95 / 平均，单位 ms）。"""
     days = max(1, min(int(days), 365))
     con = _connect_reader()
     try:

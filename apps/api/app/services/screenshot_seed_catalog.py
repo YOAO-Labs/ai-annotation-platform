@@ -398,7 +398,7 @@ async def _resolve_backend(
     if backend is None:
         issues.append(f"{prefix}: no enabled project ML backend resolves")
         return None
-    # v0.23.3 ADR-0050 · 项目主绑定存 pool id; 经 pool.legacy_instance_id 解析后比较 registry id。
+    # ADR-0050 · 项目主绑定存 pool id; 经 pool.legacy_instance_id 解析后比较 registry id。
     declared_registry: uuid.UUID | None = None
     if project.ml_backend_pool_id is not None:
         pool = await service.get_pool(project.ml_backend_pool_id)

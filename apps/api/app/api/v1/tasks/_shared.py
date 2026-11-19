@@ -235,10 +235,10 @@ def _task_with_url(
     owner_source_reference: Any = None,
     owner_source_reference_loaded: bool = False,
 ) -> TaskOut:
-    """v0.8.8 · 由手写 dict 改为 ``TaskOut.model_validate`` + 动态字段注入。
+    """用 ``TaskOut.model_validate`` 读取 ORM 数据，再填充派生字段。
 
-    Schema 漂移防护：DB 直读字段（如 v0.8.7 加的 ``skip_reason`` /
-    ``skipped_at``、未来新增列）通过 ``from_attributes`` 自动映射，无需在此手写。
+    DB 直读字段（如 ``skip_reason`` / ``skipped_at``）通过
+    ``from_attributes`` 自动映射，无需在此维护手写字段列表。
     本 helper 仅负责无法从 ORM 直读的部分：
 
     * ``file_url`` 来自来源 owner；fixture 原件使用认证读取
@@ -315,7 +315,7 @@ def _task_with_url(
             except Exception:
                 pass
     elif thumbnail_path:
-        # v0.10.17 · thumbnails/* 走 media-cache 桶,其它(如旧路径)按 helper 默认走 datasets
+        # thumbnails/* 走 media-cache 桶,其它(如旧路径)按 helper 默认走 datasets
         thumb_bucket = storage_service.bucket_for_cache_key(
             thumbnail_path, default=bucket
         )

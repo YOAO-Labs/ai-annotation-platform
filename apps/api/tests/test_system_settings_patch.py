@@ -1,4 +1,4 @@
-"""v0.8.1 · 系统设置 PATCH + 开放注册 toggle 联动验证。"""
+"""系统设置 PATCH + 开放注册 toggle 联动验证。"""
 
 from __future__ import annotations
 

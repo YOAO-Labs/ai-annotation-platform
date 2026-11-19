@@ -1,4 +1,4 @@
-"""v0.11.19/21 · /api/v1/internal/metrics-targets — http_sd 服务发现端点。
+"""/api/v1/internal/metrics-targets — http_sd 服务发现端点。
 
 覆盖三块:
   - _url_to_hostport 对 backend.url 各种形态的解析。
@@ -53,7 +53,7 @@ async def test_metrics_targets_excludes_disconnected_and_dedupes(
 
     monkeypatch.setattr(internal.settings, "metrics_sd_token", "")
 
-    # v0.19.0 ADR-0044 · backend 是全局注册项 (url unique), 不再按项目拆分。
+    # ADR-0044 · backend 是全局注册项 (url unique), 不再按项目拆分。
     # 两个 distinct url 解析到同一 host:port → 仍按 host:port 兜底去重为 1。
     db_session.add_all(
         [

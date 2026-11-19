@@ -410,7 +410,7 @@ async def test_on_failure_keep_parent_vs_drop_box(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_geometry_stage_appends_polygons(monkeypatch):
-    """v0.18.12 · geometry 模式: 下游收全图 URL + 父框列表, 出 polygon 追加进预测 (不裁图)。"""
+    """geometry 模式: 下游收全图 URL + 父框列表, 出 polygon 追加进预测 (不裁图)。"""
 
     # geometry 模式纯坐标换算, 不应加载原图。
     def _boom(_t):
@@ -483,7 +483,7 @@ async def test_geometry_stage_appends_polygons(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_geometry_stage_class_filter_and_failure(monkeypatch):
-    """v0.18.12 · geometry 模式遵守 parent_class_filter; 下游炸 → 不追加 polygon, 计 failed。"""
+    """geometry 模式遵守 parent_class_filter; 下游炸 → 不追加 polygon, 计 failed。"""
     monkeypatch.setattr(
         prediction_context,
         "load_task_image",
@@ -619,7 +619,7 @@ async def test_crop_stage_records_gpu_arbiter_failure_and_keeps_parent(monkeypat
 
 
 def test_stage_totals_snapshot_shape():
-    """v0.18.6 · 逐阶段累加器 → 升序拍平 list, 与终态 result.pipeline_stages 同形态。"""
+    """逐阶段累加器 → 升序拍平 list, 与终态 result.pipeline_stages 同形态。"""
     totals = {
         1: {"targeted": 5, "ok": 3, "failed": 1, "skipped_geometry": 1},
         0: {"detected": 7},
@@ -633,7 +633,7 @@ def test_stage_totals_snapshot_shape():
 
 @pytest.mark.asyncio
 async def test_presigned_delivery_wires_upload_crop(monkeypatch):
-    """v0.18.4 · upload_crop 非 None → crop 走 presigned URL 投递 (非 data URI)。"""
+    """upload_crop 非 None → crop 走 presigned URL 投递 (非 data URI)。"""
     monkeypatch.setattr(
         prediction_context,
         "load_task_image",
@@ -679,7 +679,7 @@ async def test_presigned_delivery_wires_upload_crop(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_crop_cache_reused_across_parallel_siblings(monkeypatch):
-    """v0.18.4 · 两个并行兄弟阶段 target 同一批父框 → crop 只裁/上传一次 (按 box_idx+pad 复用)。"""
+    """两个并行兄弟阶段 target 同一批父框 → crop 只裁/上传一次 (按 box_idx+pad 复用)。"""
     monkeypatch.setattr(
         prediction_context,
         "load_task_image",
@@ -730,7 +730,7 @@ async def test_crop_cache_reused_across_parallel_siblings(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_skipped_geometry_counted_and_topology_in_extra(monkeypatch):
-    """v0.18.4 · 旋转框计入 stats[si].skipped_geometry; extra.pipeline.stages 记拓扑。"""
+    """旋转框计入 stats[si].skipped_geometry; extra.pipeline.stages 记拓扑。"""
     monkeypatch.setattr(
         prediction_context,
         "load_task_image",
@@ -793,7 +793,7 @@ async def test_skipped_geometry_counted_and_topology_in_extra(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_drop_box_on_one_sibling_keeps_other_sibling_boxes(monkeypatch):
-    """v0.18.4 · 并行扇出: person 阶段 drop_box 失败 → 丢 person 框; car 阶段成功 → car 框保留富集。"""
+    """并行扇出: person 阶段 drop_box 失败 → 丢 person 框; car 阶段成功 → car 框保留富集。"""
     monkeypatch.setattr(
         prediction_context,
         "load_task_image",
@@ -842,7 +842,7 @@ async def test_drop_box_on_one_sibling_keeps_other_sibling_boxes(monkeypatch):
 
 
 def test_resolve_input_mode_by_write_target():
-    """v0.18.14 · 投递模式按 write.target 推断, input.mode 可覆盖。"""
+    """投递模式按 write.target 推断, input.mode 可覆盖。"""
     assert (
         worker_tasks._resolve_input_mode({"write": {"target": "attributes"}}) == "crop"
     )
@@ -865,7 +865,7 @@ def test_resolve_input_mode_by_write_target():
 
 
 def test_resolve_pad_by_depth():
-    """v0.18.14 · pad: 显式 roi.pad 优先, 缺省按深度取默认。"""
+    """pad: 显式 roi.pad 优先, 缺省按深度取默认。"""
     assert worker_tasks._resolve_pad({"roi": {"pad": 0.2}}, 2) == 0.2  # 显式优先
     assert worker_tasks._resolve_pad({}, 1) == 0.05
     assert worker_tasks._resolve_pad({}, 2) == 0.08
@@ -874,7 +874,7 @@ def test_resolve_pad_by_depth():
 
 
 def test_compute_stage_depths():
-    """v0.18.14 · 按 parent_stage 链派生深度 (root=1)。"""
+    """按 parent_stage 链派生深度 (root=1)。"""
     stages = [
         {"stage": 0, "parent_stage": None},
         {"stage": 1, "parent_stage": 0},
@@ -886,7 +886,7 @@ def test_compute_stage_depths():
 
 @pytest.mark.asyncio
 async def test_depth_three_attribute_chain(monkeypatch):
-    """v0.18.14 · depth-3 attribute 链: root → classify(color) → classify(label=sub, vtype)。
+    """depth-3 attribute 链: root → classify(color) → classify(label=sub, vtype)。
 
     两个分类阶段都裁同一批向下透传的 root 框, 属性累加到 root; 带 label 的阶段加前缀;
     max_depth=3; enriched_attr_keys 含前缀后的最终键。
@@ -938,7 +938,7 @@ async def test_depth_three_attribute_chain(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_intermediate_target_not_appended(monkeypatch):
-    """v0.18.14 · write.target=intermediate: 产几何供下游消费但不落库为候选 (不追加进结果)。"""
+    """write.target=intermediate: 产几何供下游消费但不落库为候选 (不追加进结果)。"""
     task = _Task()
     boxes = [_bbox(10, 10, 30, 30)]
     detect = _FakeClient(responses=[[_Result(task.id, boxes)]])
@@ -983,7 +983,7 @@ async def test_intermediate_target_not_appended(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_crop_detect_geometry_remaps_to_image(monkeypatch):
-    """v0.18.15 · crop 投递 + target=geometry: 下游普通检测器在 crop 上检出, 回映回原图坐标。
+    """crop 投递 + target=geometry: 下游普通检测器在 crop 上检出, 回映回原图坐标。
 
     单层 person → 在 person crop 上检测 hat (普通检测器), hat 框回映回原图并落在 person 内, 追加进结果。
     """
@@ -1054,7 +1054,7 @@ async def test_crop_detect_geometry_remaps_to_image(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_depth_three_geometry_then_attribute(monkeypatch):
-    """v0.18.15 · 几何 depth-3: person → 检测 hat (crop-detect) → hat 的 color (crop 分类)。
+    """几何 depth-3: person → 检测 hat (crop-detect) → hat 的 color (crop 分类)。
 
     hat 框回映回原图, color 阶段裁 hat 框跑分类, 加 hat_ 前缀写回 hat 框; max_depth==3。
     """

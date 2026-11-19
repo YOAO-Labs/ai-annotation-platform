@@ -42,7 +42,7 @@ class AuditAction(str, Enum):
     DATASET_LINK = "dataset.link"
     DATASET_UNLINK = "dataset.unlink"
     DATASET_IMPORT = "dataset.import"
-    # v0.11.14 · 存储连接器（服务端拉取导入）
+    # 存储连接器（服务端拉取导入）
     STORAGE_CONNECTION_CREATE = "storage_connection.create"
     STORAGE_CONNECTION_UPDATE = "storage_connection.update"
     STORAGE_CONNECTION_DELETE = "storage_connection.delete"
@@ -68,13 +68,13 @@ class AuditAction(str, Enum):
     BATCH_RESET_TO_DRAFT = "batch.reset_to_draft"
     BATCH_DELETED = "batch.deleted"
     BATCH_DISTRIBUTE_EVEN = "batch.distribute_even"
-    # v0.7.3 · 多选批量操作
+    # 多选批量操作
     BULK_BATCH_ARCHIVE = "batch.bulk_archive"
     BULK_BATCH_DELETE = "batch.bulk_delete"
     BULK_BATCH_REASSIGN = "batch.bulk_reassign"
     BULK_BATCH_ACTIVATE = "batch.bulk_activate"
     ANNOTATION_ATTRIBUTE_CHANGE = "annotation.attribute_change"
-    # v0.7.2 · annotation 编辑历史可追溯
+    # annotation 编辑历史可追溯
     ANNOTATION_CREATE = "annotation.create"
     ANNOTATION_UPDATE = "annotation.update"
     ANNOTATION_DELETE = "annotation.delete"
@@ -91,25 +91,25 @@ class AuditAction(str, Enum):
     AI_MASK_CANDIDATE_ACCEPT = "mask_ai.candidate_accept"
     ANNOTATION_COMMENT_ADD = "annotation.comment_add"
     ANNOTATION_COMMENT_DELETE = "annotation.comment_delete"
-    # v0.6.5 · 任务状态机锁定
+    # 任务状态机锁定
     TASK_SUBMIT = "task.submit"
     TASK_WITHDRAW = "task.withdraw"
     TASK_REVIEW_CLAIM = "task.review_claim"
     TASK_APPROVE = "task.approve"
     TASK_REJECT = "task.reject"
     TASK_REOPEN = "task.reopen"
-    # v0.8.7 F7 · 任务跳过
+    # 任务跳过
     TASK_SKIP = "task.skip"
     # M1 · 标注员接受退回，rejected → in_progress
     TASK_ACCEPT_REJECTION = "task.accept_rejection"
     # M2 · 审核员在 review 态直接微调标注（区别于标注员的 ANNOTATION_UPDATE）
     TASK_REVIEWER_EDIT = "task.reviewer_edit"
-    # v0.7.8 · 导出审计 + 会话管理
+    # 导出审计 + 会话管理
     PROJECT_EXPORT = "project.export"
     BATCH_EXPORT = "batch.export"
     AUTH_LOGOUT = "auth.logout"
     AUTH_LOGOUT_ALL = "auth.logout_all"
-    # v0.8.1 · 系统设置 / 改密 / 注销 / 审计归档
+    # 系统设置 / 改密 / 注销 / 审计归档
     SYSTEM_SETTINGS_UPDATE = "system.settings_update"
     USER_PASSWORD_ADMIN_RESET = "user.password_admin_reset"
     USER_DEACTIVATION_REQUEST = "user.deactivation_request"
@@ -120,14 +120,14 @@ class AuditAction(str, Enum):
     AUDIT_ARCHIVE = "audit.archive"
     USER_EXPORT = "user.export"
     AUDIT_LOG_EXPORT = "audit.export"
-    # v0.8.8 · 失败预测 soft-delete
+    # 失败预测 soft-delete
     FAILED_PREDICTION_DISMISSED = "failed_prediction.dismissed"
     FAILED_PREDICTION_RESTORED = "failed_prediction.restored"
-    # v0.9.12 BUG B-16 · /ai-pre 已就绪卡片多选批量重激活/删除 prediction
+    # /ai-pre 已就绪卡片多选批量重激活/删除 prediction
     PREANNOTATE_BULK_CLEAR = "preannotate.bulk_clear"
-    # v0.8.8 · WebSocket 鉴权过期重连：grace 期内换发新 token
+    # WebSocket 鉴权过期重连：grace 期内换发新 token
     AUTH_TOKEN_REFRESH = "auth.token_refresh"
-    # v0.9.15 · ADR-0008 批次 admin-lock + bulk approve/reject
+    # ADR-0008 · 批次 admin-lock + bulk approve/reject
     BATCH_ADMIN_LOCK = "batch.admin_lock"
     BATCH_ADMIN_UNLOCK = "batch.admin_unlock"
     BULK_BATCH_APPROVE = "batch.bulk_approve"
@@ -147,11 +147,11 @@ class AuditAction(str, Enum):
     VIDEO_CHAPTER_CREATE = "video_chapter.create"
     VIDEO_CHAPTER_UPDATE = "video_chapter.update"
     VIDEO_CHAPTER_DELETE = "video_chapter.delete"
-    # v0.10.15 · 外部预测导入 (COCO / AAP JSON)
+    # 外部预测导入 (COCO / AAP JSON)
     PREDICTIONS_IMPORT = "predictions.import"
-    # v0.10.57 · 按来源清理 prediction
+    # 按来源清理 prediction
     PREDICTIONS_PURGE = "predictions.purge"
-    # v0.10.54 · 外部标注导入 (AAP JSON annotations[])
+    # 外部标注导入 (AAP JSON annotations[])
     ANNOTATION_IMPORT = "annotation.import"
     # I12 · Object Group 分组 + 批量编辑
     ANNOTATION_GROUP = "annotation.group"
@@ -161,7 +161,7 @@ class AuditAction(str, Enum):
     FEEDBACK_CREATED = "feedback.created"
     FEEDBACK_STATUS_CHANGED = "feedback.status_changed"
     FEEDBACK_DELETED = "feedback.deleted"
-    # v0.11.0 · ADR-0027 双写一致性对账 cron 检出漂移
+    # ADR-0027 · 双写一致性对账 cron 检出漂移
     FEEDBACK_RECONCILE_DRIFT = "feedback.reconcile_drift"
     POINT_CLOUD_QUALITY_ISSUE_STATUS = "point_cloud_quality.issue_status"
     POINT_CLOUD_QUALITY_EVALUATION_CREATE = "point_cloud_quality.evaluation_create"
@@ -196,7 +196,7 @@ def export_detail(
     base: dict[str, Any] | None = None,
     filter_criteria: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """v0.8.1 · 数据导出审计 detail 标准化扩展。
+    """数据导出审计 detail 标准化扩展。
 
     在已有 {format, count/rows} 之上叠加 actor_email / ip / request_id / filter_criteria。
     actor_email / ip 与 audit_logs 的列冗余，但 detail_json 写入便于后续 JSONB 查询 +
@@ -217,7 +217,7 @@ def export_metadata_header(
     fmt: str,
     request: Request | None = None,
 ) -> str:
-    """v0.8.1 · CSV / JSON 导出文件首部注释行（不引入新依赖）。
+    """CSV / JSON 导出文件首部注释行（不引入新依赖）。
 
     用于在 CSV 第一行 / JSON 顶部插入审计可追溯信息：导出人 / 时间戳 / Request ID。
     JSON 走 `_export_meta` 顶层字段；CSV 走 `# ...` 注释行（标准 CSV 解析器会忽略，
@@ -367,7 +367,7 @@ class AuditService:
         status_code: int | None = None,
         items: list[dict[str, Any]],
     ) -> list[AuditLog]:
-        """v0.6.3 Q-2：一次 PATCH 写 N 条同 action 的审计行（如 attribute_change），
+        """一次 PATCH 可写入多条同 action 的审计行（如 attribute_change），
         共享 actor/request/status_code，仅 target_id + detail 逐条不同；一次 add_all + 一次 flush。"""
         if not items:
             return []

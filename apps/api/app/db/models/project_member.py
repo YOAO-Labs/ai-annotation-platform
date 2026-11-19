@@ -44,5 +44,5 @@ class ProjectMember(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-    # v0.8.4 · 项目级周目标覆盖；NULL → 退到 User.weekly_target_default → 200
+    # 项目级周目标覆盖；NULL → 退到 User.weekly_target_default → 200
     weekly_target: Mapped[int | None] = mapped_column(Integer, nullable=True)

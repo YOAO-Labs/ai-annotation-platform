@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
 
-# v0.13.11 · 点云夹具脚本与本文件同目录;PYTHONPATH 已含 apps/api,直接 import。
+# 点云夹具脚本与本文件同目录;PYTHONPATH 已含 apps/api,直接 import。
 sys.path.insert(0, str(__file__.rsplit("/", 1)[0]))  # 让 `scripts/` 入 sys.path
 from seed_pointcloud import (  # noqa: E402
     cleanup_legacy_dev_seed_objects,

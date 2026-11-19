@@ -1,4 +1,4 @@
-"""v0.14.11 · 协议级能力目录响应 schema.
+"""协议级能力目录响应 schema.
 
 承载 `GET /v1/ml-capabilities/protocol` 的 pydantic 模型。与
 `services/capability_registry.py` 的 dataclass 一一对应; 前端 codegen 派生类型。
@@ -50,7 +50,7 @@ class ProtocolGeometryItem(BaseModel):
 
 
 class ProtocolPromptItem(BaseModel):
-    # v0.18.30 · prompt 受控词表对外暴露 (供前端 codegen + 运行时同源)。
+    # prompt 受控词表对外暴露 (供前端 codegen + 运行时同源)。
     # requires_input/interactive_route 双维度见 capability_registry.PromptSpec。
     id: str
     label: str
@@ -60,7 +60,7 @@ class ProtocolPromptItem(BaseModel):
 
 
 class ProtocolInputItem(BaseModel):
-    # v0.21.0 · supported_inputs 受控词表对外暴露 (供前端 codegen + 判据同源)。
+    # supported_inputs 受控词表对外暴露 (供前端 codegen + 判据同源)。
     id: str
     label: str
     summary: str
@@ -88,9 +88,9 @@ class InstanceVariantGroup(BaseModel):
 
 class InstanceModelItem(BaseModel):
     """实例级 model 视图 (字段裁剪自协议 v2 ModelCapability, 不暴露 url / params 等运维
-    信息; v0.14.12 起补 supported_variants + variant_combinations 让前端能按主轴展开
-    「具体模型」行; v0.19.2 WS0 起补 supported_inputs + resource_profile, 与项目级
-    /capabilities 对齐, 供全局编排选择器消费投递契约/批量画像)."""
+    信息)。supported_variants 和 variant_combinations 用于按主轴展开具体模型；
+    supported_inputs 和 resource_profile 与项目级 /capabilities 对齐，
+    供全局编排选择器读取输入契约和批量执行能力。"""
 
     id: str
     display_name: str
@@ -105,21 +105,21 @@ class InstanceModelItem(BaseModel):
     infra: str | None = None
     is_interactive: bool = False
     supported_prompts: list[str] = []
-    # v0.19.2 WS0 · 一等输入契约 (full_image|crop|bbox_prompt|point_prompt) + 资源画像
-    # (device / batchable)。原 /instances 裁掉了二者, 全局编排选择器需要。
+    # 输入契约 (full_image|crop|bbox_prompt|point_prompt) 和资源画像
+    # (device / batchable) 供全局编排选择器读取。
     supported_inputs: list[str] = []
-    # v0.21.0 · 源阶段默认输入类型; backend 未声明时由 supported_inputs[0] 兜底。
+    # 源阶段默认输入类型; backend 未声明时由 supported_inputs[0] 兜底。
     default_input_type: str | None = None
     resource_profile: dict = {}
     supported_geometric_outputs: list[str] = []
     supported_trackers: list[str] = []
-    # v0.21.19 · text-driven tracker (sam3_video) 子集; 前端选中该 tracker 时显 text 框。
+    # text-driven tracker (sam3_video) 子集; 前端选中该 tracker 时显 text 框。
     text_driven_trackers: list[str] = []
     max_window_frames: int | None = Field(default=None, gt=0)
     # 协议③ · 属性输出类型 + schema 自描述 (含 select options), 供「从 backend 导入属性」.
     output_attribute_types: list[str] = []
     output_attribute_schema: list[dict] = []
-    # v0.20.3 · backend 自报的类别清单 (yolo COCO 等)。供前端「从 backend 预填配置」一键
+    # backend 自报的类别清单 (yolo COCO 等)。供前端「从 backend 预填配置」一键
     # 导入类别——此前本字段在 /instances 被裁掉, 类别只能手抄。缺省 [] 向后兼容。
     # 形态与 MLModelCapability.classes (ml_backend.py) 一致: [{index,name}], 不是 string[] ——
     # 此前误标 list[str] 导致任何自报非空 classes 的 backend (yolo/onnxtools) 校验 80+ 个
@@ -128,12 +128,12 @@ class InstanceModelItem(BaseModel):
     modality: str | None = None
     supported_variants: list[InstanceVariantGroup] = []
     variant_combinations: list[list[str]] = []
-    # v0.14.12 · True 表示同 backend 内多个 task 共享同一份物理权重 (如 gsam2 的 SAM2
+    # True 表示同 backend 内多个 task 共享同一份物理权重 (如 gsam2 的 SAM2
     # 权重同时被 segmentation / interactive_seg / tracker 用). 前端列表据此把跨 task
     # 的同 variant 合并到一行, 而不是为每个 task 重复显示。yolo 每 task 独立权重
     # (yolov8n-det.pt vs yolov8n-obb.pt), 缺省 False 保持「每 task 一行 + 任务后缀」。
     variants_shared_across_tasks: bool = False
-    # v0.14.13 · backend 自报的默认 variant 组合 (dict[axis_key, value]).
+    # backend 自报的默认 variant 组合 (dict[axis_key, value]).
     # 前端 VariantSelector 在用户未选时取此作初值; 优先级链:
     # 项目级 project.default_variants[backend_id] > 本字段 > backend 启动 env 默认.
     default_variants: dict[str, str] = {}
@@ -158,7 +158,7 @@ class CapabilityInstanceItem(BaseModel):
     source: str
     name: str
     infra: str = "unknown"
-    # v0.14.14 · backend 是否支持 POST /warmup (协议 §4.4); 前端模型市场"⚡ 预热"
+    # backend 是否支持 POST /warmup (协议 §4.4); 前端模型市场"⚡ 预热"
     # 按钮据此置灰. 老 backend 缺字段 = False.
     warmup_endpoint: bool = False
     models: list[InstanceModelItem] = []
@@ -181,7 +181,7 @@ class ProtocolCapabilitiesResponse(BaseModel):
     infras: list[ProtocolInfraItem]
     modalities: list[ProtocolModalityItem]
     geometries: list[ProtocolGeometryItem]
-    # v0.18.30 · prompt 受控词表 (第五张; 此前仅内部消费, 现对外暴露供前端 codegen)。
+    # prompt 受控词表 (第五张; 此前仅内部消费, 现对外暴露供前端 codegen)。
     prompts: list[ProtocolPromptItem] = []
-    # v0.21.0 · input 受控词表 (第六张; supported_inputs 合法值)。
+    # input 受控词表 (第六张; supported_inputs 合法值)。
     inputs: list[ProtocolInputItem] = []

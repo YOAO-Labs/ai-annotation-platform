@@ -1,4 +1,4 @@
-"""v0.21.26 · 阶段 0 · 多目标落库底座。
+"""多目标落库底座。
 
 backend 一次追踪返回多实例 (模式 a「自动发现」) 时:
 - 主实例 (与用户种子对应, primary 标记 / 无 instance_id 兜底) 回填源 annotation;
@@ -290,7 +290,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
     assert {seed["obj_id"] for seed in continuation} == {1, 2, 3}
     assert all(seed["geometry"]["type"] == "bbox" for seed in continuation)
 
-    # v0.21.28 · 候选流: 完成 = 暂存待审, committed annotations 未改。
+    # 候选流: 完成 = 暂存待审, committed annotations 未改。
     assert job.status == "pending_review"
     assert job.staged_result and job.staged_result["results"]
     assert source.annotation_type == "bbox"  # 源未回填 (仍原始单帧 bbox)
@@ -353,7 +353,7 @@ async def test_runner_lands_extra_instances_as_new_tracks(
 async def test_runner_sourceless_detection_lands_all_as_new_tracks(
     db_session, super_admin, monkeypatch, media_owner
 ):
-    """v0.22.1 · B · 无源检测 (annotation_id=None, 画布级文本/种子发起): 所有实例含主实例
+    """B · 无源检测 (annotation_id=None, 画布级文本/种子发起): 所有实例含主实例
     都新建轨迹, 类别取 job.target_class_name (不继承任何 source)。"""
     user, _ = super_admin
     user_id = user.id
@@ -503,7 +503,7 @@ async def test_full_accept_skips_sourceless_instance_with_only_outside_results(
 async def test_create_tracker_job_sourceless_stores_target_category(
     db_session, super_admin
 ):
-    """v0.22.1 · B · 无源发起 (source_annotation_id=None): job 建成且 annotation_id 为空,
+    """B · 无源发起 (source_annotation_id=None): job 建成且 annotation_id 为空,
     显式目标类别落到 target_class_name/target_tool_unit_id。"""
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
     from app.services.video_tracking.jobs import create_tracker_job
@@ -756,7 +756,7 @@ async def test_runner_single_instance_no_extra_tracks(
 async def test_runner_discard_leaves_annotation_untouched(
     db_session, super_admin, monkeypatch, media_owner
 ):
-    """v0.21.28 · 丢弃候选: 源 annotation 零改动, 无新轨迹, staged_result 清空。"""
+    """丢弃候选: 源 annotation 零改动, 无新轨迹, staged_result 清空。"""
     user, _ = super_admin
     user_id = user.id
     task, item = await _make_video_task(db_session, user_id, media_owner)
@@ -828,7 +828,7 @@ async def test_runner_discard_leaves_annotation_untouched(
     assert extra == []
 
 
-# ── v0.21.28 · B-mx · text-multiplex 跨窗 IoU 关联 ─────────────────────
+# ── B-mx · text-multiplex 跨窗 IoU 关联 ─────────────────────
 
 
 def _mr(
@@ -1031,7 +1031,7 @@ async def test_runner_associates_window_local_ids_across_windows(
     assert all(k["bbox"]["x"] > 0.3 for k in right_kfs if k.get("bbox"))
 
 
-# ── v0.22.2 · M · 多选批量: 多源各回填各自源 ──────────────────────────
+# ── M · 多选批量: 多源各回填各自源 ──────────────────────────
 
 
 class _MultiSourceAdapter:
@@ -1105,7 +1105,7 @@ async def _seed_two_source_job(db_session, user, media_owner):
     job = VideoTrackerJob(
         task_id=task.id,
         dataset_item_id=item.id,
-        annotation_id=None,  # v0.22.2 · §8 · 多源 job 不认单主 annotation_id → NULL
+        annotation_id=None,  # 多源 job 没有唯一的主 annotation_id
         created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video_interactive",
@@ -1238,11 +1238,11 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     assert rows == []
 
 
-# ── v0.22.2 · M1 · 建 job 侧: 多源 endpoint/schema/service ────────────────
+# ── 建 job 侧: 多源 endpoint/schema/service ────────────────
 
 
 async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_admin):
-    """v0.22.2 · M · 多选批量: source_annotation_ids ≥1 → job.annotation_id 为 NULL,
+    """M · 多选批量: source_annotation_ids ≥1 → job.annotation_id 为 NULL,
     prompt.seeds 每源一条 (obj_id 1..N + source_annotation_id + from_frame 处几何)。"""
     from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
     from app.services.video_tracking.jobs import create_tracker_job
@@ -1317,7 +1317,7 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
 async def test_track_video_endpoint_multi_source_builds_job(
     httpx_client, super_admin, db_session, monkeypatch, media_owner
 ):
-    """v0.22.2 · M · track_video 端点透传 source_annotation_ids: 多源建 job (annotation_id
+    """M · track_video 端点透传 source_annotation_ids: 多源建 job (annotation_id
     为 None, prompt.seeds 各源一条)。"""
     user, token = super_admin
     user_id = user.id
@@ -1409,7 +1409,7 @@ class _MultiSourcePlusDiscoveryAdapter:
 async def test_accept_multi_source_touched_covers_sources_and_created(
     db_session, super_admin, monkeypatch, media_owner
 ):
-    """v0.22.2 · M · accept 后 job.prompt.touched_annotation_ids 覆盖回填源 + 新建; 未接受
+    """M · accept 后 job.prompt.touched_annotation_ids 覆盖回填源 + 新建; 未接受
     时为空。VideoTrackerJobOut 把它提到顶层字段。"""
     from app.schemas.video_tracker_job import VideoTrackerJobOut
 
@@ -1464,7 +1464,7 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
     assert {str(x) for x in out.touched_annotation_ids} == touched
 
 
-# ── v0.23.5 · WS-D · D4 · accept version conflict → 409 ────────────────
+# ── accept version conflict → 409 ────────────────
 
 
 async def _seed_pending_review_job_with_source(

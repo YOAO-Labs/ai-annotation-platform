@@ -1,4 +1,4 @@
-"""v0.9.15 · Scheduler 覆盖：check_auto_transitions + get_next_task 批次过滤
+"""Scheduler 覆盖：check_auto_transitions + get_next_task 批次过滤
 
 Phase 1 门控：本文件必须在当前代码（无 admin_locked）上全绿，
 Phase 2 才能引入 admin_locked 短路逻辑。

@@ -19,7 +19,7 @@ from app.workers.celery_app import celery_app
 router = APIRouter()
 
 CELERY_INSPECT_TIMEOUT_SECONDS = 0.75
-# v0.19.5 · ml.cpu = 设备感知路由的 CPU 预标队列 (全 CPU pipeline 落此)。
+# ml.cpu = 设备感知路由的 CPU 预标队列 (全 CPU pipeline 落此)。
 CELERY_QUEUE_NAMES = (
     "default",
     "ml",
@@ -75,7 +75,7 @@ def _check_minio() -> dict:
 
 
 def _check_celery() -> dict:
-    """v0.8.7 F2 · 扩展返回 queues + workers 心跳明细，并填 Prometheus Gauge。
+    """返回队列长度与 worker 心跳明细，并填充 Prometheus Gauge。
 
     queues: list[{name, length}]  — active + reserved 数量之和（按 broker 实际为准）
     workers: list[{name, last_heartbeat_seconds_ago}]  — 心跳新鲜度，None=未知
@@ -112,7 +112,7 @@ def _check_celery() -> dict:
         for qname, count in queue_counts.items():
             CELERY_QUEUE_LENGTH.labels(queue=qname).set(count)
 
-        # v0.10.25 · 心跳新鲜度：worker 心跳 bootstep（v0.11.18，见 workers/heartbeat.py）周期把
+        # 心跳新鲜度：worker 的心跳 bootstep（见 workers/heartbeat.py）周期性地把
         # unix 时间戳写进 Redis（key celery:hb:{worker}，worker 名与 ping().keys() 同源）。这里同步读
         # 同名 key 算 now - ts。读 Redis 失败整体降级为 None，不影响 /health 其它统计。
         import redis  # noqa: PLC0415

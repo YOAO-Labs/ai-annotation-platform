@@ -166,7 +166,7 @@ async def _purge_unreferenced_raster_masks_async(*, dry_run: bool = False) -> di
 
 @celery_app.task(name="app.workers.cleanup.refresh_user_perf_mv")
 def refresh_user_perf_mv() -> dict:
-    """v0.8.4 · celery beat 每小时第 5 分钟触发：REFRESH MATERIALIZED VIEW CONCURRENTLY mv_user_perf_daily。
+    """celery beat 每小时第 5 分钟触发：REFRESH MATERIALIZED VIEW CONCURRENTLY mv_user_perf_daily。
 
     CONCURRENTLY 要求视图上有 UNIQUE 索引；不阻塞读端。首次刷新需要 NON-CONCURRENTLY，
     迁移内已 REFRESH 一次填初始数据，所以 beat 这里直接 CONCURRENTLY 即可。

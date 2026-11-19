@@ -1,9 +1,8 @@
 """interactive-annotating 的 DINO 阈值透传契约。
 
-v0.9.2 曾让平台把 project 级 box_threshold / text_threshold 注入 context；自
-59dfffa(AI 参数迁至工作台悬浮面板, 按后端 /setup.params 动态渲染并按用户持久化)起,
-平台**不再**注入项目级阈值——那会把 gsam2 专属参数塞给 sam3 等不支持的后端。阈值现由
-前端随 context 透传, 客户端给什么就用什么, 平台只做透传。
+平台按请求的 context 透传阈值，不注入项目级 box_threshold 或 text_threshold，
+以免向不支持它们的 backend 发送参数。工作台按 backend 的 /setup.params 渲染
+并保存用户偏好，再随请求传入。
 """
 
 from __future__ import annotations

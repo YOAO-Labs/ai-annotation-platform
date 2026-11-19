@@ -1,4 +1,4 @@
-"""v0.10.17 · AnnotationService class_name 软校验 + accept_prediction unit-scoped alias.
+"""AnnotationService class_name 软校验 + accept_prediction unit-scoped alias.
 
 覆盖:
 - create: tool_unit 配置了类集合且 class_name 不在内 → 422
@@ -184,7 +184,7 @@ async def _create_prediction(
 async def test_accept_prediction_alias_scoped_to_prediction_unit(
     db_session, super_admin
 ):
-    """v0.10.17 强隔离: alias 反查必须限 prediction.tool_unit_id 对应 unit;
+    """强隔离: alias 反查必须限 prediction.tool_unit_id 对应 unit;
     旧实现走 classes_config union 会拿到错 unit 的同名类配置.
     """
     user, _ = super_admin
@@ -234,7 +234,7 @@ async def test_accept_prediction_alias_scoped_to_prediction_unit(
 
 @pytest.mark.asyncio
 async def test_accept_prediction_raises_when_class_not_in_unit(db_session, super_admin):
-    """v0.10.17 共享校验: accept_prediction 也必须过 _validate_class_name."""
+    """共享校验: accept_prediction 也必须过 _validate_class_name."""
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     # bbox unit 仅有 "person", 没有 "ghost".
@@ -267,7 +267,7 @@ async def test_accept_prediction_raises_when_class_not_in_unit(db_session, super
 async def test_accept_prediction_override_class_name_lands_project_label(
     db_session, super_admin
 ):
-    """v0.14.17 · 采纳时选类: 预测类名不在标签集 (会 422), 但传 override → 落项目标签成功."""
+    """采纳时选类: 预测类名不在标签集 (会 422), 但传 override → 落项目标签成功."""
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     proj.tool_bindings = _tb("bbox", [{"name": "行人", "order": 0}])
@@ -385,7 +385,7 @@ async def _make_annotation(
 
 @pytest.mark.asyncio
 async def test_update_class_name_not_in_allowed_raises_422(db_session, super_admin):
-    """v0.14.17 · PATCH 改类与 create / accept 对齐: 改成项目标签集外的值 → 422."""
+    """PATCH 改类与 create / accept 对齐: 改成项目标签集外的值 → 422."""
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     proj.tool_bindings = _tb("bbox", [{"name": "person", "order": 0}])

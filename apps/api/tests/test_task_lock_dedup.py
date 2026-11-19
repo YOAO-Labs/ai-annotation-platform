@@ -126,7 +126,7 @@ class TestTaskLockMultiRowResilience:
     async def test_acquire_takes_over_when_other_lock_is_near_expiry(
         self, db_session, annotator, reviewer
     ):
-        """v0.6.7 B-13：他人锁 expire_at < now + TTL/2（即 last heartbeat > 150s 前）→ 视为悬挂残留自动接管。"""
+        """他人锁 expire_at < now + TTL/2（即 last heartbeat > 150s 前）→ 视为悬挂残留自动接管。"""
         ann_user, _ = annotator
         rev_user, _ = reviewer
         task = await _seed_project_and_task(db_session, owner_id=ann_user.id)
@@ -156,7 +156,7 @@ class TestTaskLockMultiRowResilience:
     async def test_acquire_blocks_when_other_lock_is_freshly_heartbeated(
         self, db_session, annotator, reviewer
     ):
-        """v0.6.7 B-13 反向用例：他人锁 expire_at > now + TTL/2（活会话）→ 仍 409，不能接管。"""
+        """反向用例：他人锁 expire_at > now + TTL/2（活会话）→ 仍 409，不能接管。"""
         ann_user, _ = annotator
         rev_user, _ = reviewer
         task = await _seed_project_and_task(db_session, owner_id=ann_user.id)
@@ -172,7 +172,7 @@ class TestTaskLockMultiRowResilience:
     async def test_acquire_idempotent_under_concurrency_same_user(
         self, db_session, annotator
     ):
-        """v0.6.7 二修 B-13：同用户对同 task 并发 acquire 不应撞 unique 约束抛 500。
+        """同用户对同 task 并发 acquire 不应撞 unique 约束抛 500。
 
         旧实现两个 tx 都看到 empty → 都 INSERT → 第二个撞 unique(task_id, user_id)。
         upsert 后第二次走 ON CONFLICT DO UPDATE。

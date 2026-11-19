@@ -1,4 +1,4 @@
-"""v0.6.4 · Pydantic JSONB 字段强类型化的回归测试。
+"""Pydantic JSONB 字段强类型化的回归测试。
 
 把以前散落在 dict 里的 shape 拉成 Pydantic 模型后，应该：
 - 合法 shape 通过
@@ -73,7 +73,7 @@ def test_polygon_geometry_pair_shape():
         PolygonGeometry(points=[[0, 0, 0], [1, 0, 0], [1, 1, 0]])
 
 
-# ── v0.10.28 · rotated_bbox / polyline / keypoint ────────────────────
+# ── rotated_bbox / polyline / keypoint ────────────────────
 
 
 def test_rotated_bbox_geometry_valid():
@@ -235,7 +235,7 @@ def test_attribute_schema_hotkey_constraints():
         )
 
 
-# ── v0.10.6 M4-γ · I13.2 mutable / immutable ──────────────────────────
+# ── mutable / immutable ──────────────────────────
 
 
 def test_attribute_field_mutable_defaults_unset():
@@ -301,7 +301,7 @@ def test_video_track_geometry_keyframes_with_overrides():
 
 
 def test_video_track_polygon_geometry_valid():
-    """v0.21.20 · polygon track: keyframe 存归一化 points, 与 bbox track 平行。"""
+    """polygon track: keyframe 存归一化 points, 与 bbox track 平行。"""
     geom = VideoTrackPolygonGeometry(
         track_id="p1",
         keyframes=[
@@ -333,7 +333,7 @@ def test_video_track_polygon_keyframe_pair_shape():
 
 
 def test_video_track_polyline_geometry_valid():
-    """v0.21.20 · polyline track: 开路径 (min 2 点), 与 polygon 平行。"""
+    """polyline track: 开路径 (min 2 点), 与 polygon 平行。"""
     geom = VideoTrackPolylineGeometry(
         track_id="l1",
         keyframes=[
@@ -465,7 +465,7 @@ def test_shared_rle_models_accept_structural_8k_envelope():
     ).size == (8192, 8192)
 
 
-# ── ClassConfigEntry alias（v0.9.5）────────────────────────────────
+# ── ClassConfigEntry alias ───────────────────────────────────────────
 
 
 def test_class_config_alias_optional_default_none():
@@ -490,11 +490,11 @@ def test_class_config_alias_rejects_overlong():
         ClassConfigEntry(alias="x" * 51)
 
 
-# ── v0.9.6 · alias 规范化 ───────────────────────────────────────────
+# ── alias 规范化 ───────────────────────────────────────────
 
 
 def test_class_config_alias_lowercased():
-    """v0.9.6 · DINO 召回更稳, 前端用户输大小写都规范化为小写."""
+    """DINO 召回更稳, 前端用户输大小写都规范化为小写."""
     e = ClassConfigEntry(alias="Person")
     assert e.alias == "person"
     e2 = ClassConfigEntry(alias="RIPE APPLE")
@@ -646,7 +646,7 @@ def test_annotation_attributes_value_types():
     AA.validate_python({"k": ["a", "b"]})
 
 
-# ── v0.13.0 · 点云 3D 几何（box_3d / point_mask_3d）─────────────────
+# ── 点云 3D 几何（box_3d / point_mask_3d）─────────────────
 
 
 def test_box_3d_geometry_round_trip():
@@ -729,7 +729,7 @@ def test_geometry_union_still_dispatches_2d_types():
     assert bbox.x == 0.1
 
 
-# ── v0.13.1 · 相机标定 SensorCalibration / DatasetItemMetadata ───────
+# ── 相机标定 SensorCalibration / DatasetItemMetadata ───────
 
 
 def test_sensor_calibration_round_trip():

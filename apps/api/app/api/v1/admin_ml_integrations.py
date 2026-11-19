@@ -1,10 +1,10 @@
-"""v0.9.3 · 超管 ML 集成总览。
+"""超管 ML 集成总览。
 
 聚合返回：
 - storage：读取平台桶的持久成功快照（仅 super_admin 走该端点）
-- projects：跨所有项目的 ml_backends 列表，按 project 分组（保留 backend.url 但不返回 auth_token）
+- projects：按项目列出已启用的全局后端（含 URL，不含 auth_token）
 
-v0.9.6 · 加 /probe (无 DB 副作用的 health check) + /runtime-hints (前端 modal placeholder).
+/probe 执行不写数据库的健康检查；/runtime-hints 提供前端表单提示。
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def _control_http_error(error: BackendControlOperationError) -> HTTPException:
     )
 
 
-# v0.14.14: gsam2 image pool key 形如 "sam=<sv>/dino=<dv>" (协议 §4.3 loaded_keys[].key
+# gsam2 image pool key 形如 "sam=<sv>/dino=<dv>" (协议 §4.3 loaded_keys[].key
 # 由 backend 自定义命名). admin 试启动只在 message / loaded_variant 字段中沿用旧
 # {sam_variant, dino_variant} 形态展示, 这里 parse 还原, 失败则不还原.
 _GSAM2_IMAGE_KEY_RE = re.compile(r"^sam=(.+?)/dino=(.+)$")
@@ -153,9 +153,9 @@ async def get_overview(
         (await read_usage(db)).model_dump()
     )
 
-    # v0.19.0 ADR-0044 · backend 全局化; 「按项目分组」改为按项目「已启用」关联分组
+    # ADR-0044 · backend 注册项是全局资源；项目列表按「已启用」关联分组，
     # (project_ml_backend_pool join pool member join registry)。total/connected
-    # 统计全局注册表去重后的真值。v0.23.3 ADR-0050 · 项目启用经服务池层。
+    # 统计按全局注册表去重。项目启用通过服务池层（ADR-0050）。
     topology = InferenceTopologyData(db)
     project_alias = aliased(Project, project_rows(), adapt_on_names=True)
     projects_result = await db.execute(
@@ -207,7 +207,7 @@ async def get_overview(
     )
 
 
-# ── v0.9.6 · /probe + /runtime-hints ──────────────────────────────────
+# ── /probe + /runtime-hints ──────────────────────────────────
 
 
 _HTTP_BASE_URL = TypeAdapter(AnyHttpUrl)
@@ -264,7 +264,7 @@ class ProbeRequest(BaseModel):
 
 
 class ProbeResponse(BaseModel):
-    """v0.9.6 · 无 DB 副作用的 health check.
+    """无 DB 副作用的 health check.
     前端注册 modal 在保存前可调本端点验证连通性, 避免「先存再 health 失败 / DB 留无效行」摩擦.
     """
 
@@ -328,7 +328,7 @@ async def probe_backend(
 
 
 class RuntimeHints(BaseModel):
-    """v0.9.6 · 前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint."""
+    """前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint."""
 
     ml_backend_default_url: str | None = None
     managed_backend_urls: dict[str, str] = Field(default_factory=dict)
@@ -346,7 +346,7 @@ async def runtime_hints(
     )
 
 
-# ─── v0.9.7 · 全局 backend 列表 ────────────────────────────────────────
+# ─── 全局 backend 列表 ────────────────────────────────────────
 
 
 ManagedProvider = Literal["gsam2", "sam3", "yolo", "onnxtools", "rapidocr"]
@@ -546,7 +546,7 @@ async def initialize_managed_backends(
 
 
 class GlobalBackendItem(BaseModel):
-    """v0.9.7 · CreateProjectWizard step 4 dropdown 用的 backend 概要项."""
+    """CreateProjectWizard step 4 dropdown 用的 backend 概要项."""
 
     id: str
     name: str
@@ -576,7 +576,7 @@ async def list_all_backends(
         require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
     ),
 ) -> GlobalBackendListResponse:
-    """v0.19.0 ADR-0044 · 列全局注册表所有 backend。
+    """ADR-0044 · 列全局注册表所有 backend。
 
     用于 CreateProjectWizard step 4 让用户选「为新项目启用一个已注册 backend」;
     复用时 create_project 端点为新项目建启用关联 (复用同一全局 registry id)。
@@ -942,7 +942,7 @@ async def list_gpu_resources(
     )
 
 
-# ─── v0.19.0 ADR-0044 · superadmin 全局注册表 CRUD ──────────────────────────
+# ─── ADR-0044 · superadmin 全局注册表 CRUD ──────────────────────────
 #
 # backend 是全局资源 (一物理 backend = 一 registry 行 = 一能力快照 = 一并发闸)。
 # 增删改全局项是 superadmin 职责 (ModelMarket 注册管理), 与「项目启用」(PUT
@@ -1110,7 +1110,7 @@ async def delete_registry(
 ) -> None:
     """删除全局 backend。running prediction job 仍在跑则 409; 否则级联解绑
     projects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。
-    v0.23.3 ADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除
+    ADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除
     (legacy_instance_id FK RESTRICT + member FK RESTRICT)。"""
     from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
@@ -1220,7 +1220,7 @@ async def unload_registry_backend(
     return MLBackendUnloadResponse.model_validate(result)
 
 
-# ─── v0.10.26 · 容器直连观测 (与项目注册解耦) ──────────────────────────────
+# ─── 容器直连观测 (与项目注册解耦) ──────────────────────────────
 #
 # 即使没有任何项目注册 backend, 运维也能直连 env 配的 ML_BACKEND_OBSERVE_URLS
 # Read-only discovery uses registered authentication when present. Only deployment-
@@ -1256,7 +1256,7 @@ class ObserveTarget(BaseModel):
     gpu_info: dict | None = None
     model_version: str | None = None
     pool: dict | None = None
-    video_pool: dict | None = None  # v0.10.36 · 视频追踪显存池
+    video_pool: dict | None = None  # 视频追踪显存池
     cache: dict | None = None
     compute: ComputeInfo | None = None
     residency: ResidencyInfo | dict | None = None
@@ -1264,7 +1264,7 @@ class ObserveTarget(BaseModel):
     supported_variants: list[dict] = []
     supported_trackers: list[
         str
-    ] = []  # v0.10.36 · /setup 暴露的 video tracker model_key 列表
+    ] = []  # /setup 暴露的 video tracker model_key 列表
     supports_variants: bool = False
     registered: bool = False
     registered_label: str | None = None
@@ -2202,7 +2202,7 @@ async def accept_pool_member_capability_drift(
     return await _pool_to_admin_item(db, pool)
 
 
-# ── v0.23.3 ADR-0050 §12.3 · topology / runtime-snapshot (v0.23.4 read model) ──
+# ── ADR-0050 §12.3 · topology / runtime-snapshot ────────────────────────
 
 
 @router.get("/topology", response_model=TopologyResponse)

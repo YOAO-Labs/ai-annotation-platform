@@ -7,7 +7,7 @@ from app.db.base import Base
 
 
 class NotificationPreference(Base):
-    """v0.7.0 · 用户级通知偏好（按 type 配置接收与弹出）。
+    """用户级通知偏好（按 type 配置接收与弹出）。
 
     PK = (user_id, type)。channels JSONB 形如
     `{"in_app": true, "toast": false, "email": false}`：

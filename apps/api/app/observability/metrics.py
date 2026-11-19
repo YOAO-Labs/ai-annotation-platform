@@ -1,4 +1,4 @@
-"""v0.8.7 F2 · Prometheus 指标集中注册。
+"""Prometheus 指标集中注册。
 
 - `ml_backend_request_duration_seconds` Histogram(backend_id, outcome)：
   ML backend predict / interactive 调用耗时；outcome ∈ {"success","error"}。

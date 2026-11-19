@@ -1,4 +1,4 @@
-"""v0.6.9 · NotificationService: 写表 + Redis Pub/Sub 推送。
+"""NotificationService: 写表 + Redis Pub/Sub 推送。
 
 频道命名 `notify:{user_id}`，消息体 = NotificationOut JSON。
 WS 端订阅同名频道把消息直送到登录会话；同时表里有持久化记录，
@@ -73,7 +73,7 @@ class NotificationService:
         self.db = db
 
     async def _is_in_app_muted(self, user_id: uuid.UUID, type: str) -> bool:
-        """v0.7.0：查 notification_preferences；channels.in_app=False 表示用户已静音此 type。
+        """查 notification_preferences；channels.in_app=False 表示用户已静音此 type。
         无记录默认 in_app=True（现网用户向后兼容）。"""
         return await NotificationPreferenceManager(
             NotificationPreferencesPostgresData(self.db)

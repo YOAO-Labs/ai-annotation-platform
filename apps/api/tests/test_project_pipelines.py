@@ -1,4 +1,4 @@
-"""v0.21.0 · 命名项目编排表与 apply 端点."""
+"""命名项目编排表与 apply 端点."""
 
 from __future__ import annotations
 

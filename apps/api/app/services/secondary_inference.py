@@ -1,8 +1,8 @@
-"""v0.20.11 · 选中框单框二次推理 (Q1b)。
+"""选中框单框二次推理 (Q1b)。
 
 选中一个已落库标注 → 把它的 bbox 当 ROI 裁 crop → 同步喂某能力 backend /predict →
-产物按类型归位: 属性型写回原框 (attributes_meta 标 origin=ai, 走 v0.20.10)、几何型建
-子框 (parent_annotation_id=选中框, 走 v0.20.9)。
+产物按类型归位：属性写回原框（attributes_meta 标记 origin=ai），几何创建
+子框（parent_annotation_id 指向选中的框）。
 
 **复用批量 pipeline 下游阶段的同一套投递**: `crop_inputs_from_boxes` (裁 ROI + 投递) +
 `build_secondary_context` (构造 wire) + `apply_secondary_result` (产物归位事实)。与批量
@@ -134,7 +134,7 @@ def prepare_secondary_request(
             detail="selected annotation geometry is not croppable (need bbox/polygon)",
         )
 
-    # v0.20.21 · 门2 几何判据: 旋转框 / polyline / keypoint / multi_polygon 能转 LS shape
+    # 门2 几何判据: 旋转框 / polyline / keypoint / multi_polygon 能转 LS shape
     #   (门1 过), 但 _box_bbox_pct 取不到轴对齐外接框 → 无法作 ROI。此前静默返回空被前端
     #   伪装成「没结果」, 这里提前明确报错并告知实际几何类型 (与批量链路 skipped_geometry 对称)。
     if _box_bbox_pct(ls_box) is None:
@@ -337,7 +337,7 @@ async def run_secondary_inference(
     ) as inputs:
         batch = await _temporary_crop_batch(task, ls_box, pad=pad, inputs=inputs)
         if not batch.inputs:
-            # v0.20.21 · 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
+            # 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
             #   框太小 (短边 < min_crop_side_px=32) 或贴边裁出零面积。
             raise HTTPException(
                 status_code=422,

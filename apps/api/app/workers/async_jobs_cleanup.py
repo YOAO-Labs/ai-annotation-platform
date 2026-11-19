@@ -1,4 +1,4 @@
-"""v0.10.16 · async_jobs 终态 retention purge。
+"""async_jobs 终态 retention purge。
 
 每日 04:15 UTC 跑一次，删除 30 天前的 completed/failed/cancelled 行。
 running/pending 行**永不**被清；如果出现 running 卡死的情况由信号兜底翻 failed。

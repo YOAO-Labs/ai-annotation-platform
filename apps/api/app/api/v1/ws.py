@@ -176,7 +176,7 @@ async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
         return True
 
 
-# v0.7.0：模块级共享连接池，避免每次 WS 连接都新建 Redis socket。
+# 模块级共享连接池，避免每次 WS 连接都新建 Redis socket。
 # WS 副本数 ↑ 时 Redis 连接数受 max_connections 上限保护。
 _REDIS_POOL: ConnectionPool | None = None
 
@@ -193,7 +193,7 @@ def _get_redis_pool() -> ConnectionPool:
 
 
 async def close_redis_pool() -> None:
-    """v0.9.13 · uvicorn --reload / SIGTERM 时释放 Redis 连接池, 让悬挂 WS 收到 1006.
+    """uvicorn --reload / SIGTERM 时释放 Redis 连接池, 让悬挂 WS 收到 1006.
 
     现行架构无内存级 connection 表 (全靠 Redis pub/sub), 各 endpoint finally 块虽然
     会 close pubsub, 但 SIGTERM 路径下 finally 不一定执行 — disconnect 释放 socket,
@@ -350,7 +350,7 @@ async def batch_events_socket(
     project_id: uuid.UUID,
     token: str = Query(...),
 ):
-    """v0.9.13 · 项目级 batch 状态变更广播.
+    """项目级 batch 状态变更广播.
 
     Channel: `project:{project_id}:batch` (BatchService.transition / check_auto_transitions
     在 publish_batch_status_change() 推 batch.status_changed 事件). 前端
@@ -397,7 +397,7 @@ async def prediction_jobs_socket(
     websocket: WebSocket,
     token: str = Query(...),
 ):
-    """v0.9.8 · 全局 prediction job 进度通道 (Topbar 徽章 / 切项目 toast).
+    """全局 prediction job 进度通道 (Topbar 徽章 / 切项目 toast).
 
     与 `/ws/projects/{id}/preannotate` 的区别:
     - 后者是单项目: 工作台跑预标时实时帧 (current/total)
@@ -501,7 +501,7 @@ async def ml_backend_stats_socket(
     websocket: WebSocket,
     token: str = Query(...),
 ):
-    """v0.9.11 PerfHud · admin-only ML backend 实时统计 WS.
+    """admin-only ML backend 实时统计 WS.
 
     Channel: `ml-backend-stats:global` (Celery beat `publish_ml_backend_stats` 每 1s
     pull 所有 is_active=true backend 的 /health → publish snapshot list).
@@ -509,7 +509,7 @@ async def ml_backend_stats_socket(
     决定是否实拉 — 0 订阅者时直接 skip, 节省 GPU 探活成本.
 
     鉴权: super_admin / project_admin 才能看 (运维向, 标注员不需要).
-    v0.15.12 · 除 JWT 外也接受 ak_ api_key (SDK/TUI 用), role 校验不变.
+    除 JWT 外也接受 ak_ api_key (SDK/TUI 用), role 校验不变.
     """
     user_id: str | None = None
     try:
@@ -525,7 +525,7 @@ async def ml_backend_stats_socket(
     r = aioredis.Redis(connection_pool=_get_redis_pool())
     pubsub = r.pubsub()
     await pubsub.subscribe(_ML_STATS_CHANNEL)
-    # v0.9.11 · 订阅者计数 +1 (Celery beat 1s 实拉门控)
+    # 订阅者计数 +1 (Celery beat 1s 实拉门控)
     try:
         await r.incr(_ML_STATS_SUBSCRIBERS_KEY)
     except Exception as e:

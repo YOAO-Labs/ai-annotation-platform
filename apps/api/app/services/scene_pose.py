@@ -1,12 +1,12 @@
-"""v0.15.0 · Scene frame pose service
+"""Scene frame pose service
 
 逐帧 ego pose 的存取:
 - upsert_frame_poses:按 (scene_id, frame_index) upsert,幂等可重跑
   (importer / backfill 脚本共用)。
 - get_trajectory:按 frame_index 升序取 scene 全轨迹。
 
-本层只存取原始 ego→global 位姿;相对位移 / 插值是消费方(v0.15.1
-ego_transform)的事,不在这里算。
+本层只存取原始 ego→global 位姿；相对位移与插值由消费方
+（如 ego_transform）计算。
 """
 
 from __future__ import annotations

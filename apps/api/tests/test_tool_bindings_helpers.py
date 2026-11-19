@@ -152,7 +152,7 @@ def test_derive_classes_config_drops_empty_fields():
     assert out["y"] == {"color": "#fff"}
 
 
-# ── resolve_class_visual / alias_to 软关联 (v0.17.15) ──────────────────
+# ── resolve_class_visual / alias_to 软关联 ─────────────────────────────
 
 
 def _alias_tb():

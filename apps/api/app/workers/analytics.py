@@ -1,4 +1,4 @@
-"""v0.10.16 · DuckDB 离线分析同步 Celery 任务（ROADMAP §1.6）。
+"""DuckDB 离线分析同步 Celery 任务（ROADMAP §1.6）。
 
 每日 02:30 UTC 增量拉 task_events + audit_logs 到 DuckDB 文件，
 供 /admin/analytics 端点出 3 个固定面板。
@@ -23,7 +23,7 @@ def sync_to_duckdb() -> dict:
 
 
 async def _sync_async() -> dict:
-    """v0.10.16 · 同步入口。每次任务**独立** engine + session，避免 Celery prefork
+    """同步入口。每次任务**独立** engine + session，避免 Celery prefork
     多 worker 共享全局连接池触发 asyncpg "another operation in progress"。
     """
     from app.services.duckdb_sync import sync_all

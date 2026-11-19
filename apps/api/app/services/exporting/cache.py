@@ -31,8 +31,8 @@ def compute_cache_key(
 ) -> str:
     """sha256 hex 指纹。scope_id 为 project_id 或 batch_id。
 
-    v0.10.43 · 多目标：指纹纳入**排序后**的目标集合（顺序无关稳定命中）。
-    v0.14.7 · lidar kitti/nuscenes/pointmask 复用 targets 指纹，不需额外 key 字段。
+    多目标：指纹纳入**排序后**的目标集合（顺序无关稳定命中）。
+    lidar kitti/nuscenes/pointmask 复用 targets 指纹，不需额外 key 字段。
     max_updated_at = max(annotation.updated_at WHERE is_active AND not cancelled)，
     active_count = count(active annotation)。两者共同失效，覆盖删除标注场景。
     """

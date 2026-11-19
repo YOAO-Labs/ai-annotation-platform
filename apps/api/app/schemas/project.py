@@ -61,7 +61,7 @@ class ProjectOut(BaseModel):
     name: str
     type_label: str
     type_key: str
-    # v0.10.28 · 媒体维度数据类型 (image / video / lidar).
+    # 媒体维度数据类型 (image / video / lidar).
     data_type: str = "image"
     owner_id: UUID
     owner_name: str | None = None
@@ -73,11 +73,11 @@ class ProjectOut(BaseModel):
     status: str
     ai_enabled: bool
     ml_backend_id: UUID | None = None
-    # v0.10.22 · 扁平视图字段不再有 DB 列, 由下方 validator 从 tool_bindings 读时派生.
+    # 扁平视图字段不再有 DB 列, 由下方 validator 从 tool_bindings 读时派生.
     classes: list[str] = []
     classes_config: _ClassesConfig = {}
     attribute_schema: _AttributeSchema = _AttributeSchema()
-    # v0.10.17 · 工具维度类别 / 属性绑定 (唯一存储真值).
+    # 工具维度类别 / 属性绑定 (唯一存储真值).
     tool_bindings: _ToolBindings = {}
     label_config: dict = {}
     sampling: str = "sequence"
@@ -93,18 +93,18 @@ class ProjectOut(BaseModel):
     point_cloud_quality_config: _PointCloudQualityConfig = Field(
         default_factory=_PointCloudQualityConfig
     )
-    # v0.10.10 · I17.3 · 项目级渲染配置覆盖；空 dict 表示项目不覆盖任何字段
+    # 项目级渲染配置覆盖；空 dict 表示项目不覆盖任何字段
     rendering_config: _ProjectRenderingConfig = _ProjectRenderingConfig()
-    # v0.10.29 · 视频帧逻辑采样配置; 空 dict (mode=none) 表示不采样.
+    # 视频帧逻辑采样配置; 空 dict (mode=none) 表示不采样.
     video_sampling: _VideoSamplingConfig = _VideoSamplingConfig()
     video_collaboration: _VideoCollaborationConfig = _VideoCollaborationConfig()
-    # v0.14.1 · scene 连续标注调度开关 + 连续 session 估计窗口(分钟).
+    # scene 连续标注调度开关 + 连续 session 估计窗口(分钟).
     scene_mode: bool = False
     prefer_same_scene_continuation: bool = False
     scene_continuation_window_min: int = 30
-    # v0.14.13 · 项目级 variant 偏好 (按 backend_id 分桶). 空 dict = 未设, 由前端落到 backend.default_variants.
+    # 项目级 variant 偏好 (按 backend_id 分桶). 空 dict = 未设, 由前端落到 backend.default_variants.
     default_variants: dict[str, dict[str, str]] = Field(default_factory=dict)
-    # v0.18.27 · 项目级「已保存的编排」(方案 A). None = 未配编排.
+    # 项目级「已保存的编排」(方案 A). None = 未配编排.
     preannotate_pipeline: list[dict] | None = None
 
     @field_validator("preannotate_pipeline", mode="before")
@@ -116,12 +116,12 @@ class ProjectOut(BaseModel):
             else None
         )
 
-    # v0.19.3 WS1 · 保存编排时的能力软提示 (batchable/产 class 判据), 仅 PATCH 响应填充;
+    # 保存编排时的能力软提示 (batchable/产 class 判据), 仅 PATCH 响应填充;
     # 非 DB 列, 不挡保存, dispatch-time 422 仍是最终闸。
     capability_warnings: list[str] = []
-    # v0.10.13 · E1 · 标注指引 Markdown 原文; None 表示未配置.
+    # 标注指引 Markdown 原文; None 表示未配置.
     annotation_guide: str | None = None
-    # v0.10.13 · E1 · 已上传的指引图片资源元数据列表.
+    # 已上传的指引图片资源元数据列表.
     guide_assets: list[dict] = []
     guide_assets_revision: int = 1
     model_version: str | None = None
@@ -138,7 +138,7 @@ class ProjectOut(BaseModel):
 
     @model_validator(mode="after")
     def _derive_flat_class_views(self) -> "ProjectOut":
-        # v0.10.22 · classes / classes_config / attribute_schema 无 DB 列,
+        # classes / classes_config / attribute_schema 无 DB 列,
         # 从 tool_bindings 派生扁平投影供前端 / 导出消费.
         from yoao_workspace_contract import (
             derive_attribute_schema,

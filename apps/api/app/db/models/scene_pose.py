@@ -1,4 +1,4 @@
-"""v0.15.0 · SceneFramePose ORM
+"""SceneFramePose ORM
 
 scene 的时序骨架:逐帧 ego pose(ego→global,世界系)+ 时间戳。
 grain = (scene_id, frame_index),一帧一行;历史 scene 无位姿 → 无行,

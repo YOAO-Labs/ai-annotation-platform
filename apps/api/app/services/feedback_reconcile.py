@@ -1,12 +1,12 @@
-"""v0.11.0 · ADR-0027 双写一致性对账（A 组安全网）.
+"""ADR-0027 双写一致性对账。
 
 `v_annotation_feedback_unified`（alembic 0077）把 4 个反馈源 UNION ALL 成统一读表面，
-带 `source_table` 列区分来源。ADR-0027 第二段为 bug/comment/reject 三类旧源加了双写
-mirror（见 `feedback.py` 的 `mirror_*`），把旧表行同事务镜像进 `annotation_feedbacks`。
+带 `source_table` 列区分来源。bug/comment/reject 三类旧源通过
+`feedback.py` 的 `mirror_*` 在同一事务内写入 `annotation_feedbacks`。
 
 本模块提供纯查询函数 `compute_feedback_drift`，对每个旧源比对「应 mirror 行数」与
-「`annotation_feedbacks` 里实际存在的 mirror 行数」，找出漏写的旧表行 id。切单源
-（v0.11.9+）前必须有 drift 长期为 0 的客观证据，否则 backfill / 停双写会静默丢数据。
+「`annotation_feedbacks` 中实际镜像的行数」，找出漏写的旧表行 ID。
+若要停双写，必须先确认 drift 持续为 0，避免丢数据。
 
 无副作用：只读 view + 旧表，不写不删，便于单测断言。beat 包装（drift>0 时写
 audit + notify superadmin）见 `app/workers/feedback_reconcile.py`。

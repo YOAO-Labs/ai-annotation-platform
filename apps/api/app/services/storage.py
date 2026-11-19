@@ -327,7 +327,7 @@ class StorageService:
         *,
         audience: storage_presigning.Audience = "browser",
     ) -> str:
-        # v0.10.43 · download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
+        # download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
         reject_reference(key)
         params: dict = {"Bucket": bucket or self.bucket, "Key": key}
         if version_id is not None:
@@ -357,7 +357,7 @@ class StorageService:
     ) -> None:
         """从本地文件路径流式上传（boto3 managed multipart，不把整文件读进内存）。
 
-        v0.12.1 · 导出落盘式 ZIP 的上传入口：worker 把 ZIP 写到 tempfile 后用本方法
+        导出落盘式 ZIP 的上传入口：worker 把 ZIP 写到 tempfile 后用本方法
         分段上传，内存与产物大小解耦（对比旧 put_object(Body=bytes) 全量驻留 RAM）。
         """
         extra_args = {"ContentType": content_type}
@@ -489,7 +489,7 @@ class StorageService:
             self.avatars_bucket,
         ]
 
-    # v0.10.17 · 派生媒体缓存按 key 前缀路由到 media-cache 桶。
+    # 派生媒体缓存按 key 前缀路由到 media-cache 桶。
     # 老数据若仍在 datasets 桶,运维可用 mc mirror 一次性搬迁,期间无下行兼容
     # (派生缓存可重生)。前缀清单覆盖现有缩略图、点云金字塔和 Assets media key。
     MEDIA_CACHE_PREFIXES: tuple[str, ...] = (

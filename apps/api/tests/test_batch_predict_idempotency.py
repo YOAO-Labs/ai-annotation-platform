@@ -1,4 +1,4 @@
-"""v0.11.24 · 批量预标幂等：跳过已预标 / 覆盖历史预标。
+"""批量预标幂等：跳过已预标 / 覆盖历史预标。
 
 - endpoint 层：predict_mode 透传给 batch_predict.delay；skip_predicted 下进度条分母排除已预标 task。
 - service 层：clean_task_predictions(task_ids) 删 AI 预标、保留人工标注、归零 total_predictions
@@ -286,7 +286,7 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
         state="connected",
     )
     proj.ml_backend_pool_id = pool.id
-    # v0.19.0 ADR-0044 · 预标校验项目「已启用」, 为该 backend 建启用关联
+    # ADR-0044 · 预标校验项目「已启用」, 为该 backend 建启用关联
     db.add(ProjectMLBackendPool(project_id=proj.id, pool_id=pool.id, enabled=True))
     await db.flush()
 

@@ -131,7 +131,7 @@ def internal_geometry_to_ls_shape(
         polygons = geometry.get("polygons") or []
         if not polygons:
             return None
-        # v0.9.14 multi_polygon LS shape: value.polygons = [{points, holes?}, ...]
+        # multi_polygon LS shape: value.polygons = [{points, holes?}, ...]
         ls_polys: list[dict[str, Any]] = []
         for poly in polygons:
             pts = poly.get("points") or []
