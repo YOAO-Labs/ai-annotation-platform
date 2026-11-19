@@ -285,6 +285,11 @@ async def _initialize_fresh_source(test_engine, admin, engine) -> None:
         )
     database = engine.url.database
     await _revoke_public_temp(admin, test_engine, database)
+    # The forward cutovers treat any other client backend that can reach the
+    # source schema or call its transfer function as a live writer. This
+    # engine's idle pooled connection is such a client, so release it before
+    # the fresh install; the engine reconnects after the migration.
+    await engine.dispose()
     migration = _alembic(engine.url, "upgrade", "head")
     assert migration.returncode == 0, "fresh restore source migration failed"
     _run_psql_file(

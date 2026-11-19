@@ -176,6 +176,15 @@ async def _login(engine, prefix: str):
     role = f"n5s_{prefix}_{uuid.uuid4().hex[:10]}"
     password = uuid.uuid4().hex
     assert re.fullmatch(ROLE_PATTERN, role)
+    # The deployment profile assigns the shared user-performance MV to the
+    # application role. Preserve its pre-existing owner so cleaning up this
+    # per-test LOGIN cannot drop an object installed by the migrations.
+    maintenance_owner = await _scalar(
+        engine,
+        "SELECT pg_catalog.pg_get_userbyid(relation.relowner) "
+        "FROM pg_catalog.pg_class AS relation "
+        "WHERE relation.oid=pg_catalog.to_regclass('public.mv_user_perf_daily')",
+    )
     await _execute(
         engine,
         [
@@ -186,7 +195,16 @@ async def _login(engine, prefix: str):
     try:
         yield role, password
     finally:
-        await _execute(engine, [f"DROP OWNED BY {role}", f"DROP ROLE {role}"])
+        statements = []
+        if maintenance_owner is not None:
+            owner = engine.dialect.identifier_preparer.quote_identifier(
+                maintenance_owner
+            )
+            statements.append(
+                f"ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO {owner}"
+            )
+        statements.extend((f"DROP OWNED BY {role}", f"DROP ROLE {role}"))
+        await _execute(engine, statements)
 
 
 @asynccontextmanager
