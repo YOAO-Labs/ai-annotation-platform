@@ -328,7 +328,9 @@ yoao members preview-role <project-id> <member-id> --role reviewer   # 只读预
 yoao members change-role <project-id> <member-id> --role reviewer \
   --expected-version 2 --preview-token <tok> --reason "重新分配职责" --yes
 
-yoao predictions import <project-id> result.json --format native_json [--dry-run]
+yoao predictions import "$PROJECT_ID" result.json --dry-run  # 预览待审预测；去掉 --dry-run 即追加
+yoao annotations import "$PROJECT_ID" result.json --dry-run  # 预览正式标注；实际写入需确认
+yoao predictions purge "$PROJECT_ID" --dry-run               # 统计外部导入预测，不删除
 yoao jobs wait <job-id>                             # 进度条跟随到终态
 yoao export project <project-id> --target native_json --out out.zip
 

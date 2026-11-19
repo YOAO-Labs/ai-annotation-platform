@@ -45,6 +45,7 @@
 
 ### Fixed
 
+- `predictions import`、`annotations import` 和 `predictions purge` 的文本回执区分预览与实际写入或删除。正式标注和待审预测分别计数，`--json` 和退出码不变。
 - 修复相对路径的导出预签名链接被附加平台 Bearer 凭据、遭对象存储以多重认证拒绝的问题；作业查询和同步 VOC 等 API 下载继续保留平台认证。
 - 逐样本评估报告和非空样本列表按 API 实际响应解析，不再误要求仅冻结规格包含的 `size_bytes`、`split` 与 `explicit_negative`。
 - 无来源 tracker 事件保留空 annotation_id，兼容旧字符串空值；sdist 补齐测试支撑文件。

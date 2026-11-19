@@ -272,22 +272,28 @@ yoao tasks review-reject <task-id> --reason-type <missing|extra|wrong_label|wron
 yoao annotations bulk-update --id <annotation-id> [--id ...]
     [--class-name ...] [--attributes-json '{...}'] [--z-order <n>]
     [--locked|--unlocked] [--hidden|--visible] [--json]
+yoao annotations import <project-id> <原生 JSON 文件> [--dry-run] [--overwrite] [--yes] [--json]
 ```
 
 批量修改只支持类别、属性、层级、锁定和隐藏状态，不接受 geometry。
+
+`annotations import` 只导入 `annotations[]`，不把预测转为正式标注。先用 `--dry-run` 看预计写入、跳过和错误数量；预览不写入。实际写入需要确认，默认追加；`--overwrite` 只替换匹配任务中以前导入的标注。部分条目有错时，其余条目可能已经写入，命令退出码为 `1`。需要保留每项错误时，在本次调用就加 `--json`，不要为了查看回执重复导入。
 
 ### yoao predictions
 
 ```text
 yoao predictions import <project-id> <文件> [--format <native_json|coco|yolo>] [--dry-run] [--json]
+yoao predictions purge <project-id> [--source-scope <external_import|ml_backend|all>] [--task-id <任务 ID>] [--dry-run] [--yes] [--json]
 ```
 
-导入外部预测结果。`--dry-run` 只校验不落库,适合正式导入前先验文件。
+`predictions import` 追加待审预测，不删除原候选，也不修改正式标注。原生 JSON 只读取 `predictions[]`；COCO 和 YOLO 也可导入。带 `--dry-run` 只预览，去掉后直接写入，不再询问。请求成功时，即使有逐项错误也可能以 `0` 退出；脚本应检查 JSON 回执的 `errors`，不能只看退出码。
 
 ```bash
-yoao predictions import 0199bb... preds.json --format native_json --dry-run
-yoao predictions import 0199bb... preds.json --format native_json
+yoao predictions import "$PROJECT_ID" preds.json --dry-run
+yoao predictions purge "$PROJECT_ID" --source-scope external_import --dry-run
 ```
+
+`predictions purge` 默认只清理外部导入预测；`--task-id` 可重复，省略时按项目范围统计或清理。预览只返回匹配数量，不删除；实际清理需要确认，并报告已删除数量。两种操作都不删除正式标注。
 
 ### yoao jobs
 

@@ -11,6 +11,7 @@ from yoao.cli._output import (
     console,
     confirm_destructive,
     get_client,
+    print_import_result,
     print_json,
 )
 
@@ -105,16 +106,16 @@ def import_file(
         "--overwrite",
         help="仅替换文件中匹配任务的既有导入标注，不会删除人工标注",
     ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="确认写入"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认写入正式标注"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """导入 原生 JSON annotations[]；实际写入需要显式确认。"""
+    """导入原生 JSON 中的正式标注，不导入预测。先用 --dry-run 预览。"""
     with cli_errors(json_output):
         if file.stat().st_size > 64 * 1024 * 1024:
             raise typer.BadParameter("原生 JSON 文件不能超过 64 MiB")
         if not dry_run:
             confirm_destructive(
-                f"确认导入 {file.name} 到项目 {project_id}?",
+                f"确认将 {file.name} 中的正式标注写入项目 {project_id}？",
                 yes,
                 json_output,
             )
@@ -122,20 +123,6 @@ def import_file(
             result = client.annotations.import_file(
                 project_id, file, dry_run=dry_run, overwrite=overwrite
             )
-    data = result.model_dump(mode="json")
-    if json_output:
-        print_json(data)
-    else:
-        prefix = "[yellow](dry-run)[/yellow] " if result.dry_run else ""
-        console.print(
-            f"{prefix}导入完成: imported={result.imported} "
-            f"skipped={result.skipped} errors={len(result.errors)}"
-        )
-        for error in result.errors[:5]:
-            console.print(f"[red]- {error}[/red]")
-        if len(result.errors) > 5:
-            console.print(
-                f"还有 {len(result.errors) - 5} 条错误，请用 --json 查看完整回执"
-            )
+    print_import_result(result, "正式标注", json_output)
     if result.errors:
         raise typer.Exit(1)

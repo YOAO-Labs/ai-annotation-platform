@@ -124,6 +124,8 @@ label 路径按**文件 stem** 匹配任务：归一化时会剥掉直到最后�
 
 原生 JSON 和 COCO 在任务有可写入的预测时才清理该任务的旧外部预测。YOLO 的非空标签文件匹配到任务后，会在逐行校验前清理；即使该文件的预测行最终都无效，旧外部预测也可能被清除。请先检查预览中的错误，再确认导入。
 
+命令行与向导的默认行为不同：`yoao predictions import` 追加待审预测，不替换旧候选。先加 `--dry-run` 查看预计写入数量；要从同一原生 JSON 导入正式标注，用 `yoao annotations import`。示例和部分失败的处理见 [CLI 导入与清理](../../dev/sdk/cli#yoao-predictions)。
+
 ### 导入结果
 
 预览与完成都给出三项汇总：**写入 / 跳过 / 错误**。错误明细列出每条的 `task_match` 与原因（如 `task not found in project`、`unsupported geometry kind`、`ambiguous task file stem`），最多展示前若干条。
