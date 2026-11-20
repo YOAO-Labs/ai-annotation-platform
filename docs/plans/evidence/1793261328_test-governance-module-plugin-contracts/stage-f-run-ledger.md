@@ -799,6 +799,8 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 
 **首次前向执行**（`d9ceedf51b`）：`parent-seed-native` 原 27 项全部运行，26 通过，`test_capture_parent_accounts` 失败，清退成功。冻结快照包含 `status`、`last_seen_at` 和 `preferences`，但该用例只读 `users`；前两项已经由 `identity_account_presence` 持有，后一项由 `identity_account_preferences` 持有。修正观察查询，按用户 ID 内连接两个 owner，不补默认值、不删快照字段、不改冻结 JSON。首次 JUnit：`t1-gate/g7-parent-d9ceedf51-1/pytest.xml`（SHA256 `7d8f91d64507ee0ca863af381ab0b57fe384ba95f0ed61690fa4ce482450d93c`）。
 
+**修正后**（`c9ec704afe`）：原 27 个 node ID 与新 collection、JUnit 一一匹配；同次运行 27/27 通过，无错误、失败或跳过。含建库及清退 8 分 42 秒；无保留数据库，PostgreSQL、Redis、临时根和 MinIO 引导容器、卷、网络已清退。见[两轮逐项回执与剩余清单](g7-parent-seed-native.json)。原 36 项缺定向观察的节点还剩 9 项：Audit 5 项，其余为 media seed、parent seed、Workspace import、Workspace seed 各 1 项。它们和严格内核峰值延期分列；不重算旧默认轮。
+
 ## J1：同一 API key 轮询与导出授权竞争
 
 首轮 `matrix-7-verdict.json` 中，`image_project` 作业 `064a676e-3f42-4c17-b978-03c5729435a4` 已受理，最终为 `failed: dbapi`。同一 Job 的 GET 先返回 503，后返回 200。`native-uri-runtime.log` 的 worker 栈落在图片源复制前的 `object_guard` → `_reauthorize_export_final_write` → `output_authority.validate` → `read_accepted_api_key_facts`，异常明确指向 `public.api_keys`，不是 Jobs 行。原日志没有持锁后端 PID，不能认定某一次历史 GET 就是当时的锁主。
@@ -819,3 +821,11 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 `d9ceedf51b`／`bo0479` 将 `last_used_at` 移至 Identity 私有使用记录。认证先对账号、凭据取共享锁，仅独占该凭据的使用记录；worker 仍对原凭据 `FOR SHARE NOWAIT` 并逐项核验已捕获的授权。没有更换轮询凭据、加重试、改超时或取消最后一次检查。
 
 前向迁移在独占 PostgreSQL 的 `bo0478` 数据库先创建两把 key：从未使用的一把迁移后仍为空；另一把保留到微秒的 `2026-06-12T10:11:12.123456Z`。两条新记录与原 key 一一对应，不走降级。回执 `t1-gate/j1-key-usage-and-g7-1/forward-data.json`（SHA256 `32c8c026243552e366e8a1086ef4f92d68a36211bce11ec1539c6d4456cb0d33`）。
+
+实测使用 TCP 上的 Uvicorn、Redis broker、独立 Celery `export` worker 和启用版本控制的 MinIO。普通图片项目含 1 个已标任务、1 条框标注、1 个经过核验的原图；不使用截图夹具导出。API 和 worker 使用非 superuser 的应用账号，作业发布及物理执行另用各自限定的数据库账号。
+
+- **正向**：同一把 key 提交返回 202，该作业的 20 次 GET 全部返回 200。使用 Jobs 返回的预签名地址（不带 Bearer）取得 6,626 字节 ZIP，SHA256 `bf6f833f4e626d00a61e16cf639dcd1b60877c8f08d2599818bb31ab8667d8ff` 与登记行一致；包内项目、任务、`car` 标注及另行下载的原图字节均匹配，最近使用时间已提交。
+- **撤销**：同一 key 提交第二份作业后、worker 启动前撤销。GET 返回 401；独立 worker 原授权复核和实际作业失败原因均为 `export_output_authority_changed`，无下载地址、无就绪输出。
+- **执行口径**：`t1-gate/j1-ordinary-d9ceedf51-1/pytest.xml` 14/14，无失败、错误或跳过（SHA256 `bb9bcbae299be33cb1951f467b44aa6acaef54356c29769f805220345edd9754`）。其中 1 项是本次一次性普通导出探针，另 13 项是仓库回归，含双向持锁顺序、事务回滚、轮换、权限变更及真锁竞争。`t1-gate/j1-key-usage-and-g7-1/live-1/ordinary.json` SHA256 `a74e4d1a33b36c714bd9efef69aa7450eb4642e890a162fafee50b5a6b7ec6a5`。此次资格含清退 8 分 44 秒；数据库、应用进程、临时根及 MinIO 引导资源均已清退。没有重跑七种格式矩阵或默认 T1／T2。
+
+补充边界（独立实库，不并入 14 项）：受限读者不能直接读凭据或使用表，离职交接预览仍读回 4 把已用 key 的准确时间和 1 把未用 key 的空值。分别捕获四份有效导出回执后，轮换、修改 scope、改为已到期、延长有效期均使原回执被最终复核拒绝，见 `edge-observations.json`。`key-contracts.xml` 另有 3 项原生命令回归通过；不具备专用 LOGIN 的 3 个完整交接用例跳过，不能算作交接全套通过。两次数据库容器均已销毁。

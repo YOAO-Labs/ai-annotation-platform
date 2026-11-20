@@ -1,0 +1,234 @@
+{
+  "profile": "parent-seed-native",
+  "scope": "Directed forward qualification, not a default T1/T2 result. Both collections and both JUnit files match exactly the same 27 original node IDs; no skipped or missing rows.",
+  "historical_default": {
+    "candidate": "f6e349674370fc5bfe94636cedd530950c750c83",
+    "frozen_ledger": "g7-unrun-f6e349674.json",
+    "frozen_ledger_sha256": "126d53bd8e4e5754c25b2a58807089741d711a8a2cc1e1c68d3a98f88080c54e",
+    "default_not_run": 92,
+    "without_direct_observation_before": 36
+  },
+  "attempts": {
+    "first": {
+      "candidate": "d9ceedf51bc00eb4258f89a522dcf6165abcd31c",
+      "private_run": "t1-gate/g7-parent-d9ceedf51-1",
+      "elapsed_seconds": 515.13,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "sha256": {
+        "junit": "7d8f91d64507ee0ca863af381ab0b57fe384ba95f0ed61690fa4ce482450d93c",
+        "collection": "adf93fe04a77a7ecd3fe16dff8444c7a747ce1c9fcf1ead95f2e8be227d0d644",
+        "report": "5d2df8323414dc717356f04046074987d47e85ceebeb388a26fd2cbdeb8bbc54",
+        "bootstrap": "61d05274eee553b9395307b12cc1dbf5e1dcb44cbd7fe90142ab3dcc53246580",
+        "verdict": "c781d2411256707bb55060b57e023565042f728e7ca525050156ba9cb2cfb445"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "corrected": {
+      "candidate": "c9ec704afe6b06777795a1e92e5bd4a5d4a0214b",
+      "private_run": "t1-gate/g7-parent-c9ec704af-1",
+      "elapsed_seconds": 521.66,
+      "pytest_exit": 0,
+      "verifier": "passed",
+      "sha256": {
+        "junit": "e4f98ae66e977523ca6cee87c68170f8d2f196df6ef1a933314a5fdab84341e5",
+        "collection": "adf93fe04a77a7ecd3fe16dff8444c7a747ce1c9fcf1ead95f2e8be227d0d644",
+        "report": "a5b6efba4b94e8fa88e69991de43741192415ca3a2c8ef931048600a381cb9d8",
+        "bootstrap": "d478f2b6ad8f51d970f86f4d3ad921de64b3b458fa0f67bc2b6a443a5c0af260",
+        "verdict": "9bda95264eabee4ba8c38102cf7c5246f1b33b5aefa670e31bdd5beac296e079"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    }
+  },
+  "cases": [
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[changed]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[dirty_noop]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[dirty_repair_back]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[partial_expiry]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[stale_cached]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[create-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[create-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[duplicate_new-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[duplicate_new-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[equal-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[equal-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_assigner-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_assigner-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_persona-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_persona-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_project-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_project-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[repair-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[repair-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[roundtrip_existing-False]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[roundtrip_existing-True]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_parent_accounts",
+      "first": "failure",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[before_read-invalid_reply]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[before_read-stale]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[commit-invalid_reply]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[commit-stale]",
+      "first": "passed",
+      "corrected": "passed"
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_node_seed_producer_uses_both_owner_protocols",
+      "first": "passed",
+      "corrected": "passed"
+    }
+  ],
+  "remaining_without_direct_observation": [
+    {
+      "profile": "audit-consumers-cold",
+      "nodeid": "tests/test_audit_consumers_cold.py::test_current_cold_audit_api_worker_queries_exports_and_restore"
+    },
+    {
+      "profile": "audit-maintenance-consumers-cold",
+      "nodeid": "tests/test_audit_maintenance_consumers_cold.py::test_installed_beat_maintenance_consumers_recover_archive_after_restore"
+    },
+    {
+      "profile": "audit-maintenance-module",
+      "nodeid": "tests/test_audit_maintenance_module_live.py::test_cold_archive_process_loss_orphan_takeover_and_full_restore"
+    },
+    {
+      "profile": "audit-maintenance-native",
+      "nodeid": "tests/test_audit_maintenance_native.py::test_maintenance_login_snapshots_exact_json_and_serializes_competing_drop"
+    },
+    {
+      "profile": "audit-maintenance-native",
+      "nodeid": "tests/test_audit_maintenance_native.py::test_maintenance_preserves_partition_identity_lock_and_caller_rollback"
+    },
+    {
+      "profile": "media-seed",
+      "nodeid": "tests/test_media_seed_identity_live.py::test_media_seed_identity_consumers_use_owned_identity_capabilities"
+    },
+    {
+      "profile": "parent-seed",
+      "nodeid": "tests/test_seed_parent_operator_live.py::test_seed_parent_helpers_run_with_operator_only_capabilities"
+    },
+    {
+      "profile": "workspace-import",
+      "nodeid": "tests/test_workspace_import_cli_live.py::test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabilities"
+    },
+    {
+      "profile": "workspace-seed",
+      "nodeid": "tests/test_workspace_seed_operator_live.py::test_seed_entrypoints_run_through_the_fenced_api_image"
+    }
+  ]
+}
