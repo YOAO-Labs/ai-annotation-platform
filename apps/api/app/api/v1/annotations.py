@@ -1,13 +1,4 @@
-"""批量编辑 router.
-
-端点(均要求 ids 属于同一 task, 简化权限校验且符合工作台 UX):
-- POST /annotations/bulk-update  批量 patch class_name / attributes / 状态位
-
-v0.21.3 · 标注编组 (group / ungroup) 持久化已删除; 批量编辑退化为前端临时多选。
-
-v0.10.54 · annotations import:
-- POST /projects/{project_id}/annotations/import  导入 AAP JSON annotations[] (ADR-0028)
-"""
+"""任务标注的批量编辑，以及项目原生 JSON 文件的正式标注导入。"""
 
 from __future__ import annotations
 
@@ -515,11 +506,9 @@ async def bulk_update_annotations(
 # 前端临时多选(bulk-update 保留)。跨帧同一对象走 track_id(ADR-0045),不再用 group_id。
 
 
-# ── v0.10.54 · annotations import (ADR-0028) ──────────────────────────
-
-
 @router.post(
     "/projects/{project_id}/annotations/import",
+    summary="导入正式标注",
     response_model=ImportResult,
     dependencies=[Depends(require_scopes("annotations:write"))],
 )
@@ -533,10 +522,11 @@ async def import_annotations(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> ImportResult:
-    """导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。
+    """从原生 JSON 的 `annotations[]` 导入正式标注，不导入或采纳 `predictions[]`。
 
-    geometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，
-    source 保留原值，attributes._imported=true 溯源标记。
+    当前文件使用 `schema_version: "2.0"` 和 `yoao` 身份；仍可读取历史 `1.x` 文件。
+    `dry_run=true` 只预览。实际写入默认追加，`overwrite=true` 只替换匹配任务中
+    此前导入的标注。新标注归本次操作者，以 `attributes._imported` 标记导入来源。
     """
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal

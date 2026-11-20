@@ -62,6 +62,69 @@ def test_prediction_purge_requires_confirmation_before_http(respx_mock):
     assert len(route.calls) == 1
 
 
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_prediction_purge_distinguishes_preview_from_removal(respx_mock, dry_run):
+    task_id = str(uuid4())
+    route = respx_mock.post(f"{API}/projects/project-1/predictions/purge").respond(
+        200,
+        json={
+            "source_scope": "all",
+            "task_ids": [task_id],
+            "dry_run": dry_run,
+            "counts": {"ml_backend": 2, "external_import": 3, "unknown": 1, "total": 6},
+        },
+    )
+    result = runner.invoke(
+        predictions_app,
+        [
+            "purge",
+            "project-1",
+            "--source-scope",
+            "all",
+            "--task-id",
+            task_id,
+            "--dry-run" if dry_run else "--yes",
+        ],
+        env=ENV,
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(route.calls.last.request.content) == {
+        "source_scope": "all",
+        "task_ids": [task_id],
+        "dry_run": dry_run,
+    }
+    action, opposite = ("预计删除", "已删除") if dry_run else ("已删除", "预计删除")
+    assert f"{action} 6" in result.output and opposite not in result.output
+
+
+def test_annotation_preview_can_report_partial_errors_without_writing(
+    respx_mock, tmp_path
+):
+    path = tmp_path / "annotations.json"
+    path.write_text('{"schema_version":"2.0","format":"yoao","tasks":[]}')
+    route = respx_mock.post(f"{API}/projects/project-1/annotations/import").respond(
+        200,
+        json={
+            "imported": 2,
+            "skipped": 1,
+            "errors": [
+                {"task_match": {"file_path": "missing.png"}, "reason": "task not found"}
+            ],
+            "dry_run": True,
+        },
+    )
+    result = runner.invoke(
+        annotations_app,
+        ["import", "project-1", str(path), "--overwrite", "--dry-run"],
+        env=ENV,
+    )
+    assert result.exit_code == 1
+    assert route.call_count == 1
+    assert route.calls.last.request.url.params["dry_run"] == "true"
+    assert "预计写入 2 条正式标注" in result.output and "已写入" not in result.output
+    assert "missing.png" in result.output
+
+
 def test_annotation_import_requires_confirmation_and_dry_run_is_available(
     respx_mock, tmp_path
 ):

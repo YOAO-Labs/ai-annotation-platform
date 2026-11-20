@@ -19,7 +19,7 @@ ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}
 @pytest.mark.parametrize(
     ("args", "input_text"),
     [
-        (
+        pytest.param(
             ["command-execute", TASK_ID, "--body", "-", "--json"],
             json.dumps(
                 {
@@ -31,6 +31,7 @@ ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}
                     "idempotency_key": "scene-command-0001",
                 }
             ),
+            id="split",
         ),
         (
             [
@@ -43,7 +44,7 @@ ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}
             ],
             None,
         ),
-        (
+        pytest.param(
             ["track-operation-execute", TASK_ID, "--body", "-", "--json"],
             json.dumps(
                 {
@@ -53,6 +54,7 @@ ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}
                     "snapshot_token": TOKEN,
                 }
             ),
+            id="merge",
         ),
     ],
 )

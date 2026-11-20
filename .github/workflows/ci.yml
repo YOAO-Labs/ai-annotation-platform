@@ -104,13 +104,29 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install uv
+        id: setup-uv
         run: pip install uv
       - name: echo-ml-backend contract tests
         working-directory: docs-site/dev/examples/echo-ml-backend
-        run: uv run --extra test pytest -q
+        run: uv run --extra test pytest -q --junitxml=echo-test-results.xml
       - name: mock-v2-backend contract tests
+        if: ${{ !cancelled() && steps.setup-uv.outcome == 'success' }}
         working-directory: docs-site/dev/examples/mock-v2-backend
-        run: uv run --extra test pytest -q
+        run: uv run --extra test pytest -q --junitxml=mock-v2-test-results.xml
+      - name: Upload echo example results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: echo-example-test-results
+          path: docs-site/dev/examples/echo-ml-backend/echo-test-results.xml
+          if-no-files-found: error
+      - name: Upload mock v2 example results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-v2-example-test-results
+          path: docs-site/dev/examples/mock-v2-backend/mock-v2-test-results.xml
+          if-no-files-found: error
 
   # Python SDK / CLI / TUI 测试（packages/python-sdk）。
   python-sdk-pytest:
@@ -128,19 +144,15 @@ jobs:
           PLUGIN_SDK_MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
           PLUGIN_SDK_SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
         run: python scripts/fetch-python-artifacts.py --manifest "$PLUGIN_SDK_MANIFEST" --sha256 "$PLUGIN_SDK_SHA256" --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
-      - name: SDK / CLI / TUI tests
-        working-directory: packages/python-sdk
-        run: uv run --extra test --extra plugins --find-links ../../.artifacts/python/plugin-sdk --with-requirements ../../apps/_shared/requirements-plugin-runtime.txt --with ../../apps/_shared/task_contract --with ../../apps/_shared/lifecycle_contract --with ../../apps/_shared/protocol_v2 --with ../../apps/_shared/training_contract pytest -q --junitxml=sdk-test-results.xml
+      - name: Test repository contracts and installed SDK distributions
+        run: python scripts/test-sdk-distributions.py "$RUNNER_TEMP/sdk-reports"
       - name: Upload SDK results
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: python-sdk-test-results
-          path: packages/python-sdk/sdk-test-results.xml
+          path: ${{ runner.temp }}/sdk-reports/
           if-no-files-found: error
-      - name: Build SDK distribution
-        working-directory: packages/python-sdk
-        run: uv build
 
   owner-test-plan:
     name: Owner suite inventory
@@ -200,9 +212,16 @@ jobs:
         env:
           PYTHONPATH: apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src
         run: >-
-          uv run --no-project --with pytest pytest -q
+          uv run --no-project --with pytest pytest -q --import-mode=importlib
           apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests
-          apps/storage-agent/tests
+          apps/storage-agent/tests --junitxml=storage-agent-test-results.xml
+      - name: Upload storage agent results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-agent-test-results
+          path: storage-agent-test-results.xml
+          if-no-files-found: error
 
   training-executor-tests:
     name: Training executor tests
@@ -213,10 +232,29 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install uv
+        id: setup-uv
         run: pip install uv
+      - name: Verify official YOLO11n preview weights
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --max-time 120 \
+            --output yolo11n.pt.part \
+            https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
+          echo '0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1  yolo11n.pt.part' | sha256sum --check --strict
+          mv yolo11n.pt.part yolo11n.pt
       - name: Run training executor tests
+        if: ${{ !cancelled() && steps.setup-uv.outcome == 'success' }}
+        env:
+          PREVIEW_TEST_BASE: ${{ runner.temp }}/yolo11n.pt
         working-directory: apps/training-executor
-        run: uv run --with pytest --with pytest-asyncio pytest -q
+        run: uv run --with pytest --with pytest-asyncio pytest -q --junitxml=training-executor-test-results.xml
+      - name: Upload training executor results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-executor-test-results
+          path: apps/training-executor/training-executor-test-results.xml
+          if-no-files-found: error
 
   vitest:
     name: Frontend verification
@@ -230,11 +268,50 @@ jobs:
       - name: pnpm install
         working-directory: apps/web
         run: pnpm install --frozen-lockfile
+      - name: Test recording and media tools
+        id: media-tools
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          pnpm --filter web screenshots:test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=web-media-tools.xml
+          python3 - <<'PY'
+          from xml.etree import ElementTree
+          cases = ElementTree.parse("apps/web/web-media-tools.xml").findall(".//testcase")
+          skipped = [case.get("name") for case in cases if case.find("skipped") is not None]
+          if not cases or skipped:
+              raise SystemExit(f"Linux media tool tests must execute: {len(cases)} cases, skipped: {skipped}")
+          PY
+      - name: Upload media tool test results
+        if: ${{ !cancelled() && steps.media-tools.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-media-tool-tests
+          path: apps/web/web-media-tools.xml
+          if-no-files-found: error
       - name: tsc + build (codegen reads checked-in snapshot)
         working-directory: apps/web
         env:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm build
+      - name: Test timeline layout in Chromium
+        id: timeline-layout
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.xml
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.json
+        run: |
+          pnpm --filter web exec playwright install --with-deps --only-shell chromium
+          pnpm --filter web test:e2e:layout video-playback-overlay.spec.ts --reporter=list,junit,json
+          E2E_REQUIRE_ALL_TESTS=1 node scripts/summarize-e2e-results.mjs timeline-layout success "$PLAYWRIGHT_JSON_OUTPUT_NAME"
+      - name: Upload timeline layout results
+        if: ${{ !cancelled() && steps.timeline-layout.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-video-timeline-layout
+          path: ${{ runner.temp }}/video-timeline-layout.*
+          if-no-files-found: error
       # bundle size budget 守护：超过 .size-limit.json 阈值即阻断 PR。
       - name: Bundle size check
         working-directory: apps/web

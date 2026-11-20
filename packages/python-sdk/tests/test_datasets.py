@@ -415,6 +415,7 @@ def test_list_and_delete_dataset_items(client, respx_mock):
             ),
         ),
     ],
+    ids=("dataset", "dataset-item"),
 )
 def test_source_delete_reuses_saved_key_after_lost_response(
     client, respx_mock, path, delete
@@ -476,6 +477,7 @@ def test_source_delete_preserves_server_error_details(
             ),
         ),
     ],
+    ids=("dataset", "dataset-item"),
 )
 def test_invalid_source_delete_key_sends_no_request(client, respx_mock, path, delete):
     route = respx_mock.delete(f"{API}{path}").mock(return_value=httpx.Response(204))
@@ -617,6 +619,15 @@ def test_invalid_unlink_idempotency_key_sends_no_request(client, respx_mock):
             lambda c: c.datasets.unlink_project(DS_ID, "project"),
         ),
     ],
+    ids=(
+        "update",
+        "delete",
+        "list-items",
+        "delete-item",
+        "list-projects",
+        "preview-unlink",
+        "unlink-project",
+    ),
 )
 def test_dataset_management_maps_permission_error(
     client, respx_mock, http_method, path, call

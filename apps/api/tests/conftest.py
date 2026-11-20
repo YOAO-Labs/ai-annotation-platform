@@ -178,6 +178,14 @@ async def test_engine(test_db_url: str, apply_migrations):
 
 
 @pytest.fixture
+async def committed_batch_job_id(test_engine):
+    from tests.committed_prediction_jobs import committed_prediction_job_id
+
+    async with committed_prediction_job_id(test_engine, "batch_predict") as job_id:
+        yield job_id
+
+
+@pytest.fixture
 async def raster_owner_registry(test_engine):
     from tests.raster_mask_isolation import (
         remove_test_raster_owners,
@@ -413,6 +421,21 @@ def dataset_dispatcher(monkeypatch, app_module):
         lambda: dispatcher,
     )
     return dispatcher
+
+
+@pytest.fixture
+def embedded_revocations(monkeypatch):
+    from app.services import jobs_queue
+    from app.workers import job_execution_control
+
+    calls = []
+    monkeypatch.setattr(jobs_queue.settings, "jobs_queue_url", "")
+    monkeypatch.setattr(
+        job_execution_control.celery_app.control,
+        "revoke",
+        lambda execution_id, *, terminate: calls.append((execution_id, terminate)),
+    )
+    return calls
 
 
 @pytest.fixture

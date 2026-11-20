@@ -78,18 +78,8 @@ const config: Parameters<typeof defineConfig>[0] = {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     css: false,
-    // e2e/** is executed by Playwright or `node --test`, not collected by vitest.
-    // scripts/media-derivation.test.mjs is node:test style (run with
-    // `node --test` by screenshots:docs-media:test) and would report "No test
-    // suite found"; the remaining scripts/*.test.mjs files are vitest style and
-    // must stay collected.
-    exclude: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/e2e/**",
-      "scripts/media-derivation.test.mjs",
-      "scripts/headless-marketing-display.test.mjs",
-    ],
+    // Screenshot *.test files use node:test; browser *.spec files use Playwright.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/e2e/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html", "lcov"],

@@ -1,32 +1,20 @@
-"""AAP JSON — 平台原生无损中间格式。
+"""YOAO 原生交换格式：预测导入读取 predictions[]，标注导入读取 annotations[]。
 
-为「跨实例迁移 / SDK / Plugin / dataset snapshot」服务的稳定锚点。与 COCO/YOLO/VOC
-并列, 但**包含**它们丢失的字段: attribute_schema 值、prediction.confidence、
-annotation.source、annotation_guide、classes_config 等。
-
-关键决策 (对照 ROADMAP §6 决策底线):
-- schema_version 必备; breaking change 升 major; 1.x → 2.0 不可静默解析.
-- annotations[] / predictions[] **双数组分开**, 不混 type 字段
-  (CVAT 部分格式踩过坑).
-- 导出严格写满 null, 导入 lenient (extra="ignore") 忽略未知字段 + 缺失按默认值.
-- geometry 使用平台**内部格式** (与 annotation.geometry JSONB 对齐),
-  不走 LabelStudio shape 的 {type, value: {...}} 嵌套.
-- task_match oneof: display_id 优先 (全局唯一最稳); 都给则 display_id 胜出.
-
-预测导入消费 predictions[]；标注导入消费 annotations[]。mask_objects 让
-video_track_mask 的内容寻址 RLE 可跨实例迁移；scene_tracks 保留 3D
-时序对象的多段存在区间与轨迹级属性。
+文件保留导出范围内受支持的几何、模型版本、项目配置和来源。mask_objects 携带
+内容寻址的 RLE，scene_tracks 记录 3D 对象的存在区间；不是对整个项目的备份。
+历史文件的版本与身份在读取边界校验，业务代码使用同一个内部模型。
 """
 
 from __future__ import annotations
 
 from yoao_task_contract import Task as VisualTaskName
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 # ── schema 常量 ─────────────────────────────────────────────────────
 
@@ -82,11 +70,14 @@ class AnnotationEntry(BaseModel):
         if any(value is not None for value in sensor_values) and not all(
             value is not None for value in sensor_values
         ):
-            raise ValueError("camera member sensor fields must be provided together")
+            raise ValueError(
+                "相机成员须同时提供 sensor_role、sensor_visibility、"
+                "calibration_revision 和 calibration_digest"
+            )
         if self.sensor_role is not None and (
             self.geometry.get("type") != "bbox" or self.track_id is None
         ):
-            raise ValueError("camera member requires bbox geometry and track_id")
+            raise ValueError("相机成员的 geometry 须为 bbox，且必须提供 track_id")
         return self
 
     model_config = ConfigDict(extra="ignore")
@@ -118,7 +109,7 @@ class SceneTrackIntervalEntry(BaseModel):
     @model_validator(mode="after")
     def validate_frames(self):
         if self.end_frame is not None and self.end_frame < self.start_frame:
-            raise ValueError("end_frame must be greater than or equal to start_frame")
+            raise ValueError("end_frame 不能早于 start_frame")
         return self
 
     model_config = ConfigDict(extra="ignore")
@@ -204,7 +195,7 @@ class NativeJsonEnvelope(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ── ImportResult (predictions/import 端点响应) ──────────────────────
+# ── 预测与标注导入的共同回执 ───────────────────────────────────────
 
 
 class ImportErrorEntry(BaseModel):
@@ -219,34 +210,93 @@ class ImportResult(BaseModel):
     dry_run: bool = False
 
 
-# ── helper ──────────────────────────────────────────────────────────
+def read_native_json_upload(content: bytes) -> NativeJsonEnvelope:
+    try:
+        raw = json.loads(content.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise ValueError("原生 JSON 文件必须使用 UTF-8 编码。") from None
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"原生 JSON 语法错误，请检查第 {exc.lineno} 行、第 {exc.colno} 列。"
+        ) from None
+    return decode_native_json(raw)
+
+
+_FIELD_HINTS = {
+    "missing": "缺少必填字段",
+    "dict_type": "应为 JSON 对象",
+    "model_type": "应为 JSON 对象",
+    "list_type": "应为数组",
+    "string_type": "应为字符串",
+    "float_parsing": "应为数字",
+    "float_type": "应为数字",
+    "int_parsing": "应为整数",
+    "int_type": "应为整数",
+    "literal_error": "取值不在支持的选项中",
+    "uuid_parsing": "应为有效的 UUID",
+}
+
+
+def _document_validation_detail(exc: ValidationError) -> str:
+    details = []
+    for error in exc.errors(
+        include_input=False, include_context=False, include_url=False
+    )[:3]:
+        loc = error["loc"]
+        # mask_objects is keyed by uploaded object references, not schema field names.
+        if loc[:1] == ("mask_objects",):
+            loc = loc[:1]
+        path = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in loc).lstrip(
+            "."
+        )
+        kind = error["type"]
+        if kind == "value_error":
+            # Cross-field validators in this schema raise fixed explanations.
+            reason = error["msg"].removeprefix("Value error, ")
+        else:
+            reason = _FIELD_HINTS.get(kind, "请检查字段的取值和格式")
+        details.append(f"{path or '文件顶层'}：{reason}")
+    if exc.error_count() > len(details):
+        details.append(f"另有 {exc.error_count() - len(details)} 项未列出")
+    return "原生 JSON 文件结构有误：" + "；".join(details)
 
 
 def decode_native_json(raw: Any) -> NativeJsonEnvelope:
     """Decode historical 1.x identities into the current internal envelope."""
     if not isinstance(raw, dict):
-        raise ValueError("原生 JSON envelope 必须是对象")
+        raise ValueError("原生 JSON 文件的顶层必须是对象。")
     version = raw.get("schema_version")
     if not isinstance(version, str):
-        raise ValueError("原生 JSON 缺少 schema_version 字段")
+        raise ValueError(f'请提供字符串字段 schema_version，例如 "{SCHEMA_VERSION}"。')
     parts = version.split(".")
     if len(parts) != 2 or not all(part.isascii() and part.isdigit() for part in parts):
-        raise ValueError(f"schema_version {version!r} 格式非法, 应形如 '1.0'")
+        raise ValueError(
+            f'schema_version 须使用“主版本.次版本”格式，例如 "{SCHEMA_VERSION}"。'
+        )
     major = int(parts[0])
     if major not in (1, 2):
-        raise ValueError(f"不支持原生 JSON schema_version {version!r}")
+        raise ValueError(
+            "不支持此 schema_version：只能读取主版本为 1 或 2 的原生 JSON。"
+        )
     identity = "aap" if major == 1 else "yoao"
     exported_from = raw.get("exported_from", {})
     if not isinstance(exported_from, dict):
-        raise ValueError("原生 JSON exported_from 必须是对象")
+        raise ValueError("原生 JSON 的 exported_from 必须是对象。")
     if raw.get("format", "aap" if major == 1 else None) != identity:
-        raise ValueError("原生 JSON format 与 schema_version 不匹配")
+        raise ValueError(
+            f'原生 JSON 主版本为 {major} 时，文件中的 format 应为 "{identity}"。'
+        )
     if exported_from.get("platform", "aap" if major == 1 else None) != identity:
-        raise ValueError("原生 JSON platform 与 schema_version 不匹配")
+        raise ValueError(
+            f'原生 JSON 主版本为 {major} 时，exported_from.platform 应为 "{identity}"。'
+        )
     normalized = {
         **raw,
         "schema_version": SCHEMA_VERSION,
         "format": "yoao",
         "exported_from": {**exported_from, "platform": "yoao"},
     }
-    return NativeJsonEnvelope.model_validate(normalized)
+    try:
+        return NativeJsonEnvelope.model_validate(normalized)
+    except ValidationError as exc:
+        raise ValueError(_document_validation_detail(exc)) from None

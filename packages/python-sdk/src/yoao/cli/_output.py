@@ -31,6 +31,8 @@ from yoao.errors import (
     JobTimeoutError,
     StreamError,
 )
+from yoao.management_operation_models import AnnotationImportResult
+from yoao.models import ImportResult
 
 console = Console()
 err_console = Console(stderr=True)
@@ -110,6 +112,23 @@ def print_learning_result(result: Any, json_mode: bool) -> None:
 def print_json(data: Any) -> None:
     """--json 模式输出: 裸 JSON, 无任何 rich 装饰。"""
     typer.echo(json.dumps(data, ensure_ascii=False))
+
+
+def print_import_result(
+    result: ImportResult | AnnotationImportResult, item: str, json_mode: bool
+) -> None:
+    if json_mode:
+        print_json(result.model_dump(mode="json"))
+        return
+    action = "预览（未写入）：预计写入" if result.dry_run else "导入结果：已写入"
+    console.print(
+        f"{action} {result.imported} 条{item}；跳过 {result.skipped} 条，"
+        f"错误 {len(result.errors)} 项。"
+    )
+    for error in result.errors[:5]:
+        console.print(f"- {error}", style="red", markup=False)
+    if len(result.errors) > 5:
+        console.print(f"另有 {len(result.errors) - 5} 项错误未列出。")
 
 
 _SPARK_CHARS = "▁▂▃▄▅▆▇█"

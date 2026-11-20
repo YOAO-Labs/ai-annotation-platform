@@ -876,21 +876,6 @@ def _invalidated(error):
     }
 
 
-async def _mark_retry_running(attempt, session_factory):
-    """Move an admitted Job to running before any owner call reads its status."""
-    from app.services import async_job as jobs
-
-    async with session_factory() as db:
-        job = await jobs.get_job(
-            db, uuid.UUID(str(attempt.job_id)), populate_existing=True
-        )
-        if job is None:
-            raise ValueError("retry_job_missing")
-        if job.status == "pending":
-            await jobs.mark_running(db, job.id, celery_task_id=job.celery_task_id)
-            await db.commit()
-
-
 async def run_durable_prediction_retry(
     session_factory,
     attempt,
@@ -919,7 +904,6 @@ async def run_durable_prediction_retry(
                 return outcome
             raise
         try:
-            await _mark_retry_running(attempt, session_factory)
             saved = (
                 (await execution.read_result(1)).result
                 if attempt.task_id is not None

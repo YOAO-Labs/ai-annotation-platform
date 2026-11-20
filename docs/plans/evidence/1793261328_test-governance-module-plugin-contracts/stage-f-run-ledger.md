@@ -648,3 +648,74 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - `joint-prereqs-3d45da957-3/workspace-class/`：`3d45da957` 的完整类别重命名文件 6/6 通过。当前读取返回数据库分配的指南修订；历史重放的行与冻结清单中全部 43 个字段逐一匹配，函数 OID、owner、ACL 及调用方事务断言均保留。用时 7 分 28 秒，验证器退出 0，环境已退役。它关闭上一批唯一失败，不把上一批改写为 79/79。
 - `t2-early-verdict.json`：`2206f0722` 的三个定向验证器覆盖全部 T2 **44/44**，没有跳过或未执行。共库批次依次运行 owned 27、预测记录恢复 3、截图目录 15，45/45、退出 0，用时 2 小时 31 分；恢复 3 项不计入 T2 的 44 项。另两组为实装 Identity 双运行和 scale 各 1。共库验证器的数据库、存储及 bootstrap 均正常退役；外围脚本把随机运行 ID 错当路径摘要，留存证据目录时报错退出 1。按仓库身份与数据库名复核后另存两份原始回执并删除该目录，原始两个退出状态均保留。见 `t2-ordinary/postprocess-retirement.json`、`early-worktree-retirement.json`；这是同候选定向组合，不是默认门。
 - `t1-t2-prereqs-3d45da957-1`：上述前置完成后，在独立候选 `3d45da957` 启动一次未指定 `--test-file` 的完整默认验证器。与 `001b94b5e` 相比只有三个 API 镜像 COPY 输入变化，已重建、检验安装字节；剩余 15 个输入未变。`joint-prereqs-3d45da957-3/admitted-joint.json` 绑定最终制品与两个延期峰值选择器；启动记录不是通过结论。
+- 同轮终局见 `joint-prereqs-3d45da957-3/joint-verdict.json`：3,336 个不同节点中 3,052 通过、205 失败、29 错误、49 未运行、1 延期跳过。T2 的 44 项中 28 通过、14 错误、2 未运行。ordinary 未完成产品清理，后续 19 组没有运行；两个延期峰值节点中一个被标为跳过，另一个属于未运行组。
+- `observed-cancellation-provenance.json` 与 `first-failure-observations.jsonl`：两笔 `video_tracker` 取消作业分别与项目删除、数据集解除关联的真实操作及 actor 对应；执行已退役，无活跃跟踪行。首次截图清理返回 409，5 个夹具数据集未退役；202 个失败和 12 个准备错误直接报 `fixture_dataset_job_scope_unknown`。另有独立的导入通知断言把全局 relay 的两笔成功投递误判为本作业重复。两类故障分开验，保留生产守卫、取消回执、实际 Redis 消息与逐笔投递要求。
+- `joint-prereqs-3d45da957-3/administrative-retirement/`：按失败轮的容器 ID、数据库 OID、资源 owner、进程启动身份和 socket inode 退役了 22 个宿主进程、4 个容器、专属卷／网络和临时根。已移除该轮的独立工作树与私有 Python 环境。保留原 JUnit 与失败回执；未修改业务表，未把普通清理改记为成功。
+- `joint-repair-d8552d686-1/`：修复候选 `d8552d686` 按上轮的 3,336 个节点逐项核对，新删除组 8 项、ordinary 3,279 项、其余 19 组 49 项，没有删项或重复分配。3 个 API 镜像重建并验证安装字节，其余 15 个镜像的 COPY 输入未变；6,157 个宿主输入、私有 Workspace 运行时的 11 个发行包／385 个文件、20 个截图示例文件均已对账。两项严格峰值继续延期。`baseline-routing.json` 和 `preflight.json` 是分组及输入证据，不是执行结果。
+- `deletion-http-run/`：8 个删除／解除关联节点在独占数据库内全部通过，无跳过，数据库与内外存储正常退役。`ordinary-consumers-run/`：同库的 SFTP、导入通知、截图恢复、相邻 run 保护和作业摘要重投共 5 项通过；两个媒体回填用例因定向入口未传入已验明的 Workspace API 镜像而跳过。pytest 退出 0，验证器按“不得跳过”退出 1，资源正常退役，默认门未启动。`ordinary-consumers-worker-collection.json` 核对了冻结镜像摘要、制品回执和原 7 个节点的跳过标记；这仅证明可执行，不追认两个回填用例通过。
+
+## 后继阶段批准与 J1 准入核对
+
+2026-11-19，用户批准 J1、N6-S、N6-E、J2。主进程只读 `feat/backend-opt` 已出具的回执，没有在本工作树运行 T1／T2。以下联合轮路径相对于 `runtime-private/stage-f-20261112/t1-gate/`。
+
+- **已收到新准入，未收到通过终局。** `joint-repair-d8552d686-1/admitted-joint.json`（SHA256 `cc59d5436efcb43e8b1a93d2a115d2f95801aaed26cb0629e156b9b7b53c4fdf`）绑定 `d8552d686547a7b1ba43f84a5b1081ba83772219`，默认参数为空。重跑的 ordinary 前置 7/7、独占删除前置 8/8，不能替代默认轮。截至核对，最后可裁决的默认终局仍是 `joint-prereqs-3d45da957-3/joint-verdict.json`（SHA256 `d473b82c268ac44d8c2c253d4f1dabd16dd59e6265d7dba0c17052424900bdbe`）：退出 1，ordinary 清理失败。`2206f0722` 的定向 44/44 未并入它。
+- **J1 输入已核到字节。** 新准入绑定的 `inputs-d8552d686/index.json` SHA256 为 `c8f8f406d0580444ccc04f628de477b7dacd7c6623ffef4fcebde69c3540d5c0`；18 个不同镜像 ID 的 18 份制品回执均与索引摘要一致。3 项在本候选重建，11 项沿用 `254fe2a54`、4 项沿用 `d6bb9c4f4` 的相同 COPY 输入；没有声称重建全部镜像。Git 祖先关系覆盖 N4-F、D1、D2、D3、N6-K、N5 限定资格提交 `0a62314f1` 和 N5 收尾 `254fe2a54`。候选迁移目录 Git tree 为 `d31fceb8664dac6bb0b32e6fd3944e58f43e229c`；Alembic 从同一目录识别出唯一 head `bo0474`。这是源码与回执核对，不是实库迁移或 J1 组合验收。
+- **N6-S：保留哪些历史输入，哪些不能充当物理归属。** 对照原 `f0-evidence.json`（SHA256 `3d7beb85ddcbcaeeec64f7d51a8fa50c8ed957f4199fec90533df6871c7544fe`），直接读出图像、完整视频、范围视频、LiDAR 共四个旧 ZIP；四份整包和四个原始 annotations 成员的长度、SHA256 均吻合，未用当前 writer 重建。N4-F 的七个普通导出回执中，`job.result.object_key` 均不是 `_aap_managed/export/` 键，且结果内没有版本 ID。它们是格式／下载证据，不能冒充旧受管桶中的对象。J1 后须用旧分配器在专属版本桶中先保存准确 location、key、version，再用新路径实际下载、保留和精确退役；不能用邻居的相同字节代替。
+- **N6-E：旧工具只读盘点。** 在 `test-optimization` 用现有 `worktree_env.load_identity(create=False)` 核对：没有 `.worktree/identity.json`，也没有 `dev/test/e2e` 模式目录；`.worktree/t1-current` 和日志原样保留。这仅说明本 checkout 没有可据以操作的旧 owner，不证明宿主没有资源。`.env`／`.env.local` 不存在；根和 Web 的 Node 依赖、API 虚拟环境均为真实目录，未改动。另用两个临时目录产生旧工具身份，六组 checkout × mode 推导出互异的 6 个数据库名、6 个 Redis 名、60 个桶名、6 个 owner 和确认值；两次交叉身份校验均拒绝。临时目录已移除，没有创建数据库、Redis 或桶。该核对不能替代新环境普通进程、状态恢复及邻居保护。
+
+**放行条件：** `feat/backend-opt` 须交付同一候选的默认终局、逐节点 JUnit 对账和正常退役结果；若换候选，重新绑定其制品与迁移 head。主进程随后在同一集成基线上执行普通 worker／安装消费者导出、三类真实草稿恢复、精确清理后的邻居存活和 Workspace owner-transfer 权限／重放／恢复。只有这个组合门通过才从该提交并行实施两项 N6。J2 需在二者的集成提交上实跑新写、旧读、恢复和邻居保护；本次没有切换存储、迁移状态、采用日常环境或批准发布。
+
+### 旧资源归属：退役归档的离线核对
+
+- **N6-S：两个清单不能用作旧受管导出的夹具。** `retired-environments/20261112/minio/object-inventory.json` 覆盖 309 个退役存储实例（SHA256 `18d346c83e76d6ff5b61808787e4a54ea4dbb667d2cab1621c0f521fe1093bb7`）；`t1-gate-1-retirement/fixture-object-versions.json` 带有 61 条 `Key`＋`VersionId`（SHA256 `e7ef3400058465d5d26bc72016d4c2368d1435d5f6f3f75689bf527af1868993`）。两份原始清单均不含 `_aap_managed/export/`，不能把其他键的版本配给历史 ZIP。这只描述这两份清单，不推断其他存储中没有旧对象。
+- **N6-E：真实旧 manifest 可作为切换时的对照。** 从 `retired-environments/20261112/worktrees/worktree-state.tar.gz`（24 个 e2e）和 `t1-gate-1-retirement/runtime-state.tar.gz`（1 个 test）直接配对读取 `identity.json` 与 `resources.json`，不解包到工作树、不连接服务。旧 `worktree_env.topology` 在各自保存的 root 上逐字段复现 25/25 份资源清单；换成本 checkout 的 root 后，25/25 个身份均被拒绝。25 个数据库名、25 个 Redis 名和 250 个桶名在各自类别内无重复。按 `(id, mode, root)` 排序、对 `resources` 数组作紧凑 JSON 编码（ASCII、键排序、无尾换行）所得 SHA256 为 `fe286e5844276890ad8e32a54334b3bb631eb04697c7670952d6fe5f708cb7df`。这可校验历史对照字节，不授予恢复或清理这些归档实例的权限。
+
+### 默认联合轮终局 d8552d686
+
+- **T1／T2 均未通过。** `joint-repair-d8552d686-1/joint-verdict.json`（SHA256 `636721bbbdc64e03f129b0f4d340d96657cd280e73a6e05d6b0839c5c626c6ae`）逐项对账：默认收集的 3,336 项与前轮相同，本轮 3,225 通过、39 失败、14 错误、57 未运行、1 延期跳过。前轮失败或错误的节点中，有 190 项本轮通过。T2 原 44 项中 28 通过、14 错误、2 未运行。ordinary 的产品清理失败，验证器退出 1，后续 20 组没有运行。定向 8/8 和 7/7 不替代默认结果，J1 未放行。
+- **耗时。** `default-duration-and-triage.json`：整轮 3 小时 57 分 53 秒，收集阶段 9 分 47 秒，ordinary 阶段 3 小时 48 分 06 秒。ordinary 的 JUnit 用例耗时合计 3 小时 38 分 26 秒，其中媒体种子身份测试文件用时 45 分 02 秒、Identity 端到端测试文件 27 分 32 秒。
+- **清理失败与其他断言分开。** `ordinary-final-db-observation.json`、`blocked-job-provenance.json` 记录了失败库的只读快照：44 个 `batch_predict` 和 1 个 `prediction_retry` 命中实际清理守卫，均没有可识别的夹具出生数据集范围；9 个已发布数据集中有 2 个没有媒体退役证明。这个快照证明终局时谁阻塞清理，不证明它们是每次 409 的首次原因，也不解释其他独立断言。
+- **失败环境已删除，产品清理不追认为通过。** `administrative-retirement/receipt.json` 和 `administrative-retirement/worktree.json` 记录了按身份清退的 22 个宿主进程、4 个容器、专属卷和网络、临时运行根，以及该轮的独立工作树和私有 Python 环境。保留失败回执和 JUnit，未修改业务数据或放宽守卫。
+
+### 预测作业生命周期与截图清理 a1f84a8f4
+
+- `prediction-lifecycle-a1f84a8f4-1/producer-attribution.json` 按上轮 45 个作业 ID 对照 DB 快照、payload 和消费者代码：39 个带批量请求摘要的作业、1 个无数据集范围的失败重试、2 个 Workbench 图像输入作业、1 个带视频清单的作业，以及 2 个通知冷恢复样本。这是终局按来源分组，不是每个历史测试的首次故障轨迹。
+- 多连接预测和输入测试在提交前分配准确的作业 ID；消费者退出后只终止并删除该 ID，通过正常数据库触发器保留读取回执。通知冷恢复需要保留历史并验证全体管理员收件人，放入独占库；其余预测、输入与截图用例仍共库。按原 3,336 个节点核对，只有通知冷恢复的 1 项改组；另选 1 个不在默认集合内的未证明范围反例做定向对照。未改产品 SQL、权限或默认选择器。冻结候选的 18 个镜像中 5 个重建，6,161 个宿主输入已核对。
+- 通知独占组 `notifications/verdict.json`：冷恢复 1/1。原库为两位管理员生成两条持久通知，备份恢复后重新接手投递，WebSocket 收到恢复后新产生的事件。只读轨迹确认两条已完成的示例作业一直保留到整库正常销毁，未删历史来换取通过；外围存储也已退役。
+- 共库组 `shared/verdict.json`：10/10，18 分 40 秒。两条实际写入路径共留下 4 条可读结果回执；清理作业时，同项目的另一个 pending 作业保持原状。失败重试保留 `failed` 回执，中断的重试按正常生命周期退为 `abandoned`；两个 Workbench 图像输入和一个视频清单保留原作业 ID，而临时作业行已移除。守卫仍拒绝范围未知的作业。截图运行 A 清理后，B 的原件仍可读；B 随后独立清理，两个运行均为 `retired`。10 个节点逐一比较准备后与清理后的作业集合，均无额外作业。
+- 两个验证器均退出 0，无失败、跳过或清理错误。PostgreSQL、存储、独立检出和私有 Python 环境均已退役。`chain-verdict.json`（SHA256 `243d310b4263b27afb162fa13e1c28532ba9d24279a884b64b4233b53298b1ce`）绑定逐节点 JUnit、只读轨迹和退役结果；`checkout-retirement.json` 记录检出清理。本轮不是默认全量，不能替代 T1／T2 终局。上轮拒绝无准入作业的旧投递、取消后已捕获结果的处理、输入未就绪时的重试状态等断言仍须分别核对。
+
+### 数据集回填与开放邻居 3badbc141
+
+- 把 `d8552d686` 的失败日志、两份 `owned-cleanup` 回应和数据集快照按运行 ID 对上：尺寸回填的 `f4d7b90d…` 和缩略图回填的 `c49bd936…` 都属于邻居 B，不属于正在清理的 A。两个 A 均为 `sealing` 且媒体证明为 `true`；两个 B 均为 `open`，媒体证明按合同返回 `NULL`。已发布的 9 个数据集没有一项返回 `false`。这两个 `NULL` 不证明泄漏，也不授权提前清理 B。
+- 两种回填上轮都先因活动原件读取返回 `409 original_reader_pending`（预期），再在释放读者、关闭已安装 worker 后返回 `409 fixture_dataset_job_unsettled`（失败）。终局快照不能代替每次拒绝发生时的作业清单。`backfill-neighbors-3badbc141-1/historical-attribution.json` 保留完整的运行、数据集、作业 ID 及日志摘要。
+- 冻结 `3badbc141` 后在同一独占库先执行真实预测写入，再依次执行尺寸、缩略图回填。3/3 通过，无跳过；总计 14 分 06 秒，其中三个用例合计 6 分 36 秒。两次在原件读者仍持有文件时都因 `original_reader_pending` 拒绝清理；释放后 A 正常退役。读过的 1 个、6 个输出版本分别保留准确的 `absent` 回执。A 退役后，B 仍为 `open`，其已发布数据集没有提前获得退役证明，原版本字节仍可读；显式清理 B 后两个子运行和父运行才全部退役。
+- 两条链均保留无关的待处理点云跨帧及预测重试作业、其原数据集范围，以及前置预测的两条结果回执。未改生产清理逻辑、授权或默认测试分组。`backfill-neighbors-3badbc141-1/chain-verdict.json`（SHA256 `63ed3d6c7229c3bcdbf3385f7174786fd51ff23b6a18291d47283f3d6a2235d0`）绑定 JUnit、同库只读观测和正常清理；`checkout-retirement.json` 记录独立检出和私有 Python 环境已移除。没有重跑默认全量。
+
+### 联合验收前置合同与默认准入
+
+- `946e99440` 把失败预测重试的开始交回 Jobs 原生事务：等待原输入时不写 `started_at`，不扣重试次数，不发送开始通知。批量投递必须携带已受理的 Job；取消先提交时，即使模型输出已保存也不发布候选；候选事务先提交时保留原预测及回执。没有新增兼容入口。
+- 修正三个验收前提：结果执行器从只读镜像使用现行 CLI 和已核实的 PostgreSQL 容器地址；协作取消观察实际选中的嵌入式传输及 `terminate=False`；分页和通知断言只比较本次记录及实际事务可见性。全局 Mask GC 队列、视频输入清扫和前向迁移分别使用独占库，不清空共库历史、不放宽拒绝条件。
+- `joint-contracts-20261120-1/historical-coverage.json` 对上轮 53 个失败／错误和 57 个未运行节点逐项归档。默认选择器仍为原来的 428 项；三个节点改名，一项新增以覆盖候选已提交再取消。按原集合推导本轮应收集 3,337 项，T2 仍为原 44 项；该数量须由实际默认收集独立核对。
+- 冻结输入为 18 份镜像回执、6,161 个宿主文件和独立安装的 385 个 Workspace 文件；重建 3 个 API 镜像，另 15 个镜像的 COPY 内容未变。`inputs-946e99440/index.json` SHA256 为 `8cee8bba7a4bc7bfedb21637ac61020a84abeb1701d0f830e74cd07efb432bfa`。仍只延期原来的两项内核峰值，不改完整资格口径。
+- `946e99440` 的四个隔离选集：前向迁移 1/1、视频输入 13/13、Mask GC 与物理回收 20/20、其余合同 28/30；共 62 通过、2 失败、0 跳过。四个数据库和对象存储均正常退役，冻结检出与私有解释器已移除；该候选未获准启动默认轮。
+- 最后两项并非同一根因：收件箱对超级管理员无条件放行，已删除项目的两个作业仍计入总数；终态通知用例则在调用方显式 `flush()` 后才取样。`a1c424c57` 通过前向迁移 `bo0475` 在收件箱核对作业所属项目仍存在；用例比较删除前后准确的通知 ID、总数和未读数。终态通知改在原生写入刚返回时观察同一事务里的作业状态与通知，再核对提交后的最终状态。
+- `a1c424c57` 在 `bo0475` 的可销毁 PostgreSQL 上复验 19/19，零跳过，耗时 7 分 25 秒：覆盖两个原失败、事务回滚与并发去重、导出与全局作业、两种私有迁移的角色和投递边界。15 项属于默认集合，另 4 项是补充对照。受限 API、Node 合同和私有 helper 拒绝均通过，数据库及对象存储正常退役。`joint-contracts-20261120-2/notification-closure/verdict.json` SHA256：`20076e3a74c7fe044237367222271669800bd98742f68c6aa6d376ea5c912e5d`。
+- 新候选重建 3 个 API 镜像，另 15 个镜像逐项核对 COPY 输入未变；18 份镜像身份、6,163 个宿主输入及独立安装的 385 个文件通过预检。`joint-contracts-20261120-2/inputs-a1c424c57/index.json` SHA256：`0b0ea0ae71b2e4a5114b1609fd78df3fa0a8fbadb0ff7a171316a0727ca878c1`。
+- `2026-11-19 18:19:41 UTC`，同一冻结检出启动默认 `t1-t2-prereqs-a1c424c57-1`，未传 `--test-file`。验收器自己的 `t1-t2-prereqs-a1c424c57-1.json` 首次写入 `running / default-collection`，含全部 428 个选择器、25 组。这是启动回执，不是 3,337 项的实际收集、通过或清理回执。两项严格内核峰值仍延期，J1 未开放。
+
+### 默认联合轮终局 a1c424c57
+
+- 2026-11-19 18:19:41–22:13:00 UTC。默认轮实际收集 3,337 项，和预期逐项一致：3,211 通过、19 失败、14 错误、92 未运行、1 项延期跳过。`ordinary` 的产品清理退出 1，后续 24 组未运行。T2 的原 44 项为 28 通过、截图目录 14 项出错、2 项未运行。两项内核峰值分别是「延期跳过」和「未运行」，均未取得资格。`joint-contracts-20261120-2/joint-verdict.json` SHA256：`ff2369b86baa6bc4988543c9d9f2edb7f171a9477030fa79f3f7ff926f3332ea`。
+- 验收器本身耗时 3 小时 53 分：收集与收集环境清理约 10 分钟，`ordinary` 约 3 小时 43 分。JUnit 累计用例时间为 213.8 分钟，其中媒体种子身份 45.9 分钟、Identity 跨运行 27.7 分钟、Workspace 跨运行 20.1 分钟。日常修复按有共同状态的生产者和消费者定向复验；不需要每改一处就跑默认轮。
+- 在清退前，用数据库身份与出生记录关联了第一个截图 409。没有未退役的阻塞作业；唯一未结算的是导入预算用例留下的原件写许可 `a59a7eae…`。其 `a.png` 已写入确定版本，未开始 Source 校验，导入 Job 却已被测试拆除。截图 run 因 `operations` 无法退役，所在位置进入 `stopped`；两个后续回填在创建夹具时被 `storage_maintenance` 拒绝。原始只读证据：`joint-contracts-20261120-2/causal-attribution.json`，SHA256 `c17c00f5b5007b604806df3a25d3b00f119bb20565350efcb2f15a28e8c72736`。
+- Mask GC 的一个真实删除名额被更早提交的测试探针占用：其 ETag 为 `gc-test-etag`、大小 123，物理结果为 `missing`，不是本用例应删除的对象。视频写入容器另有两个独立失败：bbox 在重启后的首个回执请求收到 `execution_busy`；mask 在最后一个模型窗口之前收到 `model_execution_unavailable`，这次没有更细的拒绝回执。
+- 保存 JUnit、夹具拒绝记录和物理快照后，按出生记录清退了 22 个宿主进程、4 个容器及其专属存储、临时根、冻结检出和私有解释器。`administrative-retirement/receipt.json` 和 `checkout-retirement.json` 位于同一证据目录；行政清退没有改写原验收失败。
+- `f6e349674` 保留了杀掉导入进程后许可仍在的断言，再等待真实 30 秒租约到期，由 Source 结算。用例按原件的同一版本读回图片，逐字节比较内容，并核对用量账本和许可释放。GC 仍需原生接口返回确已登记一项，只回滚合成探针的事务；视频仍用真实容器重启、真实终态续租拒绝和每种几何 16 次受限并发回执读取。未改生产代码、默认分组或通过标准。
+
+### 同库前置复验与默认轮重启 f6e349674
+
+- 在同一可销毁数据库、同一对象存储中，按上轮默认收集顺序复验全部 33 个失败／错误及 11 个相关生产者和对照：44/44 通过、零跳过，退出码 0；数据库、对象存储、bootstrap 和临时根均正常清理。这 44 项是普通组的前置复验，**不是 T2 的 44 项**。耗时 1 小时 48 分 22 秒；15 个真实截图目录用例累计 91.1 分钟。回执：`joint-contracts-20261120-3/shared-ordinary/verdict.json`，SHA256 `418a421d5fdd5b5fd87efaf2ea9190d276cc5240ae0e61c7708d40f3484d6930`。
+- 中断导入在读回原件并结算后退出；后续截图夹具、两种回填和 worker 信号均未再被旧许可阻塞。合成 GC 探针后，真实节点按预算删除了目标对象。bbox 与 mask 均取得真实 `job_not_active` 终态续租拒绝，重启后各读回 16 份相符回执，实际并发峰值均为 4；没有放宽拒绝码、重试预算或验证条件。
+- 同一冻结检出的 18 份镜像身份、6,163 个宿主输入、独立安装的 385 个 Workspace 文件通过预检。重建 3 个 API 镜像，其余 15 个的 COPY 输入不变。`inputs-f6e349674/index.json` SHA256：`69d3d4bf8988fb06562f4649d57883e9d9097535f694824535d90a7ea787de53`。
+- 2026-11-20 00:16:43 UTC，`t1-t2-prereqs-f6e349674-1` 的验证器写入 `running / default-collection`：未传 `--test-file`，428 个默认选择器、25 组。`joint-contracts-20261120-3/default-start.json` 绑定了实际报告和首次观测。未把定向通过数转入默认轮；两项严格内核峰值仍延期，J1 未开放。

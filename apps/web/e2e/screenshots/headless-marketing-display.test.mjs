@@ -12,7 +12,7 @@ import {
   reserveDisplay,
   resolveHeadlessTools,
   withHeadlessDisplay,
-} from "./headless-marketing-display.mjs";
+} from "../../scripts/headless-marketing-display.mjs";
 
 function temporary(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "headless-display-test-"));
@@ -298,7 +298,7 @@ test("display crash during capture fails and cleans the capture process", async 
 });
 
 test("read-only selector previews never probe headless tools or require services", () => {
-  const cli = fileURLToPath(new URL("./run-recording-capture.mjs", import.meta.url));
+  const cli = fileURLToPath(new URL("../../scripts/run-recording-capture.mjs", import.meta.url));
   const env = { ...process.env, PATH: "/missing-headless-tools", SCREENSHOT_DATABASE_URL: "" };
   const list = execFileSync(process.execPath, [cli, "--headless-display", "--list"], {
     env,

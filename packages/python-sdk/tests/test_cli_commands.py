@@ -516,23 +516,39 @@ def test_datasets_link_sync(respx_mock):
 # ---------- predictions ----------
 
 
-def test_predictions_import(respx_mock, tmp_path):
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_predictions_import(respx_mock, tmp_path, dry_run):
     pid = str(uuid4())
     f = tmp_path / "result.json"
     f.write_text("{}")
     route = respx_mock.post(f"{API}/projects/{pid}/predictions/import").mock(
         return_value=httpx.Response(
-            200, json={"imported": 5, "skipped": 1, "errors": [], "dry_run": False}
+            200,
+            json={
+                "imported": 5,
+                "skipped": 1,
+                "errors": [
+                    {
+                        "task_match": {"file_path": "frame[red].png"},
+                        "reason": "task not found",
+                    }
+                ],
+                "dry_run": dry_run,
+            },
         )
     )
-    result = runner.invoke(
-        app, ["predictions", "import", pid, str(f), "--format", "native_json"], env=ENV
-    )
+    args = ["predictions", "import", pid, str(f), "--format", "native_json"]
+    if dry_run:
+        args.append("--dry-run")
+    result = runner.invoke(app, args, env=ENV)
     assert result.exit_code == 0
     params = route.calls.last.request.url.params
     assert params["format"] == "native_json"
-    assert params["dry_run"] == "false"
-    assert "imported=5" in _plain(result.output)
+    assert params["dry_run"] == str(dry_run).lower()
+    summary = _plain(result.stdout.splitlines()[0])
+    action, opposite = ("预计写入", "已写入") if dry_run else ("已写入", "预计写入")
+    assert f"{action} 5" in summary and opposite not in summary
+    assert "frame[red].png" in _plain(result.stdout)
 
 
 def test_predictions_import_json_dry_run(respx_mock, tmp_path):

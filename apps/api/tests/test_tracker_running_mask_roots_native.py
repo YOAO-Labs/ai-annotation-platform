@@ -103,7 +103,9 @@ async def test_running_masks_survive_expired_grace_and_transfer_to_staged_roots(
                 {"key": key, "past": datetime.now(timezone.utc) - timedelta(days=3)},
             )
             await _stage_one_old_candidate(db, key, expected_staged=1)
-            await db.commit()
+            # This last probe uses a synthetic listing, not a physical object.
+            # Its staged intent must not become work for the next real GC sweep.
+            await db.rollback()
 
 
 async def test_root_registration_refuses_changed_owner_and_cleanup_login(test_engine):

@@ -11,8 +11,8 @@ import {
   parseClip,
   readArchive,
   selectArchiveAssets,
-} from "./media-derivation.mjs";
-import { recordFlowArtifact } from "../e2e/screenshots/_helpers/flow-manifest.ts";
+} from "../../scripts/media-derivation.mjs";
+import { recordFlowArtifact } from "./_helpers/flow-manifest.ts";
 
 function fixture(root) {
   const run = path.join(root, ".artifacts/recordings/run");
@@ -379,7 +379,7 @@ test("normalized privacy masks protect encoded video, GIF, and poster pixels", (
           entries: {
             [assetId]: {
               asset_id: assetId,
-              source: "apps/web/scripts/media-derivation.test.mjs",
+              source: "apps/web/e2e/screenshots/media-derivation.test.mjs",
               sha256,
               captured_commit: "test-commit",
               source_worktree_dirty: false,

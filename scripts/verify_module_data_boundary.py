@@ -505,13 +505,13 @@ FUNCTION_BODY_ARTIFACTS = {
         signature: "0421_notification_job_scope.sql"
         for signature in (
             "yoao_notifications_v1._notification_unknown_job_scope(uuid)",
-            "yoao_notifications_v1._visible_inbox_rows(uuid,text)",
             "yoao_notifications_v1.read_state_command(jsonb)",
             "yoao_notifications_v1.read_state_command_scoped(jsonb)",
             "yoao_notifications_v1.delete_command(pg_catalog.jsonb)",
             "yoao_notifications_v1.delete_command_scoped(jsonb)",
         )
     },
+    NOTIFICATION_INBOX_PRIVATE_HELPER: "0475_inbox_retained_job_scope.sql",
     **{
         signature: "0374_workspace_guide_publication.sql"
         for signature in (
@@ -2827,12 +2827,25 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_identity_e2e_live.py": "identity-e2e",
     "tests/test_identity_recording_live.py": "recording",
     "tests/test_identity_seed_selection_live.py": "scale-seed",
+    # The restore fixture retains terminal Jobs and delivers to all active admins.
+    "tests/test_notifications_module_assembly_live.py": "notifications-restore",
     "tests/test_media_seed_identity_live.py": "media-seed",
     "tests/test_seed_parent_operator_live.py": "parent-seed",
     "tests/test_workspace_seed_operator_live.py": "workspace-seed",
     "tests/test_workspace_import_cli_live.py": "workspace-import",
     # This worker commits unscoped Jobs that fixture teardown must not ignore.
     "tests/test_workspace_video_tracker_worker_live.py": "workspace-video-tracker",
+    # These HTTP cases deliberately retain cancellation Jobs after deleting their Tasks.
+    "tests/test_video_deletion_retirement_http_native.py": "video-deletion-http",
+    # This forward migration requires a drained system with no native retry attempts.
+    "tests/test_prediction_retry_legacy_migration.py": "pre-retry-migration",
+    # Both claimers and sweep counters cover their whole owner lane, not a Task.
+    "tests/test_video_tracker_input_lifecycle.py": "video-input-lanes",
+    # Native fences and delete-order proofs need an initially empty global GC
+    # queue. The live lost-reply case runs last and commits its real receipt.
+    "tests/test_mask_gc_native.py": "mask-gc-fences",
+    "tests/test_mask_gc_protocol_native.py": "mask-gc-fences",
+    "tests/test_mask_gc_live.py": "mask-gc-fences",
     "tests/test_native_pyramid_lifecycle_live.py": "native-lifecycle",
     # These destructive fixtures advance the whole store's retention cutoff.
     "tests/test_mask_gc_collection_live.py": "mask-gc-collection",
@@ -5713,6 +5726,7 @@ def _installed_function_body_sha256(
     base_sql_name = {
         "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
         "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
+        "0475_inbox_retained_job_scope.sql": "0421_notification_job_scope.sql",
     }.get(sql_name, sql_name)
     if (
         signature
@@ -7278,7 +7292,7 @@ def main(
             CONTAINER_LABEL: CONTAINER_LABEL_VALUE,
         },
         "contract_artifacts": {
-            "sql": list(SQL_ARTIFACTS),
+            "sql": [*SQL_ARTIFACTS, "0475_inbox_retained_job_scope.sql"],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
         "database": None,

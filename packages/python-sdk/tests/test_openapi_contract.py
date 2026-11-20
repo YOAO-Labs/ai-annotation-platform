@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import json
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -197,6 +199,21 @@ def _snapshot() -> dict:
     return json.loads(SNAPSHOT.read_text(encoding="utf-8"))
 
 
+def test_generated_catalog_is_current_and_deterministic():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(PACKAGE_ROOT / "scripts/generate_operation_catalog.py"),
+            "--check",
+        ],
+        cwd=PACKAGE_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stderr == ""
+
+
 @pytest.mark.parametrize(
     "prefix", ["/api/v1/videos/{dataset_item_id}", "/api/v1/tasks/{task_id}/video"]
 )
@@ -339,7 +356,6 @@ def test_extract_sdk_operations_scans_optional_domain_modules(monkeypatch, tmp_p
     }
 
 
-@pytest.mark.skipif(not SNAPSHOT.is_file(), reason="OpenAPI snapshot is monorepo-only")
 def test_client_call_sites_exist_in_snapshot():
     paths = _snapshot()["paths"]
     missing = [
@@ -350,7 +366,6 @@ def test_client_call_sites_exist_in_snapshot():
     assert not missing, f"SDK call sites missing from OpenAPI snapshot: {missing}"
 
 
-@pytest.mark.skipif(not SNAPSHOT.is_file(), reason="OpenAPI snapshot is monorepo-only")
 def test_api_coverage_manifest_classifies_watched_operations():
     spec = _snapshot()
     manifest = tomllib.loads(COVERAGE_MANIFEST.read_text(encoding="utf-8"))
@@ -402,7 +417,6 @@ def test_api_coverage_manifest_classifies_watched_operations():
     )
 
 
-@pytest.mark.skipif(not SNAPSHOT.is_file(), reason="WebSocket router is monorepo-only")
 def test_public_stream_channels_match_root_mounted_router():
     from yoao.discovery import _catalog
 

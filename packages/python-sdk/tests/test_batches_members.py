@@ -337,6 +337,7 @@ def test_download_batch_voc_posts_authenticated_query_and_streams(
         ),
         (f"{BID}/export", lambda c: c.batches.export(PID, BID)),
     ],
+    ids=("transition", "reject", "reset", None, None, None, None, None, "export"),
 )
 def test_batch_workflow_maps_permission_error(client, respx_mock, path, call):
     respx_mock.post(f"{API}/projects/{PID}/batches/{path}").mock(

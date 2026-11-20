@@ -1150,39 +1150,71 @@ async def test_import_annotations_source_default_manual(
 
 
 @pytest.mark.parametrize("kind", ["annotations", "predictions"])
+@pytest.mark.parametrize(
+    "selector,version,file_format,platform,status",
+    [
+        ("native_json", "1.0", None, None, 200),
+        ("native_json", "2.0", "yoao", "yoao", 200),
+        ("aap_json", "1.0", None, None, 422),
+        ("native_json", "2.0", "aap", "yoao", 422),
+        ("native_json", "1.0", None, "yoao", 422),
+        ("native_json", "3.0", "yoao", "yoao", 422),
+    ],
+)
 async def test_native_import_admission_and_empty_document_identity(
+    httpx_client,
+    super_admin,
+    db_session,
+    kind,
+    selector,
+    version,
+    file_format,
+    platform,
+    status,
+):
+    # A rejected upload may roll back its transaction; each case needs its own actor.
+    user, token = super_admin
+    project, _ = await _seed_project_with_tasks(db_session, user.id)
+    payload = {"schema_version": version, "tasks": []}
+    if file_format is not None:
+        payload["format"] = file_format
+    if platform is not None:
+        payload["exported_from"] = {"platform": platform}
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/{kind}/import",
+        params={"format": selector, "dry_run": "true"},
+        files=_upload_files(json.dumps(payload).encode()),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == status, response.text
+    if status == 200:
+        assert response.json()["imported"] == 0
+
+
+@pytest.mark.parametrize("kind", ["annotations", "predictions"])
+async def test_native_import_reports_field_without_echoing_uploaded_data(
     httpx_client, super_admin, db_session, kind
 ):
     user, token = super_admin
     project, _ = await _seed_project_with_tasks(db_session, user.id)
-    headers = {"Authorization": f"Bearer {token}"}
-    url = f"/api/v1/projects/{project.id}/{kind}/import"
-    historical = {"schema_version": "1.0", "tasks": []}
-    current = {
+    # Both the invalid annotation and the dynamic object key are user content.
+    marker = "private-review-note"
+    payload = {
         "schema_version": "2.0",
         "format": "yoao",
         "exported_from": {"platform": "yoao"},
-        "tasks": [],
+        "mask_objects": {marker: "not an object"},
+        "tasks": [
+            {"task_match": {}, "annotations": [{"attributes": {"note": marker}}]}
+        ],
     }
-    for payload in (historical, current):
-        response = await httpx_client.post(
-            url,
-            params={"format": "native_json", "dry_run": "true"},
-            files=_upload_files(json.dumps(payload).encode()),
-            headers=headers,
-        )
-        assert response.status_code == 200, response.text
-        assert response.json()["imported"] == 0
-    for selector, payload in (
-        ("aap_json", historical),
-        ("native_json", {**current, "format": "aap"}),
-        ("native_json", {**historical, "exported_from": {"platform": "yoao"}}),
-        ("native_json", {**current, "schema_version": "3.0"}),
-    ):
-        response = await httpx_client.post(
-            url,
-            params={"format": selector, "dry_run": "true"},
-            files=_upload_files(json.dumps(payload).encode()),
-            headers=headers,
-        )
-        assert response.status_code == 422, response.text
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/{kind}/import",
+        params={"dry_run": "true"},
+        files=_upload_files(json.dumps(payload).encode()),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert "tasks[0].annotations[0].geometry" in detail and "mask_objects" in detail
+    assert marker not in detail

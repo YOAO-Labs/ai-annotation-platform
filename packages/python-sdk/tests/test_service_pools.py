@@ -271,6 +271,21 @@ def test_topology_and_runtime_snapshot(client, respx_mock):
             lambda c: c.service_pools.runtime_snapshot(),
         ),
     ],
+    ids=(
+        None,
+        None,
+        "get",
+        "update",
+        "delete",
+        "add-member",
+        "remove-member",
+        "drain-member",
+        "resume-member",
+        "preview-drift",
+        "accept-drift",
+        None,
+        None,
+    ),
 )
 def test_service_pool_operations_map_conflict(client, respx_mock, method, path, call):
     getattr(respx_mock, method)(f"{API}{path}").mock(

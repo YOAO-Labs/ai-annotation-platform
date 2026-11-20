@@ -592,6 +592,7 @@ def test_oversized_screenshot_is_rejected_before_requests(client, respx_mock, tm
             f"/bug_reports/{REPORT_ID}/attachments/download",
         ),
     ],
+    ids=("comment-attachment", "bug-report-attachment"),
 )
 def test_signed_download_status_body_is_not_exposed(
     client, respx_mock, tmp_path, resource, parent, key, path
@@ -629,10 +630,11 @@ def test_bug_response_preserves_unknown_server_status(client, respx_mock):
 @pytest.mark.parametrize(
     "resource,route,metadata",
     [
-        (
+        pytest.param(
             "comments",
             f"/annotations/{ANNOTATION_ID}/comment-attachments/upload-init",
             {"storage_key": "comment-attachments/u/a.png"},
+            id="comment-attachment",
         ),
         (
             "bug_reports",

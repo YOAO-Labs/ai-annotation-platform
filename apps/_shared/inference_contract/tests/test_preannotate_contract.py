@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
 import subprocess
 import sys
 import uuid
@@ -33,26 +31,15 @@ def test_shared_saved_pipeline_contract_canonicalizes_task_alias():
 
 
 def test_shared_contract_import_does_not_import_inference_provider():
-    shared_root = Path(__file__).resolve().parents[1]
-    repo_root = shared_root.parents[2]
-    paths = [
-        shared_root / "src",
-        repo_root / "apps/_shared/task_contract/src",
-    ]
-    env = os.environ.copy()
-    inherited = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = os.pathsep.join(
-        [*(str(path) for path in paths), *([inherited] if inherited else [])]
-    )
     result = subprocess.run(
         [
             sys.executable,
+            "-I",
             "-c",
             "import sys; from yoao_inference_contract import PreannotateRequest; "
             "assert PreannotateRequest.__name__ == 'PreannotateRequest'; "
             "assert 'aap_inference' not in sys.modules",
         ],
-        env=env,
         capture_output=True,
         text=True,
         check=False,

@@ -328,7 +328,9 @@ yoao members preview-role <project-id> <member-id> --role reviewer   # 只读预
 yoao members change-role <project-id> <member-id> --role reviewer \
   --expected-version 2 --preview-token <tok> --reason "重新分配职责" --yes
 
-yoao predictions import <project-id> result.json --format native_json [--dry-run]
+yoao predictions import "$PROJECT_ID" result.json --dry-run  # 预览待审预测；去掉 --dry-run 即追加
+yoao annotations import "$PROJECT_ID" result.json --dry-run  # 预览正式标注；实际写入需确认
+yoao predictions purge "$PROJECT_ID" --dry-run               # 统计外部导入预测，不删除
 yoao jobs wait <job-id>                             # 进度条跟随到终态
 yoao export project <project-id> --target native_json --out out.zip
 
@@ -388,14 +390,13 @@ yoao --error-format json learning runs create --project "$PROJECT_ID" --body - -
 
 ## 测试
 
+从平台仓库根目录运行与 CI 相同的发行物检查（Python 3.11、`uv`，以及 `.artifacts/python/plugin-sdk/` 中经平台清单校验的运行时 wheel）：
+
 ```bash
-pip install -e '.[test]'
-pytest
+python3.11 scripts/test-sdk-distributions.py "$(mktemp -d)/sdk-reports"
 ```
 
-其中 `tests/test_openapi_contract.py` 会从 SDK 资源模块的真实 HTTP/流式调用点提取 method/path，与
-`apps/api/openapi.snapshot.json` 对账，并检查 `api-coverage.toml` 中全量 API 的端点分类
-(仅 monorepo 内生效)。
+核心安装直接使用 sdist，不装 CLI 依赖也能离线查询能力；完整测试使用从该 sdist 构建的非 editable wheel。可携带用例和冻结 JSON 夹具取自源码包，在仓库外执行。只有文档片段和 OpenAPI 对账留在仓内；缺少文档、快照或生成目录不同步都会失败，不会以跳过代替。报告目录含各自的 JUnit、仓内收集清单和制品 SHA-256。
 
 ## 更多文档
 

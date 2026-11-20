@@ -28,7 +28,7 @@ last_reviewed: 2026-10-26
 | ---------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | 后端纯规则       | 授权谓词、作业终态分派、schema 归一等纯函数                | `cd apps/api && uv run pytest <file>`                                                                                                                                                                                                                            | 无需数据库                    |
 | 后端集成         | 事务、行锁、成员并发、通知顺序、在线学习控制面             | `pnpm dev:worktree -- exec --mode test -- bash -lc 'cd apps/api && .venv/bin/python -m pytest'`                                                                                                                                                                  | worktree 自有 `aap_wt_*_test` |
-| 训练执行器       | 训练配方执行、Trial 调度、评估、权重回传与脱敏             | `cd apps/training-executor && uv run pytest`                                                                                                                                                                                                                     | 沙盒临时目录与受控假数据      |
+| 训练执行器       | 训练配方执行、Trial 调度、评估、权重回传与脱敏             | `cd apps/training-executor && uv run --with pytest --with pytest-asyncio pytest`                                                                                                                                                                                 | 沙盒临时目录与受控假数据      |
 | 站点存储 Agent   | 只读 `openat2` 原语、站点协议契约、本地 TLS 配对与断网恢复 | `PYTHONPATH=apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src apps/api/.venv/bin/python -m pytest apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests apps/storage-agent/tests -p no:cacheprovider` | 临时受控目录与本机 TLS 夹具   |
 | 前端纯规则       | URL 编解码、几何换算、工作台与训练状态机                   | `pnpm --filter web test <file>`                                                                                                                                                                                                                                  | 无需后端                      |
 | 前端页面集成     | 页面装配与 API 边界契约                                    | `pnpm --filter web test <page-dir>`                                                                                                                                                                                                                              | MSW                           |
@@ -48,6 +48,8 @@ last_reviewed: 2026-10-26
 
 机器可读归属集中在 `scripts/test-suites.json`：ML CPU runner 与 planner 共用 `ml_cpu`，CI owner 矩阵从 `owner_contracts` 动态派生。`node scripts/test-suite-inventory.mjs` 发现包含 Python 测试源码的独立平台测试根并拒绝未登记项；仅剩字节码的旧目录和 `plugins/` 下的独立仓库不属于平台选集。`other_test_roots` 明确其入口、资源与未接入常规 CI 的原因。登记与 `--collect-only` 均不等于执行通过。owner 入口分别上传实际 JUnit，不能合并成虚构的全仓成功计数。
 
+协议文档的 echo／mock-v2、站点 Agent 组合和训练执行器各自产生并上传 JUnit，工件分别为 `echo-example-test-results`、`mock-v2-example-test-results`、`storage-agent-test-results`、`training-executor-test-results`。两个示例用各自的环境，即使前者测试失败也执行后者。训练 CI 校验官方预览权重失败时，任务失败，其余 CPU 用例仍运行并记录结果；缺少执行器依赖而未运行的用例不算通过。
+
 结果消费者同时核对实际 case 记录与统计数，空报告不能凭通过计数变绿。Mask native／readonly 与独立源码 Worker 使用 `E2E_REQUIRE_ALL_TESTS=1`，选集内 skip、not-run、错误、未执行或计数不符均失败；JSON 状态与 Markdown 最终状态保持一致。模块边界验证还核对 collection 的 nodeid 与真实 JUnit，不能用另一个同文件 case 或旧报告冒充当前选择。
 
 模块边界验证在精确销毁物理资源成功后，可能保留原资源根中不可变的
@@ -61,14 +63,18 @@ last_reviewed: 2026-10-26
 | 平台 owner：`apps/{identity,workspace,inference,jobs,audit,notifications,labeling,labeling-mask-gc,preannotation-results,media-probe}/tests`、`apps/{assets-catalog,assets-cleanup,assets-source,assets-media,assets-mask-content}/tests` | 每个包在自己的项目环境中显式以 `tests` 为入口；按该套件 fixture 准备数据库、对象存储、受限角色或进程                                                                                               | 不是 API 默认 `testpaths` 的子目录；API 消费者测试不能证明这些独立根已收集。不要把源码相似的 owner 和消费者测试视为重复而删除。                                                              |
 | 便携契约与运行库：`apps/_shared/{audit_contract,inference_contract,lifecycle_contract,workspace_contract,mail_transport,training_contract,task_contract,protocol_v2,filesystem_read,site_agent_contract}/tests`                           | 各包独立环境；`bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2` 包含 `task_contract` 与 `protocol_v2`，`controlled-assets` 验证平台权重入库工具；其他共享根按 owner 矩阵或下文站点入口执行 | 生命周期证据校验属于平台便携契约；插件运行库和 mask 工具随 Plugin-SDK 独立测试，不恢复旧共享源码。                                                                                           |
 | 官方模型插件与 Plugin-SDK：独立的 `YOAO-Plugins`、`Plugin-SDK` 仓库                                                                                                                                                                       | 各仓库自身的测试入口、依赖锁和 CI；本地 `plugins/YOAO-plugins/` 是忽略目录，不纳入平台 ML CPU runner                                                                                               | CPU 测试不证明真实权重、GPU 或发布工件资格；vendor 内测试不自动属于项目套件。                                                                                                                |
-| 平台 API SDK：`packages/python-sdk/tests`                                                                                                                                                                                                 | 在包目录执行 CI 中的 SDK 命令；共享契约由 `tool.uv.sources` 解析，插件部署夹具使用 `apps/_shared/requirements-plugin-runtime.txt` 固定的外部运行库及显式协议依赖                                   | API SDK 和 Plugin-SDK 的测试、发布边界独立；消费插件部署契约不等于执行插件 SDK 或模型插件的全套测试。                                                                                        |
-| 执行器与站点 Agent：`apps/training-executor/tests`、`apps/storage-agent/tests`                                                                                                                                                            | 执行器 `cd apps/training-executor && uv run pytest`；Agent 和两个共享根的组合命令见下文                                                                                                            | 临时目录、本机 TLS 等组件夹具与跨网络 Docker 拓扑演练分开；后者使用 `scripts/verify_site_agent.py`，不能由组件测试代替。                                                                     |
+| 平台 API SDK：`packages/python-sdk/tests`                                                                                                                                                                                                 | 从仓库根运行 `python3.11 scripts/test-sdk-distributions.py <新报告目录>`；使用锁定依赖、平台契约包和已校验的插件运行库 wheel                                                                       | 仓内文档／OpenAPI 与仓外安装包分开执行，逐项核对 JUnit；不执行独立 Plugin-SDK 或模型插件的全套测试。                                                                                         |
+| 执行器与站点 Agent：`apps/training-executor/tests`、`apps/storage-agent/tests`                                                                                                                                                            | 两个入口见下文的执行器和站点 Agent 专节；Agent 与两个共享根组合执行                                                                                                                                | 临时目录、本机 TLS 等组件夹具与跨网络 Docker 拓扑演练分开；后者使用 `scripts/verify_site_agent.py`，不能由组件测试代替。                                                                     |
 | Web 源码测试：`apps/web/src` 中的 `*.test.ts(x)`                                                                                                                                                                                          | `pnpm --filter web test`；页面集成使用 MSW 和 providers                                                                                                                                            | Vitest/jsdom 不证明真实浏览器 Worker、Canvas 或 GPU。                                                                                                                                        |
 | Web 浏览器：`apps/web/e2e/tests`                                                                                                                                                                                                          | 工作树 `e2e` 模式中运行 `pnpm test:e2e`；Mask、点云、视觉与压力入口见下文；需要浏览器及隔离服务                                                                                                    | 默认 `testMatch` 为 `tests/**/*.spec.ts`，排除 `@visual`／`@stress`，Chromium 排除点云 spec，点云项目单独选择。截图采集在 `apps/web/e2e/screenshots`，使用独立截图配置，不属于默认产品选集。 |
 | 仓库脚本与文档工具：`scripts/test_*.py`、`scripts/*.test.mjs`、`docs-site/scripts/*.test.mjs`、`docs-site/dev/examples/{echo-ml-backend,mock-v2-backend}/tests`                                                                           | 后端 CI 在 API 环境显式执行 `python -m pytest ../../scripts` 并上传 JUnit；Node 按 workflow 中列出的入口执行；文档 `pnpm --filter docs-site check:all`，示例各自 `uv run --extra test pytest -q`   | API 默认 pytest 不收集仓库 `scripts`；新增接线后的既有失败仍须报告，不用删测或 skip 变绿。文档检查与示例测试各有入口，手动执行不能记作远端 CI 通过。                                         |
 | 实验：`apps/api/experiments/tests`、`apps/audit-summary/*_test.go`                                                                                                                                                                        | 手动工作流 `.github/workflows/backend-go-experiment.yml`：API 项目下 `uv run pytest -q experiments/tests`；Go 项目下 `go test -race ./...`                                                         | 不在 API 默认 `tests` 根内；手动工作流不是常规 API 分片的通过证据。                                                                                                                          |
 
+Web 工具按运行器分开：`apps/web/scripts` 中的测试随 Vitest 执行；`pnpm --filter web screenshots:test` 从 `apps/web/e2e/screenshots` 递归选择 `*.test.mjs` 和 `*.test.ts`，用 Node 22、FFmpeg 和 ffprobe 实跑。`Frontend verification` 上传 `web-media-tool-tests` JUnit；Linux 不接受空选集、空报告或跳过的用例。这里验证录制工具和临时媒体文件，不运行截图产品场景，不授予浏览器或 GPU 采集资格。
+
 浏览器要按**用例**而非仅按 spec 归类：产品 E2E 以真实服务、用户行为和持久结果为证据；浏览器集成可使用受控替身或源码入口；视觉／渲染资格另负责像素、renderer、资源与设备。Mask native 使用 `playwright.mask-product.config.ts` 及 `vite preview` 验证构建产物。1080p 真实 Worker 完成／取消／失败用例独立位于 `e2e/browser-integration/mask-worker.spec.ts`，其配置只启动 Vite 和静态测试页面，不需要 API、认证或数据库。两者分别生成报告，Worker 的 skip／not-run／空报告不能算通过，也不能计入构建产物黑盒成功。
+
+工作台时间轴布局用 `pnpm --filter web test:e2e:layout video-playback-overlay.spec.ts`。夹具直接挂载真实组件与样式，在 Chromium 桌面亮色、暗色和窄屏项目中测量位置，通过指针拖选并核对提交的帧范围；不启动 API、解码器或数据库。`Frontend verification` 上传 `web-video-timeline-layout`，可与 Vitest 的问题弹窗 HTTP／状态回调报告区分。
 
 已知条件边界须保留在报告中：Mask 用 `@mask-native`／`@mask-readonly` 标签按 `PLAYWRIGHT_RASTER_MASK_MATRIX` 静态选择，默认功能集不选择这两组标签，不把另一开关下的场景混入选集并记作 skip；AI inspector 的真实请求场景需 `PLAYWRIGHT_AI_REQUEST_WORKER=1` 和专用 API/Celery broker；WebCodecs 用例在未强制要求精确解码时可因能力不足跳过。原先只有显式跳过的视频 smoke 已移除，精确视频验收仍走现有专用场景。共享 runtime 的图片测试使用 `pytest.importorskip("PIL.Image")`。这些是源码中的例子，并非全部 skip 清单；缺依赖、collection error、取消或未选择均不可记为通过。
 
@@ -212,6 +218,18 @@ git add openapi.snapshot.json
 
 CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与运行时路由是否一致；前端 `pnpm codegen` 与 Python SDK 契约测试同样以该快照为唯一真值源。
 
+### Python SDK：仓内契约和发行物
+
+在仓库根目录安装 `uv`，按 CI 的 `Stage verified Plugin-SDK artifacts` 步骤将已校验的运行时 wheel 放入 `.artifacts/python/plugin-sdk/`，然后运行：
+
+```bash
+python3.11 scripts/test-sdk-distributions.py "$(mktemp -d)/sdk-reports"
+```
+
+脚本构建 SDK 与平台维护的五个共享契约包。先从 SDK 源码包安装核心依赖，检查离线发现和未安装 CLI extra 时的错误；再显式安装带测试与插件依赖的 wheel。临时环境必须在仓库外，脚本不从相邻 checkout 或 `PYTHONPATH` 借用实现。
+
+SDK 文档片段、HTTP 调用点、覆盖清单和生成目录与 monorepo 输入一起测试，缺失快照直接失败。其余 SDK 测试以及推理、协议、训练三组便携向量从各自 sdist 取出，对实际安装包执行。两份 SDK JUnit 的用例身份必须合起来恰好覆盖一次仓内收集清单；缺项、重复、跳过或缺少应携带的夹具都会失败。CI 的 `python-sdk-test-results` 保留五份 JUnit、`sdk-collection.txt` 和 `distributions.sha256`，不代表独立插件仓、服务部署或 GPU 资格。
+
 ---
 
 ## 在线学习与训练执行器测试
@@ -221,9 +239,9 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
 1. **执行器单元测试（无需数据库）**：
    ```bash
    cd apps/training-executor
-   uv run pytest
+   uv run --with pytest --with pytest-asyncio pytest
    ```
-   覆盖不可变快照校验、Ultralytics / LibreYOLO 适配器、增强预览、检查点恢复、原生报告与脱敏日志。平台的有预算串行搜索由 API 控制面测试覆盖。
+   覆盖不可变快照校验、Ultralytics / LibreYOLO 适配器、检查点恢复、原生报告与脱敏日志。原生增强预览使用 [Ultralytics 官方检测权重 `yolo11n.pt`](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt)。本地下载后对照[发布资产的 SHA-256](https://api.github.com/repos/ultralytics/assets/releases/assets/340060970) 校验，将 `PREVIEW_TEST_BASE` 设为文件的绝对路径；未设置时读取 `/models/yolo11n.pt`。本地缺文件则跳过，不计作通过。平台的有预算串行搜索由 API 控制面测试覆盖。
 2. **控制面 API 与状态机测试**：
    ```bash
    cd apps/api
@@ -242,12 +260,13 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
    ```bash
    PYTHONDONTWRITEBYTECODE=1 \
    PYTHONPATH=apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src \
-   apps/api/.venv/bin/python -m pytest \
+   apps/api/.venv/bin/python -m pytest --import-mode=importlib \
      apps/_shared/filesystem_read/tests \
      apps/_shared/site_agent_contract/tests \
      apps/storage-agent/tests -p no:cacheprovider
    ```
    覆盖 Linux `openat2` 防符号链接/越界、`0600 VerifiedStage`、一次性本机 TLS 配对、`renameat2(RENAME_NOREPLACE)` 原子落盘、256 KiB 分块限速以及进程重启后沿同一 `session_id` 重放 stage 恢复。
+   TLS peer 由本目录 `conftest.py` 按需提供；测试模块只从同包 `support.py` 导入共享 helper，不需要先收集其他测试文件。
 2. **跨网络隔离拓扑真实演练（`scripts/verify_site_agent.py`）**：
    在双 Docker bridge 隔离网络（中心无法向站点发起入站连接）中验证端到端链路，支持三种场景（`--scenario basic | recovery | replicas`）：
    ```bash
@@ -272,7 +291,7 @@ CI 中的 `tests/test_openapi_contract.py` 会校验 `openapi.snapshot.json` 与
 
 ```bash
 cd apps/web
-pnpm test                  # 一次性运行全部单测
+pnpm test                  # 一次性运行 Vitest
 pnpm test:watch            # 监听模式
 pnpm test:coverage         # 运行并检查覆盖率阈值
 ```
@@ -301,6 +320,7 @@ it("渲染项目列表空态文案", async () => {
 
 - **应当测试**：渲染分支切换、用户交互后的状态演进、与服务端请求/响应契约的对齐。
 - **不要测试**：具体颜色类名、像素级静态布局、组件内部私有状态字段名。
+- **存储绑定**：头像、报告附件和审计归档共用 `StorageBindingRecovery.test.tsx`。在各用途的真实客户端路由上用 MSW 返回 `404` 与该用途的 `detail.code`，验证能刷新并重新预览正确目标；候选列表刷新返回 `403` 则撤下旧预览并禁止确认。该套件显式检查未处理的 API 请求，不把 MSW 当作服务端鉴权，也不假定此检查已全局启用。
 
 ### 超大图金字塔与瓦片调度测试
 

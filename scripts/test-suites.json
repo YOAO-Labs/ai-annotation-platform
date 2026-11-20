@@ -70,9 +70,9 @@
     {
       "paths": ["packages/python-sdk/tests"],
       "owner": "Python SDK, CLI and TUI",
-      "selection_source": "ci.yml python-sdk-pytest",
-      "resources": "SDK test and plugins extras",
-      "skip_policy": "not a GPU qualification"
+      "selection_source": "ci.yml python-sdk-pytest (scripts/test-sdk-distributions.py)",
+      "resources": "installed SDK wheel, sdist tests, repository snapshot and verified plugin runtime",
+      "skip_policy": "no skipped SDK or archive vector cases; not a GPU qualification"
     },
     {
       "paths": ["apps/training-executor/tests"],

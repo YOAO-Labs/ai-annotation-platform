@@ -1,45 +1,28 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
+import { server } from "@/mocks/server";
+import { renderWithProviders } from "@/test/renderWithProviders";
 
 const mockUseWorkbenchShellModel = vi.fn();
 
-vi.mock("@/components/ui/Button", () => ({
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button type="button" onClick={onClick}>
-      {children}
-    </button>
-  ),
-}));
-vi.mock("@/components/ui/Icon", () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />,
-}));
 vi.mock("../state/useWorkbenchShellModel", () => ({
   useWorkbenchShellModel: (...args: unknown[]) => mockUseWorkbenchShellModel(...args),
 }));
 vi.mock("./WorkbenchLayout", () => ({
   WorkbenchLayout: ({ stageOverlay }: { stageOverlay?: React.ReactNode }) => (
-    <div data-testid="layout">
-      {stageOverlay}
-    </div>
+    <div data-testid="layout">{stageOverlay}</div>
   ),
-}));
-vi.mock("./WorkbenchSkeleton", () => ({
-  WorkbenchSkeleton: () => <div data-testid="skeleton" />,
-}));
-vi.mock("./IssueCreateModal", () => ({
-  IssueCreateModal: () => <div data-testid="issue-create-modal" />,
 }));
 
 import { WorkbenchShell } from "./WorkbenchShell";
 
 describe("WorkbenchShell", () => {
-  it("renders WorkbenchSkeleton while model is loading", () => {
+  it("does not offer issue or navigation actions until the model is loaded", () => {
     mockUseWorkbenchShellModel.mockReturnValue({ kind: "loading" });
-
     render(<WorkbenchShell />);
-
-    expect(screen.getByTestId("skeleton")).toBeTruthy();
-    expect(screen.queryByTestId("layout")).toBeNull();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("renders empty state and delegates back action", () => {
@@ -65,8 +48,7 @@ describe("WorkbenchShell", () => {
     const onToggleIssuePinDrop = vi.fn();
     mockUseWorkbenchShellModel.mockReturnValue({
       kind: "ready",
-      layout: {} as never,
-      propagateDialog: {} as never,
+      layout: {},
       issueSection: {
         openIssueCount: 2,
         issuePinsComplete: true,
@@ -74,7 +56,7 @@ describe("WorkbenchShell", () => {
         issuePinDropArmed: true,
         onOpenList,
         onToggleIssuePinDrop,
-        createModal: {} as never,
+        createModal: { open: false },
       },
     });
 
@@ -88,6 +70,63 @@ describe("WorkbenchShell", () => {
     expect(onOpenList).toHaveBeenCalledOnce();
     expect(onToggleIssuePinDrop).toHaveBeenCalledOnce();
   });
+
+  it("preserves a rejected pixel issue and closes only after its retry succeeds", async () => {
+    const onClose = vi.fn();
+    const requests: unknown[] = [];
+    server.use(
+      http.post("*/api/v1/feedbacks", async ({ request }) => {
+        requests.push(await request.json());
+        if (requests.length === 1)
+          return HttpResponse.json({ detail: "服务暂时不可用" }, { status: 503 });
+        return HttpResponse.json(
+          { id: "issue-1", project_id: "P1", task_id: "T2" },
+          { status: 201 },
+        );
+      }),
+    );
+    mockUseWorkbenchShellModel.mockReturnValue({
+      kind: "ready",
+      layout: {},
+      issueSection: {
+        stageKind: "image",
+        openIssueCount: 0,
+        issuePinsComplete: true,
+        createModal: {
+          open: true,
+          projectId: "P1",
+          taskId: "T2",
+          listParams: { project_id: "P1", task_id: "T2", kind: "issue" },
+          prefilledAnchor: { x: 0.2, y: 0.6 },
+          onClose,
+        },
+      },
+    });
+    renderWithProviders(<WorkbenchShell />);
+    const dialog = within(screen.getByRole("dialog", { name: "标记问题" }));
+    const submit = dialog.getByRole("button", { name: "提交" });
+    expect(submit).toBeDisabled();
+    fireEvent.change(dialog.getByPlaceholderText("描述问题位置 / 现象 / 期望行为"), {
+      target: { value: " 边界偏移 " },
+    });
+    fireEvent.click(submit);
+    expect(await dialog.findByText("服务暂时不可用")).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(submit);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    const expected = {
+      kind: "issue",
+      anchor_type: "pixel",
+      project_id: "P1",
+      task_id: "T2",
+      anchor_position: { x: 0.2, y: 0.6 },
+      severity: "warn",
+      title: null,
+      body: "边界偏移",
+    };
+    expect(requests).toEqual([expected, expected]);
+  });
+
   it.each(["preparing", "ready", "cancelled", "timeout", "unavailable"] as const)(
     "video issues expose %s without claiming failed navigation is ready",
     (status) => {
@@ -105,7 +144,7 @@ describe("WorkbenchShell", () => {
           onToggleIssuePinDrop,
           issueNavigation: { status, frameIndex: 0 },
           onRetryIssueNavigation,
-          createModal: {},
+          createModal: { open: false },
         },
       });
       render(<WorkbenchShell />);
@@ -137,7 +176,7 @@ describe("WorkbenchShell", () => {
       issuePinsError: false,
       stageKind: "image",
       onRetryIssuePins,
-      createModal: {},
+      createModal: { open: false },
     };
     mockUseWorkbenchShellModel.mockReturnValue({ kind: "ready", layout: {}, issueSection });
     const view = render(<WorkbenchShell />);

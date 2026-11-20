@@ -14,8 +14,7 @@ from storage_agent.client import Bandwidth, Client, DeadlineConnection
 from storage_agent.config import AgentError
 from storage_agent.runner import Runner
 
-from test_agent import acknowledgement
-from test_client import Opener, Response
+from .support import Opener, Response, acknowledgement
 
 
 class Clock:

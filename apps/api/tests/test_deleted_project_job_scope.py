@@ -48,7 +48,7 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         )
 
     deleted_job = AsyncJob(
-        kind="batch_predict",
+        kind="export",
         project_id=deleted_project_id,
         user_id=actor_id,
         status="completed",
@@ -86,9 +86,12 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         payload={"project_id": str(surviving_project_id)},
         result={"error": "legacy orphan"},
     )
-    db_session.add_all(
-        [deleted_job, detached_job, surviving_job, global_job, orphan_job]
-    )
+    # Even an administrator can search precisely this fixture in a populated history.
+    marker = f"scope-{deleted_project_id}"
+    jobs = [deleted_job, detached_job, surviving_job, global_job, orphan_job]
+    for job in jobs:
+        job.payload = {**job.payload, "prompt": marker}
+    db_session.add_all(jobs)
     await db_session.flush()
     deleted_job_id = deleted_job.id
     detached_job_id = detached_job.id
@@ -103,8 +106,8 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         for recipient_id in (actor_id, owner_id):
             notice = await notifications.notify(
                 user_id=recipient_id,
-                type="async_job.completed",
-                target_type="async_job",
+                type="export.ready" if job is deleted_job else "job.completed",
+                target_type="export" if job is deleted_job else "async_job",
                 target_id=job.id,
                 payload={"project_id": str(surviving_project_id)},
             )
@@ -113,7 +116,7 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
     for recipient_id in (actor_id, owner_id):
         notice = await notifications.notify(
             user_id=recipient_id,
-            type="export.completed",
+            type="export.ready",
             target_type="export",
             target_id=global_job_id,
             payload={"project_id": str(surviving_project_id)},
@@ -184,11 +187,23 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         status=None,
         kind=None,
         project_id=None,
-        search=None,
+        search=marker,
         limit=50,
         offset=0,
     )
     assert pre_delete_page.total == len(pre_delete_page.items) == 4
+    for recipient_id in (actor_id, owner_id):
+        rows, total, unread = await notifications.list_for_user(recipient_id)
+        assert total == unread == 4
+        assert {row.id for row in rows} == {
+            notice_ids[recipient_id][job_id]
+            for job_id in (
+                deleted_job_id,
+                detached_job_id,
+                surviving_job_id,
+                global_job_id,
+            )
+        }
 
     # The FK's ON DELETE SET NULL also runs the retention trigger.
     await db_session.execute(delete(Project).where(Project.id == deleted_project_id))
@@ -208,7 +223,7 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
             status=None,
             kind=None,
             project_id=None,
-            search=None,
+            search=marker,
             limit=50,
             offset=0,
         )
@@ -223,9 +238,15 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         ).project_id is None
 
     for recipient_id in (actor_id, owner_id):
-        rows, total, _ = await notifications.list_for_user(recipient_id)
-        assert total == 2
-        assert {row.target_id for row in rows} == {surviving_job_id, global_job_id}
+        for include_inventory in (True, False):
+            rows, total, unread = await notifications.list_for_user(
+                recipient_id, include_migration_inventory=include_inventory
+            )
+            assert total == unread == 2
+            assert {row.id for row in rows} == {
+                notice_ids[recipient_id][surviving_job_id],
+                notice_ids[recipient_id][global_job_id],
+            }
         assert not await notifications.notification_deliverable(
             invalid_export_ids[recipient_id], recipient_id
         )

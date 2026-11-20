@@ -381,6 +381,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     super_admin,
     db_session,
     monkeypatch,
+    embedded_revocations,
     tmp_path,
 ) -> None:
     user, token = super_admin
@@ -497,11 +498,6 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     assert batch is not None
     assert batch.async_job_id is not None
 
-    revoked: list[str] = []
-    monkeypatch.setattr(
-        "app.workers.celery_app.celery_app.control.revoke",
-        lambda task_id, **_kwargs: revoked.append(task_id),
-    )
     cancel = await httpx_client.post(
         f"/api/v1/async-jobs/{batch.async_job_id}/cancel",
         headers=_bearer(token),
@@ -510,7 +506,9 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     assert cancel.json()["status"] == "cancelled"
     await db_session.refresh(batch)
     assert batch.status == "cancelled"
-    assert revoked == executions
+    assert embedded_revocations == [
+        (execution_id, False) for execution_id in executions
+    ]
 
 
 @pytest.mark.asyncio

@@ -31552,7 +31552,7 @@
           }
         },
         "422": {
-          "description": "Unprocessable Entity",
+          "description": "Unprocessable Content",
           "content": {
             "application/json": {
               "schema": {
@@ -37860,8 +37860,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project_id}/annotations/import",
       "operation_id": "import_annotations_api_v1_projects__project_id__annotations_import_post",
-      "summary": "Import Annotations",
-      "description": "导入原生 JSON envelope 中的 annotations[] 数组，遵循 ADR-0028。\n\ngeometry 透传内部格式（无需 LS 转换），user_id 归当前操作者，\nsource 保留原值，attributes._imported=true 溯源标记。",
+      "summary": "导入正式标注",
+      "description": "从原生 JSON 的 `annotations[]` 导入正式标注，不导入或采纳 `predictions[]`。\n\n当前文件使用 `schema_version: \"2.0\"` 和 `yoao` 身份；仍可读取历史 `1.x` 文件。\n`dry_run=true` 只预览。实际写入默认追加，`overwrite=true` 只替换匹配任务中\n此前导入的标注。新标注归本次操作者，以 `attributes._imported` 标记导入来源。",
       "tags": [
         "annotations"
       ],
@@ -42201,8 +42201,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project_id}/predictions/import",
       "operation_id": "import_predictions_api_v1_projects__project_id__predictions_import_post",
-      "summary": "Import Predictions",
-      "description": "导入外部模型预测结果。\n\n支持 COCO Detection、YOLO zip 与原生 JSON v1.0 三种 input format. 写入的\nPrediction 行 source='external_import', ml_backend_id=NULL.",
+      "summary": "导入待审预测",
+      "description": "上传原生 JSON（`format=native_json`）、COCO Detection 或 YOLO ZIP，供人工审阅。\n\n原生 JSON 只导入 `predictions[]`，不将 `annotations[]` 转为预测。当前文件使用\n`schema_version: \"2.0\"` 和 `yoao` 身份；历史 `1.x` 文件按原身份读取。\n`dry_run=true` 只预览，不写入预测。实际导入的来源为 `external_import`，\n不关联模型服务，也不会自动成为正式标注。",
       "tags": [
         "predictions"
       ],
@@ -51189,7 +51189,7 @@
           }
         },
         "422": {
-          "description": "Unprocessable Entity",
+          "description": "Unprocessable Content",
           "content": {
             "application/json": {
               "schema": {
@@ -77380,7 +77380,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认写入"
+          "description": "确认写入正式标注"
         },
         {
           "name": "json_output",
@@ -95058,7 +95058,7 @@
           "required": false,
           "default": false,
           "type": "bool",
-          "description": "只校验不落库"
+          "description": "预览待导入的预测，不写入"
         },
         {
           "name": "json_output",
@@ -95099,7 +95099,7 @@
           "required": false,
           "default": "external_import",
           "type": "str",
-          "description": "external_import / ml_backend / all"
+          "description": "external_import：外部导入；ml_backend：模型服务；all：全部来源"
         },
         {
           "name": "task_ids",

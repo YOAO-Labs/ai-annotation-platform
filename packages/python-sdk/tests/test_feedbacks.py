@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 from uuid import uuid4
@@ -260,7 +258,6 @@ def test_list_rejects_invalid_page_size_without_http(client, limit):
 
 
 def test_feedback_public_models_import_with_core_dependencies_only():
-    source = Path(__file__).resolve().parents[1] / "src"
     script = """
 import importlib.abc
 import sys
@@ -276,9 +273,8 @@ with Client(base_url='http://testserver', api_key='ak_test') as client:
     assert callable(client.feedbacks.create) and callable(client.feedbacks.list)
 """
     subprocess.run(
-        [sys.executable, "-B", "-c", script],
+        [sys.executable, "-I", "-B", "-c", script],
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1"},
     )

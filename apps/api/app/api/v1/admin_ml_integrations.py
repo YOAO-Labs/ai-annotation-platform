@@ -949,6 +949,12 @@ async def list_gpu_resources(
 # /projects/{id}/ml-backends/{rid}/enablement) 解耦。删除走 service 的 running-job
 # 守卫 + projects/predictions FK SET NULL 级联。
 
+# Python's default 422 phrase varies by interpreter; keep the public schema stable.
+_REGISTRY_VALIDATION_RESPONSE = {
+    "model": GPUConfigErrorResponse | RequestValidationErrorResponse,
+    "description": "Unprocessable Content",
+}
+
 
 @router.post(
     "/registry",
@@ -956,7 +962,7 @@ async def list_gpu_resources(
     status_code=201,
     responses={
         409: {"model": MLBackendRegistryConflictResponse},
-        422: {"model": GPUConfigErrorResponse | RequestValidationErrorResponse},
+        422: _REGISTRY_VALIDATION_RESPONSE,
     },
 )
 async def create_registry(
@@ -1034,7 +1040,7 @@ async def create_registry(
     response_model=MLBackendOut,
     responses={
         409: {"model": MLBackendRegistryConflictResponse},
-        422: {"model": GPUConfigErrorResponse | RequestValidationErrorResponse},
+        422: _REGISTRY_VALIDATION_RESPONSE,
     },
 )
 async def update_registry(

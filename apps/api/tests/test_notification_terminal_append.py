@@ -6,7 +6,7 @@ import uuid
 from contextlib import suppress
 
 import pytest
-from sqlalchemy import delete, event, func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -323,36 +323,41 @@ async def test_terminal_caller_rollback_keeps_precommit_publish_timing(
 
 @pytest.mark.asyncio
 async def test_terminal_no_autoflush_keeps_owner_before_full_job_flush(
-    terminal_world, test_engine, monkeypatch
+    terminal_world, monkeypatch
 ):
     maker, _user_id, job_id = terminal_world
-    statements = []
     published_ids = []
+    owner_rows = []
+    original_command = NotificationTerminalAppendPostgresData.command
 
-    def capture(_connection, _cursor, statement, _parameters, _context, _many):
-        normalized = " ".join(statement.lower().split())
-        if "append_job_terminal_notification" in normalized:
-            statements.append("terminal_append")
-        elif normalized.startswith("update async_jobs"):
-            statements.append("job_update")
+    async def observe_append(self, request):
+        result = await original_command(self, request)
+        connection = await self.session.connection()
+        row = await connection.execute(
+            select(AsyncJob.status, Notification.type)
+            .join(Notification, Notification.target_id == AsyncJob.id)
+            .where(AsyncJob.id == job_id)
+        )
+        owner_rows.append(tuple(row.one()))
+        return result
 
     async def record_publish(_self, notifications):
         published_ids.extend(row.id for row in notifications)
 
+    monkeypatch.setattr(
+        NotificationTerminalAppendPostgresData, "command", observe_append
+    )
     monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
-    event.listen(test_engine.sync_engine, "before_cursor_execute", capture)
-    try:
-        async with maker() as db:
-            job = await db.get(AsyncJob, job_id)
-            assert job is not None
-            job.status = "failed"
-            with db.no_autoflush:
-                await notify_job_terminal(db, job_id=job_id)
-            await db.commit()
-    finally:
-        event.remove(test_engine.sync_engine, "before_cursor_execute", capture)
-
-    assert statements.index("terminal_append") < statements.index("job_update")
+    async with maker() as db:
+        job = await db.get(AsyncJob, job_id)
+        assert job is not None
+        job.status = "failed"
+        with db.no_autoflush:
+            await notify_job_terminal(db, job_id=job_id)
+        assert owner_rows == [("completed", "job.failed")]
+        await db.commit()
+    async with maker() as db:
+        assert (await db.get(AsyncJob, job_id)).status == "failed"
     assert await _terminal_count(maker, job_id, "job.failed") == 1
     assert len(published_ids) == 1
 
