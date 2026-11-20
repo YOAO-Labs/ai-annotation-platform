@@ -192,17 +192,17 @@ API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校
 
 内部 `storage_locations` / `storage_bindings` 记录默认平台位置和九用途的桶，不复制连接器密码。封闭的 `managed_s3_target` 只接受以下九个用途，不承担通用存储注册职责：
 
-| 用途标识（`purpose`） | 默认桶配置                   | 新分配切换契约                   | 保存目标（`storage_ref`）隔离语义                                                                               |
-| --------------------- | ---------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `avatars`             | `MINIO_AVATARS_BUCKET`       | `reviewed_avatar_switch`         | `AvatarUpload` 保存独立 `storage_ref`（`_aap_managed/avatars/`）与一次性 `VersionId` 回执                       |
-| `bug_reports`         | `MINIO_BUG_REPORTS_BUCKET`   | `reviewed_bug_attachment_switch` | `BugAttachmentUpload` 保存独立 `storage_ref`（`_aap_managed/bug-reports/`）与 180 天单上传期限                  |
-| `audit_archive`       | `MINIO_AUDIT_ARCHIVE_BUCKET` | `reviewed_audit_archive_switch`  | `AuditArchiveOutput` 在候选提交前分配固定目标（`_aap_managed/audit-archive/`）                                  |
-| `export`              | `MINIO_EXPORT_BUCKET`        | `reviewed_export_switch`         | `ExportOutput` 与 `ExportMediaBundle` 共享保存目标（`_aap_managed/export/`）与首次 7 天期限                     |
-| `import`              | `MINIO_IMPORT_BUCKET`        | `reviewed_import_switch`         | `PredictionInputLease`、`ManagedOriginalCreation.staging_ref`、`MaskFormatUpload` 独立保存暂存位置              |
-| `datasets`            | `MINIO_DATASETS_BUCKET`      | `reviewed_dataset_switch`        | `ManagedOriginalCreation` 唯一写入，`DatasetAssetLocation` / `DatasetAuxiliaryOriginal` 保存当前副本引用        |
-| `media_cache`         | `MINIO_MEDIA_CACHE_BUCKET`   | `reviewed_media_cache_switch`    | `OriginalCacheEntry`、`ThumbnailOutput`、`ImagePyramidOutput`、`VideoDerivativeOutput` 保存引用并走同源能力 URL |
-| `annotations`         | `MINIO_BUCKET`               | `reviewed_annotations_switch`    | `TaskOriginal`、`RasterMaskObject`、`CommentAttachmentUpload`、`GuideAssetUpload` 保存封闭十字段引用            |
-| `training`            | `MINIO_TRAINING_BUCKET`      | `reviewed_training_switch`       | `TrainingDatasetVersion`、实验、预览、样本评估、主动学习五类 owner 保存独立前缀引用                             |
+| 用途标识（`purpose`） | 默认桶配置                   | 新分配切换契约                   | 保存目标（`storage_ref`）隔离语义                                                                                     |
+| --------------------- | ---------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `avatars`             | `MINIO_AVATARS_BUCKET`       | `reviewed_avatar_switch`         | `AvatarUpload` 保存独立 `storage_ref`（`_aap_managed/avatars/`）与一次性 `VersionId` 回执                             |
+| `bug_reports`         | `MINIO_BUG_REPORTS_BUCKET`   | `reviewed_bug_attachment_switch` | `BugAttachmentUpload` 保存独立 `storage_ref`（`_aap_managed/bug-reports/`）与 180 天单上传期限                        |
+| `audit_archive`       | `MINIO_AUDIT_ARCHIVE_BUCKET` | `reviewed_audit_archive_switch`  | `AuditArchiveOutput` 在候选提交前分配固定目标（`_aap_managed/audit-archive/`）                                        |
+| `export`              | `MINIO_EXPORT_BUCKET`        | `reviewed_export_switch`         | `ExportOutput` 与 `ExportMediaBundle` 共享保存目标（新分配为 `_yoao_managed/export/`，旧包保留原前缀）与首次 7 天期限 |
+| `import`              | `MINIO_IMPORT_BUCKET`        | `reviewed_import_switch`         | `PredictionInputLease`、`ManagedOriginalCreation.staging_ref`、`MaskFormatUpload` 独立保存暂存位置                    |
+| `datasets`            | `MINIO_DATASETS_BUCKET`      | `reviewed_dataset_switch`        | `ManagedOriginalCreation` 唯一写入，`DatasetAssetLocation` / `DatasetAuxiliaryOriginal` 保存当前副本引用              |
+| `media_cache`         | `MINIO_MEDIA_CACHE_BUCKET`   | `reviewed_media_cache_switch`    | `OriginalCacheEntry`、`ThumbnailOutput`、`ImagePyramidOutput`、`VideoDerivativeOutput` 保存引用并走同源能力 URL       |
+| `annotations`         | `MINIO_BUCKET`               | `reviewed_annotations_switch`    | `TaskOriginal`、`RasterMaskObject`、`CommentAttachmentUpload`、`GuideAssetUpload` 保存封闭十字段引用                  |
+| `training`            | `MINIO_TRAINING_BUCKET`      | `reviewed_training_switch`       | `TrainingDatasetVersion`、实验、预览、样本评估、主动学习五类 owner 保存独立前缀引用                                   |
 
 核心隔离规则：
 

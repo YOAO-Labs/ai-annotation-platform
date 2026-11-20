@@ -47,8 +47,8 @@ from worktree_runtime import (
     validate_revisions,
 )
 
-OWNER_LABEL = "org.aap.worktree-owner"
-OWNER_TAG = "aap-worktree-owner"
+OWNER_LABEL = "org.yoao.worktree-owner"
+OWNER_TAG = "yoao-worktree-owner"
 IDENTITY_RUNTIME_CAPABILITIES = (
     "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
     "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
@@ -1084,9 +1084,9 @@ class LocalResources:
                         credentials = self._runtime_credentials(required=True)
                     await connection.execute(
                         text(
-                            "SELECT set_config('aap.worktree_runtime_role',:role,true),"
-                            "set_config('aap.worktree_runtime_password',:password,true),"
-                            "set_config('aap.worktree_runtime_owner',:owner,true)"
+                            "SELECT set_config('yoao.worktree_runtime_role',:role,true),"
+                            "set_config('yoao.worktree_runtime_password',:password,true),"
+                            "set_config('yoao.worktree_runtime_owner',:owner,true)"
                         ),
                         {
                             "role": role,
@@ -1097,9 +1097,9 @@ class LocalResources:
                     await connection.exec_driver_sql("""DO $create_runtime$
                     BEGIN
                         EXECUTE format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
-                            current_setting('aap.worktree_runtime_role'),current_setting('aap.worktree_runtime_password'));
+                            current_setting('yoao.worktree_runtime_role'),current_setting('yoao.worktree_runtime_password'));
                         EXECUTE format('COMMENT ON ROLE %I IS %L',
-                            current_setting('aap.worktree_runtime_role'),current_setting('aap.worktree_runtime_owner'));
+                            current_setting('yoao.worktree_runtime_role'),current_setting('yoao.worktree_runtime_owner'));
                     END;
                     $create_runtime$;""")
                     observed = await self._runtime_role_record(

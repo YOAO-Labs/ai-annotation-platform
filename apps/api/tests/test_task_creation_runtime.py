@@ -94,7 +94,7 @@ async def test_old_unscoped_creation_is_terminalized_without_adopting_payload_sc
 async def test_real_celery_creation_uses_public_capabilities_and_replays_terminal_job(
     test_engine,
 ):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
+    assert os.environ.get("YOAO_WORKTREE_MODE") == "test"
     _append_target()
     role_dsn = os.environ["AAP_MODULE_DATA_APPEND_URL"]
     broker = os.environ["CELERY_BROKER_URL"]

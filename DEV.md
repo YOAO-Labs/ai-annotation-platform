@@ -304,6 +304,8 @@ pnpm dev:worktree -- stop --mode test
 可显式使用 `--retire-finished-bootstrap`；这不是重建或忽略归属检查的选项。
 具体前置与命令见[结束引导后的准确退役](docs-site/dev/how-to/worktree-environments.md#诊断停止与重建)。
 
+新工作树会话由启动器设置 `YOAO_WORKTREE_MODE` 和 `YOAO_WORKTREE_RESOURCE_ROOT`，不用手动导出。不要把旧 manifest、容器标签或桶归属标记改名：有数据要保留就先保全；获准销毁的旧模式由匹配的旧工具准确退役，再从干净 shell 初始化新模式。
+
 `--skip-migrations` 只接受已在当前 checkout head 的数据库，不再作为未知 revision
 的逃生开关。直接执行原来的 `dev:api`、pytest 或默认 Compose 不经过这个隔离入口。
 支持范围为 macOS/Linux 的本机开发基础设施；不会自动注册共享 ML 后端或启动 GPU/beat。

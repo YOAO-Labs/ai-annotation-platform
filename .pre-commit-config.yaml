@@ -97,6 +97,13 @@ repos:
         pass_filenames: false
         verbose: true
 
+      - id: product-naming
+        name: Check newly introduced product names
+        entry: node scripts/check-product-naming.mjs --staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       # Enforce workflow filenames, workflow names, and unique job display names.
       - id: workflow-names
         name: Check workflow naming

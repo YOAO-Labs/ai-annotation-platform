@@ -413,8 +413,8 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
-    if os.environ.get("AAP_WORKTREE_MODE") == "test":
-        assert storage_service.import_bucket.startswith("aap-wt-")
+    if os.environ.get("YOAO_WORKTREE_MODE") == "test":
+        assert storage_service.import_bucket.startswith("yoao-wt-")
         await asyncio.to_thread(
             storage_service.client.put_bucket_versioning,
             Bucket=storage_service.import_bucket,

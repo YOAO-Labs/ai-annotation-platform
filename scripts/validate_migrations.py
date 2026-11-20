@@ -46,6 +46,8 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from worktree_env import reject_legacy_worktree_environment
+
 REPO = Path(__file__).resolve().parent.parent
 API = REPO / "apps/api"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -93,6 +95,7 @@ class RunState:
 # --------------------------------------------------------------------------- #
 def resolve_anchor(environ: dict | None = None) -> Anchor:
     environment = dict(os.environ if environ is None else environ)
+    reject_legacy_worktree_environment(environment)
     raw = environment.get("MIGRATION_DATABASE_URL") or environment.get("DATABASE_URL")
     if not raw:
         raise ValidationError(
@@ -109,10 +112,10 @@ def resolve_anchor(environ: dict | None = None) -> Anchor:
     if url.query:
         raise ValidationError("connection string must not carry query options")
     database = url.database or ""
-    if not OWNED_DB_RE.match(database):
+    if database.startswith("aap_wt_") or not OWNED_DB_RE.match(database):
         raise ValidationError(f"unexpected database name {database!r}")
 
-    mode = environment.get("AAP_WORKTREE_MODE")
+    mode = environment.get("YOAO_WORKTREE_MODE")
     if mode:
         if mode not in {"test", "e2e"}:
             raise ValidationError(
@@ -130,7 +133,7 @@ def resolve_anchor(environ: dict | None = None) -> Anchor:
                 "connection string database does not match the owned mode database"
             )
         owner = resources["owner"]
-        if not owner.startswith("aap-worktree:"):
+        if not owner.startswith("yoao-worktree:"):
             raise ValidationError("worktree owner tag is malformed")
         postgres = document.get("postgres") or {}
         endpoint = (
@@ -774,7 +777,9 @@ async def phase_forward(anchor: Anchor, state: RunState) -> None:
         or policy.upgrade_path.index(CONVERSION_REVISION)
         != policy.upgrade_path.index(LEGACY_REVISION) + 1
     ):
-        raise ValidationError("role-conversion qualification revisions are not adjacent")
+        raise ValidationError(
+            "role-conversion qualification revisions are not adjacent"
+        )
     await create_owned_database(anchor, state, database)
     run_alembic(anchor, database, "upgrade", LEGACY_REVISION)
     if await current_revision(anchor, database) != [LEGACY_REVISION]:

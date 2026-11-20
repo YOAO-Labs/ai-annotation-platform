@@ -36,7 +36,7 @@ pytestmark = [
         os.environ.get("AAP_MASK_CONTENT_ACCEPTANCE") != "1"
         or os.environ.get("AAP_MASK_CONTENT_CONTAINER_ACCEPTANCE") != "1"
         or os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
-        or os.environ.get("AAP_WORKTREE_MODE") != "test",
+        or os.environ.get("YOAO_WORKTREE_MODE") != "test",
         reason="requires explicit verifier-owned DB/S3 resources and installed image",
     ),
 ]
@@ -65,7 +65,7 @@ def _byte_container_origin(
         details.get("Image") != image
         or labels.get("org.aap.acceptance") != "module-data-boundary"
         or labels.get("org.aap.acceptance-id") != identity
-        or labels.get("org.aap.worktree-owner") != owner
+        or labels.get("org.yoao.worktree-owner") != owner
         or (details.get("State") or {}).get("Running") is not True
         or set(networks) != {"bridge"}
     ):
@@ -123,7 +123,7 @@ async def _start_role(role, image, identity, resources, directory):
             "--label",
             f"org.aap.acceptance-id={identity}",
             "--label",
-            f"org.aap.worktree-owner={resources['owner']}",
+            f"org.yoao.worktree-owner={resources['owner']}",
             "--add-host",
             "host.docker.internal:host-gateway",
             "--read-only",

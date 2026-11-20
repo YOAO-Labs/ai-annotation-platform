@@ -218,7 +218,7 @@ class ProvisionTests(unittest.TestCase):
                     {
                         "DATABASE_URL": "owned-db",
                         "REDIS_URL": "owned-redis",
-                        "AAP_WORKTREE_MODE": "test",
+                        "YOAO_WORKTREE_MODE": "test",
                         "AAP_SOURCE_FENCE_SECRET_KEY": "native-private",
                         "AAP_TARGET_FENCE_SECRET_KEY": "native-private-b",
                         "DOCKER_HOST": "unowned",
@@ -227,7 +227,7 @@ class ProvisionTests(unittest.TestCase):
                 )
             payload = (owner.private / "media-worker.env").read_text()
             self.assertIn("DATABASE_URL=owned-db\n", payload)
-            self.assertIn("AAP_WORKTREE_MODE=test\n", payload)
+            self.assertIn("YOAO_WORKTREE_MODE=test\n", payload)
             self.assertNotIn("native-private", payload)
             self.assertNotIn("DOCKER_HOST", payload)
             self.assertNotIn("/host/python", payload)

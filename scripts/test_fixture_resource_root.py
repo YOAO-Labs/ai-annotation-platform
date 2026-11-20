@@ -26,8 +26,8 @@ class FixtureResourceRootTests(unittest.TestCase):
         self.manifest_path = state_path(self.root, "test", "resources.json")
         atomic_json(self.manifest_path, {"resources": self.resources, "postgres": {}})
         self.environment = {
-            "AAP_WORKTREE_MODE": "test",
-            "AAP_WORKTREE_RESOURCE_ROOT": str(self.root),
+            "YOAO_WORKTREE_MODE": "test",
+            "YOAO_WORKTREE_RESOURCE_ROOT": str(self.root),
         }
 
     def test_external_resource_root_selects_its_own_identity_and_manifest(self):
@@ -43,7 +43,7 @@ class FixtureResourceRootTests(unittest.TestCase):
         for value in (None, "owned", str(alias), str(self.root / "missing")):
             with self.subTest(root=value), self.assertRaises(FixtureSetupRefused):
                 _verified_resources(
-                    {**self.environment, "AAP_WORKTREE_RESOURCE_ROOT": value}
+                    {**self.environment, "YOAO_WORKTREE_RESOURCE_ROOT": value}
                 )
 
     def test_mismatched_resource_manifest_is_not_adopted(self):

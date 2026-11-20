@@ -291,8 +291,8 @@ def _preflight() -> dict:
             "access_key_id": "aapcln0123456789",
             "policy_id": "aap-guide-0123456789abcdef",
             "container_id": "2" * 64,
-            "bucket": "aap-wt-1234567890ab-test-guide",
-            "resource_owner": "aap-worktree:1234567890abcdef:test:1234567890abcdef",
+            "bucket": "yoao-wt-1234567890ab-test-guide",
+            "resource_owner": "yoao-worktree:1234567890abcdef:test:1234567890abcdef",
             "write_probe": deepcopy(_S3_PROBE),
         },
         "media_peer": {
@@ -313,7 +313,7 @@ def _preflight() -> dict:
             "queue": "legacy_video_fence_0123456789abcdef0123",
             "redis_container_id": "1" * 64,
             "redis_container_name": "aap-module-data-redis-123456abcdef",
-            "redis_owner": "aap-worktree-owner-12345678",
+            "redis_owner": "yoao-worktree-owner-12345678",
             "redis_loopback_host": "127.0.0.1",
             "redis_loopback_port": 56379,
             "shared_unauthenticated": True,
@@ -611,7 +611,7 @@ def test_worker_broker_identity_uses_the_parsed_redis_database(monkeypatch, data
     redis_record = {
         "Id": "1" * 64,
         "Name": "/owned-redis",
-        "Config": {"Labels": {"org.aap.worktree-owner": "owned-redis-label"}},
+        "Config": {"Labels": {"org.yoao.worktree-owner": "owned-redis-label"}},
         "NetworkSettings": {
             "Ports": {"6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "56379"}]}
         },
@@ -786,7 +786,7 @@ def test_structured_local_fence_evidence_keeps_scope_and_broker_limits_explicit(
             "access_key_id": "aapcln0123456789",
             "policy_id": "aap-guide-0123456789abcdef",
             "container_id": "2" * 64,
-            "bucket": "aap-wt-1234567890ab-test-guide",
+            "bucket": "yoao-wt-1234567890ab-test-guide",
             "user_removed": True,
             "policy_removed": True,
             "old_credential_denied": True,

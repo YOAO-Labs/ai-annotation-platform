@@ -88,7 +88,7 @@ class FixtureGuards(unittest.TestCase):
                 ui_handoff(owner, {}, 10)
 
     def test_development_mode_is_rejected_before_provisioning(self):
-        with patch.dict("os.environ", {"AAP_WORKTREE_MODE": "dev"}, clear=True):
+        with patch.dict("os.environ", {"YOAO_WORKTREE_MODE": "dev"}, clear=True):
             with self.assertRaisesRegex(ValueError, "launcher_test_mode_required"):
                 verify(None, "unused")
 
@@ -134,10 +134,10 @@ class FixtureGuards(unittest.TestCase):
                     owner.create("network", "test-net")
 
     def test_network_translation_preserves_test_identity_and_credentials(self):
-        original = "postgresql+asyncpg://user:p%40ss@127.0.0.1:5432/aap_wt_example_test?ssl=false"
+        original = "postgresql+asyncpg://user:p%40ss@127.0.0.1:5432/yoao_wt_example_test?ssl=false"
         self.assertEqual(
             replaced_host(original, "172.18.0.1"),
-            "postgresql+asyncpg://user:p%40ss@172.18.0.1:5432/aap_wt_example_test?ssl=false",
+            "postgresql+asyncpg://user:p%40ss@172.18.0.1:5432/yoao_wt_example_test?ssl=false",
         )
         self.assertEqual(
             replaced_host("redis://127.0.0.1:33000/0", "172.18.0.1", 41000),

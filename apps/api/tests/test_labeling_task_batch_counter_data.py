@@ -33,28 +33,24 @@ def test_source_less_batch_counter_bridge_is_opt_in_and_rollback_clears_state():
     assert event.contains(first, "before_flush", _write_pending_batch_counters)
     assert not event.contains(second, "before_flush", _write_pending_batch_counters)
     assert (
-        first.info["aap_labeling_source_less_batch_counter_pending"][project_id][
-            batch.id
-        ]
+        first.info["labeling_source_less_batch_counter_pending"][project_id][batch.id]
         is batch
     )
 
     _clear_pending_batch_counters(first, None)
-    assert "aap_labeling_source_less_batch_counter_pending" not in first.info
+    assert "labeling_source_less_batch_counter_pending" not in first.info
 
     register_source_less_batch_counter_projection(
         SimpleNamespace(sync_session=first), project_id, batch
     )
     _clear_finished_batch_counter_scope(first, SimpleNamespace(parent=None))
-    assert "aap_labeling_source_less_batch_counter_pending" not in first.info
+    assert "labeling_source_less_batch_counter_pending" not in first.info
 
     register_source_less_batch_counter_projection(
         SimpleNamespace(sync_session=first), project_id, batch
     )
     assert (
-        first.info["aap_labeling_source_less_batch_counter_pending"][project_id][
-            batch.id
-        ]
+        first.info["labeling_source_less_batch_counter_pending"][project_id][batch.id]
         is batch
     )
 

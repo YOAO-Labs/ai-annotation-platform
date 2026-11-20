@@ -35,14 +35,14 @@ assert_owned_disposable_bucket = _module.assert_owned_disposable_bucket
 
 
 def _resources(
-    root: Path, *, owner: str = "aap-worktree:abc:e2e:def", mode: str = "e2e"
+    root: Path, *, owner: str = "yoao-worktree:abc:e2e:def", mode: str = "e2e"
 ) -> dict:
     return {
         "root": str(root),
         "mode": mode,
         "owner": owner,
-        "database": "aap_wt_abc_e2e",
-        "buckets": {"MINIO_BUCKET": "aap-wt-abc-e2e-annotations"},
+        "database": "yoao_wt_abc_e2e",
+        "buckets": {"MINIO_BUCKET": "yoao-wt-abc-e2e-annotations"},
     }
 
 
@@ -54,9 +54,9 @@ def test_worktree_owned_bucket_passes() -> None:
     assert_owned_disposable_bucket(
         mode="e2e",
         resources=_resources(_repo_root()),
-        database="aap_wt_abc_e2e",
-        bucket="aap-wt-abc-e2e-annotations",
-        owner_tag="aap-worktree:abc:e2e:def",
+        database="yoao_wt_abc_e2e",
+        bucket="yoao-wt-abc-e2e-annotations",
+        owner_tag="yoao-worktree:abc:e2e:def",
     )
 
 
@@ -65,18 +65,18 @@ def test_selected_resource_root_keeps_bucket_owner_checks(tmp_path: Path) -> Non
     assert_owned_disposable_bucket(
         mode="e2e",
         resources=resources,
-        database="aap_wt_abc_e2e",
-        bucket="aap-wt-abc-e2e-annotations",
-        owner_tag="aap-worktree:abc:e2e:def",
+        database="yoao_wt_abc_e2e",
+        bucket="yoao-wt-abc-e2e-annotations",
+        owner_tag="yoao-worktree:abc:e2e:def",
         resource_root=tmp_path,
     )
     with pytest.raises(GuardError, match="another checkout"):
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=resources,
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
 
 
@@ -86,22 +86,22 @@ def test_worktree_rejects_unrecognized_modes(mode: str) -> None:
         assert_owned_disposable_bucket(
             mode=mode,
             resources=_resources(_repo_root()),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
 
 
 @pytest.mark.parametrize(
-    "owner_tag", ["aap-worktree:other:e2e:zzz", "malformed", "aap-worktree:abc"]
+    "owner_tag", ["yoao-worktree:other:e2e:zzz", "malformed", "yoao-worktree:abc"]
 )
 def test_worktree_rejects_foreign_or_malformed_owner_tag(owner_tag: str) -> None:
     with pytest.raises(GuardError):
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(_repo_root()),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
             owner_tag=owner_tag,
         )
 
@@ -111,8 +111,8 @@ def test_worktree_rejects_missing_owner_tag() -> None:
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(_repo_root()),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
             owner_tag=None,
         )
 
@@ -123,9 +123,9 @@ def test_worktree_rejects_missing_or_empty_manifest_owner(owner: str | None) -> 
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(_repo_root(), owner=owner),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
 
 
@@ -134,9 +134,9 @@ def test_worktree_rejects_manifest_from_another_mode() -> None:
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(_repo_root(), mode="test"),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
 
 
@@ -147,25 +147,25 @@ def test_worktree_rejects_wrong_bucket_slot_and_database_and_root(
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(_repo_root()),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-datasets",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-datasets",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
     with pytest.raises(GuardError, match="database"):
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(_repo_root()),
-            database="aap_wt_other_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_other_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
     with pytest.raises(GuardError, match="another checkout"):
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=_resources(tmp_path),
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
 
 
@@ -175,19 +175,19 @@ def test_worktree_rejects_unrelated_and_missing_manifest() -> None:
             mode="e2e",
             resources={
                 **_resources(_repo_root()),
-                "buckets": {"MINIO_BUCKET": "aap-wt-abc-e2e-annotations"},
+                "buckets": {"MINIO_BUCKET": "yoao-wt-abc-e2e-annotations"},
             },
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-unrelated",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-unrelated",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
     with pytest.raises(GuardError, match="manifest"):
         assert_owned_disposable_bucket(
             mode="e2e",
             resources=None,
-            database="aap_wt_abc_e2e",
-            bucket="aap-wt-abc-e2e-annotations",
-            owner_tag="aap-worktree:abc:e2e:def",
+            database="yoao_wt_abc_e2e",
+            bucket="yoao-wt-abc-e2e-annotations",
+            owner_tag="yoao-worktree:abc:e2e:def",
         )
 
 
@@ -202,7 +202,7 @@ def test_non_worktree_keeps_legacy_ci_rule_and_rejects_unrecognized_worktree_buc
             bucket=bucket,
             owner_tag=None,
         )
-    for bucket in ("annotations", "datasets", "aap-wt-abc-e2e-annotations"):
+    for bucket in ("annotations", "datasets", "yoao-wt-abc-test", "aap-wt-abc-test"):
         with pytest.raises(GuardError):
             assert_owned_disposable_bucket(
                 mode=None,
@@ -228,15 +228,15 @@ async def test_lifecycle_rejects_foreign_resources_before_database_access(
     monkeypatch.setattr(
         _module,
         "topology",
-        lambda *_args: {**resources, "database": "aap_wt_other_e2e"},
+        lambda *_args: {**resources, "database": "yoao_wt_other_e2e"},
     )
     monkeypatch.setenv(
         "PLAYWRIGHT_E2E_DATABASE_URL",
-        "postgresql+asyncpg://owner@localhost/aap_wt_abc_e2e",
+        "postgresql+asyncpg://owner@localhost/yoao_wt_abc_e2e",
     )
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("E2E_SEED_ENABLED", "true")
-    monkeypatch.setenv("AAP_WORKTREE_MODE", "e2e")
+    monkeypatch.setenv("YOAO_WORKTREE_MODE", "e2e")
     reason = "inside this checkout" if foreign_root else "manifest does not match"
     with pytest.raises(GuardError, match=reason):
         await _module.run("gc", str(uuid4()), str(uuid4()), "fixture1")

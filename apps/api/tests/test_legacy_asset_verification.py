@@ -652,12 +652,12 @@ async def test_cli_requires_existing_target_and_never_overwrites_plan(legacy, tm
 async def test_real_minio_upgrade_restores_existing_task_and_item_downloads(
     legacy, app_module, monkeypatch, tmp_path
 ):
-    if os.environ.get("AAP_WORKTREE_MODE") != "test":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "test":
         pytest.skip("Live object writes require an owned worktree test environment")
     # Restore the real guarded constructor only for this exact owned object.
     monkeypatch.undo()
     key, bucket = legacy.item.file_path, storage_service.datasets_bucket
-    assert bucket.startswith("aap-wt-") and "-test-" in bucket
+    assert bucket.startswith("yoao-wt-") and "-test-" in bucket
     client = storage_service.client
     client.put_object(Bucket=bucket, Key=key, Body=legacy.raw)
     from app.deps import get_db

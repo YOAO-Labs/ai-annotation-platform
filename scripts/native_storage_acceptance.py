@@ -149,7 +149,7 @@ def provision_native_provider(owner, state, resources, legacy_identities, eviden
                 Tagging={
                     "TagSet": [
                         {"Key": "aap-owner", "Value": owner.data["nonce"]},
-                        {"Key": "aap-worktree-owner", "Value": resources["owner"]},
+                        {"Key": "yoao-worktree-owner", "Value": resources["owner"]},
                     ]
                 },
             )

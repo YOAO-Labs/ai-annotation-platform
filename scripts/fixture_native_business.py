@@ -292,7 +292,7 @@ def _scopes(backend, private_dir):
         tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
         _require(
             any(
-                tag["Key"] == "aap-worktree-owner"
+                tag["Key"] == "yoao-worktree-owner"
                 and tag["Value"] == resources["owner"]
                 for tag in tags
             ),
@@ -390,7 +390,7 @@ def _raster_identity(path, resources, expected=None):
             tags = client.get_bucket_tagging(Bucket=bucket)["TagSet"]
             _require(
                 any(
-                    tag["Key"] == "aap-worktree-owner"
+                    tag["Key"] == "yoao-worktree-owner"
                     and tag["Value"] == resources["owner"]
                     for tag in tags
                 ),

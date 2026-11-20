@@ -1118,7 +1118,7 @@ async def main():
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
-    require(os.environ.get("AAP_WORKTREE_MODE") == "e2e", "e2e worktree mode required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "e2e", "e2e worktree mode required")
     require(
         not any(
             os.environ.get(k)
@@ -1131,7 +1131,7 @@ async def main():
         and os.environ.get("PLAYWRIGHT_RASTER_OFFLINE") != "1",
         "unexpected fixture topology",
     )
-    root = Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"]).resolve(strict=True)
+    root = Path(os.environ["YOAO_WORKTREE_RESOURCE_ROOT"]).resolve(strict=True)
     require(
         root == ROOT.resolve() and Path.cwd().resolve() == root,
         "run from the exact resource checkout root",

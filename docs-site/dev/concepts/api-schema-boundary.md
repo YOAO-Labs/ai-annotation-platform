@@ -111,7 +111,7 @@ pre-commit 会在 capability registry、schema 或 API 序列化文件变更时�
 
 **单源真值**：`projects` / `project_templates` 的旧扁平列 `classes` / `classes_config` / `attribute_schema` 已删除，`tool_bindings` 是唯一存储真值。`ProjectOut` / `ProjectTemplateOut` 仍暴露三个扁平字段（API 契约不变），但由 `model_validator` 用 `derive_*` 从 `tool_bindings` **读时派生**（响应序列化 / COCO·YOLO·原生 JSON 导出共用）。输入侧 `coalesce_legacy_into_tool_bindings` 保留，把旧客户端 / 旧原生 JSON 1.0 的扁平字段反推到对应 unit。
 
-**原生 JSON**：当前 schema 1.7 包含 `project.tool_bindings`、媒体块与 portable `mask_objects`。图片 `raster_mask`、视频单帧 `video_mask` 与视频轨迹 `video_track_mask` geometry 都保留 `coco_rle_ref`，envelope 以 SHA-256 为键携带实际 RLE；导入先校验引用与对象一致性，再写不可变对象并创建 annotation。旧 envelope 仍按宽松 reader 兼容，格式说明见[导入 API 指南](../../api/guides/import#aap-json-格式)。
+**原生 JSON**：当前 `yoao` 文件（schema `2.0`） 包含 `project.tool_bindings`、媒体块与 portable `mask_objects`。图片 `raster_mask`、视频单帧 `video_mask` 与视频轨迹 `video_track_mask` geometry 都保留 `coco_rle_ref`，envelope 以 SHA-256 为键携带实际 RLE；导入先校验引用与对象一致性，再写不可变对象并创建 annotation。仅历史 `1.x` 文件使用 `aap` 身份，由输入解码器验证后导入，格式说明见[导入 API 指南](../../api/guides/import#aap-json-格式)。
 
 ## 运维、健康与请求体边界
 

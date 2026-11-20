@@ -137,7 +137,7 @@ ZIP 的所有可入库字节先完成封存，超过 200 个条目也不提前�
 
 ### B. 命令行脚本入库
 
-不走向导、直接灌进当前栈(MinIO + DB)。范例见 [`apps/api/scripts/seed_pointcloud.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/seed_pointcloud.py)(SUSTechPOINTS 示例)与下文 nuScenes 脚本。
+脚本跳过导入向导，将媒体写入 MinIO，并在当前数据库登记数据集。范例见 [`apps/api/scripts/seed_pointcloud.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/seed_pointcloud.py)(SUSTechPOINTS 示例)与下文 nuScenes 脚本。
 
 nuScenes 脚本会把 `sample_data` 中的相机像素宽高一并持久化，并保留原始 `.pcd.bin`、相机图、map 以及官方表上下文的 size / SHA-256。对已入库的同名 Scene 重跑时，会幂等回填这些尺寸和可信导出合同，同时保留原有任务和标注。
 

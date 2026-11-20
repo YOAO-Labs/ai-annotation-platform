@@ -194,7 +194,7 @@ async def snapshot(input_path, output_path, *, wait_thumbnail=False):
     from app.workers._db import task_session
 
     value = json.loads(Path(input_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     deadline = time.monotonic() + 40
     while True:
         async with task_session() as db:
@@ -408,7 +408,7 @@ class Cutover(OriginalReads):
         child = {
             key: value
             for key, value in environment.items()
-            if key in allowed or key == "AAP_WORKTREE_MODE"
+            if key in allowed or key == "YOAO_WORKTREE_MODE"
         }
         child.update(
             PYTHONDONTWRITEBYTECODE="1",

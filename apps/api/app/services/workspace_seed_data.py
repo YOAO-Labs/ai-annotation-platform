@@ -27,8 +27,8 @@ from app.services.workspace_read_relations import project_member_facts, project_
 
 seed_projects = aliased(Project, project_rows(), adapt_on_names=True)
 seed_members = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
-_PENDING = "aap_workspace_seed_project_pending"
-_EXPIRE_TIME = "aap_workspace_seed_project_expire_time"
+_PENDING = "workspace_seed_project_pending"
+_EXPIRE_TIME = "workspace_seed_project_expire_time"
 _FIELDS = frozenset(MEDIA_SEED_PROJECT_PROJECTION_FIELDS)
 _WRITE = text(
     "SELECT yoao_workspace_v1.write_seed_project_projection(CAST(:project_id AS uuid), CAST(:patch AS jsonb))"

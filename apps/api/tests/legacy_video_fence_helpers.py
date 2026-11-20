@@ -233,7 +233,7 @@ def owned_worker_identity(worker: Any) -> dict[str, Any]:
         "6379/tcp"
     ) or []
     if not (
-        redis_labels.get("org.aap.worktree-owner") == redis_owner
+        redis_labels.get("org.yoao.worktree-owner") == redis_owner
         and redis_record.get("Id")
         and redis_record.get("Name") == f"/{redis_container_name}"
         and len(redis_ports) == 1

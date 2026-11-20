@@ -54,7 +54,7 @@ def verified_environment():
     from app.config import settings
 
     require(__debug__, "Qualification requires assertions")
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "Use owned test mode")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "Use owned test mode")
     resources = topology(ROOT, load_identity(ROOT), "test")
     backend = LocalResources(resources, settings, code_root=ROOT)
     try:

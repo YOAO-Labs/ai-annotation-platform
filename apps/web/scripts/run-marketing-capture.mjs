@@ -1,3 +1,4 @@
+import { worktreeMode as readWorktreeMode } from "../e2e/helpers/worktree-mode.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
@@ -112,7 +113,7 @@ async function preflight() {
   }
   // The capture configuration starts its own API; global setup validates the
   // exact worktree and per-run Native workers after startup.
-  if (!["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+  if (!["test", "e2e"].includes(readWorktreeMode() ?? "")) {
     throw new Error("[marketing] 请通过已验证的截图工作树入口启动录制。");
   }
 }

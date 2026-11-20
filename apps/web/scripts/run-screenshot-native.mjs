@@ -1,3 +1,4 @@
+import { worktreeMode as readWorktreeMode } from "../e2e/helpers/worktree-mode.mjs";
 import { randomUUID } from "node:crypto";
 import { closeFixtureTransport } from "../e2e/helpers/seed-owner-transport.mjs";
 import {
@@ -21,7 +22,7 @@ if (seedArgs.some((arg) => /^(?:--profile|--run-id|--admission-id|--help)(?:=|$)
   throw new Error("The screenshot launcher owns the profile and admission identities");
 }
 if (
-  !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE) ||
+  !["test", "e2e"].includes(readWorktreeMode()) ||
   !process.env.DATABASE_URL ||
   !process.env.PLAYWRIGHT_E2E_DATABASE_URL ||
   process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE ||

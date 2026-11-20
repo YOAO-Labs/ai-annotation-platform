@@ -30,7 +30,7 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual(len(dev["buckets"]), 10)
             self.assertEqual(
                 dev["buckets"]["MINIO_INPUTS_BUCKET"],
-                f"aap-wt-{first['id']}-dev-accepted-inputs",
+                f"yoao-wt-{first['id']}-dev-accepted-inputs",
             )
             document = json.loads((root / ".worktree/identity.json").read_text())
             self.assertEqual(document["root"], str(root.resolve()))
@@ -68,6 +68,26 @@ class IdentityTests(unittest.TestCase):
                 load_identity(root)
             with self.assertRaises(ValueError):
                 topology(root, identity, "../../shared")
+
+    def test_refuses_retired_identity_or_orphaned_mode_without_minting_a_replacement(
+        self,
+    ):
+        from worktree_env import WorktreeError, load_identity
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mode = root / ".worktree" / "test"
+            mode.mkdir(parents=True)
+            path = mode.parent / "identity.json"
+            old = json.dumps({"schema": 1, "id": "ab" * 8, "root": str(root)})
+            path.write_text(old)
+            with self.assertRaises(WorktreeError):
+                load_identity(root, create=True)
+            self.assertEqual(path.read_text(), old)
+            path.unlink()
+            with self.assertRaises(WorktreeError):
+                load_identity(root, create=True)
+            self.assertFalse(path.exists())
 
     def test_concurrent_initializers_publish_one_complete_identity(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -293,13 +313,13 @@ class EnvironmentTests(unittest.TestCase):
                 minio_endpoint="localhost:9000",
                 redis_port=6391,
                 inherited={
-                    "AAP_WORKTREE_RESOURCE_ROOT": "/wrong-root",
-                    "aap_worktree_resource_root": "/also-wrong",
+                    "YOAO_WORKTREE_RESOURCE_ROOT": "/wrong-root",
+                    "yoao_worktree_resource_root": "/also-wrong",
                     "UV_PROJECT_ENVIRONMENT": "/wrong-venv",
                 },
             )
-            self.assertEqual(env["AAP_WORKTREE_RESOURCE_ROOT"], str(root))
-            self.assertNotIn("aap_worktree_resource_root", env)
+            self.assertEqual(env["YOAO_WORKTREE_RESOURCE_ROOT"], str(root))
+            self.assertNotIn("yoao_worktree_resource_root", env)
             self.assertEqual(
                 env["UV_PROJECT_ENVIRONMENT"], str(code_root / "apps/api/.venv")
             )

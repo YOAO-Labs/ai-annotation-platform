@@ -197,16 +197,9 @@ def resolve_ref(ref, *, expected_prefix=None):
             if ref["config_revision"] != 1 or prefix != logical:
                 _reject()
         else:
-            from app.services.export_storage_target import (
-                MANAGED_NAMESPACE,
-                managed_prefix,
-            )
+            from app.services.export_storage_target import valid_saved_root
 
-            root = prefix[: -len(logical)]
-            if (
-                not root.endswith(MANAGED_NAMESPACE)
-                or managed_prefix(root[: -len(MANAGED_NAMESPACE)]) != root
-            ):
+            if not valid_saved_root(prefix[: -len(logical)]):
                 _reject("invalid_key")
     endpoint = _endpoint(ref["endpoint_url"])
     if (
@@ -226,11 +219,12 @@ async def io_target(db, record):
     location = await db.get(
         StorageLocation, uuid.UUID(owner.ref["location_id"]), populate_existing=True
     )
-    target = await target_for(db, location)
+    logical = prefix_for(_field(record, "id"))
+    target = await target_for(db, location, saved_root=owner.prefix[: -len(logical)])
     if (
         target.endpoint_url != owner.ref["endpoint_url"]
         or target.bucket != owner.bucket
-        or target.key_prefix + prefix_for(_field(record, "id")) != owner.prefix
+        or target.key_prefix + logical != owner.prefix
     ):
         _reject()
     return target

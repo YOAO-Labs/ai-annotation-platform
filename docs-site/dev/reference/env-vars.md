@@ -3,7 +3,7 @@ title: 环境变量参考
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-11-19
+last_reviewed: 2026-11-20
 ---
 
 # 环境变量参考
@@ -529,7 +529,8 @@ last_reviewed: 2026-11-19
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `AAP_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
+| `YOAO_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
+| `YOAO_WORKTREE_RESOURCE_ROOT` | `—` | 启动器注入当前 checkout 的规范绝对路径；夹具据此核对 manifest 和资源归属。不要手工配置。 |
 
 ## Identity 认证与账号恢复（可选独立进程，不进入默认 Compose）
 

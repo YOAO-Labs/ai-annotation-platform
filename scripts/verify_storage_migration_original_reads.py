@@ -73,7 +73,7 @@ async def seed_originals(input_path, output_path):
     from app.workers._db import task_session
 
     value = json.loads(Path(input_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     data = Path(value["image_path"]).read_bytes()
     with Image.open(io.BytesIO(data)) as image:
         require(image.size == (64, 48), "fixture_image_changed")
@@ -216,7 +216,7 @@ async def worker_read(fixture_path, *, capture=None):
     from app.workers._db import task_session
 
     value = json.loads(Path(fixture_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     request = Request(
         {
             "type": "http",

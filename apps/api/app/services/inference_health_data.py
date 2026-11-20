@@ -18,7 +18,7 @@ from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 
-_STAGES = "aap_inference_health_reconciliations"
+_STAGES = "inference_health_reconciliations"
 _NATIVE = "yoao_inference_health_data_v1."
 
 

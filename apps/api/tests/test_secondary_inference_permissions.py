@@ -11,14 +11,14 @@ import uuid
 
 import httpx
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from app import deps
 from app.api.v1.tasks import _shared as tasks_shared
 from app.api.v1.tasks import annotations
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services import task_access
+from app.services import task_access, video_collaboration
 from yoao_workspace_contract.access import (
     ACCESS_KIND_MEMBER,
     MANAGER_CAPABILITIES,
@@ -48,16 +48,6 @@ def _access(user, project, platform_role, project_role, *, manager):
     )
 
 
-class _FakeSession:
-    """Minimal session for the stubbed lookup: only ``Project`` is fetched."""
-
-    def __init__(self, project):
-        self._project = project
-
-    async def get(self, model, pk, **kwargs):
-        return self._project
-
-
 @pytest.mark.parametrize(
     ("platform_role", "project_role", "manager", "admitted"),
     [
@@ -77,14 +67,14 @@ class _FakeSession:
 async def test_secondary_inference_capability_gate_precedes_inference(
     monkeypatch, platform_role, project_role, manager, admitted
 ):
-    project = SimpleNamespace(id=uuid.uuid4())
+    project = SimpleNamespace(id=uuid.uuid4(), video_collaboration={})
     user = User(id=uuid.uuid4(), role=platform_role, is_active=True)
     access = _access(user, project, platform_role, project_role, manager=manager)
 
     app = FastAPI()
     app.include_router(annotations.router, prefix="/tasks")
     app.dependency_overrides[deps.get_current_user] = lambda: user
-    app.dependency_overrides[deps.get_db] = lambda: _FakeSession(project)
+    app.dependency_overrides[deps.get_db] = lambda: object()
     app.dependency_overrides[deps.get_prediction_input_session_factory] = lambda: (
         object()
     )
@@ -93,6 +83,7 @@ async def test_secondary_inference_capability_gate_precedes_inference(
         id=uuid.uuid4(),
         project_id=project.id,
         display_id="T-GATE",
+        assignee_id=user.id,
         file_name="gate.png",
         file_path="/gate.png",
         file_type="image",
@@ -105,12 +96,28 @@ async def test_secondary_inference_capability_gate_precedes_inference(
     async def _resolve(db, *, actor_id, project, lock_membership=False):
         return access
 
-    # Stub the dependency's DB lookups so the real predicate runs on the
-    # resolved context; separate the endpoint body's lookup so a successful
-    # gate is still observable as a 404 without running inference.
+    # Keep the actual access/visibility guards; only replace external lookups.
+    monkeypatch.setattr(
+        task_access, "get_workspace_project", AsyncMock(return_value=project)
+    )
+    monkeypatch.setattr(
+        video_collaboration, "get_workspace_project", AsyncMock(return_value=project)
+    )
     monkeypatch.setattr(tasks_shared, "_load_task_or_404", _load_task)
     monkeypatch.setattr(task_access, "resolve_project_access", _resolve)
-    load_task = AsyncMock(side_effect=HTTPException(404, "task not found"))
+    load_task = AsyncMock(return_value=task)
+    selected = SimpleNamespace(
+        task_id=task.id,
+        is_active=True,
+        video_segment_id=None,
+        geometry={},
+        parent_annotation_id=None,
+    )
+    monkeypatch.setattr(annotations, "get_core_row", AsyncMock(return_value=selected))
+    registry = AsyncMock(return_value=None if manager else SimpleNamespace())
+    enabled = AsyncMock(return_value=False)
+    monkeypatch.setattr(annotations.MLBackendService, "get_registry", registry)
+    monkeypatch.setattr(annotations.MLBackendService, "is_enabled", enabled)
     infer = AsyncMock()
     monkeypatch.setattr(annotations, "_load_task_or_404", load_task)
     monkeypatch.setattr(annotations, "run_secondary_inference", infer)
@@ -125,4 +132,6 @@ async def test_secondary_inference_capability_gate_precedes_inference(
 
     assert response.status_code == (404 if admitted else 403), response.text
     assert load_task.await_count == int(admitted)
+    assert registry.await_count == int(admitted)
+    assert enabled.await_count == int(admitted and not manager)
     infer.assert_not_awaited()

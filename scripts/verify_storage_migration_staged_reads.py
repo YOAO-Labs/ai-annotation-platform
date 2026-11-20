@@ -70,7 +70,7 @@ async def seed_staged(input_path, output_path):
     from app.workers._db import task_session
 
     value = json.loads(Path(input_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     actor_id, instant = uuid.UUID(value["actor_id"]), datetime.now(timezone.utc)
     async with task_session() as db:
         require(
@@ -325,7 +325,7 @@ async def worker_read(fixture_path, *, hold=False):
     from app.workers._db import task_session
 
     value = json.loads(Path(fixture_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     observed, denied = {}, False
     async with task_session() as db:
         require(

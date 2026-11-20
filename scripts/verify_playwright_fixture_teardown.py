@@ -1162,7 +1162,7 @@ async def main():
     args = parser.parse_args()
     os.umask(0o077)
     evidence = evidence_directory(args.evidence)
-    require(os.environ.get("AAP_WORKTREE_MODE") == "e2e", "e2e_exec_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "e2e", "e2e_exec_required")
     require(
         not os.environ.get("CI")
         and not os.environ.get("PLAYWRIGHT_RASTER_OFFLINE")

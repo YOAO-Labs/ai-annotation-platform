@@ -463,7 +463,7 @@ class TrainingTaskObserver:
 def environment_contract(root, environ):
     from worktree_env import BUCKETS, load_identity, read_state, state_path, topology
 
-    if environ.get("AAP_WORKTREE_MODE") != "test":
+    if environ.get("YOAO_WORKTREE_MODE") != "test":
         raise ValueError("owned_test_mode_required")
     resources = topology(root, load_identity(root), "test")
     manifest = read_state(state_path(root, "test", "resources.json"))

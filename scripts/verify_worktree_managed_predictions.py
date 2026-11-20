@@ -87,7 +87,7 @@ def verified_environment():
     from sqlalchemy.engine import make_url
 
     require(__debug__, "验收拒绝 Python 优化模式")
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "仅允许 owned test 环境")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "仅允许 owned test 环境")
     resources = topology(ROOT, load_identity(ROOT), "test")
     backend = LocalResources(resources, settings, code_root=ROOT)
     try:
@@ -507,7 +507,7 @@ def lifecycle_and_versions(storage, run_id, resources):
     expected_bucket = owned["buckets"]["MINIO_IMPORT_BUCKET"]
     require(
         owned["mode"] == "test"
-        and os.environ.get("AAP_WORKTREE_MODE") == "test"
+        and os.environ.get("YOAO_WORKTREE_MODE") == "test"
         and storage.import_bucket == expected_bucket,
         "拒绝更改非本工作树 test 导入桶的版本控制",
     )

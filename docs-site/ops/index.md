@@ -53,7 +53,7 @@ last_reviewed: 2026-10-26
 
 - [Celery Worker 卡死](/ops/runbooks/celery-worker-stuck) — worker 卡住、队列堆积、任务无法消费
 - [GPU 显存仲裁验收](/ops/runbooks/gpu-arbitration-acceptance) — 验收 GPU 资源仲裁、驱逐和恢复分支
-- [ML Backend 不可用](/ops/runbooks/ml-backend-down) — 模型服务不可达、健康检查失败或 GPU 加载异常
+- [模型服务不可用](/ops/runbooks/ml-backend-down) — 模型服务不可达、健康检查失败或 GPU 加载异常
 - [视频帧服务排障](/ops/runbooks/video-frame-service) — frame cache、chunk smart-copy、视频 tracker job
 - [图片金字塔](/ops/runbooks/image-pyramid) — 大图派生、回填、告警和故障码处理
 - [PG 连接池耗尽](/ops/runbooks/postgres-connection-pool-exhausted) — 连接池打满、请求排队或超时

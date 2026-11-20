@@ -1,3 +1,4 @@
+import { worktreeMode as readWorktreeMode } from "../e2e/helpers/worktree-mode.mjs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -80,7 +81,7 @@ if (values["headless-display"]) {
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
 if (
-  !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+  !["test", "e2e"].includes(readWorktreeMode() ?? "") ||
   !process.env.DATABASE_URL ||
   !process.env.PLAYWRIGHT_E2E_DATABASE_URL
 ) {

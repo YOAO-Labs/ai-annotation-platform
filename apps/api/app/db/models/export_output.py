@@ -69,7 +69,7 @@ EXPORT_STORAGE_REF_CHECK = """
        AND storage_ref->>'config_revision' = '1' AND (storage_ref->>'object_key') = media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')
       OR (storage_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
        AND right((storage_ref->>'object_key'), length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')) = media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip'
-       AND left((storage_ref->>'object_key'), length((storage_ref->>'object_key')) - length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')) ~ '^([^/]+/)*_aap_managed/export/$'
+       AND left((storage_ref->>'object_key'), length((storage_ref->>'object_key')) - length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip')) ~ '^([^/]+/)*_(aap|yoao)_managed/export/$'
        AND octet_length(left((storage_ref->>'object_key'), length((storage_ref->>'object_key')) - length(media || '/' || project_id::text || '/' || job_id::text || '/' || id::text || '.zip'))) <= 904
        AND (storage_ref->>'object_key') !~ '[[:cntrl:]]'
        AND position(chr(92) in (storage_ref->>'object_key')) = 0

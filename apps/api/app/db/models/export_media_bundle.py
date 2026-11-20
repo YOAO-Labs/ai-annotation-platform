@@ -68,7 +68,7 @@ EXPORT_MEDIA_STORAGE_REF_CHECK = """
        AND storage_ref->>'config_revision' = '1' AND (storage_ref->>'key_prefix') = 'lidar-export-media/objects/' || id::text || '/')
       OR (storage_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
        AND right((storage_ref->>'key_prefix'), length('lidar-export-media/objects/' || id::text || '/')) = 'lidar-export-media/objects/' || id::text || '/'
-       AND left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/')) ~ '^([^/]+/)*_aap_managed/export/$'
+       AND left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/')) ~ '^([^/]+/)*_(aap|yoao)_managed/export/$'
        AND octet_length(left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/'))) <= 904
        AND (storage_ref->>'key_prefix') !~ '[[:cntrl:]]'
        AND position(chr(92) in (storage_ref->>'key_prefix')) = 0

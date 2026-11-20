@@ -44,7 +44,7 @@ pnpm dev:worktree -- up --with-worker
 
 | 资源            | 隔离方式                                                          |
 | --------------- | ----------------------------------------------------------------- |
-| PostgreSQL      | 共享实例，库名为 `aap_wt_<id>_<mode>`；数据库 comment 记录归属    |
+| PostgreSQL      | 共享实例，库名为 `yoao_wt_<id>_<mode>`；数据库 comment 记录归属   |
 | Redis           | 独立、带归属标签的容器；端口仅绑定本机，AOF 存放在工作树目录      |
 | MinIO           | 共享实例，十个 bucket 分别使用环境前缀并记录归属标签              |
 | API/Web         | 当前 checkout 的进程，自动分配空闲端口并设置 API/WebSocket 代理   |
@@ -52,9 +52,11 @@ pnpm dev:worktree -- up --with-worker
 | DuckDB/临时文件 | 当前工作树、当前模式的独立目录                                    |
 
 `.worktree/identity.json` 保存稳定 ID 和 checkout 路径；提交代码不会改变 ID。各模式下的资源清单和进程记录不包含数据库密码或完整连接串。
-基础配置共用 owner 时，启动器为当前模式创建 `aap_wt_<id>_<mode>_app` 普通 LOGIN，角色 comment 记录相同资源归属；随机密码仅保存在权限为 `0600` 的 `.worktree/<mode>/runtime-credentials.json`。API／普通 worker 使用这个账号，迁移与维护 worker 继续使用原 owner。已有分离账号配置不被替换。
+基础配置共用 owner 时，启动器为当前模式创建 `yoao_wt_<id>_<mode>_app` 普通 LOGIN，角色 comment 记录相同资源归属；随机密码仅保存在权限为 `0600` 的 `.worktree/<mode>/runtime-credentials.json`。API／普通 worker 使用这个账号，迁移与维护 worker 继续使用原 owner。已有分离账号配置不被替换。
 
 该目录已被 Git 忽略，**不要复制、软链接或随手删除它**；丢失归属记录后不能靠资源名自动接管旧数据。凭据文件损坏、权限过宽、目标或迁移账号变化、已有角色缺少匹配凭据时都会拒绝继续，不自动改密或接管。移动工作树前，应先停止并按需销毁旧环境。
+
+当前启动器只接受新身份。看到旧 `identity.json` 或继承的 `AAP_WORKTREE_MODE`／`AAP_WORKTREE_RESOURCE_ROOT` 时会拒绝，不自动认领。需要退役已获准销毁的旧环境时，在原路径、原配置用匹配的旧工具逐个模式 `doctor`、`stop`、按原确认值 `destroy`；核对原库及角色、Redis 和桶均已消失。保留清单与数据备份，再在全新工作树运行 `init`。外部 owner、活跃连接或未清责任必须先核清，不能通过改标签、删清单或强断连接绕过。
 
 `.env` 仍可链接主目录作为基础配置，运行时仅向子进程注入独立目标，不修改共享文件。直接运行 `pnpm dev:api`、`uv run pytest` 或默认 Compose 不经过这个隔离入口，仍按原来的配置工作。
 
@@ -130,7 +132,7 @@ pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e
 pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 ```
 
-`exec` 的命令从工作树根目录执行，`--` 后面的参数原样传给子进程。`TEST_DATABASE_URL` 和 `PLAYWRIGHT_E2E_DATABASE_URL` 由入口统一覆盖。入口自动注入 `AAP_WORKTREE_MODE`；在 `dev` 模式中，pytest 和 Playwright 会在准备测试数据库前明确拒绝运行，且不导出其他模式的可用测试连接。需要同类测试并行时使用不同工作树，不要绕过模式锁或手工改写这个内部标识。
+`exec` 的命令从工作树根目录执行，`--` 后面的参数原样传给子进程。`TEST_DATABASE_URL` 和 `PLAYWRIGHT_E2E_DATABASE_URL` 由入口统一覆盖。入口自动注入 `YOAO_WORKTREE_MODE`；在 `dev` 模式中，pytest 和 Playwright 会在准备测试数据库前明确拒绝运行，且不导出其他模式的可用测试连接。需要同类测试并行时使用不同工作树，不要绕过模式锁或手工改写这个内部标识。
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
 

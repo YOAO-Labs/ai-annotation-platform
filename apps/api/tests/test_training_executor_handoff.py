@@ -45,7 +45,7 @@ from tests.test_training_runs import ready_dataset
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE") != "1"
-    or os.environ.get("AAP_WORKTREE_MODE") != "test",
+    or os.environ.get("YOAO_WORKTREE_MODE") != "test",
     reason="Requires the explicitly provisioned local disposable test environment",
 )
 
@@ -259,7 +259,7 @@ async def training_handoff_api(test_db_url: str, test_engine, tmp_path: Path):
 
     env = os.environ.copy()
     env.update(
-        AAP_WORKTREE_MODE="test",
+        YOAO_WORKTREE_MODE="test",
         DATABASE_URL=test_db_url,
         MIGRATION_DATABASE_URL="",
         TEST_DATABASE_URL="",

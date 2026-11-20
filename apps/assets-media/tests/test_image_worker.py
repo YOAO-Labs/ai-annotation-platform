@@ -303,9 +303,7 @@ class _FakeStorage:
         )
 
     async def verify_pyramid_member(self, allocation, member, receipt):
-        self.verified.append(
-            (allocation.output_id, member.operation_id, receipt.etag)
-        )
+        self.verified.append((allocation.output_id, member.operation_id, receipt.etag))
 
     async def upload_cache(self, path, key):
         if self.events is not None:
@@ -373,10 +371,10 @@ def test_config_accepts_only_existing_explicit_minio_bucket_mapping():
         "ASSETS_MEDIA_INPUTS_BUCKET": "accepted-inputs",
         "ASSETS_MEDIA_S3_ACCESS_KEY": "access",
         "ASSETS_MEDIA_S3_SECRET_KEY": "secret",
-        "MINIO_BUCKET": "aap-wt-annotations",
+        "MINIO_BUCKET": "yoao-wt-annotations",
     }
 
-    assert load_config(values).storage.legacy_bucket == "aap-wt-annotations"
+    assert load_config(values).storage.legacy_bucket == "yoao-wt-annotations"
     with pytest.raises(ConfigurationError):
         load_config(
             {key: value for key, value in values.items() if key != "MINIO_BUCKET"}
@@ -1694,9 +1692,11 @@ async def test_native_member_stop_drains_and_registers_the_known_write(
         timer = loop.call_at(heartbeat.deadline, expired.set)
     database = _FakeDatabase(None)
     storage = _BlockedStorage(receipt=_registered_receipt(reservation))
-    task = asyncio.create_task(_member_write(
-        ImageExecutor(database, storage), allocation, path, reservation, heartbeat
-    ))
+    task = asyncio.create_task(
+        _member_write(
+            ImageExecutor(database, storage), allocation, path, reservation, heartbeat
+        )
+    )
     try:
         await asyncio.wait_for(started.wait(), timeout=5)
         if interruption == "deadline":
@@ -1715,8 +1715,10 @@ async def test_native_member_stop_drains_and_registers_the_known_write(
             await task
 
     assert [name for name, _ in database.calls] == [
-        "begin_native_pyramid_member", "submit_native_pyramid_member",
-        "write_native_pyramid_member", "abandon_native_pyramid_member",
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+        "abandon_native_pyramid_member",
     ]
     assert database.calls[2][1] == storage.returned_receipt
     assert database.calls[-1][1].state == "written"
@@ -1894,7 +1896,10 @@ async def test_native_member_drained_failed_verification_remains_truthfully_reti
     )
     with pytest.raises(native_media.NativeMemberMissing):
         await _member_write(
-            ImageExecutor(database, storage), allocation, path, reservation,
+            ImageExecutor(database, storage),
+            allocation,
+            path,
+            reservation,
             _StubHeartbeat(),
         )
     assert database.calls[-1][0] == "abandon_native_pyramid_member"

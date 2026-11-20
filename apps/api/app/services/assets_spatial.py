@@ -310,9 +310,7 @@ class AssetsSpatialGateway:
                         object_identity=None,
                     )
                     source.object_identity = await bound.head_source(source)
-                    with TemporaryDirectory(
-                        prefix="aap-spatial-calibration-"
-                    ) as directory:
+                    with TemporaryDirectory(prefix="spatial-calibration-") as directory:
                         destination = Path(directory) / "source"
                         await bound.download_source(source, destination)
                         body = destination.read_bytes()

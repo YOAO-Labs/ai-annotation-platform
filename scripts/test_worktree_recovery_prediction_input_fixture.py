@@ -501,7 +501,7 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
 
         root = Path("/tmp/explicit-fixture-root")
         resources = {
-            "owner": "aap-worktree:fixture:test:owned",
+            "owner": "yoao-worktree:fixture:test:owned",
             "buckets": {"MINIO_IMPORT_BUCKET": "exact-owned-import"},
         }
         for failure in (
@@ -540,7 +540,7 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
                 with (
                     patch.dict(
                         os.environ,
-                        {"AAP_WORKTREE_MODE": "dev" if failure == "mode" else "test"},
+                        {"YOAO_WORKTREE_MODE": "dev" if failure == "mode" else "test"},
                     ),
                     patch.object(
                         settings,
@@ -581,7 +581,7 @@ class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
         }
         client.get_bucket_versioning.return_value = {"Status": "Enabled"}
         with (
-            patch.dict(os.environ, {"AAP_WORKTREE_MODE": "test"}),
+            patch.dict(os.environ, {"YOAO_WORKTREE_MODE": "test"}),
             patch.object(settings, "minio_import_bucket", "owned"),
             patch("worktree_env.load_identity", return_value={}),
             patch("worktree_env.topology", return_value=resources),

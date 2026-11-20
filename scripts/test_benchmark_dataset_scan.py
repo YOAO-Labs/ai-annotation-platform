@@ -23,7 +23,7 @@ class BenchmarkTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
-        identity = {"schema": 1, "id": "0123456789abcdef", "root": str(self.root)}
+        identity = {"schema": 2, "id": "0123456789abcdef", "root": str(self.root)}
         self.resources = topology(self.root, identity, "e2e")
         directory = self.root / ".worktree/e2e"
         directory.mkdir(parents=True)
@@ -34,7 +34,7 @@ class BenchmarkTests(unittest.TestCase):
         }
         (directory / "resources.json").write_text(json.dumps(self.manifest))
         self.environment = {
-            "AAP_WORKTREE_MODE": "e2e",
+            "YOAO_WORKTREE_MODE": "e2e",
             "DATABASE_URL": f"postgresql+asyncpg://user:fixture@127.0.0.1/{self.resources['database']}",
             **self.resources["buckets"],
         }
@@ -49,8 +49,8 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_rejects_other_modes_missing_buckets_and_other_databases(self):
         for overrides in [
-            {"AAP_WORKTREE_MODE": "dev"},
-            {"AAP_WORKTREE_MODE": "test"},
+            {"YOAO_WORKTREE_MODE": "dev"},
+            {"YOAO_WORKTREE_MODE": "test"},
             {"MINIO_TRAINING_BUCKET": "everyday-training"},
             {"DATABASE_URL": "postgresql+asyncpg://user@127.0.0.1/annotation"},
             {

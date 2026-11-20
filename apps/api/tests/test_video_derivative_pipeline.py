@@ -214,12 +214,12 @@ async def real_video(test_engine, tmp_path, monkeypatch):
     """Committed rows and real local MinIO; every physical object is removed."""
     from app.config import settings
 
-    if os.environ.get("AAP_WORKTREE_MODE") != "test":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "test":
         pytest.skip(
             "Real provider integration requires a verified disposable worktree test mode"
         )
     assert settings.database_url.rsplit("/", 1)[-1].endswith("_test")
-    prefix = re.match(r"aap-wt-[0-9a-f]{16}-test-", storage_service.datasets_bucket)
+    prefix = re.match(r"yoao-wt-[0-9a-f]{16}-test-", storage_service.datasets_bucket)
     assert prefix and storage_service.media_cache_bucket.startswith(prefix.group())
     monkeypatch.setattr(settings, "video_chunk_size_frames", 4)
     path = tmp_path / "source.mp4"

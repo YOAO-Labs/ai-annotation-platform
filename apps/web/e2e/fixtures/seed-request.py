@@ -27,6 +27,7 @@ from sqlalchemy.engine import make_url
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 from linux_pidfd import open_pidfd  # noqa: E402
+from worktree_env import reject_legacy_worktree_environment  # noqa: E402
 
 
 _MASK_LIFECYCLE_ENABLED = (
@@ -41,7 +42,8 @@ class SeedSetupRefused(RuntimeError):
 
 
 def require_fixture_environment():
-    if os.environ.get("AAP_WORKTREE_MODE") == "dev":
+    reject_legacy_worktree_environment(os.environ)
+    if os.environ.get("YOAO_WORKTREE_MODE") == "dev":
         raise SeedSetupRefused("Development mode cannot prepare E2E fixtures")
     if os.environ.get("ENVIRONMENT", "development") != "development":
         raise SeedSetupRefused("Fixture setup requires development mode")
@@ -88,7 +90,7 @@ def prepare(payload):
             raise SeedSetupRefused(
                 "Mask lifecycle requires explicit E2E development mode"
             )
-        if os.environ.get("AAP_WORKTREE_MODE") in {"test", "e2e"} and (
+        if os.environ.get("YOAO_WORKTREE_MODE") in {"test", "e2e"} and (
             owner.host not in {"localhost", "127.0.0.1", "::1"} or owner.query
         ):
             raise SeedSetupRefused(
@@ -124,7 +126,7 @@ def authority_native_mode():
         return False
     if (
         value != "1"
-        or os.environ.get("AAP_WORKTREE_MODE") != "test"
+        or os.environ.get("YOAO_WORKTREE_MODE") != "test"
         or os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
     ):
         raise SeedSetupRefused("Invalid authority-native fixture topology")
@@ -145,7 +147,7 @@ def supervised_suite():
     if (
         str(suite) != value
         or value != os.environ.get("PLAYWRIGHT_FIXTURE_RUN_ID")
-        or os.environ.get("AAP_WORKTREE_MODE") not in {"test", "e2e"}
+        or os.environ.get("YOAO_WORKTREE_MODE") not in {"test", "e2e"}
         or (
             os.environ.get("PLAYWRIGHT_RASTER_OFFLINE") == "1"
             and not os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
@@ -153,7 +155,7 @@ def supervised_suite():
         or (
             os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
             and (
-                os.environ.get("AAP_WORKTREE_MODE") != "e2e"
+                os.environ.get("YOAO_WORKTREE_MODE") != "e2e"
                 or not Path(
                     os.environ["AAP_PRIVATE_FIXTURE_RASTER_OWNER"]
                 ).is_absolute()

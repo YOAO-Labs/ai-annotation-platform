@@ -1,3 +1,4 @@
+import { worktreeMode as readWorktreeMode } from "../helpers/worktree-mode.mjs";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { FullConfig } from "@playwright/test";
@@ -57,12 +58,12 @@ export default async function screenshotGlobalSetup(config: FullConfig): Promise
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
   const runId = process.env.SCREENSHOT_FIXTURE_RUN_ID ?? "";
   const catalogPath = screenshotCatalogPath(runId, catalogScope);
-  const root = realpathSync(process.env.AAP_WORKTREE_RESOURCE_ROOT ?? "");
+  const root = realpathSync(process.env.YOAO_WORKTREE_RESOURCE_ROOT ?? "");
   const identity = JSON.parse(readFileSync(path.join(root, ".worktree/identity.json"), "utf8"));
-  if (identity.root !== root || !/^[a-f0-9]{16}$/.test(identity.id)) {
+  if (identity.schema !== 2 || identity.root !== root || !/^[a-f0-9]{16}$/.test(identity.id)) {
     throw new Error("Screenshot worker identity is not the worktree identity.");
   }
-  const expected = `worktree-${identity.id}-${process.env.AAP_WORKTREE_MODE}`;
+  const expected = `worktree-${identity.id}-${readWorktreeMode()}`;
   const runHex = runId.replaceAll("-", "");
   const requiredWorkers = [
     `${expected}@local`,

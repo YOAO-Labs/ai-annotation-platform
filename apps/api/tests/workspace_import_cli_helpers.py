@@ -759,8 +759,8 @@ class WorkspaceImportCli:
             for name in (
                 "PLAYWRIGHT_E2E_DATABASE_URL",
                 "FIXTURE_RUNTIME_DATABASE_URL",
-                "AAP_WORKTREE_RESOURCE_ROOT",
-                "AAP_WORKTREE_MODE",
+                "YOAO_WORKTREE_RESOURCE_ROOT",
+                "YOAO_WORKTREE_MODE",
                 "AAP_FIXTURE_TOOLS_ROOT",
                 "SCREENSHOT_FIXTURE_RUN_ID",
             )
@@ -964,8 +964,8 @@ class WorkspaceImportCli:
             "FIXTURE_RUNTIME_DATABASE_URL": self.database_url.render_as_string(
                 hide_password=False
             ),
-            "AAP_WORKTREE_RESOURCE_ROOT": str(self.fixture_resource_root),
-            "AAP_WORKTREE_MODE": "test",
+            "YOAO_WORKTREE_RESOURCE_ROOT": str(self.fixture_resource_root),
+            "YOAO_WORKTREE_MODE": "test",
             "AAP_FIXTURE_TOOLS_ROOT": "/opt/yoao-fixture-tools",
         }
         if self.fixture_family == "screenshot":
@@ -973,11 +973,11 @@ class WorkspaceImportCli:
         return values
 
     def _prepare_private_fixture_context(self) -> None:
-        root = Path(self._required("AAP_WORKTREE_RESOURCE_ROOT"))
+        root = Path(self._required("YOAO_WORKTREE_RESOURCE_ROOT"))
         if (
             not root.is_absolute()
             or root != root.resolve(strict=True)
-            or self._required("AAP_WORKTREE_MODE") != "test"
+            or self._required("YOAO_WORKTREE_MODE") != "test"
         ):
             raise RuntimeError(
                 "Private fixture metadata must use its canonical test root"

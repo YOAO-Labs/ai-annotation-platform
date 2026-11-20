@@ -1,23 +1,23 @@
 ---
-title: Runbook：ML Backend 不可用
+title: Runbook：模型服务不可用
 audience: [ops]
 type: how-to
 status: stable
 last_reviewed: 2026-07-11
 ---
 
-# Runbook：ML Backend 不可用
+# Runbook：模型服务不可用
 
 ## 症状
 
-- 超管 → ML Backend 注册页面显示 Backend 状态异常
+- 超级管理员在 **模型市场 → 注册管理** 看到实例状态异常
 - AI 预标注 Job 失败，错误信息包含 `ConnectionError` 或 `502`
 - 工作台 SAM 工具无响应
 
 ## 快速诊断
 
 ```bash
-# 1. 检查 Backend 容器（以内置 SAM 为例）
+# 1. 检查模型服务容器（以已部署的 SAM 为例）
 docker ps | grep sam
 
 # 2. 手动 health check
@@ -101,7 +101,7 @@ curl http://localhost:8001/health
 
 `MLBackendDown` 由 Prometheus `up{job="ml-backends"} == 0` 持续 5m 触发，target 由 http_sd 从 `ml_backends` 表生成，**仅** `state="disconnected"` 的 backend 被排除。换言之 `state="error"`（health 探活失败）仍在 target 列表中，会按设计触发告警。
 
-要做带外维护（停机刷模型 / 换权重等），先把 backend 在超管 → ML Backend 注册页 disconnect，再操作；否则 5m 后会被 `MLBackendDown` 告警炸。
+停机更新模型或更换权重前，先在 **模型市场 → 注册管理** 断开该实例；否则健康检查连续失败五分钟后会触发 `MLBackendDown`。
 
 ## 影响范围评估
 
