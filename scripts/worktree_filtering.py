@@ -39,42 +39,82 @@ async def _fixture_request(payload: dict):
     operation_id = str(uuid4())
     response = None
     try:
-        process.stdin.write((json.dumps({
-            "action": "execute", "operation_id": operation_id, "payload": payload,
-        }) + "\n").encode())
+        process.stdin.write(
+            (
+                json.dumps(
+                    {
+                        "action": "execute",
+                        "operation_id": operation_id,
+                        "payload": payload,
+                    }
+                )
+                + "\n"
+            ).encode()
+        )
         await process.stdin.drain()
         line = await process.stdout.readline()
         if not line:
             raise WorktreeError("筛选夹具 owner 未返回操作结果")
         response = json.loads(line)
-        if response.get("operation_id") != operation_id or response.get("state") == "pending":
+        if (
+            response.get("operation_id") != operation_id
+            or response.get("state") == "pending"
+        ):
             raise WorktreeError("筛选夹具操作结果尚未确定")
         if (
-            ("owner_error" in response and (
-                not isinstance(response["owner_error"], str) or not response["owner_error"].isidentifier()
-            ))
-            or ("owner_error" not in response and (
-                type(response.get("status")) is not int or not isinstance(response.get("body"), str)
-            ))
-            or ("journal_error" in response and (
-                not isinstance(response["journal_error"], str) or not response["journal_error"].isidentifier()
-            ))
-            or ("disposal_error" in response and (
-                not isinstance(response["disposal_error"], str) or not response["disposal_error"].isidentifier()
-            ))
-            or ("operation_response" in response and (
-                not isinstance(response["operation_response"], dict)
-                or type(response["operation_response"].get("status")) is not int
-                or not isinstance(response["operation_response"].get("body"), str)
-            ))
+            (
+                "owner_error" in response
+                and (
+                    not isinstance(response["owner_error"], str)
+                    or not response["owner_error"].isidentifier()
+                )
+            )
+            or (
+                "owner_error" not in response
+                and (
+                    type(response.get("status")) is not int
+                    or not isinstance(response.get("body"), str)
+                )
+            )
+            or (
+                "journal_error" in response
+                and (
+                    not isinstance(response["journal_error"], str)
+                    or not response["journal_error"].isidentifier()
+                )
+            )
+            or (
+                "disposal_error" in response
+                and (
+                    not isinstance(response["disposal_error"], str)
+                    or not response["disposal_error"].isidentifier()
+                )
+            )
+            or (
+                "operation_response" in response
+                and (
+                    not isinstance(response["operation_response"], dict)
+                    or type(response["operation_response"].get("status")) is not int
+                    or not isinstance(response["operation_response"].get("body"), str)
+                )
+            )
         ):
             raise WorktreeError("筛选夹具 owner 返回了无效结果")
         if response.get("owner_error") not in {
-            "OperationOutcomeUnresolved", "OperationIdentityConflict"
+            "OperationOutcomeUnresolved",
+            "OperationIdentityConflict",
         }:
-            process.stdin.write((json.dumps({
-                "action": "ack", "operation_id": operation_id,
-            }) + "\n").encode())
+            process.stdin.write(
+                (
+                    json.dumps(
+                        {
+                            "action": "ack",
+                            "operation_id": operation_id,
+                        }
+                    )
+                    + "\n"
+                ).encode()
+            )
             await process.stdin.drain()
             receipt = json.loads(await process.stdout.readline())
             if receipt != {"operation_id": operation_id, "state": "acknowledged"}:
@@ -86,7 +126,9 @@ async def _fixture_request(payload: dict):
         _RETAINED_CLIENTS.append(process)
         if response is not None:
             error.fixture_response = response
-            error.add_note("Fixture operation response was received before transport failure")
+            error.add_note(
+                "Fixture operation response was received before transport failure"
+            )
         error.fixture_operation_id = operation_id
         error.add_note(f"Fixture operation ID: {operation_id}")
         raise
@@ -100,16 +142,30 @@ async def _fixture_request(payload: dict):
     if response.get("owner_error") or response.get("journal_error"):
         causes = []
         if response.get("operation_response"):
-            causes.append(WorktreeError(f"筛选夹具准备结果：HTTP {response['operation_response']['status']}"))
-        if response.get("owner_error") and response["owner_error"] != response.get("disposal_error"):
+            causes.append(
+                WorktreeError(
+                    f"筛选夹具准备结果：HTTP {response['operation_response']['status']}"
+                )
+            )
+        if response.get("owner_error") and response["owner_error"] != response.get(
+            "disposal_error"
+        ):
             causes.append(WorktreeError(f"筛选夹具操作失败：{response['owner_error']}"))
         if response.get("disposal_error"):
-            causes.append(WorktreeError(f"筛选夹具数据库释放失败：{response['disposal_error']}"))
+            causes.append(
+                WorktreeError(f"筛选夹具数据库释放失败：{response['disposal_error']}")
+            )
         if not causes:
             causes.append(WorktreeError(f"筛选夹具准备失败：HTTP {response['status']}"))
         if response.get("journal_error"):
-            causes.append(WorktreeError(f"私有证据写入失败：{response['journal_error']}"))
-        error = causes[0] if len(causes) == 1 else ExceptionGroup("夹具操作与证据失败", causes)
+            causes.append(
+                WorktreeError(f"私有证据写入失败：{response['journal_error']}")
+            )
+        error = (
+            causes[0]
+            if len(causes) == 1
+            else ExceptionGroup("夹具操作与证据失败", causes)
+        )
         error.fixture_response = response
         error.fixture_operation_id = operation_id
         error.add_note(f"Fixture operation ID: {operation_id}")
@@ -120,7 +176,9 @@ async def _fixture_request(payload: dict):
             detail = json.loads(response["body"]).get("detail")
             if isinstance(detail, dict):
                 value = detail.get("code", detail.get("reason"))
-                if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value):
+                if isinstance(value, str) and re.fullmatch(
+                    r"[a-z][a-z0-9_]{0,79}", value
+                ):
                     code = value
         except (ValueError, AttributeError):
             pass
@@ -257,7 +315,7 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
         verified_fixture_owner_url,
     )
 
-    if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
         raise WorktreeError("手动验收必须通过 up --mode e2e --scenario filtering 启动")
     owner_url = await verified_fixture_owner_url()
     runtime_url = make_url(settings.database_url)
@@ -387,7 +445,7 @@ async def cleanup_filtering(resources: dict, manifest_path: Path) -> None:
     """Clean only the suite recorded by this manual session."""
     from scripts.fixture_suite_coordinator import verified_fixture_owner_url
 
-    if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
         raise WorktreeError("精确清理要求当前 e2e 工作树")
     if not manifest_path.exists():
         raise WorktreeError("没有可清理的筛选夹具 run 记录")

@@ -29,6 +29,7 @@ import {
 } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { worktreeMode as readWorktreeMode } from "../helpers/worktree-mode.mjs";
 import { screenshotCatalogPath } from "../screenshots/recording-plan.mjs";
 import {
   closeFixtureTransport,
@@ -303,7 +304,7 @@ function preparedRasterFaultEntry(
 ): PreparedRasterFaultEntry {
   const path = process.env.PLAYWRIGHT_RASTER_FAULT_MANIFEST;
   const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
-  if (!path || !suiteId || !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+  if (!path || !suiteId || !["test", "e2e"].includes(readWorktreeMode() ?? "")) {
     throw new Error(
       "Raster fault cases require an independently prepared isolated fixture manifest",
     );

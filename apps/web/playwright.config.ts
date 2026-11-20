@@ -1,3 +1,4 @@
+import { worktreeMode as readWorktreeMode } from "./e2e/helpers/worktree-mode.mjs";
 import { defineConfig, devices } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
@@ -10,7 +11,7 @@ if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1" && !process.env.PLAYWRIGHT_FIX
 }
 process.env.PLAYWRIGHT_FIXTURE_RUN_ID ??= randomUUID();
 
-const worktreeMode = process.env.AAP_WORKTREE_MODE;
+const worktreeMode = readWorktreeMode();
 if (worktreeMode === "dev") {
   throw new Error(
     "开发模式不能运行 E2E；请使用 pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e",
@@ -30,14 +31,21 @@ if (
 }
 if (
   rasterOffline &&
-  Object.entries(process.env).some(([key, value]) =>
-    Boolean(value) &&
-    /^(?:DATABASE_URL|MIGRATION_DATABASE_URL|TEST_DATABASE_URL|PLAYWRIGHT_E2E_DATABASE_URL|FIXTURE_RUNTIME_DATABASE_URL|CONNECTOR_ENCRYPTION_KEY|MINIO_ACCESS_KEY|MINIO_SECRET_KEY|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)$/i.test(key),
+  Object.entries(process.env).some(
+    ([key, value]) =>
+      Boolean(value) &&
+      /^(?:DATABASE_URL|MIGRATION_DATABASE_URL|TEST_DATABASE_URL|PLAYWRIGHT_E2E_DATABASE_URL|FIXTURE_RUNTIME_DATABASE_URL|CONNECTOR_ENCRYPTION_KEY|MINIO_ACCESS_KEY|MINIO_SECRET_KEY|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)$/i.test(
+        key,
+      ),
   )
 ) {
   throw new Error("离线 Mask 测试进程不能持有数据库或存储凭据");
 }
-if (worktreeMode && !rasterOffline && (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL)) {
+if (
+  worktreeMode &&
+  !rasterOffline &&
+  (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL)
+) {
   throw new Error("独立工作树缺少测试数据库配置；请通过 dev:worktree exec 启动");
 }
 const rasterMaskCreateEnabled = rasterMaskMatrix === "native";
@@ -72,7 +80,8 @@ const e2eDatabaseURL = rasterOffline
   : worktreeMode
     ? process.env.PLAYWRIGHT_E2E_DATABASE_URL!
     : isCI
-      ? (process.env.DATABASE_URL ?? "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_test")
+      ? (process.env.DATABASE_URL ??
+        "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_test")
       : (process.env.PLAYWRIGHT_E2E_DATABASE_URL ??
         "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_e2e");
 // The offline Mask consumer never receives either database credential.
@@ -171,29 +180,31 @@ export default defineConfig({
     ? [
         ...(rasterOffline
           ? []
-          : [{
-              command: isolatedApiCommand,
-              cwd: resolve(configDir, "../api"),
-              env: {
-                DATABASE_URL: e2eRuntimeDatabaseURL!,
-                MIGRATION_DATABASE_URL: e2eDatabaseURL!,
-                ENVIRONMENT: "development",
-                E2E_SEED_ENABLED: "true",
-                ...(rasterMaskMatrix
-                  ? {
-                      RASTER_MASK_READ_ENABLED: "true",
-                      RASTER_MASK_CREATE_ENABLED: rasterMaskCreateEnabled ? "true" : "false",
-                    }
-                  : {}),
+          : [
+              {
+                command: isolatedApiCommand,
+                cwd: resolve(configDir, "../api"),
+                env: {
+                  DATABASE_URL: e2eRuntimeDatabaseURL!,
+                  MIGRATION_DATABASE_URL: e2eDatabaseURL!,
+                  ENVIRONMENT: "development",
+                  E2E_SEED_ENABLED: "true",
+                  ...(rasterMaskMatrix
+                    ? {
+                        RASTER_MASK_READ_ENABLED: "true",
+                        RASTER_MASK_CREATE_ENABLED: rasterMaskCreateEnabled ? "true" : "false",
+                      }
+                    : {}),
+                },
+                url: `http://127.0.0.1:${isolatedApiPort}/health/db`,
+                reuseExistingServer: false,
+                timeout: 120_000,
+                // The owned API supervisor retires its native run on SIGTERM;
+                // a hard kill would leak the supervisor, its workers and the
+                // run journal for the next suite.
+                gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
               },
-              url: `http://127.0.0.1:${isolatedApiPort}/health/db`,
-              reuseExistingServer: false,
-              timeout: 120_000,
-              // The owned API supervisor retires its native run on SIGTERM;
-              // a hard kill would leak the supervisor, its workers and the
-              // run journal for the next suite.
-              gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
-            }]),
+            ]),
         {
           command: `env -i PATH="$PATH" HOME="$HOME" LANG="\${LANG:-C.UTF-8}" API_PROXY_TARGET="$API_PROXY_TARGET" MINIO_PROXY_TARGET="$MINIO_PROXY_TARGET" VITE_WS_HOST="$VITE_WS_HOST" PORT="$PORT" ${
             isCI && !rasterMaskMatrix

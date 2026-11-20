@@ -38,7 +38,8 @@ from tests.test_export_storage import reference, record, migration_route, RAW, K
 
 LOCATION = uuid.UUID(int=551)
 ENDPOINT = "https://saved-export.example.test"
-ROOT = "team/图片/[a](b)/_aap_managed/export/"
+ROOT = "team/图片/[a](b)/_yoao_managed/export/"
+HISTORICAL_ROOT = "team/图片/[a](b)/_aap_managed/export/"
 
 
 def external_reference(**changes):
@@ -99,7 +100,7 @@ def test_schema2_rejects_changed_physical_and_logical_owner(field, value):
 
 
 def test_maximum_root_leaves_exact_space_for_zip():
-    namespace = targets.MANAGED_NAMESPACE
+    namespace = targets.managed_prefix("")
     base = "a" * (904 - len(namespace) - 1)
     root = targets.managed_prefix(base)
     assert len(root.encode()) == 904 and len((root + KEY).encode()) == 1024
@@ -110,10 +111,22 @@ def test_maximum_root_leaves_exact_space_for_zip():
     with pytest.raises(storage.ExportStorageError):
         targets.managed_prefix(base + "x")
 
+    # The historical marker is one byte shorter. This address was legal at
+    # allocation; a new allocation on that connection cannot fit a ZIP.
+    historical_root = base + "x/_aap_managed/export/"
+    assert len((historical_root + KEY).encode()) == 1024
+    assert (
+        storage.resolve_ref(
+            external_reference(object_key=historical_root + KEY)
+        ).object_key
+        == historical_root + KEY
+    )
+
 
 @pytest.mark.parametrize("kind", ["zip", "media"])
+@pytest.mark.parametrize("root", [ROOT, HISTORICAL_ROOT])
 async def test_rotation_uses_current_credentials_and_never_reinterprets_address(
-    monkeypatch, kind
+    monkeypatch, kind, root
 ):
     location, connection = connection_target()
     location.id, location.config_revision = LOCATION, 9
@@ -128,7 +141,10 @@ async def test_rotation_uses_current_credentials_and_never_reinterprets_address(
     db = SimpleNamespace(get=AsyncMock(side_effect=get))
     monkeypatch.setattr(connector_guard, "get_allowlist", AsyncMock(return_value=[]))
     if kind == "zip":
-        row, service = record(storage_ref=external_reference()), storage
+        row, service = (
+            record(storage_ref=external_reference(object_key=root + KEY)),
+            storage,
+        )
     else:
         identifier = uuid.uuid4()
         created = datetime.now(timezone.utc)
@@ -136,13 +152,17 @@ async def test_rotation_uses_current_credentials_and_never_reinterprets_address(
             id=identifier,
             created_at=created,
             expires_at=created + timedelta(days=7),
-            storage_ref=external_media_ref(identifier),
+            storage_ref={
+                **external_media_ref(identifier),
+                "key_prefix": root + media.prefix_for(identifier),
+            },
         )
         service = media
     saved = deepcopy(row.storage_ref)
     target = await service.io_target(db, row)
     assert (
         target._access.secret_enc == b"rotated-encrypted-secret"
+        and target.key_prefix == root
         and row.storage_ref == saved
     )
     connection.config = {**connection.config, "base_prefix": "changed"}
@@ -294,6 +314,18 @@ async def external_db(db_session, super_admin, monkeypatch):
     )
     await db_session.flush()
     return db_session, location, connection, binding
+
+
+async def test_historical_maximum_base_does_not_invalidate_other_bindings(external_db):
+    db, location, connection, _ = external_db
+    base = "x" * (904 - len("/_aap_managed/export/"))
+    connection.config = {**connection.config, "base_prefix": base}
+    await db.flush()
+    # Other purposes still see their pinned platform location.
+    datasets = await ensure_legacy_bindings(db)
+    assert datasets.location_id == LEGACY_LOCATION_ID
+    with pytest.raises(storage.ExportStorageError):
+        await targets.target_for(db, location)
 
 
 async def test_media_and_paired_zip_retain_saved_target_across_later_switch(

@@ -1810,7 +1810,7 @@ async def run(options):
 
     root = Path(options.root).resolve()
     if (
-        os.environ.get("AAP_WORKTREE_MODE") != "test"
+        os.environ.get("YOAO_WORKTREE_MODE") != "test"
         or not root.parent.name.startswith("aap-recovery-")
         or root.name not in {"source", "target"}
     ):

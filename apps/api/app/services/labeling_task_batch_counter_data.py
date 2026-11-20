@@ -22,8 +22,8 @@ from yoao_labeling.task_maintenance_contract import (
 from app.db.models.task_batch import TaskBatch
 from app.services.labeling_annotation_data import _native_error_fields
 
-_PENDING_BATCHES = "aap_labeling_source_less_batch_counter_pending"
-_LISTENERS_INSTALLED = "aap_labeling_source_less_batch_counter_listeners"
+_PENDING_BATCHES = "labeling_source_less_batch_counter_pending"
+_LISTENERS_INSTALLED = "labeling_source_less_batch_counter_listeners"
 _COUNTER_FIELDS = ("total_tasks", "completed_tasks", "review_tasks")
 _COUNTER_FIELD_SET = frozenset(_COUNTER_FIELDS)
 _WRITE_BATCH_COUNTERS = text(

@@ -37,7 +37,7 @@ def _force_derived_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_explicit_env_override_wins(monkeypatch: pytest.MonkeyPatch):
-    url = "postgresql+asyncpg://owner:pw@localhost:5433/aap_wt_abcdef_test"
+    url = "postgresql+asyncpg://owner:pw@localhost:5433/yoao_wt_abcdef_test"
     monkeypatch.setenv("TEST_DATABASE_URL", url)
     _use_broken_settings(monkeypatch, _ExplodingSettings())  # settings must not be read
     assert _resolve_test_db_url() == url
@@ -47,7 +47,7 @@ def test_explicit_override_cannot_bypass_target_guard(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setenv(
-        "TEST_DATABASE_URL", "postgresql+asyncpg://user:pw@localhost:5432/aap_wt_x_dev"
+        "TEST_DATABASE_URL", "postgresql+asyncpg://user:pw@localhost:5432/yoao_wt_x_dev"
     )
     with pytest.raises(RuntimeError, match="_test"):
         _resolve_test_db_url()
@@ -65,7 +65,7 @@ def test_derived_url_fixes_annotation_test_and_keeps_password(
         "settings",
         SimpleNamespace(
             effective_migration_database_url=(
-                "postgresql+asyncpg://migrator:s3cret@db.internal:5433/aap_wt_abc_dev"
+                "postgresql+asyncpg://migrator:s3cret@db.internal:5433/yoao_wt_abc_dev"
             )
         ),
     )
@@ -123,7 +123,7 @@ def test_malformed_url_error_does_not_leak_credentials():
     "ok_url",
     [
         "postgresql+asyncpg://user:pw@localhost:5432/annotation_test",
-        "postgresql+asyncpg://owner:pw@localhost:5433/aap_wt_abcdef_test",
+        "postgresql+asyncpg://owner:pw@localhost:5433/yoao_wt_abcdef_test",
     ],
 )
 def test_documented_disposable_targets_accepted(ok_url: str):

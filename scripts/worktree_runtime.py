@@ -27,6 +27,7 @@ from worktree_env import (
     frontend_environment,
     load_identity,
     read_state,
+    reject_legacy_worktree_environment,
     state_path,
     topology,
 )
@@ -122,7 +123,16 @@ def parse_arguments(argv: list[str]):
         "command",
         nargs="?",
         default="up",
-        choices=("up", "init", "doctor", "stop", "reset", "destroy", "exec", "recover-inference"),
+        choices=(
+            "up",
+            "init",
+            "doctor",
+            "stop",
+            "reset",
+            "destroy",
+            "exec",
+            "recover-inference",
+        ),
     )
     parser.add_argument("--mode", choices=("dev", "test", "e2e"))
     parser.add_argument(
@@ -172,8 +182,11 @@ def parse_arguments(argv: list[str]):
     if options.skip_migrations and options.command not in {"up", "init", "exec"}:
         parser.error("--skip-migrations 只用于 up/init/exec")
     options.mode = options.mode or (
-        "e2e" if options.command == "recover-inference"
-        else "test" if options.command == "exec" else "dev"
+        "e2e"
+        if options.command == "recover-inference"
+        else "test"
+        if options.command == "exec"
+        else "dev"
     )
     if options.command == "recover-inference" and options.mode != "e2e":
         parser.error("recover-inference 只用于 e2e")
@@ -256,6 +269,7 @@ def process_matches(record: dict, required_script: str) -> bool:
         == hashlib.sha256(actual["command"].encode()).hexdigest()
     )
 
+
 def capture_descendants(roots: list[int], scope: str) -> dict:
     """Record observed identities, not a claim that an escaped child is settled."""
     result = subprocess.run(
@@ -289,6 +303,7 @@ def capture_descendants(roots: list[int], scope: str) -> dict:
         else:
             identities.append({**handle, "ppid": parents.get(pid)})
     return {"identities": identities, "unidentified": unidentified}
+
 
 _UNSETTLED_E2E_PIDFDS = []
 
@@ -419,9 +434,13 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
                 # The subreaper was established before launch: every escaped
                 # descendant stays a child or has a live ancestor here until reaped.
                 current = ctypes.c_int()
-                if ctypes.CDLL(None, use_errno=True).prctl(
-                    37, ctypes.byref(current), 0, 0, 0
-                ) != 0 or current.value != 1:
+                if (
+                    ctypes.CDLL(None, use_errno=True).prctl(
+                        37, ctypes.byref(current), 0, 0, 0
+                    )
+                    != 0
+                    or current.value != 1
+                ):
                     raise WorktreeError("e2e subreaper 身份无法确认")
                 boundary["state"] = "settled"
                 atomic_json(record_path, record)
@@ -480,7 +499,9 @@ def session_record(resources: dict) -> dict | None:
 def safe_error(exc: BaseException) -> str:
     # Resource/validation messages are controlled; third-party errors may expose URLs.
     if isinstance(exc, BaseExceptionGroup):
-        return f"{exc.message}: " + "；".join(safe_error(item) for item in exc.exceptions)
+        return f"{exc.message}: " + "；".join(
+            safe_error(item) for item in exc.exceptions
+        )
     return (
         str(exc)
         if isinstance(exc, WorktreeError)
@@ -583,6 +604,7 @@ def diagnose(backend) -> dict:
     if resources["mode"] == "e2e":
         marker_path = state_path(Path(resources["root"]), "e2e", "inference-owner.json")
         if marker_path.exists():
+
             def inference_status():
                 marker = read_state(marker_path)
                 require_owner("inference-owner", marker, resources["owner"])
@@ -590,7 +612,9 @@ def diagnose(backend) -> dict:
                     "phase": marker.get("phase"),
                     "alive": process_matches(
                         marker,
-                        str(backend.code_root / "scripts/fixture_inference_services.py"),
+                        str(
+                            backend.code_root / "scripts/fixture_inference_services.py"
+                        ),
                     ),
                 }
 
@@ -665,7 +689,9 @@ def stop_environment(backend) -> None:
         if resources["mode"] == "e2e":
             from fixture_inference_services import FixtureInferenceServices
 
-            FixtureInferenceServices(backend, code_root=backend.code_root).assert_stopped()
+            FixtureInferenceServices(
+                backend, code_root=backend.code_root
+            ).assert_stopped()
         backend.stop_redis()
     print("[dev:worktree] 本环境已停止，数据库和对象数据保留")
 
@@ -732,7 +758,9 @@ def _e2e_child_status(child, descriptor=None):
     return _waitid_exit_code(result)
 
 
-def finish_e2e_direct_children(children, record, record_path, *, orderly, request_stop, deadline):
+def finish_e2e_direct_children(
+    children, record, record_path, *, orderly, request_stop, deadline
+):
     """Record exact direct-child exits; only requested, zero-exit workers settle."""
     entries = {item["pid"]: item for item in record["children"]}
     requested = set()
@@ -811,7 +839,9 @@ def finish_e2e_direct_children(children, record, record_path, *, orderly, reques
         _UNSETTLED_E2E_PIDFDS.extend(descriptors.values())
 
 
-def run_processes(backend, options, *, fixture_inference=None, coordinator_input=None) -> int:
+def run_processes(
+    backend, options, *, fixture_inference=None, coordinator_input=None
+) -> int:
     resources = backend.resources
     root = backend.code_root
     record_path = state_path(Path(resources["root"]), resources["mode"], "run.json")
@@ -823,7 +853,8 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
     exit_code = None
     boundary_proven = False
     canonical_e2e = resources["mode"] == "e2e" and options.command in {
-        "exec", "recover-inference"
+        "exec",
+        "recover-inference",
     }
     if coordinator_input is not None and (
         not canonical_e2e
@@ -831,7 +862,9 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
         or not isinstance(coordinator_input, dict)
     ):
         raise WorktreeError("协调器私有输入需要外部管理的 e2e 推理 owner")
-    previous = session_record(resources) if options.command == "recover-inference" else None
+    previous = (
+        session_record(resources) if options.command == "recover-inference" else None
+    )
     prior_subreaper = establish_e2e_subreaper() if canonical_e2e else None
     identity = process_handle(os.getpid(), str(root / "scripts/worktree_runtime.py"))
     if not identity:
@@ -847,7 +880,9 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
         record["phase"] = "prelaunch"
     if previous:
         record["predecessor"] = (
-            previous.get("predecessor") if previous.get("phase") == "prelaunch" else previous
+            previous.get("predecessor")
+            if previous.get("phase") == "prelaunch"
+            else previous
         )
         record["prelaunch_failures"] = list(previous.get("prelaunch_failures", []))
     atomic_json(record_path, record)
@@ -911,7 +946,9 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                 or fixture_inference.backend is not backend
                 or (
                     options.command != "recover-inference"
-                    and (not backend._prepared or not backend._fixture_inference_prepared)
+                    and (
+                        not backend._prepared or not backend._fixture_inference_prepared
+                    )
                 )
             ):
                 raise WorktreeError("外部推理 owner 需要已准备的同一 e2e 环境")
@@ -922,7 +959,9 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
             record["phase"] = "verifying"
             atomic_json(record_path, record)
             try:
-                environment.update(asyncio.run(backend.reattach_fixture_store(environment)))
+                environment.update(
+                    asyncio.run(backend.reattach_fixture_store(environment))
+                )
             except BaseException:
                 record["phase"] = "prelaunch"
                 atomic_json(record_path, record)
@@ -985,7 +1024,9 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
             return child
 
         if options.command == "recover-inference":
-            authority = state_path(Path(resources["root"]), "e2e", "fixture-authority", "owner.json")
+            authority = state_path(
+                Path(resources["root"]), "e2e", "fixture-authority", "owner.json"
+            )
             if not authority.exists() or authority.is_symlink():
                 raise WorktreeError("原夹具 authority 记录缺失；拒绝恢复")
             seed_script = root / "apps/web/e2e/fixtures/seed-request.py"
@@ -1012,7 +1053,9 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
             with selected_inference._lifecycle_lock:
                 settle_e2e_descendants(record, record_path, selected_inference)
             children.remove(verifier)
-            record["children"] = [child for child in record["children"] if child["pid"] != verifier.pid]
+            record["children"] = [
+                child for child in record["children"] if child["pid"] != verifier.pid
+            ]
             record["phase"] = "prelaunch"
             atomic_json(record_path, record)
             if result != 0:
@@ -1157,7 +1200,10 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
             private_environment=private_environment,
         )
         while child_status(supervisor) is None and not stopping:
-            if selected_inference is not None and not selected_inference.supervision_ready():
+            if (
+                selected_inference is not None
+                and not selected_inference.supervision_ready()
+            ):
                 raise WorktreeError("推理夹具 owner 意外退出；保留资源")
             if any(
                 child_status(child) is not None
@@ -1168,7 +1214,11 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                     "本环境 worker 意外退出；停止 API/Web，避免显示虚假的就绪状态"
                 )
             time.sleep(0.1)
-        exit_code = (128 + stop_signal if canonical_e2e else 0) if stopping else child_status(supervisor)
+        exit_code = (
+            (128 + stop_signal if canonical_e2e else 0)
+            if stopping
+            else child_status(supervisor)
+        )
         return exit_code
     finally:
         original = sys.exception()
@@ -1199,7 +1249,11 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                         os.killpg(child.pid, signal.SIGKILL)
                         child.wait(timeout=5)
             if canonical_e2e and original is None and exit_code == 0 and not stopping:
-                lock = selected_inference._lifecycle_lock if selected_inference else nullcontext()
+                lock = (
+                    selected_inference._lifecycle_lock
+                    if selected_inference
+                    else nullcontext()
+                )
                 try:
                     with lock:
                         settle_e2e_descendants(record, record_path, selected_inference)
@@ -1217,7 +1271,10 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
             if (
                 inference is not None
                 and not record.get("unsettled_consumers")
-                and (boundary_proven or (not children and record.get("phase") == "prelaunch"))
+                and (
+                    boundary_proven
+                    or (not children and record.get("phase") == "prelaunch")
+                )
             ):
                 inference.close()
         except BaseException as error:
@@ -1227,19 +1284,29 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                 if canonical_e2e and record.get("unsettled_consumers"):
                     retain_adopted_evidence(record, record_path, selected_inference)
                 if canonical_e2e and (boundary_proven or not children):
-                    if ctypes.CDLL(None, use_errno=True).prctl(36, prior_subreaper, 0, 0, 0) != 0:
+                    if (
+                        ctypes.CDLL(None, use_errno=True).prctl(
+                            36, prior_subreaper, 0, 0, 0
+                        )
+                        != 0
+                    ):
                         raise WorktreeError("无法恢复原 subreaper 状态")
             except BaseException as error:
                 cleanup_error = (
                     BaseExceptionGroup("e2e 清理与身份记录失败", [cleanup_error, error])
-                    if cleanup_error is not None else error
+                    if cleanup_error is not None
+                    else error
                 )
             for sig, handler in old_signals.items():
                 signal.signal(sig, handler)
             marker = state_path(
                 Path(resources["root"]), resources["mode"], "inference-owner.json"
             )
-            if cleanup_error is None and not marker.exists() and not record.get("unsettled_consumers"):
+            if (
+                cleanup_error is None
+                and not marker.exists()
+                and not record.get("unsettled_consumers")
+            ):
                 record_path.unlink(missing_ok=True)
         if cleanup_error is not None:
             if original is not None:
@@ -1256,6 +1323,7 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
+    reject_legacy_worktree_environment(os.environ)
     root = Path(__file__).resolve().parents[1]
     if options.command in {"up", "init", "exec", "reset"}:
         subprocess.run(

@@ -1,3 +1,4 @@
+import { worktreeMode as readWorktreeMode } from "../helpers/worktree-mode.mjs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -29,14 +30,14 @@ import {
 const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function captureDirectory(runId, { allowUnbornRoot = false } = {}) {
-  if (!canonicalUuid.test(runId) || !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE)) {
+  if (!canonicalUuid.test(runId) || !["test", "e2e"].includes(readWorktreeMode())) {
     throw new Error("Screenshot capture requires an exact isolated run identity");
   }
-  const root = realpathSync(process.env.AAP_WORKTREE_RESOURCE_ROOT ?? "");
+  const root = realpathSync(process.env.YOAO_WORKTREE_RESOURCE_ROOT ?? "");
   const directory = path.join(
     root,
     ".worktree",
-    process.env.AAP_WORKTREE_MODE,
+    readWorktreeMode(),
     "fixture-authority",
     `suite-${runId.replaceAll("-", "")}`,
   );
@@ -269,8 +270,8 @@ export function requireScreenshotCaptureClosed(runId) {
     api.descendants_drained !== true ||
     typeof supervisor.authority_nonce !== "string" ||
     !/^[a-f0-9]{64}$/.test(supervisor.authority_nonce) ||
-    supervisor.resources?.root !== realpathSync(process.env.AAP_WORKTREE_RESOURCE_ROOT ?? "") ||
-    supervisor.resources?.mode !== process.env.AAP_WORKTREE_MODE ||
+    supervisor.resources?.root !== realpathSync(process.env.YOAO_WORKTREE_RESOURCE_ROOT ?? "") ||
+    supervisor.resources?.mode !== readWorktreeMode() ||
     !Array.isArray(supervisor.native_run_ids) ||
     supervisor.native_run_ids.length !== 1 ||
     supervisor.native_run_ids[0] !== runId

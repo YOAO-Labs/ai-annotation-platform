@@ -3613,7 +3613,7 @@ async def test_import_notification_reaches_channel_and_image_work_is_accepted(
         assert broker.hostname in {"127.0.0.1", "localhost"} and broker.port
         observed = _inspect_docker(stack.resources["redis_name"])
         assert (
-            observed["Config"]["Labels"]["org.aap.worktree-owner"]
+            observed["Config"]["Labels"]["org.yoao.worktree-owner"]
             == stack.resources["owner"]
         )
         assert observed["Config"]["Image"] == "redis:7-alpine"

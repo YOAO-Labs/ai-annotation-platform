@@ -133,7 +133,7 @@ async def test_probe_review_and_atomic_export_only_switch(
     assert len(calls) == 1
     assert review["can_apply"] and review["target"]["bucket"] == "export-target"
     assert review["target"]["name"] == "export destination"
-    assert review["target"]["key_prefix"] == "company/_aap_managed/export/"
+    assert review["target"]["key_prefix"] == "company/_yoao_managed/export/"
     assert datetime.fromisoformat(review["expires_at"]) - datetime.fromisoformat(
         review["measured_at"]
     ) == timedelta(minutes=5)

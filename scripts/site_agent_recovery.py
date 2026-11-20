@@ -32,7 +32,7 @@ def until(call, predicate, *, seconds=75):
 
 def rows(sql, *values):
     """Read-only observation on the already verified launcher test database."""
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     url = urlsplit(os.environ["DATABASE_URL"])
     require(url.path.endswith("_test"), "test_database_required")
     dsn = urlunsplit(("postgresql", url.netloc, url.path, url.query, url.fragment))

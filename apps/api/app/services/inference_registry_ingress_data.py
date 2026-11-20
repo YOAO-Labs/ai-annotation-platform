@@ -19,8 +19,8 @@ from yoao_inference_contract.topology import PoolFacts
 from app.db.models.ml_backend_registry import MLBackendRegistry
 
 _NATIVE = "yoao_inference_registry_ingress_v1."
-_STAGES = "aap_inference_registry_ingress_stages"
-_BASELINES = "aap_inference_registry_ingress_extra_baselines"
+_STAGES = "inference_registry_ingress_stages"
+_BASELINES = "inference_registry_ingress_extra_baselines"
 _SEED_IDENTITY_FIELDS = (
     "id, name, url, state, is_interactive, source, health_meta, extra_params"
 )

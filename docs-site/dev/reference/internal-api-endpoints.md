@@ -49,11 +49,11 @@ last_reviewed: 2026-10-26
 
 ```bash
 # 默认免鉴权（容器内网直连）
-curl http://anno-api:8000/api/v1/internal/metrics-targets
+curl http://api:8000/api/v1/internal/metrics-targets
 
 # 启用了 METRICS_SD_TOKEN 时
 curl -H "Authorization: Bearer $METRICS_SD_TOKEN" \
-  http://anno-api:8000/api/v1/internal/metrics-targets
+  http://api:8000/api/v1/internal/metrics-targets
 ```
 
 ---

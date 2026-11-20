@@ -42,12 +42,12 @@ pytestmark = [
 
 
 def _verify_redis():
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
+    assert os.environ.get("YOAO_WORKTREE_MODE") == "test"
     url = make_url(os.environ["REDIS_URL"])
     assert url.host in {"127.0.0.1", "localhost"}
     details = _inspect_docker(os.environ["AAP_MODULE_DATA_REDIS_CONTAINER_NAME"])
     assert (
-        details["Config"]["Labels"]["org.aap.worktree-owner"]
+        details["Config"]["Labels"]["org.yoao.worktree-owner"]
         == os.environ["AAP_MODULE_DATA_REDIS_OWNER"]
     )
     ports = details["NetworkSettings"]["Ports"]["6379/tcp"]

@@ -1,5 +1,6 @@
+import { worktreeMode as readWorktreeMode } from "./e2e/helpers/worktree-mode.mjs";
 /**
- * v2 · 截图自动化多 project 配置。
+ * 截图自动化多 project 配置。
  *
  * 执行：
  *   pnpm screenshots                  # desktop-light 全量（默认）
@@ -22,7 +23,7 @@ import { MARKETING_PROJECT_NAME } from "./e2e/screenshots/_helpers/marketing-rec
 import { recordingPlan, marketingCaptureDriver } from "./e2e/screenshots/recording-plan.mjs";
 import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
-if (!["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+if (!["test", "e2e"].includes(readWorktreeMode() ?? "")) {
   throw new Error("Screenshot capture requires pnpm dev:worktree exec --mode e2e --with-worker.");
 }
 if (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL) {

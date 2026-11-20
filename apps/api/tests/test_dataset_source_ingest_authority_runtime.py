@@ -160,7 +160,7 @@ async def ordinary_source_stack(test_engine, app_module, monkeypatch, tmp_path):
     assert source_url.username == "yoao_asset_source_client"
     assert (source_url.host, source_url.port, source_url.database) == target
     assert (api_url.host, api_url.port, api_url.database) == target
-    assert source_url.database.startswith("aap_wt_") and source_url.database.endswith(
+    assert source_url.database.startswith("yoao_wt_") and source_url.database.endswith(
         "_test"
     )
     _verify_postgres(source_url)

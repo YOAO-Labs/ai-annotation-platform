@@ -26,6 +26,9 @@ PURPOSES = {
     "training",
 }
 
+EXPORT_NAMESPACE = "_yoao_managed/export/"
+HISTORICAL_EXPORT_NAMESPACE = "_aap_managed/export/"
+
 
 def owner_module(purpose):
     if purpose == "training":
@@ -95,7 +98,7 @@ def error(purpose, suffix):
     return cls(prefix + suffix)
 
 
-def managed_prefix(base, *, purpose="avatars"):
+def managed_prefix(base, *, purpose="avatars", historical_export=False):
     """Keep one canonical, bounded S3 prefix without changing its Unicode bytes."""
 
     if not isinstance(base, str):
@@ -107,7 +110,13 @@ def managed_prefix(base, *, purpose="avatars"):
         or (base and any(part in {"", ".", ".."} for part in base.split("/")))
     ):
         raise error(purpose, "binding_unproven")
-    result = (base + "/" if base else "") + f"_aap_managed/{purpose}/"
+    if purpose == "export":
+        namespace = (
+            HISTORICAL_EXPORT_NAMESPACE if historical_export else EXPORT_NAMESPACE
+        )
+    else:
+        namespace = f"_aap_managed/{purpose}/"
+    result = (base + "/" if base else "") + namespace
     if purpose == "training":
         from app.services.reference_keys import is_reference
 
@@ -216,7 +225,9 @@ class Target:
                 yield client
 
 
-async def target_for(db, location, *, purpose, require_enabled=True):
+async def target_for(
+    db, location, *, purpose, require_enabled=True, historical_export=False
+):
     """Capture metadata and credentials without DNS, network I/O or binding locks."""
     owners = owner_module(purpose)
 
@@ -302,7 +313,9 @@ async def target_for(db, location, *, purpose, require_enabled=True):
         if not owners._plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
             raise error(purpose, "binding_unproven")
         prefix = managed_prefix(
-            connection.config.get("base_prefix", ""), purpose=purpose
+            connection.config.get("base_prefix", ""),
+            purpose=purpose,
+            historical_export=historical_export,
         )
     except (KeyError, TypeError, ValueError):
         raise error(purpose, "binding_unproven") from None

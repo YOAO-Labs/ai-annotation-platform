@@ -76,7 +76,7 @@ last_reviewed: 2026-10-24
 
 把 job ID、项目、出现时间和错误摘要提供给运维人员，并使用对应 runbook：
 
-- [ML Backend 不可用](/ops/runbooks/ml-backend-down)
+- [模型服务不可用](/ops/runbooks/ml-backend-down)
 - [Celery Worker 卡死](/ops/runbooks/celery-worker-stuck)
 - [视频帧服务](/ops/runbooks/video-frame-service)
 

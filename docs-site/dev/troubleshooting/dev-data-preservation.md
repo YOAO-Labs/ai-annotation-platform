@@ -19,7 +19,7 @@ last_reviewed: 2026-10-19
 | 用途                |      Web |      API | 数据库                        |
 | ------------------- | -------: | -------: | ----------------------------- |
 | 日常开发            |   `3000` |   `8000` | `annotation`                  |
-| Playwright E2E      | 保留端口 | 保留端口 | 工作树自有 `aap_wt_*_e2e`     |
+| Playwright E2E      | 保留端口 | 保留端口 | 工作树自有 `yoao_wt_*_e2e`    |
 | 本地截图 / 视觉回归 |   `3001` |   `8010` | `annotation_screenshots_test` |
 | 视觉回归 CI         |   `3000` |   `8000` | `annotation_screenshots_test` |
 

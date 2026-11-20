@@ -1405,7 +1405,7 @@ async def _execute_preannotation(
         )
         if backend is None:
             if batch_results is not None:
-                raise ValueError("ML Backend not found")
+                raise ValueError("找不到模型服务")
             if async_job_id is not None:
                 try:
                     failed_job_id = uuid.UUID(async_job_id)
@@ -1413,12 +1413,12 @@ async def _execute_preannotation(
                     failed_job_id = None
                 if failed_job_id is not None:
                     await async_job_svc.mark_failed(
-                        db, failed_job_id, error="ML Backend not found"
+                        db, failed_job_id, error="找不到模型服务"
                     )
                     await notify_job_terminal(db, job_id=failed_job_id)
                     await db.commit()
             prediction_progress.publish_progress(
-                project_id, 0, 0, status="error", error="ML Backend not found"
+                project_id, 0, 0, status="error", error="找不到模型服务"
             )
             return
         # Freeze registry identity and display metadata before rollback-capable work.

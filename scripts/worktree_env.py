@@ -82,11 +82,25 @@ def atomic_json(path: Path, document: dict, *, exclusive: bool = False) -> None:
         Path(temporary).unlink(missing_ok=True)
 
 
+def reject_legacy_worktree_environment(environment):
+    if {"AAP_WORKTREE_MODE", "AAP_WORKTREE_RESOURCE_ROOT"}.intersection(
+        key.upper() for key in environment
+    ):
+        raise WorktreeError(
+            "检测到旧工作树环境变量；请退出旧进程，以干净环境启动，不会回退或接管资源"
+        )
+
+
 def validate_identity(root: Path, document: dict) -> None:
+    if isinstance(document, dict) and document.get("schema") == 1:
+        raise WorktreeError(
+            "旧工作树 identity；请用匹配的旧工具盘点及精确退役，不能原地改名"
+        )
     if (
         not isinstance(document, dict)
         or set(document) != {"schema", "id", "root"}
-        or document.get("schema") != 1
+        or type(document.get("schema")) is not int
+        or document["schema"] != 2
         or not re.fullmatch(r"[a-f0-9]{16}", str(document.get("id", "")))
     ):
         raise WorktreeError("无效的工作树 identity；拒绝推断资源归属")
@@ -98,7 +112,11 @@ def load_identity(root: Path, *, create: bool = False) -> dict:
     root = root.resolve()
     path = state_path(root, "identity.json")
     if not path.exists() and create:
-        document = {"schema": 1, "id": secrets.token_hex(8), "root": str(root)}
+        if any(state_path(root, mode).exists() for mode in MODES):
+            raise WorktreeError(
+                "缺少 identity 但存在模式状态；拒绝创建新身份或接管资源"
+            )
+        document = {"schema": 2, "id": secrets.token_hex(8), "root": str(root)}
         atomic_json(path, document, exclusive=True)
     document = read_state(path)
     validate_identity(root, document)
@@ -109,15 +127,15 @@ def topology(root: Path, identity: dict, mode: str) -> dict:
     validate_identity(root, identity)
     if mode not in MODES:
         raise WorktreeError("环境必须是 dev、test 或 e2e")
-    name = f"aap-wt-{identity['id']}-{mode}"
+    name = f"yoao-wt-{identity['id']}-{mode}"
     checkout = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
     return {
         "id": identity["id"],
         "root": str(root.resolve()),
         "mode": mode,
-        "owner": f"aap-worktree:{identity['id']}:{mode}:{checkout}",
+        "owner": f"yoao-worktree:{identity['id']}:{mode}:{checkout}",
         "confirmation": f"{identity['id']}:{mode}",
-        "database": f"aap_wt_{identity['id']}_{mode}",
+        "database": f"yoao_wt_{identity['id']}_{mode}",
         "redis_name": f"{name}-redis",
         "buckets": {key: f"{name}-{suffix}" for key, suffix in BUCKETS.items()},
         "directory": str(state_path(root, mode)),
@@ -138,6 +156,7 @@ def _validate_environment_sources(
     """Validate connection sources without creating a child environment."""
     from sqlalchemy.engine import make_url
 
+    reject_legacy_worktree_environment(inherited)
     local = {"localhost", "127.0.0.1", "::1"}
     runtime = make_url(database_url)
     migration = make_url(migration_database_url or database_url)
@@ -222,9 +241,9 @@ def isolated_environment(
         "MIGRATION_DATABASE_URL": migration.render_as_string(hide_password=False),
         "TEST_DATABASE_URL": test_url,
         "PLAYWRIGHT_E2E_DATABASE_URL": test_url,
-        "AAP_WORKTREE_RESOURCE_ROOT": resources["root"],
+        "YOAO_WORKTREE_RESOURCE_ROOT": resources["root"],
         "AAP_FIXTURE_TOOLS_ROOT": str(code_root / "scripts"),
-        "AAP_WORKTREE_MODE": resources["mode"],
+        "YOAO_WORKTREE_MODE": resources["mode"],
         "FIXTURE_RUNTIME_DATABASE_URL": "",
         "REDIS_URL": redis_url,
         "CELERY_BROKER_URL": redis_url,

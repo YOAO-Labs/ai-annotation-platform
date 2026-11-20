@@ -220,6 +220,8 @@ pnpm dev:worktree   # 独立数据库/Redis/bucket，自动选择端口并配置
 
 `dev:worktree` 为每个工作树的 `dev/test/e2e` 模式管理独立数据库、Redis、十个 bucket（含 `accepted-inputs`）及本地文件；共享本机 PostgreSQL/MinIO 实例，不修改共享数据库。默认从 API `8100` 和 Web `3100` 寻找空闲端口，可用 `--with-worker` 启动本工作树的后台任务消费者。`doctor` 诊断、`stop` 停止、带精确确认值的 `reset/destroy` 重建或清理环境。首次启动不复制已有账号和项目。详见[独立工作树开发环境](./docs-site/dev/how-to/worktree-environments.md)。
 
+新模式使用 `yoao_wt_` 数据库及 `yoao-wt-` 资源，不接管旧工作树环境。不要通过改名或复制 `.worktree/` 来迁移数据；先保全需要的数据，用匹配的旧工具退役可销毁的旧模式，再初始化新环境。
+
 Go 审计月报仅保留为[隔离实验](apps/audit-summary/README.md)，不参与默认开发、生产部署或普通测试；正常月报使用本地 Python 计算。
 
 需要演示数据时：

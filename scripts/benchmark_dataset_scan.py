@@ -37,7 +37,7 @@ def environment_contract(root, environ):
     from sqlalchemy.engine import make_url
     from worktree_env import load_identity, read_state, state_path, topology
 
-    if environ.get("AAP_WORKTREE_MODE") != "e2e":
+    if environ.get("YOAO_WORKTREE_MODE") != "e2e":
         raise ValueError("Use dev:worktree exec --mode e2e")
     resources = topology(root, load_identity(root), "e2e")
     manifest = read_state(state_path(root, "e2e", "resources.json"))

@@ -51,7 +51,7 @@ async def seed_artifacts(input_path, output_path):
     from app.workers._db import task_session
 
     value = json.loads(Path(input_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     raw = Path(value["image_path"]).read_bytes()
     package = Path(value["package_path"]).read_bytes()
     async with task_session() as db:
@@ -204,7 +204,7 @@ async def worker_read(fixture_path, *, hold=False):
     from app.workers._db import task_session
 
     value = json.loads(Path(fixture_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     async with task_session() as db:
         version = await db.get(TrainingDatasetVersion, uuid.UUID(value["version_id"]))
         owner = owners.resolve(version)

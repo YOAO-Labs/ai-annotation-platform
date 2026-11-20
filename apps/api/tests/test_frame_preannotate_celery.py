@@ -37,7 +37,7 @@ from tests.test_frame_preannotate_persistence import (
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AAP_FRAME_CELERY_ACCEPTANCE") != "1"
-    or os.environ.get("AAP_WORKTREE_MODE") != "test",
+    or os.environ.get("YOAO_WORKTREE_MODE") != "test",
     reason="Requires explicitly enabled, isolated Celery acceptance environment",
 )
 

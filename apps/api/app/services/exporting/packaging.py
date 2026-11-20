@@ -379,7 +379,7 @@ _archive_evidence = ContextVar("export_archive_evidence", default=None)
 def _new_zip_tempfile() -> str:
     """创建空 tempfile 供 ZipFile 落盘写入，返回路径（调用方负责清理）。"""
     try:
-        fd, path = tempfile.mkstemp(prefix="aap-export-", suffix=".zip")
+        fd, path = tempfile.mkstemp(prefix="export-", suffix=".zip")
     except BaseException as exc:
         raise storage_access.mark_unsettled(exc)
     evidence = _archive_evidence.get()

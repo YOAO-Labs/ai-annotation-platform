@@ -248,7 +248,7 @@ async def test_owned_live_minio_current_versions_and_exact_physical_deletion(
     from app.services import prediction_inputs as producer
     from app.services.storage import StorageService
 
-    if os.environ.get("AAP_WORKTREE_MODE") != "test":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "test":
         pytest.skip("live object mutation requires launcher-owned test mode")
     world = input_world
     manifest = json.loads(
@@ -260,7 +260,7 @@ async def test_owned_live_minio_current_versions_and_exact_physical_deletion(
         item["Key"]: item["Value"]
         for item in client.get_bucket_tagging(Bucket=bucket)["TagSet"]
     }
-    assert tags.get("aap-worktree-owner") == manifest["owner"]
+    assert tags.get("yoao-worktree-owner") == manifest["owner"]
     assert bucket == manifest["buckets"]["MINIO_IMPORT_BUCKET"]
     client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}

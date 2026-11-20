@@ -76,8 +76,10 @@ class NativeApiObserver:
 
     def __init__(self, record, port):
         require(
-            isinstance(record, dict) and set(record) == {"pid", "start", "port"}
-            and type(record["pid"]) is int and type(record["start"]) is int
+            isinstance(record, dict)
+            and set(record) == {"pid", "start", "port"}
+            and type(record["pid"]) is int
+            and type(record["start"]) is int
             and record["port"] == port,
             "raster_api_identity_changed",
         )
@@ -87,7 +89,7 @@ class NativeApiObserver:
             value = Path(f"/proc/{self.pid}/stat").read_text()
             require(
                 pidfd_alive(self.descriptor)
-                and int(value[value.rfind(")") + 2:].split()[19]) == record["start"],
+                and int(value[value.rfind(")") + 2 :].split()[19]) == record["start"],
                 "raster_api_identity_changed",
             )
         except BaseException:
@@ -554,7 +556,7 @@ def provision(resources, owner):
         client.put_bucket_tagging(
             Bucket=bucket,
             Tagging={
-                "TagSet": [{"Key": "aap-worktree-owner", "Value": resources["owner"]}]
+                "TagSet": [{"Key": "yoao-worktree-owner", "Value": resources["owner"]}]
             },
         )
         require(
@@ -681,9 +683,12 @@ def provision_postgres(resources, owner):
         POSTGRES_IMAGE,
         args=(
             "--pull=never",
-            "--publish", "127.0.0.1::5432",
-            "--env-file", str(env_file),
-            "--volume", volume["id"] + ":/var/lib/postgresql/data",
+            "--publish",
+            "127.0.0.1::5432",
+            "--env-file",
+            str(env_file),
+            "--volume",
+            volume["id"] + ":/var/lib/postgresql/data",
         ),
     )
     owner.start(container)
@@ -704,17 +709,35 @@ def provision_postgres(resources, owner):
     while True:
         verified_postgres(owner, resources, port=port)
         probe = subprocess.run(
-            ["docker", "exec", container["id"], "pg_isready",
-             "-h", "127.0.0.1", "-p", "5432", "-U", "owner", "-d", "postgres"],
-            capture_output=True, timeout=5, check=False,
+            [
+                "docker",
+                "exec",
+                container["id"],
+                "pg_isready",
+                "-h",
+                "127.0.0.1",
+                "-p",
+                "5432",
+                "-U",
+                "owner",
+                "-d",
+                "postgres",
+            ],
+            capture_output=True,
+            timeout=5,
+            check=False,
         )
         if probe.returncode == 0:
             break
         require(time.monotonic() < deadline, "raster_postgres_not_ready")
         time.sleep(0.2)
     return URL.create(
-        "postgresql+asyncpg", username="owner", password=password,
-        host="127.0.0.1", port=port, database="postgres",
+        "postgresql+asyncpg",
+        username="owner",
+        password=password,
+        host="127.0.0.1",
+        port=port,
+        database="postgres",
     ).render_as_string(hide_password=False)
 
 
@@ -974,14 +997,18 @@ def fixture_provider_host(owner):
     network = verify_store_physical(owner)
     configs = network.get("IPAM", {}).get("Config")
     require(
-        isinstance(configs, list) and len(configs) == 1 and isinstance(configs[0], dict),
+        isinstance(configs, list)
+        and len(configs) == 1
+        and isinstance(configs[0], dict),
         "raster_provider_bridge_invalid",
     )
     gateway = ipaddress.ip_address(configs[0]["Gateway"])
     subnet = ipaddress.ip_network(configs[0]["Subnet"])
     require(
-        gateway.version == 4 and gateway in subnet
-        and not gateway.is_loopback and not gateway.is_unspecified,
+        gateway.version == 4
+        and gateway in subnet
+        and not gateway.is_loopback
+        and not gateway.is_unspecified,
         "raster_provider_bridge_invalid",
     )
     return str(gateway)
@@ -1204,12 +1231,16 @@ def archive_closed_native_authority(environment, resources, suite):
     backend = _backend(environment, resources)
     try:
         with backend.fixture_authority_fence():
-            require(not os.path.lexists(root / "owner.json"), "raster_fixture_owner_still_present")
+            require(
+                not os.path.lexists(root / "owner.json"),
+                "raster_fixture_owner_still_present",
+            )
             generation_path = root / "generation.json"
             generation = _private_json(generation_path)
             require(
                 set(generation) == {"resources", "nonce", "state"}
-                and generation["resources"] == resources and generation["state"] == "closed",
+                and generation["resources"] == resources
+                and generation["state"] == "closed",
                 "raster_fixture_generation_changed",
             )
             generation_bytes = _private_bytes(generation_path)
@@ -1234,25 +1265,53 @@ def archive_closed_native_authority(environment, resources, suite):
                 info = path.lstat()
                 require(
                     info.st_uid == os.geteuid()
-                    and ((stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1)
-                         or (stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700)),
+                    and (
+                        (
+                            stat.S_ISREG(info.st_mode)
+                            and stat.S_IMODE(info.st_mode) == 0o600
+                            and info.st_nlink == 1
+                        )
+                        or (
+                            stat.S_ISDIR(info.st_mode)
+                            and stat.S_IMODE(info.st_mode) == 0o700
+                        )
+                    ),
                     "raster_native_evidence_changed",
                 )
             rename = ctypes.CDLL(None, use_errno=True).renameat2
-            rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            rename.argtypes = [
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_uint,
+            ]
             rename.restype = ctypes.c_int
             destination = root / ("suite-" + identifier.hex)
             destination.mkdir(mode=0o700)
             private_write(destination / "generation.json", generation_bytes)
             root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            destination_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            destination_fd = os.open(
+                destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            )
             try:
                 os.fsync(destination_fd)
                 os.fsync(root_fd)
-                ordered = [path for path in evidence if path.name != "native-supervisor.json"]
+                ordered = [
+                    path for path in evidence if path.name != "native-supervisor.json"
+                ]
                 ordered.append(root / "native-supervisor.json")
                 for source in ordered:
-                    if rename(root_fd, os.fsencode(source.name), destination_fd, os.fsencode(source.name), 1) != 0:
+                    if (
+                        rename(
+                            root_fd,
+                            os.fsencode(source.name),
+                            destination_fd,
+                            os.fsencode(source.name),
+                            1,
+                        )
+                        != 0
+                    ):
                         error = ctypes.get_errno()
                         raise OSError(error, os.strerror(error))
                     os.fsync(destination_fd)
@@ -1361,8 +1420,8 @@ def inside(path, arguments):
     identity = load_identity(ROOT, create=False)
     resources = topology(ROOT, identity, "e2e")
     require(
-        os.environ.get("AAP_WORKTREE_RESOURCE_ROOT") == str(ROOT)
-        and os.environ.get("AAP_WORKTREE_MODE") == "e2e"
+        os.environ.get("YOAO_WORKTREE_RESOURCE_ROOT") == str(ROOT)
+        and os.environ.get("YOAO_WORKTREE_MODE") == "e2e"
         and os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
         and os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") == str(Path(path))
         and Owner(path).data["raster"]["resources"] == resources,
@@ -1406,11 +1465,13 @@ def inside_with_inference(path, arguments, inference):
     )
     restricted["PLAYWRIGHT_ML_FIXTURE_HOST"] = fixture_provider_host(owner)
     suite = str(uuid.uuid4())
-    restricted.update({
-        "AAP_PRIVATE_FIXTURE_RASTER_OWNER": str(Path(path)),
-        "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": suite,
-        "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
-    })
+    restricted.update(
+        {
+            "AAP_PRIVATE_FIXTURE_RASTER_OWNER": str(Path(path)),
+            "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": suite,
+            "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
+        }
+    )
     cases, references, fenced = request_fixtures(
         owner, restricted, suite, configured_attempts(arguments)
     )
@@ -1453,7 +1514,7 @@ def inside_with_inference(path, arguments, inference):
             browser_environment[key] = restricted[key]
     browser_environment.update(
         {
-            "AAP_WORKTREE_MODE": "e2e",
+            "YOAO_WORKTREE_MODE": "e2e",
             "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
             "PLAYWRIGHT_RASTER_FAULT_MANIFEST": str(manifest),
             "PLAYWRIGHT_RASTER_MASK_MATRIX": "native",
@@ -1570,7 +1631,9 @@ def inside_with_inference(path, arguments, inference):
         retain_unsettled("raster_consumer_shutdown_failed")
     if api is not None:
         try:
-            disposition = seed_once(owner, restricted, {"operation": "owner_native_suite_retire"})
+            disposition = seed_once(
+                owner, restricted, {"operation": "owner_native_suite_retire"}
+            )
             require(
                 disposition.get("state") == "retired" and api.poll() is not None,
                 "raster_api_exit_unsettled",
@@ -1618,12 +1681,16 @@ def inside_with_inference(path, arguments, inference):
         owner = Owner(path)
         owner.data["raster"]["pre_retirement_native_identities"] = native_inventory
         owner.save()
-        shutdown = seed_once(owner, restricted, {"operation": "owner_shutdown", "suite_id": suite})
+        shutdown = seed_once(
+            owner, restricted, {"operation": "owner_shutdown", "suite_id": suite}
+        )
         require(
             shutdown.get("state") == "stopped", "raster_fixture_shutdown_unconfirmed"
         )
         inference.pause()
-        archive_closed_native_authority(restricted, owner.data["raster"]["resources"], suite)
+        archive_closed_native_authority(
+            restricted, owner.data["raster"]["resources"], suite
+        )
     except BaseException as error:
         retain_unsettled("raster_owner_shutdown_unsettled")
         errors = [error, *shutdown_failures]
@@ -1772,7 +1839,7 @@ def outer(arguments):
     libc = ctypes.CDLL(None, use_errno=True)
     require(libc.prctl(36, 1, 0, 0, 0) == 0, "raster_subreaper_unavailable")
     require(
-        not os.environ.get("AAP_WORKTREE_MODE"), "raster_launcher_must_wrap_worktree"
+        not os.environ.get("YOAO_WORKTREE_MODE"), "raster_launcher_must_wrap_worktree"
     )
     identity = load_identity(ROOT, create=True)
     resources = topology(ROOT, identity, "e2e")
@@ -1837,14 +1904,16 @@ def outer(arguments):
             )
             backend = LocalResources(
                 resources,
-                settings.model_copy(update={
-                    "database_url": postgres_url,
-                    "migration_database_url": postgres_url,
-                    "minio_endpoint": endpoint,
-                    "minio_access_key": access,
-                    "minio_secret_key": secret,
-                    "minio_use_ssl": False,
-                }),
+                settings.model_copy(
+                    update={
+                        "database_url": postgres_url,
+                        "migration_database_url": postgres_url,
+                        "minio_endpoint": endpoint,
+                        "minio_access_key": access,
+                        "minio_secret_key": secret,
+                        "minio_use_ssl": False,
+                    }
+                ),
                 code_root=ROOT,
             )
             reject_orphans(backend)

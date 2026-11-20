@@ -113,11 +113,11 @@ def _redis_dependency():
     labels = observed.get("Config", {}).get("Labels") or {}
     if not (
         observed.get("State", {}).get("Running") is True
-        and observed.get("Config", {}).get("Labels", {}).get("org.aap.worktree-owner")
+        and observed.get("Config", {}).get("Labels", {}).get("org.yoao.worktree-owner")
         == os.environ["AAP_MODULE_DATA_REDIS_OWNER"]
         and observed.get("Name") == f"/{container_name}"
         and observed.get("Id")
-        and labels.get("org.aap.worktree-owner")
+        and labels.get("org.yoao.worktree-owner")
     ):
         pytest.fail("The verifier-owned Redis dependency did not match")
     return url, observed["Id"]

@@ -512,7 +512,7 @@ async def secondary_inference(
     ml_svc = MLBackendService(db)
     backend = await ml_svc.get_registry(data.ml_backend_id)
     if not backend or not await ml_svc.is_enabled(task.project_id, data.ml_backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在或未对当前项目启用")
 
     # 与批量 pipeline 保持同一能力判据 SSOT (services/pipeline_validation): batchable=false
     # (交互 backend) 与「写属性但模型不产 class」都在 predict 前 422 硬挡, 避免选错模型

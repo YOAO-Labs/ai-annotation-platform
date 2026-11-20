@@ -353,7 +353,7 @@ async def seed(database, output):
     from app.db.models.user import User
 
     require(
-        os.environ.get("AAP_WORKTREE_MODE") == "test" and database.endswith("_test"),
+        os.environ.get("YOAO_WORKTREE_MODE") == "test" and database.endswith("_test"),
         "test_mode_required",
     )
     engine = create_async_engine(settings.database_url)
@@ -406,7 +406,7 @@ def verify(owner, image, *, scenario="basic", ui_hold_seconds=0):
     from worktree_env import load_identity, topology
 
     require(
-        os.environ.get("AAP_WORKTREE_MODE") == "test", "launcher_test_mode_required"
+        os.environ.get("YOAO_WORKTREE_MODE") == "test", "launcher_test_mode_required"
     )
     resources = topology(ROOT, load_identity(ROOT), "test")
     require(
@@ -489,7 +489,7 @@ def verify(owner, image, *, scenario="basic", ui_hold_seconds=0):
             key: value
             for key, value in os.environ.items()
             if key.startswith(("MINIO_", "CELERY_"))
-            or key in {"DATABASE_URL", "AAP_WORKTREE_MODE"}
+            or key in {"DATABASE_URL", "YOAO_WORKTREE_MODE"}
         }
         for key in [
             "DATABASE_URL",

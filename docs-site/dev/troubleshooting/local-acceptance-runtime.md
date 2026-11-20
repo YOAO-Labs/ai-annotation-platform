@@ -97,7 +97,7 @@ Kombu 会留下被动的 `_kombu.binding.*` 集合；已封存的 worker 还会�
 
 ### 规避
 
-验收网络一律带 owner 标签创建（`org.aap.acceptance` / `org.aap.worktree-owner` 与唯一 id），创建后 `docker network inspect` 必须唯一并核对 IPAM 的 subnet／gateway，再由同一 owner 精确删除，例如 `scripts/verify_site_agent.py` 的资源台账与 `apps/api/tests/test_workspace_video_tracker_worker_live.py` 的 `aap-tracker-fixture-*` 桥。不要改装 daemon 的默认地址池来绕开泄漏；先按标签核对"哪些网络属于已退役运行"。`scripts/run_raster_fault_e2e.py` 的 `verify_store_physical()` 还要求 bridge 网络上只有本运行的容器，避免复用到邻居网络。
+验收网络一律带 owner 标签创建（`org.aap.acceptance` / `org.yoao.worktree-owner` 与唯一 id），创建后 `docker network inspect` 必须唯一并核对 IPAM 的 subnet／gateway，再由同一 owner 精确删除，例如 `scripts/verify_site_agent.py` 的资源台账与 `apps/api/tests/test_workspace_video_tracker_worker_live.py` 的 `aap-tracker-fixture-*` 桥。不要改装 daemon 的默认地址池来绕开泄漏；先按标签核对"哪些网络属于已退役运行"。`scripts/run_raster_fault_e2e.py` 的 `verify_store_physical()` 还要求 bridge 网络上只有本运行的容器，避免复用到邻居网络。
 
 ## 6. PID 受限容器里的 OpenBLAS 线程
 

@@ -3224,7 +3224,7 @@ def _cleanup_storage_scope(backend) -> dict:
     bucket = backend.resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
     tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
     if not any(
-        tag["Key"] == "aap-worktree-owner"
+        tag["Key"] == "yoao-worktree-owner"
         and tag["Value"] == backend.resources["owner"]
         for tag in tags
     ):
@@ -3232,7 +3232,7 @@ def _cleanup_storage_scope(backend) -> dict:
     inputs_bucket = backend.resources["buckets"]["MINIO_INPUTS_BUCKET"]
     input_tags = backend.s3.get_bucket_tagging(Bucket=inputs_bucket)["TagSet"]
     if not any(
-        tag["Key"] == "aap-worktree-owner"
+        tag["Key"] == "yoao-worktree-owner"
         and tag["Value"] == backend.resources["owner"]
         for tag in input_tags
     ):
@@ -3518,7 +3518,7 @@ def _verify_accepted_input_s3_scopes(
 def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
     tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
     if not any(
-        tag["Key"] == "aap-worktree-owner"
+        tag["Key"] == "yoao-worktree-owner"
         and tag["Value"] == backend.resources["owner"]
         for tag in tags
     ):
@@ -12587,7 +12587,7 @@ SELECT pg_catalog.jsonb_build_object(
             bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
             tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
             if not any(
-                tag["Key"] == "aap-worktree-owner"
+                tag["Key"] == "yoao-worktree-owner"
                 and tag["Value"] == resources["owner"]
                 for tag in tags
             ):

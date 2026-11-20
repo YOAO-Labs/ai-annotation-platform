@@ -14,8 +14,8 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.db.models.project import Project
 
-_PENDING_PROJECT_IDS = "aap_labeling_project_counter_pending_ids"
-_EXPIRE_UPDATED_AT_IDS = "aap_labeling_project_counter_expire_updated_at_ids"
+_PENDING_PROJECT_IDS = "labeling_project_counter_pending_ids"
+_EXPIRE_UPDATED_AT_IDS = "labeling_project_counter_expire_updated_at_ids"
 _COUNTER_FIELDS = (
     "total_tasks",
     "completed_tasks",

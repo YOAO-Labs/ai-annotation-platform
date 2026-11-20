@@ -24,7 +24,7 @@ pytestmark = [
     pytest.mark.skipif(
         os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
         or os.environ.get("RUN_BATCH_RESULT_WORKER_LIVE_TEST") != "1"
-        or os.environ.get("AAP_WORKTREE_MODE") != "test",
+        or os.environ.get("YOAO_WORKTREE_MODE") != "test",
         reason="requires explicit verifier-owned batch result worker acceptance",
     ),
 ]

@@ -115,7 +115,7 @@ def test_image_source_versioning_is_limited_to_owned_buckets():
         def get_bucket_tagging(self, *, Bucket: str):
             return {
                 "TagSet": [
-                    {"Key": "aap-worktree-owner", "Value": self.owner},
+                    {"Key": "yoao-worktree-owner", "Value": self.owner},
                     {"Key": "test-bucket", "Value": Bucket},
                 ]
             }
@@ -127,8 +127,8 @@ def test_image_source_versioning_is_limited_to_owned_buckets():
             assert Bucket == "owned-source"
             return {"Status": "Enabled"}
 
-    owned = FakeStorage("aap-worktree:test")
-    backend = SimpleNamespace(s3=owned, resources={"owner": "aap-worktree:test"})
+    owned = FakeStorage("yoao-worktree:test")
+    backend = SimpleNamespace(s3=owned, resources={"owner": "yoao-worktree:test"})
     verifier._enable_owned_bucket_versioning(backend, "owned-source")
     assert owned.versioning_updates == [
         {

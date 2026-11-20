@@ -291,7 +291,7 @@ histogram_quantile(0.95,
 
 **`/unload` + idle-unload**：`POST /unload` 释放全部已加载句柄（模型市场卸载按钮直接生效，UI 零改动）；末次推理后空闲 `ONNXTOOLS_IDLE_UNLOAD_SECONDS`（默认 600s）自动卸载。按 model 句柄粒度释放显存——原子化让 detect-only 工作流不再背 va 分类器显存。与 yolo 体验对齐。
 
-**协议 `output_attribute_schema`**：`vehicle-attr` / `vehicle-attr-classify` 在 `/setup` 自报输出属性 schema（含每个 select 字段的 `options`，value + 中文 label），沿 `ml_capabilities` 透传到前端，供「从 ML Backend 导入属性」一键合并进项目工具单位的 `attribute_schema`。`vehicle-detect` 纯检测不写 `attributes`，不声明 `output_attribute_schema`。
+**协议 `output_attribute_schema`**：`vehicle-attr` / `vehicle-attr-classify` 在 `/setup` 自报输出属性 schema（含每个 select 字段的 `options`，value + 中文 label），沿 `ml_capabilities` 透传到前端，供「从模型服务预填」一键合并进项目工具单位的 `attribute_schema`。`vehicle-detect` 纯检测不写 `attributes`，不声明 `output_attribute_schema`。
 
 ### 6.3 rapidocr-backend（8005 / `gpu-rapidocr`）
 

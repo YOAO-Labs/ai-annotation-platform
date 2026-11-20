@@ -924,7 +924,7 @@ def run(port):
         "fixture_native_suite_changed",
     )
     _require(
-        os.environ.get("AAP_WORKTREE_MODE") in {"test", "e2e"}
+        os.environ.get("YOAO_WORKTREE_MODE") in {"test", "e2e"}
         and os.environ.get("PLAYWRIGHT_RASTER_OFFLINE") != "1",
         "fixture_native_topology_invalid",
     )

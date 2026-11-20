@@ -4,8 +4,8 @@ These tests have to observe real bytes, versions and delete markers, so they
 cannot be satisfied by an in-memory substitute. They may only write where this
 run provably owns the provider. Two disposable environments qualify:
 
-* the worktree launcher's owned ``test`` namespace: ``AAP_WORKTREE_MODE=test``
-  with ``aap-wt-<identity>-test-<purpose>`` buckets and a per-checkout Redis;
+* the worktree launcher's owned ``test`` namespace: ``YOAO_WORKTREE_MODE=test``
+  with ``yoao-wt-<identity>-test-<purpose>`` buckets and a per-checkout Redis;
 * the GitHub Actions backend job, whose containerised Postgres, MinIO and Redis
   services exist only for that hosted runner and are destroyed with it.
 
@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from app.config import settings
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-_WORKTREE_BUCKET = re.compile(r"aap-wt-[0-9a-f]{16}-test-(?P<purpose>[a-z][a-z0-9-]*)")
+_WORKTREE_BUCKET = re.compile(r"yoao-wt-[0-9a-f]{16}-test-(?P<purpose>[a-z][a-z0-9-]*)")
 
 
 def _host_of(endpoint: str) -> str:
@@ -32,12 +32,12 @@ def _host_of(endpoint: str) -> str:
 
 def _disposable_owner() -> str:
     """Return ``worktree`` or ``github``; refuse every other environment."""
-    mode = os.environ.get("AAP_WORKTREE_MODE")
+    mode = os.environ.get("YOAO_WORKTREE_MODE")
     if mode == "test":
         return "worktree"
     assert mode is None, (
         "Actual-provider acceptance runs only in the owned worktree test "
-        f"namespace, never AAP_WORKTREE_MODE={mode!r}"
+        f"namespace, never YOAO_WORKTREE_MODE={mode!r}"
     )
     facts = (
         os.environ.get("GITHUB_ACTIONS"),

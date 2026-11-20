@@ -32,7 +32,7 @@ async def test_registry_ingress_full_forward_migration_qualification(test_engine
     environment["MIGRATION_DATABASE_URL"] = test_engine.url.render_as_string(
         hide_password=False
     )
-    environment.pop("AAP_WORKTREE_MODE", None)
+    environment.pop("YOAO_WORKTREE_MODE", None)
     identity = str(uuid.uuid4())
     environment["AAP_MIGRATION_VALIDATION_OWNER"] = (
         "registry-ingress-validator:" + identity
@@ -65,7 +65,8 @@ async def test_registry_ingress_full_forward_migration_qualification(test_engine
     assert report["upgrade_path"][-1] == report["head"]
     assert len(report["phases"]) == 2
     assert {phase.split(":", 1)[0] for phase in report["phases"]} == {
-        "fresh", "forward"
+        "fresh",
+        "forward",
     }
 
     assert report["cleanup_errors"] == []

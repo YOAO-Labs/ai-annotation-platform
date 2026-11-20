@@ -106,7 +106,7 @@ async def _start_gc(
             "--label",
             f"org.aap.acceptance-id={identity}",
             "--label",
-            f"org.aap.worktree-owner={resources['owner']}",
+            f"org.yoao.worktree-owner={resources['owner']}",
             "--read-only",
             "--cap-drop",
             "ALL",

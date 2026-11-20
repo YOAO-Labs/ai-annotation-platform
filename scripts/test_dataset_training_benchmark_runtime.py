@@ -379,7 +379,7 @@ class GuardTests(unittest.TestCase):
             "postgres": {"host": "127.0.0.1", "port": 5432},
         }
         self.environment = {
-            "AAP_WORKTREE_MODE": "test",
+            "YOAO_WORKTREE_MODE": "test",
             "DATABASE_URL": "postgresql+asyncpg://runtime:private@127.0.0.1:5432/owned_test",
             **self.resources["buckets"],
         }
@@ -397,7 +397,7 @@ class GuardTests(unittest.TestCase):
     def test_exact_test_mode_manifest_database_and_nine_buckets_are_required(self):
         self.assertIs(self.contract(), self.resources)
         changes = [
-            {"AAP_WORKTREE_MODE": "e2e"},
+            {"YOAO_WORKTREE_MODE": "e2e"},
             {
                 "DATABASE_URL": "postgresql+asyncpg://runtime:private@remote:5432/owned_test"
             },

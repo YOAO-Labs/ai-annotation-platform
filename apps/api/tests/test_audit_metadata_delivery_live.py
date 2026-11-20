@@ -57,7 +57,7 @@ async def _worker(directory, database_url, sender):
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "ENVIRONMENT": "development",
-        "AAP_WORKTREE_MODE": "test",
+        "YOAO_WORKTREE_MODE": "test",
         "DATABASE_URL": database_url,
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",

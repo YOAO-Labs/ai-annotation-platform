@@ -666,7 +666,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                 f"Retained uncertain Images acceptance: suite={suite.suite_id if suite else None} "
                 f"runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} "
                 f"client_pid={owner.process.pid if owner else None} "
-                f"authority_record=.worktree/{os.environ.get('AAP_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
+                f"authority_record=.worktree/{os.environ.get('YOAO_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
                 f"worker_pids={[p.pid for p, _ in workers]}; no forced cleanup",
                 flush=True,
             )

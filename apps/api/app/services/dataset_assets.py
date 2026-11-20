@@ -104,14 +104,20 @@ async def validate_legacy_bindings(db):
             elif purpose == "training":
                 from app.services.training_dataset_storage import target_for
             else:
-                from app.services.export_storage_target import target_for
+                from app.services.export_storage_target import bound_bucket
 
             target_location = await db.get(
                 StorageLocation, binding.location_id, populate_existing=True
             )
             try:
-                target = await target_for(db, target_location, require_enabled=False)
-                if binding.bucket != target.bucket:
+                if purpose == "export":
+                    bucket = await bound_bucket(db, target_location)
+                else:
+                    target = await target_for(
+                        db, target_location, require_enabled=False
+                    )
+                    bucket = target.bucket
+                if binding.bucket != bucket:
                     errors.append(f"binding_mismatch:{purpose}")
             except (
                 AvatarStorageError,

@@ -56,7 +56,8 @@ def _verify_bucket_scope():
     for bucket in (storage_service.import_bucket, storage_service.datasets_bucket):
         tags = storage_service.client.get_bucket_tagging(Bucket=bucket)["TagSet"]
         assert any(
-            tag["Key"] == "aap-worktree-owner" and tag["Value"] == owner for tag in tags
+            tag["Key"] == "yoao-worktree-owner" and tag["Value"] == owner
+            for tag in tags
         ), "S3 bucket ownership changed"
 
 

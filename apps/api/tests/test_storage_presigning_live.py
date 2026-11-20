@@ -16,7 +16,7 @@ from app.config import settings
 from app.services.storage import StorageService
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("AAP_WORKTREE_MODE") != "test",
+    os.environ.get("YOAO_WORKTREE_MODE") != "test",
     reason="Real signing acceptance uses the owned worktree test buckets",
 )
 
@@ -63,12 +63,12 @@ def proxy(endpoint, *, preserve_host):
 
 @pytest.fixture
 def original(monkeypatch):
-    assert os.environ.get("AAP_WORKTREE_MODE") == "test"
+    assert os.environ.get("YOAO_WORKTREE_MODE") == "test"
     service = StorageService(
         client_config=Config(signature_version="s3v4", s3={"addressing_style": "path"})
     )
     bucket = service.import_bucket
-    assert bucket.startswith("aap-wt-")
+    assert bucket.startswith("yoao-wt-")
     service.ensure_bucket(bucket)
     service.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}

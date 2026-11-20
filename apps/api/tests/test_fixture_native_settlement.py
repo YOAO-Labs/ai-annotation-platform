@@ -1,4 +1,4 @@
-"""Owned suite settlement must reconcile durable identities with receipts."""
+"""The native fixture supervisor owns suite settlement and child credentials."""
 
 import sys
 import uuid
@@ -8,11 +8,30 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from fixture_native_business import _business_run_settled  # noqa: E402
-from fixture_native_playwright import _native_run_evidence_settled  # noqa: E402
+from fixture_native_playwright import (  # noqa: E402
+    _api_environment,
+    _native_run_evidence_settled,
+)
 
 RETIRED = {"state": "retired"}
 RUN = uuid.UUID("5b0f0f0e-6f8b-4a3d-9f47-5c1d2e3f4a5b")
 TARGET = {"run_id": str(RUN), "state": "retired"}
+
+
+def test_native_api_child_cannot_inherit_supervisor_database_credentials():
+    runtime, owner = "postgresql://runtime/db", "postgresql://owner/db"
+    child = _api_environment(
+        {
+            "DATABASE_URL": runtime,
+            "MIGRATION_DATABASE_URL": owner,
+            "PLAYWRIGHT_E2E_DATABASE_URL": owner,
+            "TEST_DATABASE_URL": owner,
+        },
+        "http://127.0.0.1:9001",
+        "media-token",
+    )
+    assert child["DATABASE_URL"] == runtime
+    assert owner not in child.values()
 
 
 def test_identity_without_receipt_directory_is_unsettled():
