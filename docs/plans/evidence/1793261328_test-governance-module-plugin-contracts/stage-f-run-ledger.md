@@ -797,6 +797,8 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 
 清单逐行给出当前组、最近的定向结果和更早默认轮的观察，引用的报告、collection、JUnit 均附摘要。历史故障注入或整组未通过时，节点通过与整组成功分列。**没有把任何一项登记为 `599a727dd` 默认通过。** 本次完成的是 G7 的 92 项对账，不是 G7 全部退出门。若要优先补没有证据的范围，从 `parent-seed-native` 的 27 项开始；不必为对账重跑全套。
 
+**首次前向执行**（`d9ceedf51b`）：`parent-seed-native` 原 27 项全部运行，26 通过，`test_capture_parent_accounts` 失败，清退成功。冻结快照包含 `status`、`last_seen_at` 和 `preferences`，但该用例只读 `users`；前两项已经由 `identity_account_presence` 持有，后一项由 `identity_account_preferences` 持有。修正观察查询，按用户 ID 内连接两个 owner，不补默认值、不删快照字段、不改冻结 JSON。首次 JUnit：`t1-gate/g7-parent-d9ceedf51-1/pytest.xml`（SHA256 `7d8f91d64507ee0ca863af381ab0b57fe384ba95f0ed61690fa4ce482450d93c`）。
+
 ## J1：同一 API key 轮询与导出授权竞争
 
 首轮 `matrix-7-verdict.json` 中，`image_project` 作业 `064a676e-3f42-4c17-b978-03c5729435a4` 已受理，最终为 `failed: dbapi`。同一 Job 的 GET 先返回 503，后返回 200。`native-uri-runtime.log` 的 worker 栈落在图片源复制前的 `object_guard` → `_reauthorize_export_final_write` → `output_authority.validate` → `read_accepted_api_key_facts`，异常明确指向 `public.api_keys`，不是 Jobs 行。原日志没有持锁后端 PID，不能认定某一次历史 GET 就是当时的锁主。
@@ -810,4 +812,10 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 
 撤销原 key 后，GET 返回 401，worker 仍以 `export_output_authority_changed` 拒绝。诊断在不到 37 秒内完成，清退前库内无客户端会话，库、容器、卷与临时根均已删除。脱敏观察：`t1-gate/g7-j1-599a727dd-1/j1-observations.json`（SHA256 `de9941538b014987b185a1f05c3092e85066887f0591af3bd064e5bf67968033`）及 `j1-run.json`；历史 worker 日志 SHA256 `80ee78cb0bce458530b87f5d2c381ef7992dd19aa7e2c4af68934a37539da955`。
 
-**归因已复现，产品未修复。** 不是重复提交、Jobs 行锁或撤权；分开凭据只是验收隔离。本次重现的是轮询和 worker 的真实授权边界，未重跑完整导出。修复应让普通轮询记录最近使用时间时不独占 worker 必须复核的凭据行，并保留撤销、轮换、过期及 scope 变更的即时拒绝。验收要用同一把 key 提交、轮询并取得实际导出物；不能靠换 key、增加重试或放松最终授权检查。
+**诊断候选 `599a727dd` 复现了竞争，未修复。** 不是重复提交、Jobs 行锁或撤权；分开凭据只是验收隔离。该轮重现轮询和 worker 的真实授权边界，未重跑完整导出。
+
+## J1：同凭据普通导出前向验收
+
+`d9ceedf51b`／`bo0479` 将 `last_used_at` 移至 Identity 私有使用记录。认证先对账号、凭据取共享锁，仅独占该凭据的使用记录；worker 仍对原凭据 `FOR SHARE NOWAIT` 并逐项核验已捕获的授权。没有更换轮询凭据、加重试、改超时或取消最后一次检查。
+
+前向迁移在独占 PostgreSQL 的 `bo0478` 数据库先创建两把 key：从未使用的一把迁移后仍为空；另一把保留到微秒的 `2026-06-12T10:11:12.123456Z`。两条新记录与原 key 一一对应，不走降级。回执 `t1-gate/j1-key-usage-and-g7-1/forward-data.json`（SHA256 `32c8c026243552e366e8a1086ef4f92d68a36211bce11ec1539c6d4456cb0d33`）。

@@ -479,7 +479,13 @@ async def test_capture_parent_accounts(
                 (
                     await db.execute(
                         text(
-                            "SELECT to_jsonb(u) AS state FROM users u WHERE email=ANY(CAST(:emails AS text[])) ORDER BY email"
+                            "SELECT to_jsonb(u) || jsonb_build_object("
+                            "'status', p.status, 'last_seen_at', p.last_seen_at, "
+                            "'preferences', prefs.preferences) AS state "
+                            "FROM public.users AS u "
+                            "JOIN public.identity_account_presence AS p ON p.user_id=u.id "
+                            "JOIN public.identity_account_preferences AS prefs ON prefs.user_id=u.id "
+                            "WHERE u.email=ANY(CAST(:emails AS text[])) ORDER BY u.email"
                         ),
                         {"emails": [u["email"] for u in specs]},
                     )
