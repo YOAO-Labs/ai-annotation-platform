@@ -216,6 +216,20 @@ NAMESPACE_BODY_CALLERS = {
     "yoao_workspace_v1.delete_project",
     "yoao_workspace_v1.unlink_dataset",
 }
+# Frozen pre-upgrade bodies and the exact substitutions in the forward migration.
+KEY_USAGE_BODY_PATCHES = {
+    "yoao_identity_v1.confirm_api_key_principal(uuid,text)": (
+        ("lock", 1),
+        ("write", 1),
+    ),
+    "yoao_identity_keys_v1.execute_key_command(jsonb)": (
+        ("projection", 4),
+        ("rotate", 1),
+    ),
+    "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)": (
+        ("projection", 1),
+    ),
+}
 FUNCTION_BODY_ARTIFACTS = {
     "yoao_identity_briefs_v1._failure()": "0249_identity_briefs.sql",
     "yoao_identity_briefs_v1._has_exact_keys(jsonb,text[])": "0249_identity_briefs.sql",
@@ -223,6 +237,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_identity_briefs_v1.execute_briefs_command(jsonb)": "0249_identity_briefs.sql",
     "yoao_identity_keys_v1.key_policy()": "0236_identity_api_keys.sql",
     "yoao_identity_keys_v1.execute_key_command(jsonb)": "0236_identity_api_keys.sql",
+    "yoao_identity_v1.confirm_api_key_principal(uuid,text)": "0235_identity_admission.sql",
+    "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)": "0248_identity_offboarding.sql",
     "yoao_labeling_class_query_v1.attribute_rows(uuid)": "0266_labeling_class_query.sql",
     "yoao_labeling_class_query_v1.class_counts(uuid)": "0266_labeling_class_query.sql",
     "yoao_labeling_class_query_v1.class_query_policy()": "0266_labeling_class_query.sql",
@@ -5807,6 +5823,26 @@ def _installed_function_body_sha256(
     # bo0474 also projects the three authorized transaction-local GUCs.
     for old, new in PROJECTED_GUCS.items():
         expected = expected.replace(old, new)
+    if signature in KEY_USAGE_BODY_PATCHES:
+        patch_sql = _sql_artifact_path("0479_identity_api_key_usage.sql").read_text(
+            encoding="utf-8"
+        )
+        for tag, occurrences in KEY_USAGE_BODY_PATCHES[signature]:
+            before, after = (
+                re.findall(
+                    rf"\${tag}_{side}\$(.*?)\${tag}_{side}\$", patch_sql, re.DOTALL
+                )
+                for side in ("before", "after")
+            )
+            if (
+                len(before) != 1
+                or len(after) != 1
+                or expected.count(before[0]) != occurrences
+            ):
+                raise RuntimeError(
+                    f"frozen key usage patch differs: {signature}, {tag}"
+                )
+            expected = expected.replace(before[0], after[0])
     if current_name in {
         "yoao_inference_gpu_caller_v1.gpu_caller_policy",
         "yoao_inference_gpu_collector_v1.gpu_collector_policy",
@@ -7292,7 +7328,11 @@ def main(
             CONTAINER_LABEL: CONTAINER_LABEL_VALUE,
         },
         "contract_artifacts": {
-            "sql": [*SQL_ARTIFACTS, "0475_inbox_retained_job_scope.sql"],
+            "sql": [
+                *SQL_ARTIFACTS,
+                "0475_inbox_retained_job_scope.sql",
+                "0479_identity_api_key_usage.sql",
+            ],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
         "database": None,
@@ -12355,6 +12395,16 @@ SELECT pg_catalog.jsonb_build_object(
             '{IDENTITY_API_CONSUMER_ROLE}',
             'yoao_identity_v1._initialize_account_presence()', 'EXECUTE')
     ),
+    'key_usage_private', NOT (
+        pg_catalog.has_any_column_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_api_key_usage',
+            'SELECT,INSERT,UPDATE,REFERENCES')
+        OR pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_api_key_usage',
+            'DELETE,TRUNCATE,TRIGGER')
+        OR pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}', 'yoao_identity_v1._initialize_api_key_usage()', 'EXECUTE')
+    ),
     'preferences_private', NOT (
         pg_catalog.has_table_privilege(
             '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_preferences',
@@ -12389,6 +12439,10 @@ SELECT pg_catalog.jsonb_build_object(
         if not identity_consumer_acl["presence_private"]:
             raise RuntimeError(
                 "Identity API consumer can access private presence storage"
+            )
+        if not identity_consumer_acl["key_usage_private"]:
+            raise RuntimeError(
+                "Identity API consumer can access private key usage storage"
             )
         if not identity_consumer_acl["preferences_private"]:
             raise RuntimeError(

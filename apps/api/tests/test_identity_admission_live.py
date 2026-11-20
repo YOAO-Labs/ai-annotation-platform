@@ -888,8 +888,13 @@ async def test_real_api_rest_and_socket_use_remote_identity_without_fallback(
             ).status_code == 200
             async with maker() as db:
                 assert (
-                    await db.get(ApiKey, uuid.UUID(key_id))
-                ).last_used_at is not None
+                    await db.scalar(
+                        text(
+                            "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:id"
+                        ),
+                        {"id": uuid.UUID(key_id)},
+                    )
+                ) is not None
 
             socket_url = (
                 api.origin.replace("http://", "ws://")

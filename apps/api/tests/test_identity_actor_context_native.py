@@ -166,7 +166,9 @@ async def test_actor_context_preserves_zero_and_null_and_rejects_stale_accounts(
             assert inactive["error"]["code"] == "credential_invalid"
             assert (
                 await session.scalar(
-                    text("SELECT last_used_at FROM public.api_keys WHERE id=:id"),
+                    text(
+                        "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:id"
+                    ),
                     {"id": key_id},
                 )
                 is None

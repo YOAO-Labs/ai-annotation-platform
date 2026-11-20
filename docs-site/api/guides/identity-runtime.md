@@ -120,8 +120,8 @@ User 私表或列权限。原始脚本的生产拒绝、来源／任务守卫及
 
 `aap-identity-role-audit/v1` 是可信运维只读关系契约，独立于普通 HTTP 凭据配置。
 
-| 关系                                        | 字段与用途                                                                          |
-| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 关系                                         | 字段与用途                                                                          |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `yoao_identity_audit_v1.account_roles`       | id、原始 role、is_active；保留 NULL、未知角色与停用行                               |
 | `yoao_identity_audit_v1.invitation_facts`    | id、project_id、role、project_role、expires_at、accepted_at、revoked_at、invited_by |
 | `yoao_identity_audit_v1.schema_capabilities` | 单行布尔值 invitation_project_role，表示源库是否存在该准备列                        |
@@ -229,6 +229,8 @@ key 元数据只有 `id`、`name`、`key_prefix`、`scopes`、`expires_at`、`la
 调用方在第一次发送前固定 operation UUID 和 payload。写入和冻结回执在同一事务中提交，相同请求可在响应丢失或进程重启后重放；换输入复用 UUID 会冲突。列表始终读取当前状态。
 
 每次重放仍需当前有效凭据和活跃账号。用 key 轮换自身后，旧明文已经失效，须使用该账号的其他有效凭据重放。冻结结果不会重做修改，也不会恢复已撤销或再次轮换的 key；返回历史签发明文不意味着它当前还能认证。
+
+认证成功时，Identity 在同一事务内更新独立的最近使用记录；回滚不计使用，轮换会清空该记录。认证与后台导出可同时复核同一凭据，撤销、轮换、到期时间及 scope 变更仍受凭据行锁保护。调用方无需为轮询单独配置另一把 key。
 
 明文由身份服务按冻结算法重新派生，只有 bcrypt 哈希进入 key 行，回执不存明文。更换身份签名 secret 后，既有 key 仍可按原哈希认证；旧签发操作的派生标识不符时冲突，不返回另一把明文。公开用户 POST 保持原有单次请求行为，调用方不能盲目重试。
 
@@ -670,8 +672,8 @@ RPC 使用独立的 `IDENTITY_TOKEN`。API 的远程响应解码不重新派生 
 
 Identity 的 `aap-identity-read-relations/v1` 固定两个 PostgreSQL 只读关系：
 
-| 关系                                       | 发布字段                                                                         |
-| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| 关系                                        | 发布字段                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
 | `yoao_identity_v1.account_profiles`         | `id/name/email/role/is_active/status/avatar_ref`，其中 `avatar_ref` 是可空字符串 |
 | `yoao_identity_v1.invitation_audit_targets` | `id/project_id`，其中 `project_id` 可空                                          |
 

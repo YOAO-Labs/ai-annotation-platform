@@ -281,12 +281,68 @@ async def test_api_key_candidates_are_ordered_and_confirmation_updates_last_used
 
         async with maker() as session:
             last_used = await session.scalar(
-                text("SELECT last_used_at FROM public.api_keys WHERE id=:key_id"),
+                text(
+                    "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:key_id"
+                ),
                 {"key_id": key_ids[2]},
             )
             assert last_used is not None
     finally:
         await _cleanup(test_engine, fixture)
+
+
+@pytest.mark.asyncio
+async def test_api_key_usage_and_accepted_proof_can_overlap_in_both_orders(test_engine):
+    seed = await _seed(test_engine)
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    confirm = text("SELECT yoao_identity_v1.confirm_api_key_principal(:key_id, :hash)")
+    facts = text(
+        "SELECT * FROM yoao_identity_v1.read_accepted_api_key_facts(:actor_id, :key_id)"
+    )
+    activity = text(
+        "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:key_id"
+    )
+    try:
+        async with sessions() as poll, sessions() as worker:
+            params = {
+                **seed,
+                "hash": await poll.scalar(
+                    select(ApiKey.key_hash).where(ApiKey.id == seed["key_id"])
+                ),
+            }
+            # Admission still owns its uncommitted activity write when the worker checks.
+            assert (await poll.scalar(confirm, params))["ok"]
+            accepted = (await worker.execute(facts, params)).one()
+            assert accepted.scopes == ["annotations:read", "datasets:read"]
+            assert (await worker.scalar(activity, params)) is None
+            await poll.rollback()
+            assert (await worker.scalar(activity, params)) is None
+
+            # The worker retains exactly the same fence while another admission commits.
+            assert (await poll.scalar(confirm, params))["ok"]
+            await poll.commit()
+            assert (await worker.execute(facts, params)).one() == accepted
+            last_used = await worker.scalar(activity, params)
+            assert last_used is not None
+            await worker.commit()
+
+            await worker.execute(
+                text(
+                    "UPDATE public.api_keys SET revoked_at=clock_timestamp() WHERE id=:key_id"
+                ),
+                params,
+            )
+            assert (await poll.scalar(confirm, params))["error"][
+                "code"
+            ] == "credential_busy"
+            await worker.commit()
+            assert (await poll.scalar(confirm, params))["error"][
+                "code"
+            ] == "credential_revoked"
+            assert (await poll.execute(facts, params)).first() is None
+            assert await poll.scalar(activity, params) == last_used
+    finally:
+        await _cleanup(test_engine, seed)
 
 
 @pytest.mark.asyncio

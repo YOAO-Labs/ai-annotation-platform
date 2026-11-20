@@ -175,11 +175,12 @@ GRANT INSERT (
 ) ON public.users TO :"identity_owner";
 GRANT SELECT, INSERT, UPDATE ON public.identity_account_presence TO :"identity_owner";
 GRANT SELECT, INSERT, UPDATE ON public.identity_account_preferences TO :"identity_owner";
+GRANT SELECT, INSERT, UPDATE ON public.identity_api_key_usage TO :"identity_owner";
 GRANT SELECT (
-    id, user_id, name, key_prefix, key_hash, scopes, expires_at, last_used_at,
+    id, user_id, name, key_prefix, key_hash, scopes, expires_at,
     revoked_at, created_at
 ), INSERT (id, user_id, name, key_prefix, key_hash, scopes, expires_at),
-    UPDATE (name, key_prefix, key_hash, scopes, expires_at, last_used_at, revoked_at)
+    UPDATE (name, key_prefix, key_hash, scopes, expires_at, revoked_at)
     ON public.api_keys TO :"identity_owner";
 GRANT SELECT (id, user_id, token_hash, issued_email, expires_at, used_at),
     INSERT (id, user_id, token_hash, issued_email, expires_at), UPDATE (used_at)
@@ -1850,6 +1851,8 @@ ALTER FUNCTION yoao_identity_v1.authentication_policy()
 ALTER FUNCTION yoao_identity_v1.read_actor_context(uuid, text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION yoao_identity_v1._initialize_account_presence()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1._initialize_api_key_usage()
     OWNER TO :"identity_owner";
 ALTER FUNCTION yoao_identity_v1._initialize_account_preferences()
     OWNER TO :"identity_owner";

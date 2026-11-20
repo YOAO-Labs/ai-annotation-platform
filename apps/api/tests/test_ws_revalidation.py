@@ -9,7 +9,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import delete, update
+from sqlalchemy import delete, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import ws
@@ -473,8 +473,15 @@ async def test_socket_gateway_persists_api_key_usage_from_function_runtime(
         assert principal.actor_id == user_id
         assert principal.credential_type == "api_key"
         async with sessions() as check:
-            persisted = await check.get(ApiKey, key_id)
-            assert persisted is not None and persisted.last_used_at is not None
+            assert (
+                await check.scalar(
+                    text(
+                        "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:id"
+                    ),
+                    {"id": key_id},
+                )
+                is not None
+            )
     finally:
         async with sessions() as cleanup:
             await cleanup.execute(delete(ApiKey).where(ApiKey.id == key_id))

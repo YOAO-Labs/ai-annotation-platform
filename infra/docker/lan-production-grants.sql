@@ -451,6 +451,11 @@ REVOKE ALL (user_id, status, last_seen_at)
     ON TABLE public.identity_account_presence FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION yoao_identity_v1._initialize_account_presence()
     FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE public.identity_api_key_usage FROM :"application_role", PUBLIC;
+REVOKE ALL (api_key_id, last_used_at)
+    ON TABLE public.identity_api_key_usage FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION yoao_identity_v1._initialize_api_key_usage()
+    FROM :"application_role", PUBLIC;
 GRANT SELECT ON yoao_identity_v1.account_profiles,
     yoao_identity_v1.invitation_audit_targets TO :"application_role";
 REVOKE ALL ON TABLE public.notifications, public.notification_preferences,

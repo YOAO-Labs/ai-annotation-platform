@@ -664,7 +664,7 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
                     await db.execute(
                         text(
                             "SELECT id, user_id, revoked_at, last_used_at, expires_at "
-                            "FROM public.api_keys "
+                            "FROM public.api_keys JOIN public.identity_api_key_usage ON api_key_id=id "
                             "WHERE user_id=ANY(CAST(:targets AS uuid[])) ORDER BY id"
                         ),
                         {"targets": load_target_ids},

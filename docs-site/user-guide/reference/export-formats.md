@@ -13,6 +13,8 @@ last_reviewed: 2026-10-24
 
 项目 Dashboard 的「导出」入口会打开居中的导出弹窗。导出目标可多选，一次导出产出**一个**压缩包：勾选单个目标时落包根，勾选多个目标时各目标落各自的 `{target}/` 子目录。
 
+通过 API 导出时，可以用提交作业的同一把 API key 查询 `GET /api/v1/async-jobs/{id}`。作业完成后从 `result.download_url` 下载压缩包；这是预签名链接，不要把 API key 发送给对象存储。排队或执行期间撤销、轮换该 key，或更改其授权范围，原作业不会因此获得新权限。
+
 图片项目可选 **COCO / YOLO 检测 / YOLO 旋转框 / YOLO 分割 / Label Studio Brush / 逐实例 Binary PNG / Indexed PNG / 原生 JSON**；视频轨迹项目可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / 原生 JSON / MOT / KITTI**；点云项目可选 **原生 JSON / Multi-camera COCO / KITTI 3D / nuScenes / Point Mask**。nuScenes 只允许来源真实且包含完整 Scene 的数据入队。
 
 > **YOLO 有三个变体**：`YOLO 检测`(det) 导出矩形框、`YOLO 旋转框`(obb) 导出旋转框的四个角点、`YOLO 分割`(seg) 导出多边形与 Mask 的多边形轮廓。每个变体只取匹配的标注形状，其余跳过；Mask 转轮廓可能丢失孔洞或细节，预检会报告损失。

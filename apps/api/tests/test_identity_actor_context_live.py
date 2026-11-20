@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException, Request
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, text
 
 from yoao_identity.contract import Principal
 from yoao_identity.security import create_access_token
@@ -240,7 +240,10 @@ async def test_installed_owner_node_and_admitted_actor_context_preserve_fences(
         assert api_key_principal.scopes == ["*"]
         async with maker() as db:
             api_key_last_used = await db.scalar(
-                select(ApiKey.last_used_at).where(ApiKey.id == api_key_id)
+                text(
+                    "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:id"
+                ),
+                {"id": api_key_id},
             )
         assert api_key_last_used is not None
 
@@ -280,7 +283,10 @@ async def test_installed_owner_node_and_admitted_actor_context_preserve_fences(
         assert key_request.state.api_key_id == str(api_key_id)
         async with maker() as db:
             last_used_after_actor_read = await db.scalar(
-                select(ApiKey.last_used_at).where(ApiKey.id == api_key_id)
+                text(
+                    "SELECT last_used_at FROM public.identity_api_key_usage WHERE api_key_id=:id"
+                ),
+                {"id": api_key_id},
             )
         assert last_used_after_actor_read == api_key_last_used
 

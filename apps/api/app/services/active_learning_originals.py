@@ -47,9 +47,8 @@ def key_fingerprint(key):
 async def current_actor_key(db, actor_id, key_id, proof=None):
     if proof is not None:
         return await access.actor_and_key(db, actor_id, key_id, "datasets:read", proof)
-    # API Key last_used_at writes can briefly conflict with the worker's SHARE
-    # NOWAIT lock. A savepoint recovers the failed statement without committing
-    # or rolling back the caller's transaction; a real revocation is never retried.
+    # Key or account edits can hold an incompatible lock. Roll back only the
+    # failed statement's savepoint; never retry an observed revocation.
     for attempt in range(4):
         try:
             connection = await db.connection()

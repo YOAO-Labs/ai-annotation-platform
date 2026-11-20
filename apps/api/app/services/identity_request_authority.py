@@ -18,11 +18,9 @@ async def capture_request_key_proof(
 ) -> AcceptedApiKeyFacts | None:
     """Authenticate the original key and retain its current account/key fences.
 
-    Call before this request or another owner transaction holds a conflicting
-    key SHARE fence: Identity confirmation takes an UPDATE lock. The initial
-    facts read is isolated and closed before authentication. This function does
-    not commit or roll back the caller's transaction; the caller owns the final
-    fences and must end read-only admission before long physical I/O.
+    Close the initial snapshot before authentication. The caller owns the
+    final account and key SHARE locks and must end read-only admission before
+    long physical I/O. This function does not commit or roll back the caller.
     """
     raw_key_id = getattr(request.state, "api_key_id", None)
     admitted_scopes = getattr(request.state, "api_key_scopes", None)

@@ -99,8 +99,7 @@ async def make_export(
 
         principal = await get_identity_gateway().authenticate(_EXPORT_TEST_KEY, db=db)
         assert principal.actor_id == actor.id and principal.credential_id == key.id
-        # Match request admission: embedded Identity confirmation writes
-        # last_used_at and must release its UPDATE lock before the proof read.
+        # Match the request admission boundary: accepted usage is committed.
         await db.commit()
     request = SimpleNamespace(
         state=SimpleNamespace(

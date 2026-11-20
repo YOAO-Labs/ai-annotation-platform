@@ -12,7 +12,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_list_create_revoke_api_key(httpx_client, super_admin, db_session):
+async def test_list_create_revoke_api_key(httpx_client, super_admin):
     user, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -34,6 +34,7 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin, db_session)
     assert body["plaintext"].startswith("ak_")
     assert body["key_prefix"] == body["plaintext"][:12]
     assert body["revoked_at"] is None
+    assert body["last_used_at"] is None
     key_id = body["id"]
     plaintext = body["plaintext"]
 
@@ -57,10 +58,11 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin, db_session)
     )
     assert res.status_code == 200
     assert res.json()["email"] == user.email
-    from app.db.models.api_key import ApiKey
-
-    used_key = await db_session.get(ApiKey, uuid.UUID(key_id))
-    assert used_key is not None and used_key.last_used_at is not None
+    listed = await httpx_client.get("/api/v1/me/api-keys", headers=headers)
+    assert listed.status_code == 200
+    assert {item["id"]: item["last_used_at"] for item in listed.json()}[
+        key_id
+    ] is not None
 
     # 吊销
     res = await httpx_client.delete(f"/api/v1/me/api-keys/{key_id}", headers=headers)
@@ -218,6 +220,10 @@ async def test_rotate_key(httpx_client, super_admin):
     headers = {"Authorization": f"Bearer {token}"}
     body = await _create_key(httpx_client, token)
     key_id, old_plain = body["id"], body["plaintext"]
+    used = await httpx_client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {old_plain}"}
+    )
+    assert used.status_code == 200
 
     res = await httpx_client.post(
         f"/api/v1/me/api-keys/{key_id}/rotate", headers=headers
@@ -226,6 +232,7 @@ async def test_rotate_key(httpx_client, super_admin):
     new_plain = res.json()["plaintext"]
     assert new_plain != old_plain
     assert res.json()["id"] == key_id
+    assert res.json()["last_used_at"] is None
 
     # 旧明文失效，新明文有效
     res = await httpx_client.get(

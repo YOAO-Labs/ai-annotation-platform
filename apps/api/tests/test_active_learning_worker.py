@@ -202,14 +202,14 @@ async def test_duplicate_claim_and_late_checkpoint_are_fenced(world):
         assert candidate.request == request and candidate.evidence is None
 
 
-@pytest.mark.parametrize("change", ["last_used", "revoked", "still_busy"])
+@pytest.mark.parametrize("change", ["renamed", "revoked", "still_busy"])
 async def test_delegated_key_lock_conflict_is_bounded_without_false_revocation(
     world, monkeypatch, change
 ):
     async with world.factory() as db:
         owner = await db.get(User, world.owner.id)
         key, _ = await create_api_key(
-            db, owner.id, "Concurrent polling", sorted(originals.SCOPES)
+            db, owner.id, "Concurrent key edit", sorted(originals.SCOPES)
         )
         round = await db.get(Round, world.round.id)
         _, accepted_key = await originals.access.actor_and_key(
@@ -237,7 +237,7 @@ async def test_delegated_key_lock_conflict_is_bounded_without_false_revocation(
     monkeypatch.setattr(originals.access, "actor_and_key", watched)
     async with world.factory() as blocker, world.factory() as checking:
         key = await blocker.get(ApiKey, key_id)
-        key.last_used_at = service.now()
+        key.name = "Renamed by key owner"
         await blocker.flush()
         round = await checking.get(Round, world.round.id)
         round.name = "Uncommitted worker transaction"
@@ -252,7 +252,7 @@ async def test_delegated_key_lock_conflict_is_bounded_without_false_revocation(
                 if change == "revoked":
                     key.revoked_at = service.now()
                 await blocker.commit()
-            if change == "last_used":
+            if change == "renamed":
                 await pending
             else:
                 with pytest.raises(Exception) as caught:
