@@ -847,8 +847,25 @@ class LocalResources:
         path = state_path(self.root, resources["mode"], "resources.json")
         if retire_finished_bootstrap and not path.exists():
             raise WorktreeError("没有已登记的资源清单；拒绝退休或接管")
+        if not path.exists() and any(
+            state_path(self.root, resources["mode"], name).exists()
+            for name in (
+                "run.json",
+                "services.json",
+                "runtime-credentials.json",
+                "fixture-store-owner.json",
+            )
+        ):
+            raise WorktreeError("资源清单缺失但仍有归属状态；拒绝重新分配或接管")
         if path.exists():
             saved = read_state(path)
+            if (
+                not isinstance(saved.get("resources"), dict)
+                or saved["resources"].get("owner") != resources["owner"]
+            ):
+                raise WorktreeError(
+                    "基础设施目标与已有资源清单不一致；使用匹配的旧工具，不得重贴标签"
+                )
             saved_postgres = saved.get("postgres")
             if isinstance(saved_postgres, dict) and "database_oid" in saved_postgres:
                 oid = saved_postgres["database_oid"]
@@ -1209,7 +1226,13 @@ class LocalResources:
             isolation_level="AUTOCOMMIT",
             poolclass=NullPool,
             hide_parameters=True,
-            connect_args={"timeout": 5, "command_timeout": 10},
+            # PostgreSQL marks a database invalid before its removal checkpoint.
+            # Bound lock acquisition, not the physical checkpoint after admission.
+            connect_args={
+                "timeout": 5,
+                "command_timeout": None if action == "drop" else 10,
+                "server_settings": {"lock_timeout": "10s"},
+            },
         )
         name = self.resources["database"]
         try:
@@ -1321,7 +1344,7 @@ class LocalResources:
                         else None
                     )
                 finally:
-                    if action != "inspect":
+                    if action != "inspect" and not connection.invalidated:
                         await connection.execute(
                             text("SELECT pg_advisory_unlock(hashtext(:name))"),
                             {"name": name},
@@ -3555,6 +3578,9 @@ class LocalResources:
         state_path(self.root, self.resources["mode"], "resources.json").unlink(
             missing_ok=True
         )
+        # A completed, verified destruction also ends this controller's birth proof.
+        self.manifest["postgres"].pop("database_oid", None)
+        self.target_manifest["postgres"].pop("database_oid", None)
         print(
             f"[dev:worktree] 已删除本环境资源 {self.resources['confirmation']}",
             file=sys.stderr,

@@ -207,9 +207,35 @@ test("Playwright passes distinct setup and runtime credentials to its native sup
       .map(JSON.parse);
     assert.equal(prepare.database, owner);
     assert.equal(migrate.migration, owner);
-    assert.ok(supervisor.args.includes("../../scripts/fixture_native_playwright.py"));
     assert.equal(supervisor.database, runtime);
     assert.equal(supervisor.migration, owner);
+    assert.ok(supervisor.args.some((arg) => arg.endsWith("/fixture_native_playwright.py")));
+    const repo = fileURLToPath(new URL("../", import.meta.url));
+    const apiChild = spawnSync(
+      join(repo, "apps/api/.venv/bin/python"),
+      [
+        "-c",
+        [
+          "import json, os",
+          "from fixture_native_playwright import _api_environment",
+          "env = _api_environment(dict(os.environ), 'http://127.0.0.1', 'fixture')",
+          "print(json.dumps([env[k] for k in ('DATABASE_URL', 'MIGRATION_DATABASE_URL', 'TEST_DATABASE_URL', 'PLAYWRIGHT_E2E_DATABASE_URL')]))",
+        ].join("\n"),
+      ],
+      {
+        cwd: join(repo, "scripts"),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DATABASE_URL: supervisor.database,
+          MIGRATION_DATABASE_URL: supervisor.migration,
+          TEST_DATABASE_URL: supervisor.test,
+          PLAYWRIGHT_E2E_DATABASE_URL: supervisor.fixture,
+        },
+      },
+    );
+    assert.equal(apiChild.status, 0, apiChild.stderr);
+    assert.deepEqual(JSON.parse(apiChild.stdout), [runtime, "", "", ""]);
     assert.equal(api.env.MIGRATION_DATABASE_URL, owner);
   } finally {
     await rm(directory, { recursive: true, force: true });

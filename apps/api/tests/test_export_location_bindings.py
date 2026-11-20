@@ -88,6 +88,8 @@ def test_two_owner_refs_accept_literal_unicode_prefix_and_copy_facts():
         ("object_key", "/_aap_managed/export/" + KEY),
         ("object_key", "team//_aap_managed/export/" + KEY),
         ("object_key", "team/_aap_managed/avatars/" + KEY),
+        ("object_key", "__aap_reference__/" + ROOT + KEY),
+        ("object_key", "team/_yoao_managed/avatars/" + KEY),
         (
             "object_key",
             ROOT + "image/" + str(uuid.uuid4()) + "/" + KEY.partition("/")[2],
@@ -110,16 +112,12 @@ def test_maximum_root_leaves_exact_space_for_zip():
     )
     with pytest.raises(storage.ExportStorageError):
         targets.managed_prefix(base + "x")
-
-    # The historical marker is one byte shorter. This address was legal at
-    # allocation; a new allocation on that connection cannot fit a ZIP.
-    historical_root = base + "x/_aap_managed/export/"
-    assert len((historical_root + KEY).encode()) == 1024
+    # The old spelling was one byte shorter. Its largest saved key remains readable.
+    old_root = base + "x/_aap_managed/export/"
+    assert len((old_root + KEY).encode()) == 1024
     assert (
-        storage.resolve_ref(
-            external_reference(object_key=historical_root + KEY)
-        ).object_key
-        == historical_root + KEY
+        storage.resolve_ref(external_reference(object_key=old_root + KEY)).object_key
+        == old_root + KEY
     )
 
 
@@ -215,6 +213,7 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
     now = datetime.now(timezone.utc)
     row = record(
         storage_ref=external_reference(),
+        upload_proof={"version_id": "original-version", "etag": '"original"'},
         created_at=now - timedelta(hours=1),
         expires_at=now + timedelta(hours=1),
     )
@@ -223,6 +222,7 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
         assert (
             url.startswith(ENDPOINT + "/exports-original/")
             and "storage-proxy" not in url
+            and "versionId=original-version" in url
         )
         identifier, relative = uuid.uuid4(), str(uuid.uuid4()) + ".bin"
         ref = external_media_ref(identifier)
@@ -241,10 +241,13 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
                 },
             },
         )
-        media_url = media.signed_url(client, item, relative, now=now)
+        media_url = media.signed_url(
+            client, item, relative, now=now, version="media-original"
+        )
         assert (
             media_url.startswith(ENDPOINT + "/exports-original/")
             and "storage-proxy" not in media_url
+            and "versionId=media-original" in media_url
         )
         assert "X-Amz-Expires=3600" in url and "X-Amz-Expires=3600" in media_url
     finally:
@@ -438,7 +441,8 @@ async def test_media_inventory_prefix_is_literal_even_when_it_contains_regex(
         "schema": 1,
         "objects": {
             key.replace(
-                ROOT + media.prefix_for(original.id), correct.replace("[a](b)", "ab")
+                ROOT + media.prefix_for(original.id),
+                correct.replace("[a](b)", "ab"),
             ): receipt
             for key, receipt in values["inventory"]["objects"].items()
         },

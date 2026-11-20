@@ -7,23 +7,13 @@ def managed_prefix(base):
     return shared.managed_prefix(base, purpose="export")
 
 
-def valid_saved_root(root):
-    historical = root.endswith(shared.HISTORICAL_EXPORT_NAMESPACE)
-    namespace = (
-        shared.HISTORICAL_EXPORT_NAMESPACE if historical else shared.EXPORT_NAMESPACE
-    )
-    return root.endswith(namespace) and root == shared.managed_prefix(
-        root[: -len(namespace)], purpose="export", historical_export=historical
-    )
-
-
-async def target_for(db, location, *, require_enabled=True, saved_root=""):
+async def target_for(db, location, *, require_enabled=True, saved_root=None):
     return await shared.target_for(
         db,
         location,
         purpose="export",
         require_enabled=require_enabled,
-        historical_export=saved_root.endswith(shared.HISTORICAL_EXPORT_NAMESPACE),
+        saved_export_root=saved_root,
     )
 
 

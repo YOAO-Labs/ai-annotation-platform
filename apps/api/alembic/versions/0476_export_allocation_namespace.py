@@ -15,9 +15,10 @@ def upgrade() -> None:
     db.exec_driver_sql(
         "LOCK TABLE public.export_outputs, public.export_media_bundles IN ACCESS EXCLUSIVE MODE"
     )
-    for table, constraint in (
-        ("export_outputs", "ck_export_output_storage_ref"),
-        ("export_media_bundles", "ck_export_media_storage_ref"),
+    frozen = op.get_context().script.get_revision("0248").module
+    for table, constraint, original in (
+        ("export_outputs", "ck_export_output_storage_ref", frozen._NEW_0),
+        ("export_media_bundles", "ck_export_media_storage_ref", frozen._NEW_1),
     ):
         predicate = db.scalar(
             sa.text(
@@ -27,13 +28,17 @@ def upgrade() -> None:
             ),
             {"relation": "public." + table, "name": constraint},
         )
-        if predicate is None or predicate.count(previous) != 1:
+        if (
+            predicate is None
+            or predicate.count(previous) != 1
+            or original.count(previous) != 1
+        ):
             raise RuntimeError(f"Unexpected saved export constraint: {constraint}")
-        # Only the terminal namespace component changes. Preserve the installed
-        # location, row identity, logical suffix, byte limit and path checks.
-        db.exec_driver_sql(
-            f"ALTER TABLE public.{table} DROP CONSTRAINT {constraint}, "
-            f"ADD CONSTRAINT {constraint} CHECK ({predicate.replace(previous, accepted)})"
+        # Rebuild from the frozen predecessor, not today's ORM or a live
+        # predicate that may have drifted. Saved object addresses stay unchanged.
+        op.drop_constraint(constraint, table, type_="check")
+        op.create_check_constraint(
+            constraint, table, original.replace(previous, accepted)
         )
 
 

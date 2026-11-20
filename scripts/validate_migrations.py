@@ -46,7 +46,14 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from worktree_env import reject_legacy_worktree_environment
+from worktree_env import (
+    WorktreeError,
+    load_identity,
+    read_state,
+    state_path,
+    topology,
+    worktree_mode,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 API = REPO / "apps/api"
@@ -95,7 +102,10 @@ class RunState:
 # --------------------------------------------------------------------------- #
 def resolve_anchor(environ: dict | None = None) -> Anchor:
     environment = dict(os.environ if environ is None else environ)
-    reject_legacy_worktree_environment(environment)
+    try:
+        mode = worktree_mode(environment)
+    except WorktreeError as exc:
+        raise ValidationError(str(exc)) from exc
     raw = environment.get("MIGRATION_DATABASE_URL") or environment.get("DATABASE_URL")
     if not raw:
         raise ValidationError(
@@ -115,26 +125,28 @@ def resolve_anchor(environ: dict | None = None) -> Anchor:
     if database.startswith("aap_wt_") or not OWNED_DB_RE.match(database):
         raise ValidationError(f"unexpected database name {database!r}")
 
-    mode = environment.get("YOAO_WORKTREE_MODE")
     if mode:
         if mode not in {"test", "e2e"}:
             raise ValidationError(
                 "worktree migration validation only runs in test/e2e mode, never dev"
             )
-        state = REPO / ".worktree" / mode / "resources.json"
+        root = Path(environment.get("YOAO_WORKTREE_RESOURCE_ROOT", REPO)).resolve()
+        state = state_path(root, mode, "resources.json")
         if not state.exists():
             raise ValidationError(
                 f"missing {state}; run 'pnpm dev:worktree -- init --mode {mode}' first"
             )
-        document = json.loads(state.read_text())
-        resources = document["resources"]
+        document = read_state(state)
+        resources = topology(root, load_identity(root), mode)
+        if document.get("resources") != resources:
+            raise ValidationError(
+                "worktree manifest does not match the current checkout identity"
+            )
         if database != resources["database"]:
             raise ValidationError(
                 "connection string database does not match the owned mode database"
             )
         owner = resources["owner"]
-        if not owner.startswith("yoao-worktree:"):
-            raise ValidationError("worktree owner tag is malformed")
         postgres = document.get("postgres") or {}
         endpoint = (
             (str(postgres.get("host")), int(postgres.get("port", 5432)))

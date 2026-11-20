@@ -27,7 +27,7 @@ from sqlalchemy.engine import make_url
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 from linux_pidfd import open_pidfd  # noqa: E402
-from worktree_env import reject_legacy_worktree_environment  # noqa: E402
+from worktree_env import worktree_mode  # noqa: E402
 
 
 _MASK_LIFECYCLE_ENABLED = (
@@ -42,8 +42,7 @@ class SeedSetupRefused(RuntimeError):
 
 
 def require_fixture_environment():
-    reject_legacy_worktree_environment(os.environ)
-    if os.environ.get("YOAO_WORKTREE_MODE") == "dev":
+    if worktree_mode(os.environ) == "dev":
         raise SeedSetupRefused("Development mode cannot prepare E2E fixtures")
     if os.environ.get("ENVIRONMENT", "development") != "development":
         raise SeedSetupRefused("Fixture setup requires development mode")

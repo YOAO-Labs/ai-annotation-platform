@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -27,9 +28,9 @@ from worktree_env import (
     frontend_environment,
     load_identity,
     read_state,
-    reject_legacy_worktree_environment,
     state_path,
     topology,
+    validate_launch_mode,
 )
 
 
@@ -81,6 +82,15 @@ def environment_lock(resources: dict):
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise WorktreeError("本环境正在使用中；请先 stop 或选择其他环境") from exc
+        opened, current = os.fstat(descriptor), path.lstat()
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_uid != os.geteuid()
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or opened.st_nlink != 1
+            or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+        ):
+            raise WorktreeError("环境锁身份无效；拒绝操作")
         yield
     finally:
         os.close(
@@ -1323,8 +1333,8 @@ def run_processes(
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_arguments(sys.argv[1:] if argv is None else argv)
-    reject_legacy_worktree_environment(os.environ)
     root = Path(__file__).resolve().parents[1]
+    validate_launch_mode(root, options.mode)
     if options.command in {"up", "init", "exec", "reset"}:
         subprocess.run(
             ["bash", str(root / "scripts/ensure-api-vendor.sh")], cwd=root, check=True
@@ -1355,20 +1365,24 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         raise WorktreeError("本工作树尚未初始化；先运行 init") from None
     resources = topology(root, identity, options.mode)
-    backend = LocalResources(
-        resources,
-        settings,
-        code_root=root,
-        retire_finished_bootstrap=options.retire_finished_bootstrap,
-    )
+
+    def open_backend():
+        return LocalResources(
+            resources,
+            settings,
+            code_root=root,
+            retire_finished_bootstrap=options.retire_finished_bootstrap,
+        )
+
     if options.command == "doctor":
-        report = diagnose(backend)
+        report = diagnose(open_backend())
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["healthy"] else 1
     if options.command == "stop":
-        stop_environment(backend)
+        stop_environment(open_backend())
         return 0
     with environment_lock(resources):
+        backend = open_backend()
         if options.command == "recover-inference":
             from fixture_inference_services import FixtureInferenceServices
 

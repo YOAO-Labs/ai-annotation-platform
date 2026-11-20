@@ -20,9 +20,9 @@ from sqlalchemy.engine import make_url  # noqa: E402
 from worktree_env import (  # noqa: E402
     load_identity,
     read_state,
-    reject_legacy_worktree_environment,
     state_path,
     topology,
+    worktree_mode,
 )
 from worktree_runtime import WorktreeError, require_owner  # noqa: E402
 
@@ -117,7 +117,7 @@ async def require_fixture_annotations(db, task_id, source_id, created_id, scope)
 
 
 async def run(action: str, task_id: str, operation_id: str, namespace: str):
-    reject_legacy_worktree_environment(os.environ)
+    mode = worktree_mode(os.environ)
     if action not in {"gc", "drop_revision", "expire_revision"}:
         raise GuardError("unknown mask lifecycle action")
     task_id, operation_id = UUID(task_id), UUID(operation_id)
@@ -134,7 +134,6 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
         raise GuardError("mask lifecycle requires E2E development mode")
     # A disposable DB alone is insufficient: GC must never scan a shared bucket.
     bucket = os.environ.get("MINIO_BUCKET", "")
-    mode = os.environ.get("YOAO_WORKTREE_MODE")
     resources = None
     if mode is not None:
         if mode not in {"test", "e2e"} or not _RESOURCE_ROOT.is_relative_to(_REPO_ROOT):

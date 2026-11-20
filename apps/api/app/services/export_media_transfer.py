@@ -7,10 +7,10 @@ caller; each callback receives a fresh session which closes before physical I/O.
 """
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import copy_context
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 import threading
 import time
@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from app.db.models.export_media_bundle import ExportMediaMemberVersion
 
 from app.services import async_job, fixture_original_read
 from app.services import export_execution_context
@@ -415,7 +416,8 @@ async def copy_source(
         )
         admission = Admission()
         read_options = (
-            None if actor_id is not None
+            None
+            if actor_id is not None
             else await _async(original_sources.read_options(db, source))
         )
         await export_execution_context.enter_io()
@@ -483,6 +485,28 @@ async def copy_source(
             purpose="temporary",
         )
 
+        loop = asyncio.get_running_loop()
+        version = None
+
+        async def persist_version(value):
+            async with _session(db) as owned:
+                await bundles.check_claim(owned, snapshot, lock=True)
+                owned.add(
+                    ExportMediaMemberVersion(
+                        bundle_id=snapshot.id,
+                        member_id=uuid.UUID(relative[:-4]),
+                        version_id=value,
+                    )
+                )
+                await owned.commit()
+
+        def capture_version(value):
+            nonlocal version
+            if value is not None:
+                # A signing or client-close failure does not undo a verified PUT.
+                asyncio.run_coroutine_threadsafe(persist_version(value), loop).result()
+                version = value
+
         def write():
             with physical.open_storage(
                 record,
@@ -495,8 +519,14 @@ async def copy_source(
                     relative,
                     stage.file.fileno(),
                     accounting=recorder,
+                    **({"on_version": capture_version} if owner.external else {}),
                 )
-                return physical.signed_url(client, record, relative)
+                return physical.signed_url(
+                    client,
+                    record,
+                    relative,
+                    **({"version": version} if owner.external else {}),
+                )
 
         url = await physical_work(write)
         await _async(
@@ -554,23 +584,30 @@ async def copy_source(
                     if failure is None:
                         failure = closing
                     else:
-                        failure.add_note(f"Storage permit settlement failed: {closing!r}")
+                        failure.add_note(
+                            f"Storage permit settlement failed: {closing!r}"
+                        )
                         _uncertainty(failure, closing)
                     # A known late success may continue closing the remaining permits.
                     if storage_access.failure_unsettled(failure):
                         break
         if admission is not None:
-            admission.finish(failure is not None and storage_access.failure_unsettled(failure))
+            admission.finish(
+                failure is not None and storage_access.failure_unsettled(failure)
+            )
         if recorder is not None:
             try:
                 await recorder.finish(
-                    settled=failure is None or not storage_access.failure_unsettled(failure)
+                    settled=failure is None
+                    or not storage_access.failure_unsettled(failure)
                 )
             except BaseException as publishing:
                 if failure is None:
                     failure = publishing
                 else:
-                    failure.add_note(f"Export accounting settlement failed: {publishing!r}")
+                    failure.add_note(
+                        f"Export accounting settlement failed: {publishing!r}"
+                    )
                     _uncertainty(failure, publishing)
         if (
             entered
@@ -624,18 +661,33 @@ async def read_copy(db, snapshot, *, relative, guard, read):
         )
         admission = Admission()
         target = await _async(_io_target(db, record))
-        context = (
-            (lambda: physical.open_storage(record, target=target))
-            if target is not None
-            else None
-        )
+        version = None
+        if owner.external:
+            async with _session(db) as owned:
+                saved = await owned.get(
+                    ExportMediaMemberVersion, (snapshot.id, uuid.UUID(relative[:-4]))
+                )
+                if saved is not None:
+                    version = saved.version_id
+
+        @contextmanager
+        def context():
+            with physical.open_storage(record, target=target) as client:
+                physical.require_version(client, owner, version)
+                yield client
+
         await export_execution_context.enter_io()
         entered = True
         stage = await _capture(
             source,
             admission,
             maximum=physical.object_limit(record),
-            **({"client_context": context} if context is not None else {}),
+            **({"client_context": context} if target is not None else {}),
+            **(
+                {"read_spec": replace(_spec(source), expected_version_id=version)}
+                if version is not None
+                else {}
+            ),
         )
         stage_closed = False
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
@@ -676,7 +728,9 @@ async def read_copy(db, snapshot, *, relative, guard, read):
                     failure.add_note(f"Storage permit settlement failed: {closing!r}")
                     _uncertainty(failure, closing)
         if admission is not None:
-            admission.finish(failure is not None and storage_access.failure_unsettled(failure))
+            admission.finish(
+                failure is not None and storage_access.failure_unsettled(failure)
+            )
         if (
             entered
             and stage_closed

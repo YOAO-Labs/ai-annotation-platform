@@ -123,6 +123,32 @@ def load_identity(root: Path, *, create: bool = False) -> dict:
     return document
 
 
+def worktree_mode(environment: dict) -> str | None:
+    """Reject ambiguous selectors instead of silently entering standalone mode."""
+    reject_legacy_worktree_environment(environment)
+    for key in environment:
+        if key.upper() == "YOAO_WORKTREE_MODE" and key != "YOAO_WORKTREE_MODE":
+            raise WorktreeError("工作树模式变量必须使用规范名称 YOAO_WORKTREE_MODE")
+    mode = environment.get("YOAO_WORKTREE_MODE")
+    if mode is not None and mode not in MODES:
+        raise WorktreeError("无效的 YOAO_WORKTREE_MODE")
+    return mode
+
+
+def validate_launch_mode(root: Path, mode: str) -> None:
+    from dotenv import dotenv_values
+
+    if worktree_mode(os.environ) not in (None, mode):
+        raise WorktreeError("启动模式与调用方工作树模式不一致")
+    for name in (".env", ".env.local"):
+        path = root / name
+        if path.is_file() and any(
+            key.upper() in {"AAP_WORKTREE_MODE", "YOAO_WORKTREE_MODE"}
+            for key in dotenv_values(path, interpolate=False)
+        ):
+            raise WorktreeError(f"{name} 不能配置由启动器分配的工作树模式变量")
+
+
 def topology(root: Path, identity: dict, mode: str) -> dict:
     validate_identity(root, identity)
     if mode not in MODES:
@@ -156,7 +182,9 @@ def _validate_environment_sources(
     """Validate connection sources without creating a child environment."""
     from sqlalchemy.engine import make_url
 
-    reject_legacy_worktree_environment(inherited)
+    if worktree_mode(inherited) not in (None, resources["mode"]):
+        raise WorktreeError("继承的工作树模式与资源清单不一致")
+
     local = {"localhost", "127.0.0.1", "::1"}
     runtime = make_url(database_url)
     migration = make_url(migration_database_url or database_url)

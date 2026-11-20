@@ -29,9 +29,9 @@ from worktree_env import (
     WorktreeError,
     load_identity,
     read_state,
-    reject_legacy_worktree_environment,
     state_path,
     topology,
+    worktree_mode,
 )
 
 
@@ -101,8 +101,7 @@ def _resource_root(resources):
 
 
 def _verified_resources(environment):
-    reject_legacy_worktree_environment(environment)
-    mode = environment.get("YOAO_WORKTREE_MODE")
+    mode = worktree_mode(environment)
     _refuse_unless(mode in {"test", "e2e"}, "fixture_owned_topology_required")
     root = _canonical_resource_root(environment.get("YOAO_WORKTREE_RESOURCE_ROOT"))
     resources = topology(root, load_identity(root), mode)

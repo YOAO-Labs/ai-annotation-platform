@@ -202,7 +202,13 @@ def test_non_worktree_keeps_legacy_ci_rule_and_rejects_unrecognized_worktree_buc
             bucket=bucket,
             owner_tag=None,
         )
-    for bucket in ("annotations", "datasets", "yoao-wt-abc-test", "aap-wt-abc-test"):
+    for bucket in (
+        "annotations",
+        "datasets",
+        "yoao-wt-abc-test",
+        "aap-wt-abc-test",
+        "yoao-wt-abc-e2e-annotations",
+    ):
         with pytest.raises(GuardError):
             assert_owned_disposable_bucket(
                 mode=None,

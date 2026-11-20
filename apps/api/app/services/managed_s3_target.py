@@ -13,6 +13,10 @@ from app.db.models.storage_connection import StorageConnection
 from app.services import connector_guard, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.source_readers.s3 import S3Access, ScopedS3Access
+from app.services.reference_keys import is_reference
+
+EXPORT_NAMESPACE = "_yoao_managed/export/"
+_HISTORICAL_EXPORT_NAMESPACE = "_aap_managed/export/"
 
 PURPOSES = {
     "avatars",
@@ -25,9 +29,6 @@ PURPOSES = {
     "annotations",
     "training",
 }
-
-EXPORT_NAMESPACE = "_yoao_managed/export/"
-HISTORICAL_EXPORT_NAMESPACE = "_aap_managed/export/"
 
 
 def owner_module(purpose):
@@ -98,28 +99,45 @@ def error(purpose, suffix):
     return cls(prefix + suffix)
 
 
+def _valid_base(base):
+    return (
+        "\\" not in base
+        and not any(ord(char) < 32 or ord(char) == 127 for char in base)
+        and (not base or all(part not in {"", ".", ".."} for part in base.split("/")))
+    )
+
+
+def saved_export_base(root):
+    """Return the literal connection base of a saved export, never a new target."""
+    if len(root.encode("utf-8")) > 904 or is_reference(root):
+        return None
+    for namespace in (EXPORT_NAMESPACE, _HISTORICAL_EXPORT_NAMESPACE):
+        if root == namespace:
+            return ""
+        if root.endswith("/" + namespace):
+            base = root[: -len(namespace) - 1]
+            return base if base and _valid_base(base) else None
+    return None
+
+
 def managed_prefix(base, *, purpose="avatars", historical_export=False):
     """Keep one canonical, bounded S3 prefix without changing its Unicode bytes."""
 
     if not isinstance(base, str):
         raise error(purpose, "binding_unproven")
     base = base.removesuffix("/")
-    if (
-        "\\" in base
-        or any(ord(char) < 32 or ord(char) == 127 for char in base)
-        or (base and any(part in {"", ".", ".."} for part in base.split("/")))
-    ):
+    if not _valid_base(base):
         raise error(purpose, "binding_unproven")
     if purpose == "export":
         namespace = (
-            HISTORICAL_EXPORT_NAMESPACE if historical_export else EXPORT_NAMESPACE
+            _HISTORICAL_EXPORT_NAMESPACE if historical_export else EXPORT_NAMESPACE
         )
     else:
         namespace = f"_aap_managed/{purpose}/"
     result = (base + "/" if base else "") + namespace
+    if purpose == "export" and is_reference(result):
+        raise error(purpose, "binding_unproven")
     if purpose == "training":
-        from app.services.reference_keys import is_reference
-
         try:
             valid = (
                 len(result) <= 266
@@ -226,7 +244,13 @@ class Target:
 
 
 async def target_for(
-    db, location, *, purpose, require_enabled=True, historical_export=False
+    db,
+    location,
+    *,
+    purpose,
+    require_enabled=True,
+    saved_export_root=None,
+    historical_export=False,
 ):
     """Capture metadata and credentials without DNS, network I/O or binding locks."""
     owners = owner_module(purpose)
@@ -312,11 +336,19 @@ async def target_for(
         bucket = connection.config["bucket"]
         if not owners._plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
             raise error(purpose, "binding_unproven")
-        prefix = managed_prefix(
-            connection.config.get("base_prefix", ""),
-            purpose=purpose,
-            historical_export=historical_export,
-        )
+        base = connection.config.get("base_prefix", "")
+        if saved_export_root is None:
+            prefix = managed_prefix(
+                base, purpose=purpose, historical_export=historical_export
+            )
+        else:
+            if (
+                purpose != "export"
+                or not isinstance(base, str)
+                or saved_export_base(saved_export_root) != base.removesuffix("/")
+            ):
+                raise error(purpose, "binding_unproven")
+            prefix = saved_export_root
     except (KeyError, TypeError, ValueError):
         raise error(purpose, "binding_unproven") from None
     return Target(

@@ -372,6 +372,7 @@ async def test_pending_zip_has_its_own_retirement_and_preserves_legacy_pending(
         sha256="a" * 64,
         size_bytes=11,
         state="pending",
+        upload_proof=None,
         created_at=bundle.created_at,
         expires_at=bundle.expires_at,
         retired_at=None,
@@ -437,6 +438,7 @@ async def gc_db(owned_db):
         "CREATE TABLE storage_maintenance_gates (location_id uuid PRIMARY KEY, state text DEFAULT 'active', revision integer DEFAULT 1, changed_at timestamptz, changed_by uuid)",
         "CREATE TABLE storage_operations (id uuid PRIMARY KEY, location_id uuid, revision integer, purpose text, node_id text, started_at timestamptz DEFAULT now())",
         "ALTER TABLE export_artifacts ADD COLUMN expires_at timestamptz",
+        "ALTER TABLE export_outputs ADD COLUMN upload_proof jsonb",
     ):
         await db.execute(text(ddl))
     connection = await db.connection()
@@ -578,6 +580,10 @@ async def test_database_published_delivery_survives_job_and_cache_absence(
     await db.commit()
     client = objects(monkeypatch, row)
     assert await retirement.cleanup(db) == {"deleted": 0, "retained": 0, "failed": 0}
+    monkeypatch.setattr(
+        retirement, "now", lambda: row.expires_at + timedelta(seconds=1)
+    )
+    assert not await retirement._cleanup_one(db, row.id)
     assert not client.calls and (await db.get(Bundle, row.id)).state == "ready"
 
 

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import partial
 
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.export_artifact import ExportArtifact
@@ -75,6 +75,11 @@ class OutputSnapshot:
     _storage_ref: dict = field(repr=False)
     media_bundle_id: uuid.UUID | None = None
     fixture: bool = False
+    _upload_proof: dict | None = field(default=None, repr=False)
+
+    @property
+    def upload_proof(self):
+        return deepcopy(self._upload_proof)
 
     @property
     def storage_ref(self):
@@ -95,7 +100,11 @@ def snapshot(row, *, fixture=False):
     export_storage.resolve(row)
     facts = {name: deepcopy(_fact(row, name)) for name in _FACTS}
     facts["_storage_ref"] = facts.pop("storage_ref")
-    return OutputSnapshot(**facts, fixture=fixture)
+    return OutputSnapshot(
+        **facts,
+        fixture=fixture,
+        _upload_proof=deepcopy(getattr(row, "upload_proof", None)),
+    )
 
 
 def same(row, receipt):
@@ -335,8 +344,6 @@ async def create(
 
 def proof_writer(db, receipt):
     """Persist a verified upload from its physical thread before it can settle."""
-    if not getattr(receipt, "fixture", False):
-        return None
     loop = asyncio.get_running_loop()
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
 
@@ -392,7 +399,8 @@ async def write(db, receipt, path):
             accounting=accounting,
             **(
                 {"save_proof": proof_writer(db, receipt)}
-                if getattr(receipt, "fixture", False)
+                if receipt.fixture
+                or owner.ref["location_id"] != str(export_storage.LEGACY_LOCATION_ID)
                 else {}
             ),
             on_acquired=acquired,
@@ -603,6 +611,12 @@ async def _check_read(db, receipt, revision, route, *, lock=False):
 
 async def prepare_download(db, receipt, *, download_name, expected_revision=None):
     """Construct, sign and close an external client before final business locks."""
+    if receipt.storage_ref["schema"] == 2 and receipt.upload_proof is None:
+        # A new worker's allocation snapshot predates the separately committed PUT.
+        row = await db.get(ExportOutput, receipt.id, populate_existing=True)
+        if row is None or not same(row, receipt):
+            reject()
+        receipt = snapshot(row, fixture=receipt.fixture)
     route = await _read_route(db, receipt)
     if route is None and receipt.storage_ref["schema"] == 1:
         return None
@@ -754,7 +768,13 @@ async def _cleanup_locked(db, identifier):
             return None, None
     row = await db.scalar(
         select(ExportOutput)
-        .where(ExportOutput.id == identifier)
+        .where(
+            ExportOutput.id == identifier,
+            or_(
+                ExportOutput.media_bundle_id.is_not(None),
+                ExportOutput.expires_at <= func.clock_timestamp(),
+            ),
+        )
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
@@ -811,7 +831,7 @@ async def _cleanup_one(db, identifier, counters):
     private = native is not None or (
         bundle is not None and bundle.fixture_run_id is not None
     )
-    proof = deepcopy(row.upload_proof) if private else None
+    proof = deepcopy(row.upload_proof)
     if private and proof is None:
         await db.commit()
         return False
@@ -843,11 +863,13 @@ async def _cleanup_one(db, identifier, counters):
     owner = export_storage.resolve(receipt)
     if bundle is not None:
         await export_media_retirement.delete_zip(
-            db, bundle, receipt, **({"proof": proof} if private else {})
+            db, bundle, receipt, **({"proof": proof} if proof is not None else {})
         )
     else:
         recorder = (
-            version_removal if private and proof["version_id"] is not None else removal
+            version_removal
+            if proof is not None and proof["version_id"] is not None
+            else removal
         )
         accounting = recorder.recorder(
             db, receipt, producer="export_zip_removals", purpose="temporary"
@@ -866,7 +888,7 @@ async def _cleanup_one(db, identifier, counters):
                 export_storage.delete,
                 receipt,
                 accounting=accounting,
-                **({"proof": proof} if private else {}),
+                **({"proof": proof} if proof is not None else {}),
                 on_acquired=acquired,
                 **(
                     {"target": await export_storage.io_target(db, receipt)}

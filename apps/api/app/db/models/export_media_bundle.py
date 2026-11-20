@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -205,3 +206,20 @@ class ExportMediaBundle(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExportMediaMemberVersion(Base):
+    """Immutable version returned by a verified external member PUT."""
+
+    __tablename__ = "export_media_member_versions"
+    bundle_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("export_media_bundles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    member_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    version_id: Mapped[str] = mapped_column(
+        String(1024),
+        CheckConstraint("version_id <> '' AND version_id <> 'null'"),
+        nullable=False,
+    )

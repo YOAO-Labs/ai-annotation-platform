@@ -45,6 +45,11 @@ if {"AAP_WORKTREE_MODE", "AAP_WORKTREE_RESOURCE_ROOT"}.intersection(
     raise pytest.UsageError(
         "旧工作树环境不能运行当前测试；请从干净 shell 启动 dev:worktree"
     )
+if any(
+    key.upper() == "YOAO_WORKTREE_MODE" and key != "YOAO_WORKTREE_MODE"
+    for key in os.environ
+) or os.environ.get("YOAO_WORKTREE_MODE") not in {None, "dev", "test", "e2e"}:
+    raise pytest.UsageError("工作树模式不明确，拒绝进入独立数据库测试")
 if os.environ.get("YOAO_WORKTREE_MODE") == "dev":
     raise pytest.UsageError(
         "开发模式不能运行数据库测试；请使用 pnpm dev:worktree -- exec --mode test -- <command>"

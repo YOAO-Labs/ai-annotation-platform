@@ -27,11 +27,7 @@ export function browserEnvironment({ dropForwardedDisplay = false } = {}) {
       ([key, value]) =>
         value !== undefined &&
         Object.hasOwn(allowed, key) &&
-        !(
-          dropForwardedDisplay &&
-          key === "DISPLAY" &&
-          /^localhost:\d+(?:\.\d+)?$/.test(value)
-        ),
+        !(dropForwardedDisplay && key === "DISPLAY" && /^localhost:\d+(?:\.\d+)?$/.test(value)),
     ),
   );
 }

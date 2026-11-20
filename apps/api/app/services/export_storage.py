@@ -217,9 +217,9 @@ def resolve_ref(ref, *, expected_key=None) -> Owner:
             if ref["config_revision"] != 1 or key != logical:
                 _reject()
         else:
-            from app.services.export_storage_target import valid_saved_root
+            from app.services.managed_s3_target import saved_export_base
 
-            if not valid_saved_root(key[: -len(logical)]):
+            if saved_export_base(key[: -len(logical)]) is None:
                 _reject("export_storage_invalid_key")
     endpoint = _endpoint(ref["endpoint_url"])
     if (
@@ -406,6 +406,10 @@ def _budget(deadline):
 def _unavailable(exc):
     if isinstance(exc, BaseExceptionGroup):
         return exc
+    if isinstance(exc, ExportStorageError) and not storage_access.failure_unsettled(
+        exc
+    ):
+        return exc
     error = ExportStorageError("export_storage_unavailable", status_code=503)
     if storage_access.failure_unsettled(exc):
         storage_access.mark_unsettled(error)
@@ -441,11 +445,24 @@ def file_receipt(path) -> tuple[str, int]:
     return checksum.hexdigest(), size
 
 
+def _require_version_owner(client, owner, proof):
+    if proof is None and owner.ref["location_id"] != str(LEGACY_LOCATION_ID):
+        try:
+            status = client.get_bucket_versioning(Bucket=owner.bucket).get("Status")
+        except Exception as exc:
+            raise _unavailable(exc) from None
+        if status is not None:
+            # A current HEAD, even with identical bytes, cannot identify the saved PUT.
+            _reject("export_storage_invalid_receipt")
+
+
 def verify(output, *, missing_ok=False, target=None) -> bool:
     """Conditionally read and hash the exact saved object, then close it."""
     owner = resolve(output)
     with client_context(output, target) as client:
-        return _verify(client, output, owner, missing_ok=missing_ok)
+        proof = getattr(output, "upload_proof", None)
+        _require_version_owner(client, owner, proof)
+        return _verify(client, output, owner, missing_ok=missing_ok, written=proof)
 
 
 def verify_read(client, output, *, missing_ok=False) -> bool:
@@ -529,7 +546,7 @@ def _verify(client, output, owner, *, missing_ok=False, observation=None, writte
         if getattr(exc, "storage_operation_unsettled", False):
             raise _unavailable(exc) from None
         code = str(exc.response.get("Error", {}).get("Code", ""))
-        if code in {"404", "NoSuchKey", "NotFound"}:
+        if code in {"404", "NoSuchKey", "NoSuchVersion", "NotFound"}:
             if missing_ok:
                 return False
             raise ExportStorageError("export_storage_missing") from None
@@ -621,6 +638,7 @@ def delete(output, *, target=None, accounting=None, proof=None) -> None:
             if proof is not None:
                 _delete_proven(client, output, owner, proof, accounting=accounting)
                 return
+            _require_version_owner(client, owner, proof)
             if accounting is not None:
                 from app.services.key_removal_accounting import Observation
 
@@ -640,7 +658,7 @@ def delete(output, *, target=None, accounting=None, proof=None) -> None:
 
 
 def _delete_proven(client, output, owner, proof, *, accounting):
-    """Delete a fixture's recorded version and prove that exact version absent."""
+    """Delete the recorded version and prove that exact version absent."""
     from app.services.export_zip_accounting import immutable
 
     if not isinstance(proof, dict) or set(proof) != {"version_id", "etag"}:
@@ -714,6 +732,9 @@ def sign(output, *, download_name, now=None, target=None) -> str:
         _reject("export_storage_expired")
     try:
         with client_context(output, target) as client:
+            proof = getattr(output, "upload_proof", None)
+            _require_version_owner(client, owner, proof)
+            version = proof["version_id"] if proof is not None else None
             if owner.ref["location_id"] == str(LEGACY_LOCATION_ID):
                 url = storage_service.generate_download_url(
                     owner.object_key,
@@ -721,6 +742,7 @@ def sign(output, *, download_name, now=None, target=None) -> str:
                     bucket=owner.bucket,
                     download_name=download_name,
                     align=False,
+                    **({"version_id": version} if version is not None else {}),
                 )
             else:
                 url = storage_presigning.generate_url(
@@ -729,6 +751,7 @@ def sign(output, *, download_name, now=None, target=None) -> str:
                     params={
                         "Bucket": owner.bucket,
                         "Key": owner.object_key,
+                        **({"VersionId": version} if version is not None else {}),
                         "ResponseContentDisposition": f'attachment; filename="{download_name}"',
                     },
                     expires_in=seconds,

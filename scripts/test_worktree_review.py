@@ -126,6 +126,16 @@ class ReviewRegressions(unittest.TestCase):
                 env["TEST_DATABASE_URL"].startswith("worktree-mode-required:")
             )
 
+    def test_old_or_ambiguous_mode_never_inherits_a_test_database(self):
+        for selectors in (
+            {"AAP_WORKTREE_MODE": "e2e"},
+            {"AAP_WORKTREE_MODE": "", "YOAO_WORKTREE_MODE": "e2e"},
+            {"Yoao_Worktree_Mode": "test"},
+            {"YOAO_WORKTREE_MODE": ""},
+        ):
+            with self.subTest(selectors=selectors), self.assertRaises(WorktreeError):
+                worktree_env.worktree_mode(selectors)
+
     def test_frontend_and_application_environments_drop_unneeded_credentials(self):
         self.assertTrue(hasattr(worktree_env, "frontend_environment"))
         env = {
