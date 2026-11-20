@@ -38,8 +38,6 @@ from app.services.dataset_assets import (
     validate_legacy_bindings,
 )
 from app.services.dataset_storage_keys import (
-    MANAGED_OBJECTS_DIR,
-    managed_dataset_prefix,
     managed_dataset_key,
     normalize_dataset_relative_path,
 )
@@ -660,51 +658,6 @@ async def allocate_fixture(
     )
 
 
-async def allocate_fixture_operator_item(
-    db,
-    *,
-    run_id,
-    admission_id,
-    dataset_id,
-    item_id,
-    logical_path,
-    file_type,
-    payload_sha256,
-    max_bytes,
-    requested_by,
-    content_type,
-    entry_for_key,
-):
-    """Reserve the operator's real item and Creation together on the private target."""
-    if (
-        not all(
-            isinstance(value, uuid.UUID)
-            for value in (run_id, admission_id, dataset_id, item_id)
-        )
-        or file_type not in {"point_cloud", "image", "other"}
-        or not isinstance(payload_sha256, str)
-        or re.fullmatch(r"[0-9a-f]{64}", payload_sha256) is None
-        or not callable(entry_for_key)
-    ):
-        reject("managed_original_invalid_allocation", 422)
-    return await _allocate(
-        db,
-        owner_kind="dataset",
-        dataset_id=dataset_id,
-        project_id=None,
-        task_id=None,
-        logical_path=logical_path,
-        origin="connector",
-        max_bytes=max_bytes,
-        requested_by=requested_by,
-        authority=None,
-        staging=False,
-        content_type=content_type,
-        fixture=(run_id, admission_id, item_id, None),
-        fixture_operator_entry=(file_type, payload_sha256, entry_for_key),
-    )
-
-
 async def allocate_fixture_auxiliary(
     db,
     *,
@@ -829,7 +782,6 @@ async def _allocate(
     staging,
     content_type,
     fixture=None,
-    fixture_operator_entry=None,
     fixture_auxiliary=None,
 ):
     if (
@@ -869,11 +821,7 @@ async def _allocate(
         else (
             f"{AUXILIARY_ORIGINAL_PREFIX}/{dataset_id}/{creation_id}/payload"
             if owner_kind == "dataset_auxiliary"
-            else (
-                f"{managed_dataset_prefix(dataset_id)}{MANAGED_OBJECTS_DIR}/{creation_id}/{logical_path}"
-                if fixture_operator_entry is not None
-                else managed_dataset_key(dataset_id, logical_path)
-            )
+            else managed_dataset_key(dataset_id, logical_path)
         )
     )
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
@@ -1085,34 +1033,6 @@ async def _allocate(
             .one()
         )
         if fixture is not None:
-            if fixture_operator_entry is not None:
-                from app.db.models.dataset import DatasetItem
-
-                file_type, payload_sha256, entry_for_key = fixture_operator_entry
-                entry = entry_for_key(object_key)
-                if (
-                    entry.id != item_id
-                    or entry.file_path != object_key
-                    or entry.file_type != file_type
-                    or entry.file_size != max_bytes
-                    or entry.content_hash is not None
-                ):
-                    reject("fixture_original_item_changed")
-                item = DatasetItem(
-                    id=entry.id,
-                    dataset_id=dataset_id,
-                    file_name=entry.file_name,
-                    file_path=entry.file_path,
-                    file_type=entry.file_type,
-                    file_size=entry.file_size,
-                    width=entry.width,
-                    height=entry.height,
-                    metadata_=entry.metadata,
-                )
-                item_fingerprint = ownership._pending_item_fingerprint(
-                    item, payload_sha256
-                )
-                owned_item.state = "published"
             current.add(
                 FixtureRunResource(
                     run_id=run_id,
@@ -1127,12 +1047,6 @@ async def _allocate(
                 )
             )
             await current.flush()
-            if fixture_operator_entry is not None:
-                from app.services.assets_operator import AssetsOperatorGateway
-
-                await AssetsOperatorGateway(current).append_all_items(
-                    dataset_id, [entry]
-                )
         elif fixture_auxiliary is not None:
             from app.db.models.fixture_run import FixtureAuxiliaryIntent
 

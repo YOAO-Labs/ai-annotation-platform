@@ -2,36 +2,26 @@
 /**
  * check-orphan-images.mjs
  *
- * 与 check-image-manifest.mjs **反向**：那个查「文档引用的图是否产出」，这个查
- * 「产出的图是否被文档引用」。扫描 docs-site/user-guide/images/ 下所有图片文件，
- * 找出**没有任何 Markdown 页面或主题组件引用**的孤儿图（产出了却忘记回填），
- * 并按文件内容 hash 检查由不同路径保存的重复图片。
- *
- * 背景：截图/GIF 自动落到 images/ 并登记 maintainers/image-checklist.md，但嵌入文档页是独立一步，
- * 容易漏。漏了就成孤儿资源——本检查在 CI 拦住它。
+ * 检查本地图片、视频和封面引用是否指向现有文件，并在用户手册图片目录中
+ * 找出未被 Markdown 或主题组件引用的文件、以及内容重复的文件。
  *
  * 用法：
  *   node docs-site/scripts/check-orphan-images.mjs
- *   node docs-site/scripts/check-orphan-images.mjs --strict   # 有孤儿时退出码 1
- *
- * 在 CI visual-regression job 中以 --strict 模式运行（紧随 check-image-manifest）。
+ *   node docs-site/scripts/check-orphan-images.mjs --strict   # 发现问题时退出码 1
  */
 import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import { fileURLToPath } from "url";
-import { walkFiles } from "../../scripts/image-reference-utils.mjs";
-import { collectPublishedMedia } from "./media-review-lib.mjs";
+import { IMAGE_EXTENSION_RE, walkFiles } from "../../scripts/image-reference-utils.mjs";
+import { collectAssetReferences } from "./asset-references.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
-const DOCS_ROOT = path.join(REPO_ROOT, "docs-site");
 const IMAGES_ROOT = path.join(REPO_ROOT, "docs-site/user-guide/images");
 
 const strict = process.argv.includes("--strict");
 const json = process.argv.includes("--json");
-
-const IMG_EXT = /\.(png|gif|jpe?g|webp|svg)$/i;
 
 // 仅允许路径集合完全一致的已知重复组；新增豁免必须写清不同语义和清理条件。
 const DUPLICATE_ALLOWLIST = new Map([
@@ -42,8 +32,7 @@ const DUPLICATE_ALLOWLIST = new Map([
 ]);
 
 // ── 收集 images/ 下所有图片文件（绝对路径）─────────────────────────
-const imageFiles = [...walkFiles(IMAGES_ROOT, (name) => IMG_EXT.test(name))];
-const imageFileSet = new Set(imageFiles);
+const imageFiles = [...walkFiles(IMAGES_ROOT, (name) => IMAGE_EXTENSION_RE.test(name))];
 
 // ── 重复内容：不同路径的图片文件具有相同 SHA-256 ──────────────────
 const filesByHash = new Map();
@@ -67,27 +56,22 @@ for (const [hash, files] of filesByHash) {
 duplicateGroups.sort((a, b) => a.files[0].localeCompare(b.files[0]));
 allowedDuplicateGroups.sort((a, b) => a.files[0].localeCompare(b.files[0]));
 
-// ── 收集 Markdown / img / AutoImage 与主题组件的真实媒体引用──────
-const referenceRecords = collectPublishedMedia({ scanRoot: DOCS_ROOT });
-const referenced = new Map(
-  [...referenceRecords.values()].map((record) => [record.absolute, [...record.sources].sort()[0]]),
-);
+// ── 收集 Markdown、HTML 与主题组件的媒体引用─────────────────────
+const referenceRecords = collectAssetReferences(REPO_ROOT);
+const referenced = new Set([...referenceRecords.values()].map((record) => record.absolute));
 
 // ── 孤儿：磁盘有图但无任何文档引用 ────────────────────────────────
 const orphans = imageFiles
+  .filter((abs) => !referenced.has(abs))
   .map((abs) => path.relative(IMAGES_ROOT, abs).replace(/\\/g, "/"))
-  .filter((rel) => !referenced.has(path.join(IMAGES_ROOT, rel)))
   .sort();
 
-// ── 失链 GIF：文档引用了 images/ 下的 .gif 但磁盘上不存在 ──────────
-// （PNG 等静态图的「引用但缺失」由 check-image-manifest 负责；GIF 不入 manifest，故在此兜底。）
-const brokenGifRefs = [...referenced.entries()]
-  .filter(([abs]) => abs.startsWith(IMAGES_ROOT + path.sep) && /\.gif$/i.test(abs))
-  .filter(([abs]) => !imageFileSet.has(abs))
-  .map(([abs, md]) => ({ rel: path.relative(IMAGES_ROOT, abs).replace(/\\/g, "/"), md }))
-  .sort((a, b) => a.rel.localeCompare(b.rel));
+const brokenReferences = [...referenceRecords]
+  .filter(([, { absolute }]) => !fs.statSync(absolute, { throwIfNoEntry: false })?.isFile())
+  .map(([file, { sources }]) => ({ file, sources: [...sources].sort() }))
+  .sort((a, b) => a.file.localeCompare(b.file));
 
-const failed = orphans.length + brokenGifRefs.length + duplicateGroups.length;
+const failed = orphans.length + brokenReferences.length + duplicateGroups.length;
 
 if (json) {
   console.log(
@@ -95,7 +79,7 @@ if (json) {
       {
         total: imageFiles.length,
         orphans,
-        brokenGifRefs,
+        brokenReferences,
         duplicateGroups,
         allowedDuplicateGroups,
       },
@@ -107,20 +91,17 @@ if (json) {
 }
 
 // ── 人类可读输出 ─────────────────────────────────────────────────
-console.log(`\n图片资源检查 — images/ 下 ${imageFiles.length} 张图\n${"─".repeat(64)}`);
+console.log(`\n文档资源检查 — images/ 下 ${imageFiles.length} 张图\n${"─".repeat(64)}`);
 if (orphans.length === 0) {
   console.log("✓  全部图片都已被文档页面引用，无孤儿。");
 } else {
-  for (const rel of orphans) console.log(`✗  孤儿(产出未引用): images/${rel}`);
-  console.log(`   发现 ${orphans.length} 张孤儿图（产出但无任何 .md 引用）。`);
-  console.log(
-    "   → 在对应 user-guide 页面加 ![](../images/…) 引用；或删文件；或加进 IGNORE 白名单。",
-  );
+  for (const rel of orphans) console.log(`✗  未引用图片: images/${rel}`);
+  console.log("   → 在对应文档中引用图片，或删除不再使用的文件。");
 }
-if (brokenGifRefs.length > 0) {
-  for (const { rel, md } of brokenGifRefs) {
-    console.log(`✗  失链 GIF(引用但文件不存在): images/${rel}`);
-    console.log(`   引用自：${md} → 跑 pnpm screenshots:flows 录制，或修正引用路径。`);
+if (brokenReferences.length > 0) {
+  for (const { file, sources } of brokenReferences) {
+    console.log(`✗  引用的资源文件不存在: ${file}`);
+    console.log(`   引用自：${sources.join("、")} → 添加文件或修正引用路径。`);
   }
 }
 if (duplicateGroups.length > 0) {

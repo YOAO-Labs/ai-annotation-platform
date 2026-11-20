@@ -221,7 +221,7 @@ def _api_environment(environment, origin, token):
     return values
 
 
-async def _prepare(environment, suite_id, raster_owner=None, *, root_family="owned"):
+async def _prepare(environment, suite_id, raster_owner=None):
     import fixture_native_business
     import fixture_native_read_control
 
@@ -234,14 +234,11 @@ async def _prepare(environment, suite_id, raster_owner=None, *, root_family="own
         == (owner_url.host, owner_url.port or 5432, owner_url.database),
         "fixture_native_admin_database_changed",
     )
-    await prepare_fixture_suite(
-        str(suite_id), root_family, verify_only=root_family == "screenshot"
-    )
+    await prepare_fixture_suite(str(suite_id), "owned")
     business, document = await fixture_native_business.prepare(
         environment,
         suite_id=suite_id,
         raster_owner=raster_owner,
-        root_family=root_family,
     )
     resolver = await fixture_native_read_control.provision(admin, "resolver", suite_id)
     _require(
@@ -279,7 +276,7 @@ def _native_run_evidence_settled(execution, reader, directory_present):
     )
 
 
-async def _suite_settled(environment, suite_id, root_family, directory):
+async def _suite_settled(environment, suite_id, directory):
     owner_url, _, _ = await _verified_database(environment)
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     try:
@@ -298,18 +295,13 @@ async def _suite_settled(environment, suite_id, root_family, directory):
                 root is not None
                 and root.parent_run_id is None
                 and root.state == "retired"
-                and root.family == root_family,
+                and root.family == "owned",
                 "fixture_native_suite_unsettled",
             )
-            if root_family == "screenshot":
-                _require(len(rows) == 1, "fixture_native_run_unsettled")
-            native_rows = (
-                rows
-                if root_family == "screenshot"
-                else [row for row in rows if row.id != suite_id]
-            )
             settled = []
-            for row in native_rows:
+            for row in rows:
+                if row.id == suite_id:
+                    continue
                 _require(row.state == "retired", "fixture_native_run_unsettled")
                 execution = await connection.scalar(
                     text("SELECT yoao_jobs_v1.fixture_media_executor_identity(:run)"),
@@ -561,7 +553,6 @@ class NativeSuiteControl:
         raster_owner=None,
         *,
         authority_owned=False,
-        root_family="owned",
     ):
         self.environment, self.suite, self.resources = environment, suite, resources
         self.directory, self.journal, self.journal_path = (
@@ -571,13 +562,10 @@ class NativeSuiteControl:
         )
         self.raster_owner = raster_owner
         self.authority_owned = authority_owned
-        self.root_family = root_family
         self.api_owned = journal.get("api_owned")
         _require(
-            root_family in {"owned", "screenshot"}
-            and type(self.api_owned) is bool
-            and (self.api_owned or (authority_owned and resources["mode"] == "test"))
-            and (root_family == "owned" or (authority_owned and raster_owner is None)),
+            type(self.api_owned) is bool
+            and (self.api_owned or (authority_owned and resources["mode"] == "test")),
             "fixture_native_topology_invalid",
         )
         self.process = self.pidfd = self.stopped = self.listener = None
@@ -596,10 +584,9 @@ class NativeSuiteControl:
             self.environment.update(
                 ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token
             )
-            if self.root_family == "owned":
-                os.environ.update(
-                    ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token
-                )
+            os.environ.update(
+                ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token
+            )
         (
             resources,
             self.identity,
@@ -607,12 +594,7 @@ class NativeSuiteControl:
             self.business,
             self.resolver,
             self.profile,
-        ) = await _prepare(
-            self.environment,
-            self.suite,
-            self.raster_owner,
-            root_family=self.root_family,
-        )
+        ) = await _prepare(self.environment, self.suite, self.raster_owner)
         _require(resources == self.resources, "fixture_native_resources_changed")
         await self.start()
         binding = {
@@ -858,9 +840,7 @@ class NativeSuiteControl:
                 "fixture_native_control_unsettled",
             )
 
-        run_ids = await _suite_settled(
-            self.environment, self.suite, self.root_family, self.directory
-        )
+        run_ids = await _suite_settled(self.environment, self.suite, self.directory)
         _verify_run_receipts(self.directory, self.suite, run_ids)
         self.journal["native_run_ids"] = run_ids
         if self.api_owned:

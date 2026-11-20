@@ -205,7 +205,7 @@ socket 目录固定在短路径 `/tmp` 下并校验归属：`scripts/fixture_inf
 
 ### 根因
 
-Playwright 的 `webServer.gracefulShutdown`（`apps/web/playwright.screenshots.config.ts` 中为 SIGTERM／30 秒）向整个 Web 进程组发信号，dev 服务器派生的子进程（esbuild）一并被信号终止，无法区分"正常收尾"与"被接管的后代"。
+Playwright 通用的 `webServer.gracefulShutdown` 向整个 Web 进程组发信号，dev 服务器派生的子进程（esbuild）一并被信号终止，无法区分「正常收尾」与「被接管的后代」。
 
 ### 规避
 
@@ -215,7 +215,7 @@ Playwright 的 `webServer.gracefulShutdown`（`apps/web/playwright.screenshots.c
 
 ### 症状
 
-Raster 产品用例成功且 JSON 报告列出了 trace 路径，但源码级 Worker 项目结束后，该 trace 已不存在。
+若两个阶段共用同一个输出目录，Raster 产品用例报告中的 trace 路径在源码级 Worker 项目结束后可能已不存在。
 
 ### 根因
 
@@ -223,7 +223,7 @@ Raster 产品用例成功且 JSON 报告列出了 trace 路径，但源码级 Wo
 
 ### 规避
 
-源码级 Worker 使用独立的 `test-results/browser-integration`，保留前一阶段产品用例的 trace、截图与视频；CI 继续递归收集 `test-results`。不同项目不要通过共同的 `--output` 参数重新合并目录。验收时分别保存两份报告与附件，不把报告中的附件路径当作附件仍存在的证明。
+源码级 Worker 使用独立的 `test-results/browser-integration`，保留前一阶段产品用例的失败诊断；CI 继续递归收集 `test-results`。不同项目不要用共同的 `--output` 合并目录。分别保存两份报告及实际生成的失败附件，不把报告中的路径当作附件存在的证明。
 
 ## 15. 8K 编辑通过，但 Native 高清瓦片被 CORS 阻止
 

@@ -16,15 +16,15 @@ export function recoverFixtureOperation(operationId: string): Promise<{
 }>;
 export function acknowledgeFixtureOperation(operationId: string): Promise<void>;
 export function shutdownFixtureTransport(suiteId: string): Promise<{ state: "stopped" | "shared" }>;
+type FixtureSuiteFamily = "owned" | "scale";
 export function prepareFixtureSuite(
   suiteId: string,
-  family: "owned" | "screenshot" | "scale",
-): Promise<{ suite_id: string; family: "owned" | "screenshot" | "scale" }>;
-export function prepareScreenshotNative(
-  runId: string,
-  apiPort: number,
-  operationId: string,
-): Promise<{ operationId: string; apiOrigin: string }>;
+  family: FixtureSuiteFamily,
+): Promise<{ suite_id: string; family: FixtureSuiteFamily }>;
+export function verifyFixtureSuite(
+  suiteId: string,
+  family: FixtureSuiteFamily,
+): Promise<{ suite_id: string; family: FixtureSuiteFamily }>;
 export function runMaskSliceLifecycle(data: {
   action: "gc" | "drop_revision" | "expire_revision";
   task_id: string;
@@ -34,9 +34,4 @@ export function runMaskSliceLifecycle(data: {
 export function postFixture(
   url: string,
   options?: Parameters<APIRequestContext["post"]>[1] & { operationId?: string },
-): Promise<SeedResponse>;
-
-export function getScreenshotCatalog(
-  url: string,
-  options?: { timeout?: number },
 ): Promise<SeedResponse>;

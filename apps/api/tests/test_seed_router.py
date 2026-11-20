@@ -66,17 +66,15 @@ async def test_seed_router_runtime_guard_matrix(
         assert error.value.status_code == 403
 
 
-async def test_seed_router_uses_configured_test_database(
-    owner_fault_http, db_session, test_db_url
-):
+async def test_seed_router_uses_configured_test_database(db_session, test_db_url):
     from sqlalchemy import text
     from sqlalchemy.engine import make_url
 
+    from app.services.test_seed_access import assert_isolated_test_seed_database
+
+    await assert_isolated_test_seed_database(db_session)
     database_name = await db_session.scalar(text("SELECT current_database()"))
     assert database_name == make_url(test_db_url).database
-
-    response = await owner_fault_http.get("/api/v1/__test/seed/peek")
-    assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize(
@@ -90,7 +88,9 @@ async def test_seed_router_denies_http_when_disabled(
 
     monkeypatch.setattr(settings, "environment", environment)
     monkeypatch.setattr(settings, "e2e_seed_enabled", enabled)
-    response = await owner_fault_http.get("/api/v1/__test/seed/peek")
+    response = await owner_fault_http.post(
+        "/api/v1/__test/seed/login", json={"email": "guard@e2e.test"}
+    )
     assert response.status_code == 403
 
 

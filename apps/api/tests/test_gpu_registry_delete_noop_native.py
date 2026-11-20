@@ -11,7 +11,6 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.services.screenshot_seed_spec import SEED_MANAGED_BY, SEED_REVISION
 from tests.gpu_fence_helpers import cleanup_committed_backend
 from tests.inference_registry_ingress_helpers import ingress_dsn
 from tests.labeling_class_query_helpers import assert_owned_test_database
@@ -356,9 +355,9 @@ async def test_scalar_registry_parameters_preserve_gpu_membership_fences(
                 backend_id,
                 json.dumps(
                     {
-                        "managed_by": SEED_MANAGED_BY,
+                        "managed_by": "screenshot-seed",
                         "profile": "screenshots",
-                        "revision": SEED_REVISION,
+                        "revision": "screenshots-2026-08-g",
                     }
                 ),
             )

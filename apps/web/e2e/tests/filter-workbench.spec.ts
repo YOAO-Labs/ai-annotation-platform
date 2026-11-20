@@ -222,9 +222,8 @@ test("persisted image hide remains restorable and does not change geometry", asy
   await expect(stage).toHaveAttribute("data-user-box-count", "1");
   await page.mouse.move(5, 5);
   const paintedPixels = () => annotationPaintedPixels(stage);
-  await stage.screenshot({ path: test.info().outputPath("visible.png"), animations: "disabled" });
-  const visiblePixels = await paintedPixels();
-  expect(visiblePixels).toBeGreaterThan(0);
+  let visiblePixels = 0;
+  await expect.poll(async () => (visiblePixels = await paintedPixels())).toBeGreaterThan(0);
   const row = page.getByTestId("box-list-item-" + annotationId);
   await row.getByRole("button", { name: "更多操作", exact: true }).hover();
   const hide = page.waitForResponse(
@@ -237,7 +236,6 @@ test("persisted image hide remains restorable and does not change geometry", asy
   await expect(row).toBeVisible();
   await page.mouse.move(5, 5);
   await expect.poll(paintedPixels).toBeLessThan(visiblePixels);
-  await stage.screenshot({ path: test.info().outputPath("hidden.png"), animations: "disabled" });
   await page.reload();
   await expect(stage).toBeVisible();
   await expect(stage).toHaveAttribute("data-image-ready", "true");
@@ -266,7 +264,6 @@ test("persisted image hide remains restorable and does not change geometry", asy
   );
   await expect(stage).toHaveAttribute("data-user-box-count", "1");
   await page.mouse.move(5, 5);
-  await stage.screenshot({ path: test.info().outputPath("restored.png"), animations: "disabled" });
   await expect
     .poll(async () => Math.abs((await paintedPixels()) - visiblePixels))
     .toBeLessThan(Math.max(10, visiblePixels * 0.001));
@@ -294,9 +291,10 @@ test("persisted video hide survives reload and restores the current-frame canvas
     const row = page.getByTestId(`box-list-item-${annotation.id}`);
     await expect(row).toBeVisible();
     await page.mouse.move(5, 5);
-    await stage.screenshot({ path: test.info().outputPath("video-visible.png") });
-    const before = await annotationPaintedPixels(stage);
-    expect(before).toBeGreaterThan(0);
+    let before = 0;
+    await expect
+      .poll(async () => (before = await annotationPaintedPixels(stage)))
+      .toBeGreaterThan(0);
     await row.getByRole("button", { name: "更多操作", exact: true }).hover();
     const hide = page.waitForResponse(
       (response) =>
@@ -314,7 +312,6 @@ test("persisted video hide survives reload and restores the current-frame canvas
       "aria-pressed",
       "true",
     );
-    await stage.screenshot({ path: test.info().outputPath("video-hidden.png") });
     const show = page.waitForResponse(
       (response) =>
         response.request().method() === "PATCH" &&
@@ -330,7 +327,6 @@ test("persisted video hide survives reload and restores the current-frame canvas
     await expect
       .poll(async () => Math.abs((await annotationPaintedPixels(stage)) - before))
       .toBeLessThan(Math.max(10, before * 0.001));
-    await stage.screenshot({ path: test.info().outputPath("video-restored.png") });
     const token = await seed.accessToken(filtering.user_emails.admin);
     const response = await request.get(API_BASE + `/api/v1/tasks/${taskId}/annotations`, {
       headers: { Authorization: `Bearer ${token}` },

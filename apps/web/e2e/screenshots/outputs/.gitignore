@@ -1,3 +1,0 @@
-# 流程录制中间产物；最终 GIF 只保留 docs-site/user-guide/images 副本。
-flows/
-*.tmp

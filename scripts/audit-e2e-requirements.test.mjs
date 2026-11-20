@@ -26,15 +26,15 @@ test("passed, failed, cancelled, setup-failure and missing are accounted fail-cl
       JSON.stringify({ suite: "mask-native", outcome: "cancelled" }),
     );
     writeFileSync(
-      join(dir, "visual.json"),
-      JSON.stringify({ suite: "visual", outcome: "setup-failure" }),
+      join(dir, "pointcloud.json"),
+      JSON.stringify({ suite: "pointcloud", outcome: "setup-failure" }),
     );
     const audit = auditE2ERequirements({
       requiredSuites: [
         { suite: "smoke", planned: true },
         { suite: "default-one", planned: true },
         { suite: "mask-native", planned: true },
-        { suite: "visual", planned: true },
+        { suite: "pointcloud", planned: true },
         { suite: "layout-stress", planned: true },
       ],
       statusDir: dir,
@@ -44,13 +44,13 @@ test("passed, failed, cancelled, setup-failure and missing are accounted fail-cl
     assert.equal(bySuite.smoke, "passed");
     assert.equal(bySuite["default-one"], "failed");
     assert.equal(bySuite["mask-native"], "cancelled");
-    assert.equal(bySuite.visual, "setup-failure");
+    assert.equal(bySuite.pointcloud, "setup-failure");
     assert.equal(bySuite["layout-stress"], "missing");
     assert.deepEqual(audit.blockers.map((row) => row.suite).sort(), [
       "default-one",
       "layout-stress",
       "mask-native",
-      "visual",
+      "pointcloud",
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -181,8 +181,8 @@ test("audit rejects malformed completion artifacts fail-closed", () => {
     );
     writeFileSync(join(dir, "mask-readonly.json"), "{not json");
     writeFileSync(
-      join(dir, "visual.json"),
-      JSON.stringify({ suite: "visual", outcome: "hitched-a-ride" }),
+      join(dir, "layout-stress.json"),
+      JSON.stringify({ suite: "layout-stress", outcome: "hitched-a-ride" }),
     );
     const audit = auditE2ERequirements({
       requiredSuites: [
@@ -190,7 +190,7 @@ test("audit rejects malformed completion artifacts fail-closed", () => {
         { suite: "default-one", planned: true },
         { suite: "mask-native", planned: true },
         { suite: "mask-readonly", planned: true },
-        { suite: "visual", planned: true },
+        { suite: "layout-stress", planned: true },
       ],
       statusDir: dir,
     });
@@ -200,7 +200,7 @@ test("audit rejects malformed completion artifacts fail-closed", () => {
     assert.equal(bySuite["default-one"], "malformed-success");
     assert.equal(bySuite["mask-native"], "suite-mismatch");
     assert.equal(bySuite["mask-readonly"], "unreadable");
-    assert.equal(bySuite.visual, "unknown-outcome");
+    assert.equal(bySuite["layout-stress"], "unknown-outcome");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

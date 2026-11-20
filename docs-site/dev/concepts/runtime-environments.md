@@ -16,7 +16,7 @@ last_reviewed: 2026-10-19
 `docker-compose.yml` 只定义**基础设施 + Celery**（api/web 不在内）。开发态与生产态的差异由三件事决定：
 
 1. **谁进容器** —— 开发态 API/Web 跑宿主机进程；生产态用叠加文件 `docker-compose.prod.yml` 把 api/web 以容器拉起
-2. **哪些 profile 启用** —— `gpu`、`gpu-sam3`（`docker-compose.ml.yml`）、`gpu-yolo`、`gpu-onnxtools`、`gpu-rapidocr`（各自插件叠加文件）、`training`（`docker-compose.training.yml`）与 `monitoring` 默认不启动
+2. **哪些 profile 启用** —— 各插件叠加文件的 `gpu*`（配合 `docker-compose.ml.yml`）、`training`（`docker-compose.training.yml`）与 `monitoring` 默认不启动
 3. **`ENVIRONMENT` 变量取值** —— 驱动 `config.py` / `main.py` 的启动断言和环境安全策略
 
 ```bash
@@ -34,14 +34,14 @@ docker compose --env-file .env.production \
 
 ## 三态对照
 
-| 维度                       | development（默认）                                                                       | staging                                             | production                                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------- |
-| API / Web                  | 宿主机进程（`uvicorn --reload` + `pnpm dev:web`）；不在默认 compose 文件                  | 同生产：`docker-compose.prod.yml` 容器 + nginx 反代 | `docker-compose.prod.yml` 容器 + 外层 nginx/Caddy 终结 TLS |
-| 基础设施（PG/Redis/MinIO） | compose 拉起，本地默认值                                                                  | 独立实例，贴近生产                                  | 托管 RDS、Redis 挂 AOF、MinIO 换 S3/OSS                    |
-| Celery worker/beat         | 容器内 + 源码热挂载（`./apps/api:/app`），改码 `docker restart` 即可                      | 镜像冻结源码                                        | 镜像冻结源码                                               |
-| GPU ML Backend & 训练节点  | `gpu*`（`docker-compose.ml.yml`）与 `training`（`docker-compose.training.yml`）默认不启动 | 按需启用                                            | 按需启用，调显存预算与 GPU 独占锁                          |
-| 监控（Prometheus/Grafana） | `profile: monitoring` 默认不启动                                                          | 按需启用                                            | 按需启用                                                   |
-| 邮件                       | Mailpit 假收件箱（`:8025`），不外发                                                       | 真实 SMTP                                           | 真实 SMTP                                                  |
+| 维度                       | development（默认）                                                         | staging                                             | production                                                 |
+| -------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------- |
+| API / Web                  | 宿主机进程（`uvicorn --reload` + `pnpm dev:web`）；不在默认 compose 文件    | 同生产：`docker-compose.prod.yml` 容器 + nginx 反代 | `docker-compose.prod.yml` 容器 + 外层 nginx/Caddy 终结 TLS |
+| 基础设施（PG/Redis/MinIO） | compose 拉起，本地默认值                                                    | 独立实例，贴近生产                                  | 托管 RDS、Redis 挂 AOF、MinIO 换 S3/OSS                    |
+| Celery worker/beat         | 容器内 + 源码热挂载（`./apps/api:/app`），改码 `docker restart` 即可        | 镜像冻结源码                                        | 镜像冻结源码                                               |
+| GPU ML Backend & 训练节点  | 插件叠加的 `gpu*` 与 `docker-compose.training.yml` 的 `training` 默认不启动 | 按需启用                                            | 按需启用，调显存预算与 GPU 独占锁                          |
+| 监控（Prometheus/Grafana） | `profile: monitoring` 默认不启动                                            | 按需启用                                            | 按需启用                                                   |
+| 邮件                       | Mailpit 假收件箱（`:8025`），不外发                                         | 真实 SMTP                                           | 真实 SMTP                                                  |
 
 ## `ENVIRONMENT` 的代码行为差异
 

@@ -31,7 +31,7 @@ Execution requests and results carry immutable JSON, exact task IDs, selected-in
 
 ## Transactions and persistence
 
-Topology, project enablement, health writes, GPU caller administration and screenshot seeds use finite Native capabilities in the original caller unit of work. They preserve account/project authorization, lock order, flush boundaries, dirty-row handling, rollback and final commit ownership. They are not independent network transactions or generic SQL RPCs.
+Topology, project enablement, health writes and GPU caller administration use finite Native capabilities in the original caller unit of work. They preserve account/project authorization, lock order, flush boundaries, dirty-row handling, rollback and final commit ownership. They are not independent network transactions or generic SQL RPCs.
 
 Named pipelines may borrow the API transaction when no HTTP owner is selected. Remote commands have durable minimal receipts; ambiguous acknowledgement is recovered through status without reposting a write. Unknown does not mean rolled back. Registry environment sync is HTTP-only for application consumers; the owner observes endpoints before its own atomic reconciliation transaction.
 

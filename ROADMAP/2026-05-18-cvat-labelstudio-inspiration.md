@@ -21,7 +21,7 @@
 - **§1.1 Annotation Guide** ✅ v0.10.13 — 项目级 Markdown 指引 + asset（CodeMirror 6 + 工作台浮层）。SoT: CHANGELOG v0.10.13 / [plan](../../docs/plans/archive/2026-05-18-v0.10.13-annotation-guide.md)；延伸见 ROADMAP §A「Annotation Guide 配套延伸」。
 - **§1.2 `reject_reason_type` 结构化枚举** ✅ v0.10.16 — 4 类 enum（`missing/extra/wrong_label/wrong_geometry`）+ RejectReasonModal。SoT: CHANGELOG v0.10.16。
 - **§1.3 Webhook `event_version` 信封** ✅ v0.10.16（仅 ADR + Pydantic 占位）— [ADR-0025](../../docs/adr/0025-webhook-event-envelope-versioning.md) Proposed；publisher/delivery 表留 §2.1 epic 实施。
-- **§1.4 截图 fixture** — 主 ROADMAP 已有，本文不重复（仅 §7 登记）。
+- **§1.4 截图 fixture** — 原采集自动化已退役，界面证据与文档素材按请求在真实页面采集。
 - **§1.5 Predictions Import 端点** ✅ v0.10.15 — `POST /projects/{id}/predictions/import?format=aap_json|coco`，lenient + dry_run + overwrite。SoT: CHANGELOG v0.10.15 / [ADR-0024](../../docs/adr/archive/0024-aap-json-format.md)；延伸见 ROADMAP §A「Predictions Import / AAP JSON 后续延伸」。
 - **§1.6 DuckDB 离线分析视图** ✅ v0.10.16 — 3 固定面板 + super_admin 守卫；升级 ClickHouse 触发=`task_events` 单月 > 1000万 或单 query > 10s。SoT: CHANGELOG v0.10.16。
 - **§1.7 统一异步任务表 `async_jobs`（MVP）** ✅ v0.10.16 — 双写双轨（async_jobs 汇总索引 + 专表 domain 真值）+ Topbar JobsBell。SoT: CHANGELOG v0.10.16；延伸（kind 注册中心 / WS 进度 / 全 kind cancel）见 ROADMAP §B。
@@ -254,7 +254,7 @@
 | §1.1 Annotation Guide        | ✅ **已完成 v0.10.13**（2026-05-18）                              | 配套延伸条目已转录到 ROADMAP §A 项目模块                                                            |
 | §1.2 reject_reason_type      | ✅ **已完成 v0.10.16**（2026-05-19）                              | 4 类 enum + RejectReasonModal 改造 + DuckDB 面板联动                                                |
 | §1.3 webhook event_version   | ✅ **已完成 v0.10.16**（2026-05-19，仅 ADR 草案 + Pydantic 占位） | ADR-0025 Proposed，§2.1 epic 实施时按此 ADR 落地                                                    |
-| §1.4 截图 fixture            | 已在 §A 后续观察项                                                | 不动                                                                                                |
+| §1.4 截图 fixture            | 采集自动化已退役                                                  | 仅按需截图或录屏                                                                                    |
 | §1.5 Predictions Import      | ✅ **已完成 v0.10.15**（2026-05-19）                              | 后续延伸条目已转录到 ROADMAP §A "Predictions Import / AAP JSON 后续延伸"                            |
 | §1.6 DuckDB 离线视图         | ✅ **已完成 v0.10.16**（2026-05-19）                              | 三面板 + super_admin 守卫 + 升级路径 PG → DuckDB → ClickHouse 待触发                                |
 | §1.7 async_jobs 统一表       | ✅ **已完成 v0.10.16**（2026-05-19）                              | 双写双轨 + Topbar 铃铛 + 4 kind 接入；cancel 全 kind / WebSocket 进度推送留 v0.10.17                |

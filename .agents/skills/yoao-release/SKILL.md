@@ -27,6 +27,8 @@ Before moving a completed plan, add or repair its exact `## Outcome` with landed
 
 Check affected user/API/architecture documentation and changelog entries. If archiving plans or ADRs is part of the release, follow the requested cutoff exactly and fix inbound links and indexes; do not infer a broader archive boundary.
 
+If the requested release changes published media, review only those files, their playback and privacy, and the affected embeds using [on-demand UI checks and capture](../yoao-doc-media/SKILL.md). A release does not require recapturing unchanged media or maintaining a separate approval inventory.
+
 Run required release checks in the equipped environment. Full API tests must use a verified disposable test mode through [yoao-runtime](../yoao-runtime/SKILL.md), never the everyday development database. Preserve the command exit status and machine-readable summary before cleaning the owned database, Redis, buckets, logs, and other test artifacts; output truncation is not a reason to rerun an already completed full suite.
 
 If CI fails, inspect the actual failed step and later steps newly exposed after a fix. Report local completion separately from remote publication. Complete already requested commit/push/PR actions, but a release version change does not by itself authorize merging, tagging, or publishing externally.

@@ -53,10 +53,7 @@ from app.services.workspace_e2e_fixtures import (
     create_fixture_project,
     guard_fixture_project_cleanup,
 )
-from app.services.workspace_seed_data import (
-    register_seed_project_projection,
-    seed_projects,
-)
+from app.services.workspace_seed_data import register_seed_project_projection
 
 
 async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None:
@@ -2700,37 +2697,6 @@ async def _reconcile_fixture_backend(run_id: UUID, registry_id: UUID) -> None:
         raise HTTPException(409, detail={"code": "fixture_backend_not_quiescent"})
 
 
-@router.post("/seed/screenshot-recording-backend", include_in_schema=False)
-async def seed_screenshot_recording_backend(
-    payload: SeedScreenshotCleanupRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Create the recording graph's provider under its exact screenshot root."""
-    from app.services import fixture_run_ownership as ownership
-
-    run, _ = await ownership.lock_original_scope(db, payload.run_id)
-    if run.family != "screenshot" or run.parent_run_id is not None:
-        raise HTTPException(404, detail={"code": "fixture_run_not_found"})
-    providers = request.app.state.fixture_backends
-    if payload.run_id in providers.runs:
-        raise HTTPException(409, detail={"code": "fixture_backend_scope_changed"})
-    admission = await ownership.admit(db, payload.run_id, "recording_backend")
-    await db.commit()
-    # An unsuccessful creation retains its admission and provider for recovery;
-    # only the completed setup can be handed to normal exact cleanup.
-    backend = await _create_fixture_backend(
-        db,
-        providers,
-        payload.run_id,
-        name="RapidOCR isolated recording fixture",
-        logical_key="recording-ocr",
-    )
-    await ownership.settle(db, payload.run_id, admission)
-    await db.commit()
-    return {"registry_id": str(backend.id)}
-
-
 @router.post("/seed/owned-prepare", include_in_schema=False)
 async def prepare_owned_native(
     payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
@@ -2876,16 +2842,7 @@ async def prepare_fixture_invitation(
     from app.services import fixture_run_ownership as ownership
 
     run, root = await ownership.lock_original_scope(db, payload.run_id)
-    if run.id == root.id and root.family == "screenshot":
-        valid_email = (
-            re.fullmatch(
-                rf"invited-{payload.run_id.hex}-[0-9a-f]{{32}}@capture[.]local",
-                payload.email,
-            )
-            is not None
-        )
-        project_key, inviter_key = "video_demo", "admin"
-    elif run.parent_run_id == root.id and root.family == run.family == "owned":
+    if run.parent_run_id == root.id and root.family == run.family == "owned":
         scope = _request_owned_scope(
             SeedOwnedRequest(namespace=run.scope_key, suite_id=root.id, run_id=run.id)
         )
@@ -3000,19 +2957,13 @@ async def seed_screenshot_cleanup(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> SeedCleanup:
-    """Reclaim exactly one screenshot root through the shared cleanup engine."""
+    """Reclaim one old screenshot root without opening new native participants."""
     from app.db.models.fixture_run import FixtureRun
 
     await _require_e2e_seed_database(db)
     run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
     if run is None or run.family != "screenshot" or run.parent_run_id is not None:
         raise HTTPException(404, detail={"code": "fixture_run_not_found"})
-    roots = getattr(request.app.state, "fixture_screenshot_native_roots", {})
-    native = roots.get(run.id)
-    if native is not None and native["runtime"] is None:
-        raise HTTPException(409, detail={"code": "fixture_native_run_unsettled"})
-    if native is not None and native["control"].api_owned:
-        await native["control"].retire_api()
     scope = _OwnedFixtureScope(namespace=run.id.hex[:12], run_id=run.id)
     await _cleanup_owned_e2e_fixtures(
         db,
@@ -3020,12 +2971,7 @@ async def seed_screenshot_cleanup(
         family="screenshot",
         registry=getattr(request.app.state, "original_playback_registry", None),
         providers=getattr(request.app.state, "fixture_backends", None),
-        native_runtime=native["runtime"] if native is not None else None,
     )
-    if native is not None:
-        from fixture_suite_coordinator import _settled
-
-        await _settled(asyncio.create_task(native["control"].retire_suite()))
     return SeedCleanup()
 
 
@@ -3966,106 +3912,6 @@ async def seed_login(
     return SeedLoginResponse(
         access_token=token,
         user=UserOut.model_validate(user),
-    )
-
-
-class SeedPeekResponse(BaseModel):
-    """截图自动化只读窥探：返回首个 super_admin 用户 + 首个项目 + 首个任务。
-
-    本端点**不修改任何数据**，仅查询 LIMIT 1 → 让 `pnpm screenshots` 在
-    开发者本地真实数据上跑，不破坏现有数据集 / 项目。
-    任意字段可为 None（对应记录不存在时），调用方需自行处理缺失场景。
-    """
-
-    admin_email: str | None = None
-    project_id: str | None = None
-    task_id: str | None = None
-
-
-@router.get(
-    "/seed/catalog",
-    include_in_schema=False,
-)
-async def seed_catalog(
-    run_id: UUID,
-    request: Request,
-    profile: Literal["screenshots"] = "screenshots",
-    backend_requirements: str | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """解析 screenshots profile 的稳定逻辑键；数据漂移时明确失败。"""
-    from app.services.screenshot_seed_catalog import (
-        ScreenshotSeedCatalogError,
-        build_screenshot_seed_catalog,
-    )
-    from app.services.assets_media import MediaGateway
-    from yoao_assets_media.client import MediaClient
-
-    native = getattr(request.app.state, "fixture_screenshot_native_roots", {}).get(
-        run_id
-    )
-    if (
-        native is None
-        or native["runtime"] is None
-        or native["control"].journal.get("state") not in {"control_started", "serving"}
-    ):
-        raise HTTPException(409, detail={"code": "screenshot_native_owner_unavailable"})
-    control = native["control"]
-
-    try:
-        async with MediaGateway(
-            MediaClient(
-                control.origin,
-                control.token,
-                timeout_seconds=settings.assets_media_timeout_seconds,
-            ),
-            local_execution=False,
-        ) as media:
-            return await build_screenshot_seed_catalog(
-                db,
-                run_id=run_id,
-                backend_requirements=backend_requirements,
-                media=media,
-            )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ScreenshotSeedCatalogError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "screenshot_seed_not_ready",
-                "issues": exc.issues,
-            },
-        ) from exc
-
-
-@router.get(
-    "/seed/peek",
-    response_model=SeedPeekResponse,
-    include_in_schema=False,
-)
-async def seed_peek(db: AsyncSession = Depends(get_db)) -> SeedPeekResponse:
-    """只读窥探现有数据，给截图自动化用（不破坏开发数据）。"""
-    from sqlalchemy import select
-    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-
-    # 优先选「不像 E2E fixture」的 admin（@e2e.test 邮箱排到末尾），让截图脚本
-    # 优先用开发者真实账号（如 seed.py 的 admin）。
-    admin = await IdentityE2EFixtures(db).peek_admin()
-    # 项目 / 任务同样按 created_at desc，优先最新（开发者刚操作过的）。
-    project = (
-        await db.execute(
-            select(seed_projects).order_by(seed_projects.created_at.desc()).limit(1)
-        )
-    ).scalar_one_or_none()
-    task = (
-        await db.execute(select(task_row).order_by(task_row.created_at.desc()).limit(1))
-    ).scalar_one_or_none()
-
-    return SeedPeekResponse(
-        admin_email=admin.email if admin else None,
-        project_id=str(project.id) if project else None,
-        task_id=str(task.id) if task else None,
     )
 
 

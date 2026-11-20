@@ -61,10 +61,6 @@ _ASSETS = (
     "yoao_assets_v1.begin_fixture_independent_execution(uuid,uuid,jsonb)",
     "yoao_assets_v1.begin_fixture_legacy_birth_admission(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,uuid)",
     "yoao_assets_v1.finish_fixture_legacy_birth_admission(uuid)",
-    "yoao_assets_v1.begin_fixture_screenshot_producer(uuid,uuid,uuid,uuid,uuid,integer,uuid)",
-    "yoao_assets_v1.fixture_screenshot_producer_target(uuid)",
-    "yoao_assets_v1.finish_fixture_screenshot_producer(uuid,uuid,uuid)",
-    "yoao_assets_v1.reuse_fixture_screenshot_producer(uuid,uuid)",
     "yoao_assets_v1.finish_fixture_independent_execution(uuid,uuid)",
     "yoao_assets_v1.fixture_legacy_execution_target(text,uuid,uuid)",
     "yoao_assets_v1.retire_fixture_independent_publications(uuid,uuid,uuid)",
@@ -84,6 +80,24 @@ _ASSETS = (
     "yoao_assets_v1.transition_fixture_media_output(uuid,uuid,uuid,text,uuid,text,text)",
     "yoao_assets_v1.fixture_media_retirement_complete(uuid,uuid,uuid)",
 )
+
+_RETIRED_PRODUCER_FUNCTIONS = (
+    "yoao_assets_v1.begin_fixture_screenshot_producer(uuid,uuid,uuid,uuid,uuid,integer,uuid)",
+    "yoao_assets_v1.fixture_screenshot_producer_target(uuid)",
+    "yoao_assets_v1.finish_fixture_screenshot_producer(uuid,uuid,uuid)",
+    "yoao_assets_v1.reuse_fixture_screenshot_producer(uuid,uuid)",
+)
+_MEDIA_FUNCTIONS = _JOBS + _ASSETS
+
+
+def _receipt_functions(version):
+    if type(version) is int:
+        if version == 2:
+            return _MEDIA_FUNCTIONS
+        if version == 1:
+            # Existing role receipts must still match their original ACL before retirement.
+            return _MEDIA_FUNCTIONS + _RETIRED_PRODUCER_FUNCTIONS
+    raise FixtureSetupRefused("fixture_media_secret_changed")
 
 
 def _private_file(path: Path):
@@ -184,9 +198,7 @@ def _validate_role(role, marker):
         raise FixtureSetupRefused("fixture_media_role_changed")
 
 
-async def _validate_acl(connection, role_oid, signatures=None, allowed_schemas=None):
-    if signatures is None:
-        signatures = _JOBS + _ASSETS
+async def _validate_acl(connection, role_oid, signatures, allowed_schemas=None):
     if allowed_schemas is None:
         allowed_schemas = {"yoao_jobs_v1", "yoao_assets_v1"}
     expected = set(
@@ -250,7 +262,7 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
         receipt = _read_receipt(path)
     except FileNotFoundError:
         receipt = {
-            "schema": 1,
+            "schema": 2,
             "run_id": str(run_id),
             "database_oid": identity["database_oid"],
             "role": role_name,
@@ -266,7 +278,6 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
         not isinstance(receipt, dict)
         or set(receipt)
         != {"schema", "run_id", "database_oid", "role", "marker", "password"}
-        or receipt["schema"] != 1
         or receipt["run_id"] != str(run_id)
         or receipt["database_oid"] != identity["database_oid"]
         or receipt["role"] != role_name
@@ -275,6 +286,7 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
         or len(receipt["password"]) < 40
     ):
         raise FixtureSetupRefused("fixture_media_secret_changed")
+    functions = _receipt_functions(receipt["schema"])
     engine = create_async_engine(admin_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.begin() as connection:
@@ -318,11 +330,11 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
                     f"GRANT USAGE ON SCHEMA yoao_jobs_v1,yoao_assets_v1 TO {role_sql}"
                 )
                 await connection.exec_driver_sql(
-                    f"GRANT EXECUTE ON FUNCTION {', '.join(_JOBS + _ASSETS)} TO {role_sql}"
+                    f"GRANT EXECUTE ON FUNCTION {', '.join(_MEDIA_FUNCTIONS)} TO {role_sql}"
                 )
                 role = await _role(connection, role_name)
             _validate_role(role, marker)
-            await _validate_acl(connection, role["oid"])
+            await _validate_acl(connection, role["oid"], functions)
     finally:
         await engine.dispose()
     owner_engine = create_async_engine(
@@ -596,7 +608,6 @@ async def load_control(run_id: uuid.UUID, secret_path: Path) -> URL:
         not isinstance(receipt, dict)
         or set(receipt)
         != {"schema", "run_id", "database_oid", "role", "marker", "password"}
-        or receipt["schema"] != 1
         or receipt["run_id"] != str(run_id)
         or receipt["database_oid"] != identity["database_oid"]
         or receipt["role"] != role_name
@@ -605,12 +616,13 @@ async def load_control(run_id: uuid.UUID, secret_path: Path) -> URL:
         or len(receipt["password"]) < 40
     ):
         raise FixtureSetupRefused("fixture_media_secret_changed")
+    functions = _receipt_functions(receipt["schema"])
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.connect() as connection:
             role = await _role(connection, role_name)
             _validate_role(role, marker)
-            await _validate_acl(connection, role["oid"])
+            await _validate_acl(connection, role["oid"], functions)
             principal = await connection.scalar(
                 text("SELECT yoao_jobs_v1.fixture_media_executor_identity(:run)"),
                 {"run": run_id},
@@ -647,13 +659,6 @@ def _verify_worker_dsn(path: Path, expected: str) -> Path:
         ):
             raise FixtureSetupRefused("fixture_media_worker_secret_changed")
     return path
-
-
-async def verified_worker_dsn_path(run_id: uuid.UUID, secret_path: Path) -> Path:
-    """Verify the already-provisioned restricted selector without creating it."""
-    control = await load_control(run_id, secret_path)
-    path = _private_file(Path(secret_path).with_suffix(".dsn"))
-    return _verify_worker_dsn(path, control.render_as_string(hide_password=False))
 
 
 async def worker_dsn_path(run_id: uuid.UUID, secret_path: Path) -> Path:
@@ -698,13 +703,13 @@ async def retire(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> None:
     marker = f"{resources['owner']}:fixture-media:{run_id}"
     if (
         not isinstance(receipt, dict)
-        or receipt.get("schema") != 1
         or receipt.get("run_id") != str(run_id)
         or receipt.get("database_oid") != identity["database_oid"]
         or receipt.get("role") != role_name
         or receipt.get("marker") != marker
     ):
         raise FixtureSetupRefused("fixture_media_secret_changed")
+    functions = _receipt_functions(receipt.get("schema"))
     owner_engine = create_async_engine(
         owner_url, poolclass=NullPool, hide_parameters=True
     )
@@ -752,7 +757,7 @@ async def retire(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> None:
             _validate_role(role, marker)
             if role["oid"] != principal["oid"]:
                 raise FixtureSetupRefused("fixture_media_role_changed")
-            await _validate_acl(connection, role["oid"])
+            await _validate_acl(connection, role["oid"], functions)
             if await connection.scalar(
                 text(
                     "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE usesysid=:role)"
@@ -763,7 +768,7 @@ async def retire(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> None:
             quote = engine.dialect.identifier_preparer.quote_identifier
             role_sql, db_sql = quote(role_name), quote(resources["database"])
             await connection.exec_driver_sql(
-                f"REVOKE EXECUTE ON FUNCTION {', '.join(_JOBS + _ASSETS)} FROM {role_sql}"
+                f"REVOKE EXECUTE ON FUNCTION {', '.join(functions)} FROM {role_sql}"
             )
             await connection.exec_driver_sql(
                 f"REVOKE USAGE ON SCHEMA yoao_jobs_v1,yoao_assets_v1 FROM {role_sql}"

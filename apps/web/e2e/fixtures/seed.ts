@@ -30,10 +30,8 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { worktreeMode as readWorktreeMode } from "../helpers/worktree-mode.mjs";
-import { screenshotCatalogPath } from "../screenshots/recording-plan.mjs";
 import {
   closeFixtureTransport,
-  getScreenshotCatalog,
   postFixture,
   type SeedResponse,
 } from "../helpers/seed-owner-transport.mjs";
@@ -167,91 +165,6 @@ export interface FilteringSeedManifest {
   };
 }
 
-export type ScreenshotUserKey = "admin" | "project_admin" | "annotator" | "reviewer";
-export type ScreenshotCoreProjectKey =
-  | "image_demo"
-  | "video_demo"
-  | "pointcloud_demo"
-  | "pointcloud_multicam_demo"
-  | "ocr_demo";
-export type ScreenshotProjectKey = ScreenshotCoreProjectKey | "large_image_demo";
-export type ScreenshotBackendRequirement = "image_interactive" | "video_tracker" | "ocr";
-
-export interface ScreenshotCatalogUser {
-  id: string;
-  email: string;
-  role: string;
-}
-
-export interface ScreenshotCatalogTask {
-  id: string;
-  display_id: string;
-  file_name: string;
-  file_path: string;
-  status: string;
-  recording_anchors?: Record<string, ScreenshotRecordingAnchor>;
-}
-
-export interface ScreenshotRecordingAnchor {
-  schema_version: 1;
-  coordinate_space: "normalized_media";
-  label: string;
-  frame_index?: number;
-  bbox: [number, number, number, number];
-  point: [number, number];
-  additional_points: Array<[number, number]>;
-  polygon: Array<[number, number]>;
-  polyline: Array<[number, number]>;
-  brush_strokes: Array<Array<[number, number]>>;
-  positive_stroke: Array<[number, number]>;
-  negative_stroke: Array<[number, number]>;
-  negative_point: [number, number] | null;
-  provenance: string;
-}
-
-export interface ScreenshotCatalogBatch {
-  id: string;
-  display_id: string;
-  status: string;
-}
-
-export interface ScreenshotCatalogBackend {
-  id: string;
-  name: string;
-  state: string;
-  is_interactive: boolean;
-  requirement: ScreenshotBackendRequirement;
-  selected_tracker: string | null;
-  capabilities: {
-    models?: Array<Record<string, unknown>>;
-    supported_prompts?: string[];
-    supported_trackers?: string[];
-    supported_geometric_outputs?: string[];
-    [key: string]: unknown;
-  };
-}
-
-export interface ScreenshotCatalogProject {
-  id: string;
-  display_id: string;
-  name: string;
-  data_type: string;
-  datasets: Record<string, { id: string; name: string; file_count: number }>;
-  tasks: Record<string, ScreenshotCatalogTask>;
-  batches: Record<string, ScreenshotCatalogBatch>;
-  ml_backend: ScreenshotCatalogBackend | null;
-}
-
-export interface ScreenshotSeedCatalog {
-  schema_version: 1;
-  run_id: string;
-  seed_revision: string;
-  backend_requirements?: string[];
-  users: Record<ScreenshotUserKey, ScreenshotCatalogUser>;
-  projects: Record<ScreenshotCoreProjectKey, ScreenshotCatalogProject> &
-    Partial<Record<"large_image_demo", ScreenshotCatalogProject>>;
-}
-
 /** 点云 E2E fixture：优先使用 seed 用户缓存中的两个 nuScenes mini 真实 LIDAR_TOP 帧；
  *  CI 未安装外部数据时回落到 32 线、同量级点数的确定性扫描。 */
 export interface SeedLidarData {
@@ -266,9 +179,8 @@ export type RasterMaskFixtureVariant =
   | "donut_three"
   | "diagonal_two"
   | "island"
-  | "smart_scribble_source"
   | "fault_source";
-export type RasterMaskFixtureCanvas = "default" | "media" | "5k" | "8k";
+export type RasterMaskFixtureCanvas = "default" | "5k" | "8k";
 
 export interface SeedRasterMaskData {
   annotation_id: string;
@@ -390,15 +302,6 @@ export interface SeedTrackerReviewData {
   source_annotation_ids: string[];
 }
 
-export interface SeedProjectPipeline {
-  id: string;
-  name: string;
-  scope: string;
-  project_id: string | null;
-  is_default: boolean;
-  stages: Array<Record<string, unknown>>;
-}
-
 export interface SeedTaskAnnotation {
   id: string;
   task_id: string;
@@ -407,14 +310,6 @@ export interface SeedTaskAnnotation {
   geometry: Record<string, unknown>;
   track_id?: string | null;
   attributes?: Record<string, unknown> | null;
-}
-
-/** 截图脚本只读窥探：返回首个 super_admin / 首个项目 / 首个任务。
- *  字段允许 null（对应数据不存在时），调用方自行兜底。 */
-export interface SeedPeekData {
-  admin_email: string | null;
-  project_id: string | null;
-  task_id: string | null;
 }
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
@@ -472,7 +367,7 @@ export class SeedAPI {
     return ((await res.json()) as { access_token: string }).access_token;
   }
 
-  /** 通过正式 API 准备单条录制夹具；调用方必须在 finally 精确删除。 */
+  /** 通过正式 API 为功能测试准备单条标注。 */
   async createTaskAnnotation(
     taskId: string,
     userEmail: string,
@@ -495,7 +390,7 @@ export class SeedAPI {
     return (await res.json()) as SeedTaskAnnotation;
   }
 
-  /** 精确删除录制夹具或流程创建的单条标注。 */
+  /** 通过正式 API 精确删除指定标注。 */
   async deleteTaskAnnotation(
     taskId: string,
     annotationId: string,
@@ -509,103 +404,6 @@ export class SeedAPI {
     if (!res.ok() && res.status() !== 404) {
       throw new Error(`annotations/delete failed: ${res.status()} ${await res.text()}`);
     }
-  }
-
-  /** 精确删除录制流创建的命名编排，避免在隔离截图库留下可变业务数据。 */
-  async deleteProjectPipeline(pipelineId: string, userEmail: string): Promise<void> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.delete(`${API_BASE}/api/v1/project-pipelines/${pipelineId}`, {
-      headers: { Authorization: `Bearer ${token}`, Connection: "close" },
-    });
-    if (!res.ok()) {
-      throw new Error(`project-pipelines/delete failed: ${res.status()} ${await res.text()}`);
-    }
-  }
-
-  /** 通过正式 API 精确删除录制流创建的单个存储连接器。 */
-  async deleteStorageConnection(connectionId: string, userEmail: string): Promise<void> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.delete(
-      `${API_BASE}/api/v1/storage-connections/${connectionId}`,
-      { headers: { Authorization: `Bearer ${token}`, Connection: "close" } },
-    );
-    if (!res.ok() && res.status() !== 404) {
-      throw new Error(`storage-connections/delete failed: ${res.status()} ${await res.text()}`);
-    }
-  }
-
-  /** 只在隔离录制库内清理与指定名称完全一致的连接器残留。 */
-  async deleteStorageConnectionsByExactName(name: string, userEmail: string): Promise<string[]> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.get(`${API_BASE}/api/v1/storage-connections`, {
-      headers: { Authorization: `Bearer ${token}`, Connection: "close" },
-    });
-    if (!res.ok()) {
-      throw new Error(`storage-connections/list failed: ${res.status()} ${await res.text()}`);
-    }
-    const connections = (await res.json()) as Array<{ id: string; name: string }>;
-    const exactIds = connections
-      .filter((connection) => connection.name === name)
-      .map((connection) => connection.id);
-    for (const connectionId of exactIds) {
-      await this.deleteStorageConnection(connectionId, userEmail);
-    }
-    return exactIds;
-  }
-
-  /** 通过正式级联删除端点精确清理录制流创建的临时项目。 */
-  async deleteProject(projectId: string, userEmail: string): Promise<void> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.delete(`${API_BASE}/api/v1/projects/${projectId}`, {
-      headers: { Authorization: `Bearer ${token}`, Connection: "close" },
-    });
-    if (!res.ok() && res.status() !== 404) {
-      throw new Error(`projects/delete failed: ${res.status()} ${await res.text()}`);
-    }
-  }
-
-  /** 只在隔离录制库内删除与指定名称完全一致的残留项目。 */
-  async deleteProjectsByExactName(name: string, userEmail: string): Promise<string[]> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.get(`${API_BASE}/api/v1/projects`, {
-      headers: { Authorization: `Bearer ${token}`, Connection: "close" },
-      params: { search: name },
-    });
-    if (!res.ok()) {
-      throw new Error(`projects/list failed: ${res.status()} ${await res.text()}`);
-    }
-    const projects = (await res.json()) as Array<{ id: string; name: string }>;
-    const exactIds = projects
-      .filter((project) => project.name === name)
-      .map((project) => project.id);
-    for (const projectId of exactIds) await this.deleteProject(projectId, userEmail);
-    return exactIds;
-  }
-
-  /** 通过正式 API 准备录制所需模板；调用方必须在 finally 精确删除返回的 id。 */
-  async createProjectPipeline(
-    userEmail: string,
-    payload: {
-      name: string;
-      scope: "private" | "organization" | "public";
-      project_id: string | null;
-      organization_id?: string | null;
-      stages: Array<Record<string, unknown>>;
-      is_default: boolean;
-    },
-  ): Promise<SeedProjectPipeline> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.post(`${API_BASE}/api/v1/project-pipelines`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Connection: "close",
-      },
-      data: payload,
-    });
-    if (!res.ok()) {
-      throw new Error(`project-pipelines/create failed: ${res.status()} ${await res.text()}`);
-    }
-    return (await res.json()) as SeedProjectPipeline;
   }
 
   /**
@@ -857,78 +655,6 @@ export class SeedAPI {
     return result;
   }
 
-  /** 截图专用只读 catalog：解析稳定逻辑键，服务端会对完整 profile fail-closed。 */
-  async screenshotCatalog(): Promise<ScreenshotSeedCatalog> {
-    const runId = process.env.SCREENSHOT_FIXTURE_RUN_ID ?? "";
-    const res = await getScreenshotCatalog(`${API_BASE}${screenshotCatalogPath(runId)}`);
-    if (!res.ok()) {
-      throw new Error(
-        `seed/catalog failed: ${res.status()} ${await res.text()}\n` +
-          "请运行 `cd apps/api && PYTHONPATH=. uv run python scripts/seed.py " +
-          "--profile screenshots --ml-backend-mode live`。",
-      );
-    }
-    return (await res.json()) as ScreenshotSeedCatalog;
-  }
-
-  /** 为隔离录制项目启用一个已注册的真实 backend。 */
-  async enableMLBackendByName(
-    projectId: string,
-    userEmail: string,
-    backendName: string,
-  ): Promise<string> {
-    const token = await this.accessToken(userEmail);
-    const headers = { Authorization: `Bearer ${token}` };
-    const available = await this.request.get(
-      `${API_BASE}/api/v1/projects/${projectId}/ml-backends/available`,
-      { headers },
-    );
-    if (!available.ok()) {
-      throw new Error(
-        `ml-backends/available failed: ${available.status()} ${await available.text()}`,
-      );
-    }
-    const body = (await available.json()) as {
-      items: Array<{ backend: { id: string; name: string }; enabled: boolean }>;
-    };
-    const item = body.items.find((candidate) => candidate.backend.name === backendName);
-    if (!item) throw new Error(`未找到 ML backend: ${backendName}`);
-    if (item.enabled) return item.backend.id;
-
-    const enabled = await this.request.put(
-      `${API_BASE}/api/v1/projects/${projectId}/ml-backends/${item.backend.id}/enablement`,
-      { headers, data: { enabled: true } },
-    );
-    if (!enabled.ok()) {
-      throw new Error(`ml-backends/enablement failed: ${enabled.status()} ${await enabled.text()}`);
-    }
-    return item.backend.id;
-  }
-
-  /** 通过正式端点跑一次真实单题推理，用于录制前验证输入可达并预热模型。 */
-  async predictTestMLBackend(
-    projectId: string,
-    backendId: string,
-    taskId: string,
-    userEmail: string,
-  ): Promise<void> {
-    const token = await this.accessToken(userEmail);
-    const res = await this.request.post(
-      `${API_BASE}/api/v1/projects/${projectId}/ml-backends/${backendId}/predict-test`,
-      {
-        headers: { Authorization: `Bearer ${token}`, Connection: "close" },
-        params: { task_id: taskId },
-      },
-    );
-    if (!res.ok()) {
-      throw new Error(`ml-backends/predict-test failed: ${res.status()} ${await res.text()}`);
-    }
-    const body = (await res.json()) as { results?: unknown[] };
-    if (!Array.isArray(body.results) || body.results.length === 0) {
-      throw new Error("ml-backends/predict-test returned no real result");
-    }
-  }
-
   /** 造点云 E2E fixture(lidar 项目 + 2 帧 point_cloud task)。需先 reset()。 */
   /** Build the namespaced point-cloud fixture (reuses this namespace's users). */
   async seedLidar(namespace?: string): Promise<SeedLidarData> {
@@ -958,10 +684,10 @@ export class SeedAPI {
   }
 
   /** 只切项目 opt-in；部署级 read/create 总闸由 API 进程环境决定。 */
-  async configureRasterMask(projectId: string, enabled: boolean, runId?: string): Promise<void> {
-    const ownedRunId = runId ?? this.projectScope(projectId).run_id;
+  async configureRasterMask(projectId: string, enabled: boolean): Promise<void> {
+    const runId = this.projectScope(projectId).run_id;
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/configure-raster-mask`, {
-      data: { run_id: ownedRunId, project_id: projectId, enabled },
+      data: { run_id: runId, project_id: projectId, enabled },
     });
     if (!res.ok()) {
       throw new Error(`seed/configure-raster-mask failed: ${res.status()} ${await res.text()}`);
@@ -1133,14 +859,13 @@ export class SeedAPI {
   /** 构造已有 raster annotation，用于只读、损坏内容与锁定矩阵。 */
   async injectRasterMask(opts: {
     taskId: string;
-    runId?: string;
     userEmail: string;
     variant?: RasterMaskFixtureVariant;
     label?: string;
     locked?: boolean;
     canvas?: RasterMaskFixtureCanvas;
   }): Promise<SeedRasterMaskData> {
-    const runId = opts.runId ?? this.taskRunIds.get(opts.taskId);
+    const runId = this.taskRunIds.get(opts.taskId);
     if (!runId) throw new Error("Raster task has no fixture run");
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/inject-raster-mask`, {
       data: {
@@ -1180,15 +905,6 @@ export class SeedAPI {
       throw new Error(`seed/inject-raster-prediction failed: ${res.status()} ${await res.text()}`);
     }
     return (await res.json()) as SeedRasterPredictionData;
-  }
-
-  /** 只读窥探现有数据；不破坏 dev 数据。 */
-  async peek(): Promise<SeedPeekData> {
-    const res = await this.request.get(`${API_BASE}/api/v1/__test/seed/peek`);
-    if (!res.ok()) {
-      throw new Error(`seed/peek failed: ${res.status()} ${await res.text()}`);
-    }
-    return (await res.json()) as SeedPeekData;
   }
 
   /** 直接拿 JWT 注入 localStorage（跳过 UI 登录，加快非 auth spec）。 */

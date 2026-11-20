@@ -105,8 +105,6 @@ async def test_demo_membership_contract_covers_every_seeded_project():
         "P-COCO8",
         "P-VIDEO-DEV",
         "P-PC-DEV",
-        "P-PC-MULTI",
-        "P-OCR",
     }
     assert dict(DEMO_PROJECT_MEMBERS) == {
         "anno": "annotator",

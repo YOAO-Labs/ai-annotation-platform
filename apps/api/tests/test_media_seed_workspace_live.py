@@ -58,13 +58,11 @@ def _tagged_ids(tag: str) -> tuple[list[str], list[str]]:
         [
             f"P-MSC-{suffix}-COCO8",
             f"P-MSC-{suffix}-VIDEO",
-            f"P-MSC-{suffix}-OCR",
             f"P-MSC-{suffix}-LARGE",
         ],
         [
             f"D-MSC-{suffix}-COCO8",
             f"D-MSC-{suffix}-VIDEO",
-            f"D-MSC-{suffix}-OCR",
             f"D-MSC-{suffix}-LARGE",
         ],
     )
@@ -378,8 +376,8 @@ def _assert_media_state(state: dict, tag: str, owner_id: str) -> None:
     expected_projects, expected_datasets = _tagged_ids(tag)
     assert [row["display_id"] for row in state["projects"]] == sorted(expected_projects)
     assert [row["display_id"] for row in state["datasets"]] == sorted(expected_datasets)
-    assert len(state["links"]) == 4
-    assert len(state["items"]) == 4
+    assert len(state["links"]) == 3
+    assert len(state["items"]) == 3
 
     projects = {row["display_id"]: row for row in state["projects"]}
     datasets = {row["display_id"]: row for row in state["datasets"]}
@@ -390,7 +388,6 @@ def _assert_media_state(state: dict, tag: str, owner_id: str) -> None:
     assert {row["type_key"] for row in state["projects"]} == {
         "image-det",
         "video-track",
-        "image-ocr",
         "image-seg",
     }
     assert {row["data_type"] for row in state["datasets"]} == {"image", "video"}
@@ -403,11 +400,9 @@ def _assert_media_state(state: dict, tag: str, owner_id: str) -> None:
         task_counts[row["project_id"]] += 1
     assert item_counts[dataset_id_by_name[f"D-MSC-{tag.upper()}-COCO8"]] == 2
     assert item_counts[dataset_id_by_name[f"D-MSC-{tag.upper()}-VIDEO"]] == 1
-    assert item_counts[dataset_id_by_name[f"D-MSC-{tag.upper()}-OCR"]] == 1
     assert item_counts[dataset_id_by_name[f"D-MSC-{tag.upper()}-LARGE"]] == 0
     assert task_counts[project_id_by_name[f"P-MSC-{tag.upper()}-COCO8"]] == 2
     assert task_counts[project_id_by_name[f"P-MSC-{tag.upper()}-VIDEO"]] == 1
-    assert task_counts[project_id_by_name[f"P-MSC-{tag.upper()}-OCR"]] == 1
     assert task_counts[project_id_by_name[f"P-MSC-{tag.upper()}-LARGE"]] == 0
     assert (
         state["predictions"].get(project_id_by_name[f"P-MSC-{tag.upper()}-COCO8"], 0)
@@ -434,16 +429,6 @@ async def test_media_seed_consumers_run_under_workspace_native_fences(
 
     _verify_postgres(test_engine.url)
     await _assert_seed_profile(test_engine)
-    # Only the Workspace screenshot operations are qualified here; the media
-    # bytes and full recording workflow remain outside this fixture.
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-    from tests.test_screenshot_seed_catalog import _ready_profile
-    from scripts.seed_screenshot_profile import FIXED_TIME
-
-    async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as db:
-        screenshot_projects, _screenshot_tasks = await _ready_profile(db)
-        screenshot_ids = [project.id for project in screenshot_projects.values()]
-        screenshot_image_id = screenshot_projects["image_demo"].id
     resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     _verify_bucket_owner(owner_s3, datasets_bucket, resources["owner"])
@@ -493,9 +478,6 @@ async def test_media_seed_consumers_run_under_workspace_native_fences(
     video_fixture = source_root / "video" / video_source.name
     video_fixture.parent.mkdir(parents=True)
     shutil.copyfile(video_source, video_fixture)
-    ocr_fixture = source_root / "ocr" / "ocr.jpg"
-    ocr_fixture.parent.mkdir(parents=True)
-    Image.new("RGB", (8, 6), color=(220, 220, 220)).save(ocr_fixture)
     shutil.copyfile(PROBE, source_root / PROBE.name)
 
     endpoint = urlsplit(endpoint_url())
@@ -605,25 +587,12 @@ async def test_media_seed_consumers_run_under_workspace_native_fences(
             f"{prefix}/coco8/train/a.jpg": _source_hash(coco8 / "images/train/a.jpg"),
             f"{prefix}/coco8/val/b.jpg": _source_hash(coco8 / "images/val/b.jpg"),
             f"{prefix}/video/{video_fixture.name}": _source_hash(video_fixture),
-            f"{prefix}/ocr/{ocr_fixture.name}": _source_hash(ocr_fixture),
         }
         initial_objects = _object_snapshot(owner_s3, datasets_bucket, prefix)
         assert initial_objects == expected_objects
-        expected_item_hashes = {
-            f"{prefix}/coco8/train/a.jpg": expected_objects[
-                f"{prefix}/coco8/train/a.jpg"
-            ],
-            f"{prefix}/coco8/val/b.jpg": expected_objects[f"{prefix}/coco8/val/b.jpg"],
-            f"{prefix}/video/{video_fixture.name}": expected_objects[
-                f"{prefix}/video/{video_fixture.name}"
-            ],
-            f"{prefix}/ocr/{ocr_fixture.name}": expected_objects[
-                f"{prefix}/ocr/{ocr_fixture.name}"
-            ],
-        }
         assert {
             row["file_path"]: row["content_hash"] for row in initial_state["items"]
-        } == (expected_item_hashes)
+        } == expected_objects
 
         replay = await run_probe("replay")
         record_property("workspace_media_seed_replay", replay.evidence)
@@ -634,10 +603,6 @@ async def test_media_seed_consumers_run_under_workspace_native_fences(
         assert replay_result["large_graph"]["dataset_id"] == large["dataset_id"]
         assert replay_result["results"]["coco8"] is None
         assert replay_result["results"]["video"] is None
-        assert replay_result["results"]["ocr"] == {
-            "project": f"P-MSC-{tag.upper()}-OCR",
-            "skipped": True,
-        }
         assert await _media_snapshot(test_engine, tag) == initial_state
         assert _object_snapshot(owner_s3, datasets_bucket, prefix) == initial_objects
 
@@ -703,37 +668,6 @@ async def test_media_seed_consumers_run_under_workspace_native_fences(
                 {"name": "curb", "order": 1},
             ],
         }
-        assert _object_snapshot(owner_s3, datasets_bucket, prefix) == initial_objects
-        for attempt in range(2):
-            screenshot = await run_probe("screenshot")
-            record_property(f"workspace_screenshot_seed_{attempt}", screenshot.evidence)
-            assert not screenshot.timed_out and screenshot.exit_code == 0, (
-                screenshot.evidence
-            )
-            result = _probe_result(screenshot)
-            assert result["report"] == {"projects": 5, "tasks": 50, "batches": 5}
-            assert result["backend"] == {"mode": "live", "bindings": {}}
-            async with test_engine.connect() as db:
-                rows = (
-                    await db.execute(
-                        text(
-                            "SELECT created_at,updated_at,ml_backend_pool_id,preannotate_pipeline FROM projects WHERE id=ANY(CAST(:ids AS uuid[]))"
-                        ),
-                        {"ids": screenshot_ids},
-                    )
-                ).all()
-                assert len(rows) == 5
-                assert all(
-                    tuple(row) == (FIXED_TIME, FIXED_TIME, None, []) for row in rows
-                )
-                assert (
-                    await db.scalars(
-                        text(
-                            "SELECT assigned_at FROM project_members WHERE project_id=:id"
-                        ),
-                        {"id": screenshot_image_id},
-                    )
-                ).all() == [FIXED_TIME, FIXED_TIME]
         assert _object_snapshot(owner_s3, datasets_bucket, prefix) == initial_objects
         record_property(
             "workspace_media_seed_final_state",

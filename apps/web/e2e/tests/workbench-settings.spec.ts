@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures/seed";
 
-test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布局", async ({ page, seed }, info) => {
+test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布局", async ({ page, seed }) => {
   test.setTimeout(60_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -40,10 +40,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await canvasTab.click();
   await expect(dialog.getByTestId("setting-field-video.autoFitOnResize")).toHaveCount(1);
   await expect(dialog.getByTestId("setting-field-pointcloud.pointSize")).toHaveCount(1);
-  await page.screenshot({ path: info.outputPath("settings-desktop.png"), animations: "disabled" });
-  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
-  await page.screenshot({ path: info.outputPath("settings-dark.png"), animations: "disabled" });
-  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
 
   // 从图片任务编辑视频与点云偏好，所有改动都应保留到刷新之后。
   await dialog.getByRole("tab", { name: "播放与轨迹", exact: true }).click();
@@ -145,7 +141,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await expect
     .poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth))
     .toBe(true);
-  await page.screenshot({ path: info.outputPath("settings-mobile.png"), animations: "disabled" });
   await dialog.getByRole("button", { name: "返回工作台" }).click();
   await expect(dialog).toBeHidden();
 
@@ -155,12 +150,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await expect(page.getByTestId(/^setting-field-/)).toHaveCount(45);
   await expect(page.getByTestId("setting-field-common.showAnnotationComments")).toHaveCount(1);
   await expect(page.getByText("画布与视角", { exact: true })).toBeVisible();
-  await page.screenshot({ path: info.outputPath("settings-personal.png"), animations: "disabled" });
-  await page.setViewportSize({ width: 375, height: 812 });
-  await page.screenshot({
-    path: info.outputPath("settings-personal-mobile.png"),
-    animations: "disabled",
-  });
   expect(errors).toEqual([]);
 });
 

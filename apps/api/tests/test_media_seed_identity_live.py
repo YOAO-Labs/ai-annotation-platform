@@ -202,33 +202,6 @@ async def _assert_media_identity_profile(test_engine) -> None:
         )
 
 
-async def _create_screenshot_users(test_engine) -> dict[str, uuid.UUID]:
-    from app.core.security import hash_password
-    from app.services.screenshot_seed_spec import USER_SPECS
-
-    ids = {email: uuid.uuid4() for email, _role in USER_SPECS.values()}
-    password_hash = hash_password("Screenshot-Seed-Fixture-1234")
-    async with test_engine.begin() as db:
-        for email, role in USER_SPECS.values():
-            await db.execute(
-                text(
-                    "INSERT INTO public.users "
-                    "(id,email,name,password_hash,credential_generation,role,group_name,"
-                    "group_id,is_active,preferences) "
-                    "VALUES (:id,:email,:name,:password_hash,0,:role,NULL,NULL,"
-                    "true,'{}'::jsonb)"
-                ),
-                {
-                    "id": ids[email],
-                    "email": email,
-                    "name": email,
-                    "password_hash": password_hash,
-                    "role": role,
-                },
-            )
-    return ids
-
-
 async def _user_state(test_engine, email: str) -> dict:
     from app.core.security import verify_password
 
@@ -427,33 +400,6 @@ async def _finish_pending_cli_task(task: asyncio.Task) -> None:
     await asyncio.wait_for(asyncio.shield(task), timeout=35)
 
 
-async def _create_screenshot_fixture_users(test_engine) -> dict[str, uuid.UUID]:
-    from app.core.security import hash_password
-    from app.services.screenshot_seed_spec import USER_SPECS
-
-    ids = {email: uuid.uuid4() for email, _role in USER_SPECS.values()}
-    password_hash = hash_password("Screenshot-Seed-Fixture-1234")
-    async with test_engine.begin() as db:
-        for email, role in USER_SPECS.values():
-            await db.execute(
-                text(
-                    "INSERT INTO public.users "
-                    "(id,email,name,password_hash,credential_generation,role,group_name,"
-                    "group_id,is_active,preferences) "
-                    "VALUES (:id,:email,:name,:password_hash,0,:role,NULL,NULL,"
-                    "true,'{}'::jsonb)"
-                ),
-                {
-                    "id": ids[email],
-                    "email": email,
-                    "name": email,
-                    "password_hash": password_hash,
-                    "role": role,
-                },
-            )
-    return ids
-
-
 async def _large_graph_state(test_engine) -> dict:
     async with test_engine.connect() as db:
         project = (
@@ -495,7 +441,6 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
 ):
     from app.config import settings
     from app.core.security import hash_password, verify_password
-    from app.services.screenshot_seed_spec import USER_SPECS
 
     _verify_postgres(test_engine.url)
     await _assert_empty_owned_rows(test_engine)
@@ -538,15 +483,13 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
         helper_emails = {
             "coco8": f"media-coco8-{suffix}@cold.test",
             "video": f"media-video-{suffix}@cold.test",
-            "ocr": f"media-ocr-{suffix}@cold.test",
         }
         helper_names = {
             "coco8": "超级管理员",
             "video": "超级管理员",
-            "ocr": "Admin",
         }
         account_ids: dict[str, str] = {}
-        for kind in ("coco8", "video", "ocr"):
+        for kind in helper_emails:
             run = await _run_probe(cli, "admin", kind, helper_emails[kind])
             record_property(f"media_seed_{kind}_admin_create", run.evidence)
             assert run.exit_code == 0, run.stderr
@@ -715,7 +658,7 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
                     "python",
                     f"/fixture/{PROBE.name}",
                     "admin",
-                    "ocr",
+                    "video",
                     sleeping_email,
                     sleeping_dataset,
                     str(pending_owner_id),
@@ -775,7 +718,7 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
                 await _drop_user_trigger(test_engine, gate_trigger)
                 gate_trigger = None
 
-        recovery_run = await _run_probe(cli, "admin", "ocr", sleeping_email)
+        recovery_run = await _run_probe(cli, "admin", "video", sleeping_email)
         record_property("media_seed_same_email_recovery", recovery_run.evidence)
         assert recovery_run.exit_code == 0, recovery_run.stderr
         recovered = _probe_result(recovery_run)
@@ -783,10 +726,10 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
             test_engine,
             email=sleeping_email,
             account_id=recovered["owner_id"],
-            name="Admin",
+            name=helper_names["video"],
         )
         record_property("media_seed_recovered_admin_defaults", recovered_facts)
-        recovered_reuse_run = await _run_probe(cli, "admin", "ocr", sleeping_email)
+        recovered_reuse_run = await _run_probe(cli, "admin", "video", sleeping_email)
         record_property(
             "media_seed_recovered_same_email_reuse", recovered_reuse_run.evidence
         )
@@ -797,88 +740,7 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
             test_engine,
             email=sleeping_email,
             account_id=recovered["owner_id"],
-            name="Admin",
-        )
-
-        screenshot_ids = await _create_screenshot_fixture_users(test_engine)
-        screenshot_run = await _run_probe(cli, "screenshot_users")
-        record_property("media_seed_screenshot_users", screenshot_run.evidence)
-        assert screenshot_run.exit_code == 0, screenshot_run.stderr
-        screenshot = _probe_result(screenshot_run)
-        assert screenshot["user_ids"] == {
-            key: str(screenshot_ids[email])
-            for key, (email, _role) in USER_SPECS.items()
-        }
-
-        baseline_catalog_run = await _run_probe(cli, "screenshot_catalog")
-        record_property(
-            "media_seed_catalog_without_projects", baseline_catalog_run.evidence
-        )
-        assert baseline_catalog_run.exit_code == 0, baseline_catalog_run.stderr
-        baseline_catalog = _probe_result(baseline_catalog_run)
-        assert baseline_catalog["ready"] is False
-        assert not [
-            issue for issue in baseline_catalog["issues"] if issue.startswith("user ")
-        ]
-        assert any(
-            "project is missing or duplicated" in issue
-            for issue in baseline_catalog["issues"]
-        )
-
-        screenshot_pm = USER_SPECS["project_admin"][0]
-        async with test_engine.begin() as db:
-            await db.execute(
-                text(
-                    "UPDATE public.users SET role='viewer',is_active=false "
-                    "WHERE email=:email"
-                ),
-                {"email": screenshot_pm},
-            )
-        bad_users_run = await _run_probe(cli, "screenshot_users")
-        record_property("media_seed_screenshot_wrong_role", bad_users_run.evidence)
-        assert bad_users_run.exit_code != 0
-        bad_users = _probe_result(bad_users_run)
-        assert "seed user pm with role project_admin is required" in bad_users["error"]
-
-        drift_catalog_run = await _run_probe(cli, "screenshot_catalog")
-        record_property("media_seed_catalog_identity_drift", drift_catalog_run.evidence)
-        assert drift_catalog_run.exit_code == 0, drift_catalog_run.stderr
-        drift_catalog = _probe_result(drift_catalog_run)
-        assert [
-            issue for issue in drift_catalog["issues"] if issue.startswith("user ")
-        ] == [
-            "user pm must have role project_admin, got viewer",
-            "user pm must be active",
-        ]
-
-        async with test_engine.begin() as db:
-            await db.execute(
-                text(
-                    "UPDATE public.users SET role='project_admin',is_active=true "
-                    "WHERE email=:email"
-                ),
-                {"email": screenshot_pm},
-            )
-        recovered_screenshot_run = await _run_probe(cli, "screenshot_users")
-        record_property(
-            "media_seed_screenshot_users_recovery", recovered_screenshot_run.evidence
-        )
-        assert recovered_screenshot_run.exit_code == 0, recovered_screenshot_run.stderr
-        recovered_screenshot = _probe_result(recovered_screenshot_run)
-        assert recovered_screenshot["user_ids"] == screenshot["user_ids"]
-        ready_catalog_run = await _run_probe(cli, "screenshot_catalog")
-        record_property(
-            "media_seed_catalog_identity_recovery", ready_catalog_run.evidence
-        )
-        assert ready_catalog_run.exit_code == 0, ready_catalog_run.stderr
-        ready_catalog = _probe_result(ready_catalog_run)
-        assert ready_catalog["ready"] is False
-        assert not [
-            issue for issue in ready_catalog["issues"] if issue.startswith("user ")
-        ]
-        assert any(
-            "project is missing or duplicated" in issue
-            for issue in ready_catalog["issues"]
+            name=helper_names["video"],
         )
 
         manifest_version = 1
@@ -930,9 +792,8 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
         assert _bucket_versions(owner_s3, bucket) == bucket_before
         record_property(
             "media_seed_identity_scope",
-            "Only media-seed Identity lookups/creators, screenshot identity validation, "
-            "and large-image owner resolution were qualified; media workflows and "
-            "Project/Dataset policy remain outside this slice.",
+            "Qualified media-seed Identity lookups, account provisioning and large-image "
+            "owner resolution. Media workflows and Project/Dataset policy were outside this slice.",
         )
     finally:
         try:

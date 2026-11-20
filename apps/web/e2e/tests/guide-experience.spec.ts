@@ -34,7 +34,7 @@ test("empty Markdown prompts differ from authored text in both themes", async ({
   page,
   seed,
   request,
-}, info) => {
+}) => {
   test.setTimeout(60_000);
   const data = await seed.owned();
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
@@ -64,7 +64,6 @@ test("empty Markdown prompts differ from authored text in both themes", async ({
     const hintColor = await placeholder.evaluate((element) => getComputedStyle(element).color);
     expect(hintColor).not.toBe(bodyColor);
     expect(await placeholder.textContent()).not.toContain("\\n");
-    await page.screenshot({ path: info.outputPath(`guide-placeholder-${theme}.png`) });
   }
   await body.fill("已经填写的标注规则");
   await expect(placeholder).toBeHidden();
@@ -76,7 +75,7 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
   page,
   seed,
   request,
-}, info) => {
+}) => {
   test.setTimeout(90_000);
   const data = await seed.owned();
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
@@ -141,7 +140,6 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
   expect(Math.abs(bounds.height - settingsBounds.height)).toBeLessThan(2);
   await expect(dialog.getByRole("heading", { name: "道路目标标注指引" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "确认已阅读", exact: true })).toBeInViewport();
-  await page.screenshot({ path: info.outputPath("workbench-guide-light.png") });
   await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
   const cardColor = await dialog.evaluate((element) => {
     const probe = document.createElement("span");
@@ -149,7 +147,6 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
     return probe.style.backgroundColor;
   });
   await expect(dialog).toHaveCSS("background-color", cardColor);
-  await page.screenshot({ path: info.outputPath("workbench-guide-dark.png") });
   // A nested image dialog must sit above the reader, and its first Esc must
   // close only the image, leaving the guide open.
   await dialog.getByRole("button", { name: /放大.*边界示例/ }).click();
@@ -215,7 +212,6 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
   expect(narrow.width).toBeGreaterThanOrEqual(835);
   expect(narrow.width).toBeLessThanOrEqual(837);
   await expect(dialog.getByRole("button", { name: "已确认阅读", exact: true })).toBeInViewport();
-  await page.screenshot({ path: info.outputPath("workbench-guide-narrow.png") });
   await dialog.getByRole("button", { name: "关闭指引", exact: true }).click();
   await expect(trigger).toBeFocused();
   // The existing app shell blocks workbench interaction below 768 px.

@@ -1467,14 +1467,12 @@ async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
                 admitted = await connection.scalar(
                     text(
                         "SELECT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_runs r "
-                        "LEFT JOIN yoao_fixture_v1.fixture_runs s ON s.id = r.parent_run_id "
+                        "JOIN yoao_fixture_v1.fixture_runs s ON s.id = r.parent_run_id "
                         "JOIN yoao_fixture_v1.fixture_run_admissions a ON a.run_id = r.id "
                         "WHERE r.id = :run AND a.id = :admission "
-                        "AND a.state = 'active' AND r.state = 'open' AND ("
-                        "(r.family = 'owned' AND s.family = 'owned' "
-                        "AND s.parent_run_id IS NULL AND s.state = 'open') OR "
-                        "(r.family = 'screenshot' AND r.parent_run_id IS NULL "
-                        "AND a.kind = 'screenshot_seed')))"
+                        "AND a.state = 'active' AND r.state = 'open' "
+                        "AND r.family = 'owned' AND s.family = 'owned' "
+                        "AND s.parent_run_id IS NULL AND s.state = 'open')"
                     ),
                     {"run": run_id, "admission": admission_id},
                 )

@@ -68,9 +68,10 @@ test("point-mask visibility removes and restores painted points without changing
       width: viewport.width * 0.65,
       height: viewport.height * 0.55,
     };
-    const capture = (path?: string) => page.screenshot({ clip, path });
+    // Sample the composited WebGL output in memory; its draw buffer is not preserved.
+    const capture = () => page.screenshot({ clip });
     await page.mouse.move(5, 5);
-    const before = await capture(test.info().outputPath("pointmask-visible.png"));
+    const before = await capture();
     const difference = async (other: Buffer) =>
       page.evaluate(
         async ([left, right]) => {
@@ -116,7 +117,6 @@ test("point-mask visibility removes and restores painted points without changing
     );
     await page.mouse.move(5, 5);
     await expect.poll(async () => difference(await capture())).toBeGreaterThan(0.0001);
-    await capture(test.info().outputPath("pointmask-hidden.png"));
     await row.getByRole("button", { name: "更多操作", exact: true }).hover();
     const show = page.waitForResponse(
       (response) =>
@@ -131,7 +131,6 @@ test("point-mask visibility removes and restores painted points without changing
     );
     await page.mouse.move(5, 5);
     await expect.poll(async () => difference(await capture())).toBeLessThan(0.005);
-    await capture(test.info().outputPath("pointmask-restored.png"));
     const token = await seed.accessToken(data.admin_email);
     const response = await request.get(
       (process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010") +

@@ -35,4 +35,4 @@ An old test database can be at Alembic head yet lack the current month's `audit_
 
 After raw-SQL migration updates, `expire_all()` can leave async ORM objects triggering implicit I/O on later attribute access and raise `MissingGreenlet`. Reload the affected rows explicitly; `apps/api/tests/test_migration_0118_compact_track_identity.py` demonstrates a targeted SELECT with `populate_existing=True`. Verify such migration handoffs against PostgreSQL in the integrated environment.
 
-Screenshot tests have their own API, worker, database, and Redis isolation; follow [media capture](../../yoao-doc-media/references/capture.md). Restarting or rebuilding never substitutes for an Alembic migration.
+Use an authorized isolated environment for [on-demand UI checks and capture](../../yoao-doc-media/references/capture.md). Restarting or rebuilding never substitutes for an Alembic migration.

@@ -148,16 +148,11 @@ const test = base.extend<{ sliceCase: Case }>({
       passed = testInfo.status === testInfo.expectedStatus;
     } finally {
       try {
-        if (!page.isClosed()) {
-          await testInfo.attach(passed ? "verified-workbench" : "failure-before-cleanup", {
-            contentType: "image/png",
-            body: await page.screenshot({ fullPage: true }),
+        if (!passed && !page.isClosed()) {
+          await testInfo.attach("failure-aria-before-cleanup", {
+            contentType: "text/plain",
+            body: await page.locator("body").ariaSnapshot(),
           });
-          if (!passed)
-            await testInfo.attach("failure-aria-before-cleanup", {
-              contentType: "text/plain",
-              body: await page.locator("body").ariaSnapshot(),
-            });
         }
         await testInfo.attach("polygon-slice-evidence", {
           contentType: "application/json",
@@ -370,15 +365,11 @@ test("H4a-1 concave preview cancels without writes, then commits the two display
   page,
   request,
   sliceCase: fixture,
-}, testInfo) => {
+}) => {
   const source = await seedSource(request, fixture);
   await open(page, fixture);
   await begin(page);
   await preview(page);
-  await testInfo.attach("concave-preview", {
-    contentType: "image/png",
-    body: await page.screenshot({ fullPage: true }),
-  });
   await controls(page).getByRole("button", { name: "取消切割", exact: true }).click();
   expect(fixture.writes).toHaveLength(0);
   expect(await reloadAndRead(page, request, fixture)).toEqual([source]);

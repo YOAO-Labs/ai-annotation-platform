@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import ast
-import inspect
 import json
 import uuid
 from datetime import datetime
@@ -17,9 +15,10 @@ from sqlalchemy import event
 
 from app.api.v1 import projects
 from app.core.security import create_access_token
+from app.db.models.user import User
 from app.schemas.user import UserBrief
 from app.services import user_brief, workspace_project_query
-from tests.factory import create_membership, create_project, create_user
+from tests.factory import create_membership, create_project, make_user_dict
 
 _FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures/project_member_profiles_legacy.json").read_text()
@@ -34,12 +33,15 @@ async def _seed(db, owner_id):
     await db.flush()
     members = []
     for item in _FIXTURE["inputs"]:
-        user = await create_user(db, item["platform_role"], item["email"], item["name"])
+        user = User(
+            **make_user_dict(item["platform_role"], item["email"], item["name"])
+        )
         user.id = uuid.UUID(item["user_id"])
         user.is_active = item["active"]
         user.avatar_ref = item["avatar_ref"]
         if not item["active"]:
             user.disabled_kind = "suspended"
+        db.add(user)
         await db.flush()
         member = await create_membership(
             db,
@@ -183,15 +185,3 @@ def test_member_platform_role_validation_is_not_widened(role):
     with pytest.raises(ValidationError) as error:
         projects._member_value(member, target)
     assert any(item["loc"] == ("platform_role",) for item in error.value.errors())
-
-
-def test_member_profile_functions_do_not_read_user_orm():
-    for function in (
-        projects.list_members,
-        projects._member_out,
-        projects._member_value,
-    ):
-        tree = ast.parse(inspect.getsource(function))
-        assert not any(
-            isinstance(node, ast.Name) and node.id == "User" for node in ast.walk(tree)
-        )

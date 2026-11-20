@@ -78,7 +78,7 @@ const config: Parameters<typeof defineConfig>[0] = {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     css: false,
-    // Screenshot *.test files use node:test; browser *.spec files use Playwright.
+    // Browser specs use separate Playwright runners.
     exclude: ["**/node_modules/**", "**/dist/**", "**/e2e/**"],
     coverage: {
       provider: "v8",

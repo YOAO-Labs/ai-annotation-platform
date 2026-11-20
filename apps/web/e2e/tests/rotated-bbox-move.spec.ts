@@ -1,6 +1,6 @@
 import { expect, test } from "../fixtures/seed";
 
-test("图片旋转框选中后拖动、保存、撤销重做及刷新恢复", async ({ page, seed }, testInfo) => {
+test("图片旋转框选中后拖动、保存、撤销重做及刷新恢复", async ({ page, seed }) => {
   test.setTimeout(90_000);
   const data = await seed.owned();
   const taskId = data.task_ids[0];
@@ -129,6 +129,5 @@ test("图片旋转框选中后拖动、保存、撤销重做及刷新恢复", as
   await page.mouse.down();
   await expect(stage).toHaveAttribute("data-drag-kind", "moveRotatedBox");
   await page.mouse.up();
-  await stage.screenshot({ path: testInfo.outputPath("rotated-bbox-moved.png") });
   expect(errors).toEqual([]);
 });

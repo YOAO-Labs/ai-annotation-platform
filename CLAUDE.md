@@ -46,7 +46,7 @@
 - Put select labels above the control and explanatory hints below it. Hints use `text-xs text-muted-foreground` with comfortable line height and `aria-describedby`; never use pure white or primary foreground for hints. Keep option labels concise. Do not embed explanations, defaults or instruction text inside selected values or option labels; empty native selects can use a blank disabled hidden option.
 - Management lists should use the available content width. Prefer the existing centered `Modal` for item details and creation forms instead of a permanently reserved, mostly empty detail column. Preserve deep links, pagination, return navigation, Escape dismissal and focus restoration. Keep long detail content scrollable inside the dialog.
 - Organize complex workflows around the current item, primary action and actionable results. Put infrequent configuration, history and detailed accounting behind clearly named disclosures; keep active work, errors and required confirmations visible. Auto-open initial setup when no item exists and relevant history when directly linked.
-- Before completing UI changes, inspect real browser screenshots in light and dark themes and at desktop and narrow widths; exercise the changed controls and check for horizontal overflow, console errors and failed requests. Preserve the manual acceptance environment and clean task-owned test artifacts.
+- For UI verification, screenshots or recordings, open a fresh named `agent-browser` session on an authorized isolated environment with the requested role, state and safe data. Operate real controls; verify visible results, relevant requests and persistence as applicable. Never inject state to simulate success. Inspect any temporary evidence for truthful content and privacy before sharing; only update published assets when explicitly requested. Do not add capture scenarios, scripts, baselines, or CI capture. See [on-demand UI checks and capture](docs-site/dev/how-to/update-screenshots.md).
 
 ## Documentation and releases
 
@@ -76,7 +76,7 @@ Use only the relevant entry. Paths in skills are repository-relative unless link
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | Worktree setup, runtime refresh, stuck Celery tasks                     | [yoao-runtime](.agents/skills/yoao-runtime/SKILL.md)                             |
 | App release/version synchronization                                     | [yoao-release](.agents/skills/yoao-release/SKILL.md)                             |
-| Screenshot/video capture, media provenance or review failures           | [yoao-doc-media](.agents/skills/yoao-doc-media/SKILL.md)                         |
+| On-demand UI verification, screenshots or recordings                    | [yoao-doc-media](.agents/skills/yoao-doc-media/SKILL.md)                         |
 | Workbench layout, preferences, task switching, playback or write guards | [yoao-workbench-state](.agents/skills/yoao-workbench-state/SKILL.md)             |
 | Point-cloud/WebGPU or precise-video qualification                       | [yoao-renderer-validation](.agents/skills/yoao-renderer-validation/SKILL.md)     |
 | Python SDK/CLI/TUI capability or API-contract changes                   | [yoao-sdk-contracts](.agents/skills/yoao-sdk-contracts/SKILL.md)                 |

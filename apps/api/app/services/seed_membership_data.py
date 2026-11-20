@@ -17,16 +17,10 @@ from yoao_workspace.seed_member_contract import (
     SeedMemberWriteRequest,
     decode_seed_member_write_reply,
 )
-from yoao_workspace.seed_member_assignment_contract import (
-    decode_seed_member_assignment_reply,
-)
 from app.db.models.project_member import ProjectMember
 
 _UNKNOWN = object()
 _WRITE = text("SELECT yoao_workspace_v1.write_seed_members(CAST(:request AS jsonb))")
-_PIN_ASSIGNMENT = text(
-    "SELECT yoao_workspace_v1.pin_seed_member_assignment(CAST(:member_id AS uuid),CAST(:assigned_at AS timestamptz))"
-)
 
 
 def _original(member, key):
@@ -43,25 +37,22 @@ class _Change:
     original_assigner: object
     role: str
     assigned_by: uuid.UUID
-    original_assigned_at: object = _UNKNOWN
-    assigned_at: object = _UNKNOWN
 
 
 class SeedMembershipWrites:
-    """Stage legacy membership fields and optional screenshot assignment time."""
+    """Stage membership changes for the Workspace owner."""
 
     def __init__(self, db):
         self.db = db
         self.inserts = []
         self.changes = {}
         self.failed_flush = False
-        self.assignment_times = {}
 
     def role(self, member):
         change = self.changes.get(member.id)
         return change.role if change is not None else member.role
 
-    def add(self, *, project_id, user_id, role, assigned_by, assigned_at=_UNKNOWN):
+    def add(self, *, project_id, user_id, role, assigned_by):
         operation = SeedMemberInsert(
             kind="insert",
             id=uuid.uuid4(),
@@ -71,11 +62,9 @@ class SeedMembershipWrites:
             assigned_by=assigned_by,
         )
         self.inserts.append(operation)
-        if assigned_at is not _UNKNOWN:
-            self.assignment_times[operation.id] = assigned_at
         return operation
 
-    def change(self, member, *, role, assigned_by, assigned_at=_UNKNOWN):
+    def change(self, member, *, role, assigned_by):
         change = self.changes.get(member.id)
         if change is None:
             change = _Change(
@@ -88,14 +77,6 @@ class SeedMembershipWrites:
             self.changes[member.id] = change
         change.role = role
         change.assigned_by = assigned_by
-        if assigned_at is not _UNKNOWN:
-            if change.assigned_at is _UNKNOWN:
-                change.original_assigned_at = _original(member, "assigned_at")
-            change.assigned_at = assigned_at
-            if change.original_assigned_at != assigned_at:
-                self.assignment_times[member.id] = assigned_at
-            else:
-                self.assignment_times.pop(member.id, None)
 
     def _flush(self, session):
         self.failed_flush = False
@@ -125,15 +106,6 @@ class SeedMembershipWrites:
                     key,
                     change.member.__dict__[key] if original is _UNKNOWN else original,
                 )
-            if change.assigned_at is not _UNKNOWN:
-                original = change.original_assigned_at
-                set_committed_value(
-                    change.member,
-                    "assigned_at",
-                    change.member.__dict__["assigned_at"]
-                    if original is _UNKNOWN
-                    else original,
-                )
         try:
             session.flush()
             operations = [*updates, *self.inserts]
@@ -150,27 +122,11 @@ class SeedMembershipWrites:
                     raise StaleDataError(
                         "Seed membership UPDATE expected one row; none matched"
                     )
-            pinned = {}
-            for member_id, assigned_at in self.assignment_times.items():
-                raw = session.scalar(
-                    _PIN_ASSIGNMENT,
-                    {"member_id": member_id, "assigned_at": assigned_at},
-                )
-                reply = decode_seed_member_assignment_reply(
-                    raw, member_id=member_id, assigned_at=assigned_at
-                )
-                if not reply.found:
-                    raise StaleDataError(
-                        "Seed membership assignment expected one row; none matched"
-                    )
-                pinned[member_id] = reply
         except BaseException:
             self.failed_flush = True
             for change in self.changes.values():
                 change.member.role = change.role
                 change.member.assigned_by = change.assigned_by
-                if change.assigned_at is not _UNKNOWN:
-                    change.member.assigned_at = change.assigned_at
             raise
         for operation, reply in zip(operations, replies, strict=True):
             if operation.kind == "insert":
@@ -180,12 +136,8 @@ class SeedMembershipWrites:
                     user_id=operation.user_id,
                     role=operation.role,
                     assigned_by=operation.assigned_by,
-                    assigned_at=pinned[operation.id].assigned_at
-                    if operation.id in pinned
-                    else reply.assigned_at,
-                    updated_at=pinned[operation.id].updated_at
-                    if operation.id in pinned
-                    else reply.updated_at,
+                    assigned_at=reply.assigned_at,
+                    updated_at=reply.updated_at,
                     version=1,
                     weekly_target=None,
                 )
@@ -198,13 +150,8 @@ class SeedMembershipWrites:
         for change in self.changes.values():
             set_committed_value(change.member, "role", change.role)
             set_committed_value(change.member, "assigned_by", change.assigned_by)
-            if change.assigned_at is not _UNKNOWN:
-                set_committed_value(change.member, "assigned_at", change.assigned_at)
-            if change.member.id in pinned:
-                session.expire(change.member, ["updated_at"])
         self.inserts.clear()
         self.changes.clear()
-        self.assignment_times.clear()
 
     async def flush(self):
         try:

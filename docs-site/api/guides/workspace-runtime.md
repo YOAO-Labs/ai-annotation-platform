@@ -253,7 +253,7 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 账号创建由独立的 Identity 种子能力持有。此范围只包含主脚本自身的账号和成员操作；
 媒体子脚本及完整模块资格见[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
 
-### 媒体及截图种子
+### 媒体种子 {#媒体及截图种子}
 
 媒体 Project 使用 `aap-workspace-media-seed-project/v1`，成员固定时间使用
 `aap-workspace-seed-member-assignment/v1`，均借用调用方事务：
@@ -266,13 +266,13 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 
 Project 投影接受名称、类型、owner、状态、AI 标志、工具绑定、主后端／流水线及两项
 时间戳，拒绝未知或空补丁；计数继续由 Labeling owner 持有。未指定 updated_at 时
-使用事务时间，显式时间戳可用于截图固定；原外键、唯一约束和调用方提交／回滚保留。
+使用事务时间；原外键、唯一约束和调用方提交／回滚保留。
 成员时间能力只在原脏字段需要写入时调用，保留陈旧缓存下的原 UPDATE 语义；同一
 调用方事务组合现有角色／分配人写入，保留 version 与 weekly_target。
 
 授权使用上述可信种子追加配置；普通 Workspace consumer 配置不授予三项新能力。旧 development 兼容
 角色继续可运行脚本，专用 maintenance LOGIN 仍保留原六项能力。实际调用边界和
-本地验收范围见[模块台账](/dev/concepts/module-deployment#workspace-媒体及截图种子)。
+历史本地验收范围见[模块台账](/dev/concepts/module-deployment#workspace-媒体及截图种子)，其中录制与 OCR 专用 CLI 已退役。
 
 ### 门控 E2E 夹具
 
@@ -301,14 +301,14 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 最终删除再次检查，拒绝时回滚项目和子记录并保留重试锚点，但不撤销已完成的对象删除。
 不得补造退役凭证。项目和模板残留均使清理失败；shared reset 前先显式清理各 owned namespace。
 
-### 规模种子与截图支持读取
+### 规模种子
 
 规模种子使用 `aap-workspace-scale-seed/v1`，保留 SQL 默认值和显示编号序列。项目初始
 `total_tasks` 由既有 Labeling projection 在同一事务中写入。每次调用必须提供唯一
 `--run-id`；项目和数据集 UUID 在提交时登记到私有夹具清单，已存在的旧名称不会被接管。
 
-| 能力                                                           | 语义                                                                                 |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 能力                                                            | 语义                                                                                 |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `yoao_workspace_v1.create_scale_seed_project(uuid,text)`        | 插入固定类型的项目，保留 PostgreSQL 默认值，返回生成 UUID                            |
 | `yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)`    | 插入标注职责；冲突时不更新，返回 0 或 1                                              |
 | `yoao_workspace_v1.guard_scale_seed_cleanup(text)`              | 捕获并锁定精确名称范围，先检查 Learning 保留及视频退役                               |
@@ -324,8 +324,7 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 owner 通道访问私有台账和写入；Identity 账号选择使用单独的受限运行账号，权限缺失
 时不会切回 owner。普通 API／worker 不获得夹具 owner 权限。生产环境仍在 CLI 创建
 engine 前拒绝。旧 `scale-seed` 名称不会由新运行的清理隐式删除。
-两个截图支持助手复用 `get_workspace_project`，保留原 Session.get 缓存与范围校验。
-这些消费者的 Workspace 边界不代表其余领域的批量 DML 已完成提取。
+此消费者的 Workspace 边界不代表其余领域的批量 DML 已完成提取。
 
 ## 锁定权限与会话快照
 
@@ -535,7 +534,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 配置脚本拒绝不匹配的数据库、owner、管理账号和普通账号向外的角色继承，并检查
 有效的 PUBLIC 权限；失败整份回滚。迁移者可保持继承运行账号的既有维护方向。
 未来 public 表／序列不再自动获得宽权限；迁移或重新应用兼容授权后应重新执行配置。
-显式 seed／截图准备使用单独操作账号；普通账号不再直接读写这些私表。
+显式 seed 使用单独操作账号；普通账号不再直接读写这些私表。
 
 兼容部署脚本也提供默认同事务配置、模板及目录查询的 policy／step 和成员搜索能力，
 无需为了补权限而改选连接。13项本地定向案例通过，含真实HTTP生命周期与搜索、

@@ -507,8 +507,6 @@ last_reviewed: 2026-11-20
 | `E2E_SEED_ENABLED` | `false` | 名称以 _e2e 或 _test 结尾的数据库；这些端点会创建和删除固定测试数据， 绝不要在开发库、staging 或 production 数据库上开启。 |
 | `PLAYWRIGHT_RASTER_FAULT_MANIFEST` | `—` | 仅由隔离 E2E 协调器提供：产品启动前准备的 Raster 故障夹具清单路径。 |
 | `AAP_FIXTURE_TOOLS_ROOT` | `—` | 仅由私有夹具协调器传入：fixture_suite_coordinator.py 所在的绝对目录。 |
-| `AAP_SCREENSHOT_SOURCE_CACHE` | `—` | 仅供隔离截图测试进程：已核验源素材缓存的绝对路径，只读，派生内容另写入任务独有的 pytest 临时目录。 不放入日常运行配置；目录结构与核验规则见 DEV.md。 |
-| `AAP_SCREENSHOT_NUSCENES_ARCHIVE` | `—` | 仅供隔离截图测试进程：官方 nuScenes v1.0-mini.tgz 的绝对路径，必须通过固定大小及 SHA-256 核验。 |
 
 ## Docker 卷存储位置 (可选)
 
@@ -516,14 +514,6 @@ last_reviewed: 2026-11-20
 |---|---|---|
 | `DATA_ROOT` | `/srv/annotation-data` | 默认 docker compose 用 Docker 托管的命名卷 (落在 /var/lib/docker/volumes)。 想把所有命名卷 (pgdata/minio/模型权重/监控) 集中到宿主机统一目录便于 备份/迁移/指定磁盘, 叠加 docker-compose.hostvols.yml 并设 DATA_ROOT: export DATA_ROOT=/srv/annotation-data   # 绝对路径, 子目录须先 mkdir docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d 想固化成默认 (免每次敲 -f), 取消下面两行注释: |
 | `COMPOSE_FILE` | `docker-compose.yml:docker-compose.hostvols.yml` | — |
-
-## Video capture uses process-local settings, not persistent application defaults.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `MARKETING_HEADLESS_GPU` | `—` | 无头 NVIDIA 母版录制可选：指定 nvidia-smi 报告的 PCI bus ID（例如 00000000:73:00.0）；默认选第一张 GPU。仅在采集进程中设置。 |
-| `MARKETING_FFMPEG` | `—` | 无头录制可选：指定支持 NVENC、libx264、x11grab 的 ffmpeg；默认验证 PATH，再尝试 /usr/bin。 |
-| `MARKETING_FFPROBE` | `—` | 无头录制可选：指定 ffprobe；默认使用所选 ffmpeg 同目录中的 ffprobe。 |
 
 ## 工作树运行时内部标识
 

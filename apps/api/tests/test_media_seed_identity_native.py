@@ -2,35 +2,23 @@
 
 from __future__ import annotations
 
-import builtins
 import json
 import os
 from pathlib import Path
 import uuid
 
 import pytest
-from sqlalchemy import event, select, text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.core.security import hash_password, verify_password
 from app.db.models.dataset import Dataset, ProjectDataset
-from app.db.models.fixture_run import FixtureRunResource
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.services import screenshot_seed_catalog as catalog
 from app.services.identity_commands import IdentityCommandService
-from app.services.screenshot_seed_spec import USER_SPECS, fixture_persona_email
-from scripts import (
-    seed_coco8,
-    seed_large_images,
-    seed_ocr,
-    seed_screenshot_profile,
-    seed_video,
-)
+from scripts import seed_coco8, seed_large_images, seed_video
 from tests.test_workspace_consumer_profile_native import _grants, _world
-
-pytest_plugins = ("tests.screenshot_seed_support",)
 
 ROOT = Path(__file__).resolve().parents[3]
 GOLDEN_PATH = ROOT / "apps/api/tests/fixtures/media_seed_identity_legacy.json"
@@ -138,9 +126,7 @@ def _commits(db):
     return counts
 
 
-@pytest.mark.parametrize(
-    "module", [seed_coco8, seed_video, seed_ocr], ids=["coco8", "video", "ocr"]
-)
+@pytest.mark.parametrize("module", [seed_coco8, seed_video], ids=["coco8", "video"])
 @pytest.mark.parametrize("autoflush", [True, False])
 @pytest.mark.parametrize(
     "scenario", ["new_commit", "new_rollback", "existing_commit", "production"]
@@ -228,124 +214,35 @@ async def test_media_admin_behavior(
     _replay(name, state, record_property)
 
 
-@pytest.mark.parametrize("scenario", ["valid", "missing", "wrong_role", "inactive"])
-async def test_screenshot_personas_use_exact_owned_accounts(screenshot_seed, scenario):
-    run_id = screenshot_seed.run_id
-    async with screenshot_seed.sessions() as db:
-        user_id = await db.scalar(
-            select(FixtureRunResource.resource_id).where(
-                FixtureRunResource.run_id == run_id,
-                FixtureRunResource.kind == "user",
-                FixtureRunResource.logical_key == "annotator",
-                FixtureRunResource.state == "published",
-            )
-        )
-        user = await db.get(User, user_id)
-        assert user is not None
-        email = fixture_persona_email(run_id, USER_SPECS["annotator"][0])
-        if scenario == "missing":
-            user.email = f"absent-{run_id.hex}"
-        elif scenario == "wrong_role":
-            user.role = "viewer"
-        elif scenario == "inactive":
-            user.is_active = False
-        await db.flush()
-        commits = _commits(db)
-        if scenario == "valid":
-            users = await seed_screenshot_profile._seed_users(db, run_id)
-            assert users["annotator"] == user_id
-            assert set(users) == set(USER_SPECS)
-        else:
-            with pytest.raises(seed_screenshot_profile.ScreenshotSeedReconcileError):
-                await seed_screenshot_profile._seed_users(db, run_id)
-        assert commits[0] == 0
-
-        async with screenshot_seed.media_gateway(run_id) as media:
-            if scenario == "valid":
-                result = await catalog.build_screenshot_seed_catalog(
-                    db, run_id=run_id, backend_requirements="none", media=media
-                )
-                assert result["users"]["annotator"]["id"] == str(user_id)
-                assert result["users"]["annotator"]["email"] == email
-            else:
-                with pytest.raises(catalog.ScreenshotSeedCatalogError):
-                    await catalog.build_screenshot_seed_catalog(
-                        db, run_id=run_id, backend_requirements="none", media=media
-                    )
-        await db.rollback()
-
-
-@pytest.mark.parametrize("scenario", ["valid", "missing", "wrong_role", "inactive"])
-async def test_restricted_identity_reads_run_owned_personas(
-    media_world, screenshot_seed, scenario
+@pytest.mark.parametrize(
+    ("role", "active"),
+    [("employee", True), ("viewer", True), ("employee", False)],
+)
+async def test_restricted_seed_account_lookup_preserves_existing_identity(
+    media_world, role, active
 ):
-    _, producer = media_world
-    run_id = screenshot_seed.run_id
-    async with screenshot_seed.sessions() as owner:
-        user_id = await owner.scalar(
-            select(FixtureRunResource.resource_id).where(
-                FixtureRunResource.run_id == run_id,
-                FixtureRunResource.kind == "user",
-                FixtureRunResource.logical_key == "annotator",
-                FixtureRunResource.state == "published",
-            )
-        )
-        user = await owner.get(User, user_id)
-        assert user is not None
-        original = (user.email, user.role, user.is_active)
+    owner, producer = media_world
+    email = f"lookup-{uuid.uuid4().hex}@seed.test"
+    user_id, _ = await _actor(owner, email, role=role, active=active)
+    async with producer() as db:
+        for query in (
+            "SELECT id FROM public.users LIMIT 1",
+            "SELECT resource_id FROM yoao_fixture_v1.fixture_run_resources LIMIT 1",
+        ):
+            with pytest.raises(DBAPIError) as denied:
+                await db.execute(text(query))
+            assert denied.value.orig.sqlstate == "42501"
+            await db.rollback()
 
-    failure = None
-    try:
-        async with screenshot_seed.sessions.begin() as owner:
-            user = await owner.get(User, user_id)
-            if scenario == "missing":
-                user.email = f"absent-{run_id.hex}"
-            elif scenario == "wrong_role":
-                user.role = "viewer"
-            elif scenario == "inactive":
-                user.is_active = False
-
-        async with producer() as db:
-            for query in (
-                "SELECT id FROM public.users LIMIT 1",
-                "SELECT resource_id FROM yoao_fixture_v1.fixture_run_resources LIMIT 1",
-            ):
-                with pytest.raises(DBAPIError) as denied:
-                    await db.execute(text(query))
-                assert getattr(denied.value.orig, "sqlstate", None) == "42501"
-                await db.rollback()
-
-            commits = _commits(db)
-            rows = await IdentityCommandService(db).lookup_seed_account_facts(
-                original[0]
-            )
-            if scenario == "missing":
-                assert rows == []
-            else:
-                assert rows == [
-                    (
-                        user_id,
-                        original[0],
-                        "viewer" if scenario == "wrong_role" else original[1],
-                        False if scenario == "inactive" else original[2],
-                    )
-                ]
-            assert commits[0] == 0
-    except BaseException as exc:
-        failure = exc
-        raise
-    finally:
-        try:
-            async with screenshot_seed.sessions.begin() as owner:
-                user = await owner.get(User, user_id)
-                user.email, user.role, user.is_active = original
-        except BaseException as restore_failure:
-            if failure is not None:
-                raise builtins.BaseExceptionGroup(
-                    "Restricted Identity read and persona restoration failed",
-                    [failure, restore_failure],
-                ) from None
-            raise
+        commits = _commits(db)
+        identity = IdentityCommandService(db)
+        assert await identity.lookup_seed_account_id(email) == user_id
+        missing_email = f"absent-{email}"
+        assert await identity.lookup_seed_account_id(missing_email) is None
+        assert await identity.lookup_seed_accounts({email, missing_email}) == {
+            email: user_id
+        }
+        assert commits[0] == 0
 
 
 @pytest.mark.parametrize(

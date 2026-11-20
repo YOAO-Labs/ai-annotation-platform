@@ -383,7 +383,7 @@ test.describe("Tracker 审阅范围：真实服务与范围所有权", () => {
     page,
     request,
     reviewCase: fixture,
-  }, testInfo) => {
+  }) => {
     const [first, second] = fixture.jobs;
     expect(first.job_id).not.toBe(second.job_id);
     const before = await annotations(request, fixture);
@@ -399,10 +399,6 @@ test.describe("Tracker 审阅范围：真实服务与范围所有权", () => {
     await expectScope(page, second.job_id, ["A"], 12, 15, 4);
     await seek(page, 12);
     const onlyA = await expectCandidates(page, secondPreview, 12, ["A"]);
-    await testInfo.attach("scope-a-f12.png", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
     await seek(page, 11);
     const outside = await expectCandidates(page, secondPreview, 11, []);
     await expectScope(page, second.job_id, ["A"], 12, 15, 4);
@@ -441,10 +437,6 @@ test.describe("Tracker 审阅范围：真实服务与范围所有权", () => {
     await expectScope(page, first.job_id, ["B"], 10, 11, 2);
     await chooseJob(page, second.job_id);
     await expectScope(page, second.job_id, ["B"], 12, 15, 4);
-    await testInfo.attach("scope-b-f12.png", {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
     expect(await annotations(request, fixture)).toEqual(before);
     await page.reload();
     await openContextToolbar(page, "tracker-review");

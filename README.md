@@ -303,7 +303,6 @@ pnpm format
 # 前端测试
 pnpm test
 pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 隔离资源与受限 API
-pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # 后端
@@ -319,6 +318,8 @@ pnpm docs:build
 ```
 
 E2E 不复用开发环境的 `3000/8000` 或 `annotation` 数据库。测试路由默认关闭，仅对显式开启且名称以 `_e2e` / `_test` 结尾的数据库开放。详见 [E2E 运行说明](./apps/web/e2e/README.md)。
+
+需要验收界面、截图或录屏时，参照[按需截图与录屏](./docs-site/dev/how-to/update-screenshots.md)，在获授权的隔离环境中用 `agent-browser` 操作本次指定流程。产品 CI 继续验证功能与渲染，不定期采集素材、不维护截图基线；失败诊断仍可保留截图和 trace。
 
 API 变更后同步跑 `pnpm openapi:export` 和 `pnpm codegen`；环境变量变更后同步更新 `.env.example` 并跑 `pnpm docs:gen-env-vars`。
 
@@ -367,7 +368,7 @@ ai-annotation-platform/
 ├── infra/                         # Docker、Prometheus、Grafana、Nginx 等基础设施配置
 ├── scripts/                       # OpenAPI、docs impact、seed、存储迁移与维护脚本
 ├── docker-compose.yml             # 基础栈（postgres/redis/minio/celery + 监控 profile）
-├── docker-compose.ml.yml          # GPU ML Backend 与截图协议 stub 叠加
+├── docker-compose.ml.yml          # ML 共享叠加（服务在各插件叠加文件）
 ├── pnpm-workspace.yaml
 └── package.json
 ```
@@ -383,7 +384,7 @@ ai-annotation-platform/
 | 数据 | PostgreSQL 16、Redis 7、MinIO / S3 兼容对象存储、DuckDB 分析视图                 |
 | AI   | Grounded-SAM-2、SAM 3、Ultralytics YOLO、LibreYOLO、ONNX Runtime、RapidOCR       |
 | 文档 | VitePress、Mermaid、OpenAPI / Scalar、ADR                                        |
-| CI   | GitHub Actions、docs impact、visual regression、OpenAPI snapshot check           |
+| CI   | GitHub Actions、docs impact、功能 E2E、OpenAPI snapshot check                    |
 
 ## 贡献前检查
 

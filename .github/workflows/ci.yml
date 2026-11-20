@@ -268,29 +268,6 @@ jobs:
       - name: pnpm install
         working-directory: apps/web
         run: pnpm install --frozen-lockfile
-      - name: Test recording and media tools
-        id: media-tools
-        run: |
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
-          fi
-          pnpm --filter web screenshots:test --test-reporter=spec --test-reporter-destination=stdout \
-            --test-reporter=junit --test-reporter-destination=web-media-tools.xml
-          python3 - <<'PY'
-          from xml.etree import ElementTree
-          cases = ElementTree.parse("apps/web/web-media-tools.xml").findall(".//testcase")
-          skipped = [case.get("name") for case in cases if case.find("skipped") is not None]
-          if not cases or skipped:
-              raise SystemExit(f"Linux media tool tests must execute: {len(cases)} cases, skipped: {skipped}")
-          PY
-      - name: Upload media tool test results
-        if: ${{ !cancelled() && steps.media-tools.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-media-tool-tests
-          path: apps/web/web-media-tools.xml
-          if-no-files-found: error
       - name: tsc + build (codegen reads checked-in snapshot)
         working-directory: apps/web
         env:

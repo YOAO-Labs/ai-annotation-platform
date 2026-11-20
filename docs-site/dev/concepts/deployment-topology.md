@@ -19,7 +19,7 @@ last_reviewed: 2026-10-19
 
 ### 同机协作
 
-生产核心栈由 `docker-compose.yml` 叠加 `docker-compose.prod.yml` 启动；SAM 服务在 `docker-compose.ml.yml`，其他官方服务在各自的可选插件叠加文件中按 profile 启用。使用同一 Compose project 时，worker 可以通过 service DNS 访问 `grounded-sam2-backend:8001` 等实例，无需绕经宿主回环。
+生产核心栈由 `docker-compose.yml` 叠加 `docker-compose.prod.yml` 启动；需要官方推理服务时，在共享 `docker-compose.ml.yml` 之外叠加对应的插件文件并启用其 profile。使用同一 Compose project 时，worker 可以通过 service DNS 访问 `grounded-sam2-backend:8001` 等实例，无需绕经宿主回环。
 
 同机不等于必须同启所有模型。Grounded-SAM-2、SAM 3、YOLO、ONNXTools 和 RapidOCR 都是可选 profile，应按显存预算组合。容量上限取决于媒体尺寸、模型、worker 并发和存储性能，不用固定“标注员数”判定。
 

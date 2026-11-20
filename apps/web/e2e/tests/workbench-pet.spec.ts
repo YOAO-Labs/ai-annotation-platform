@@ -120,7 +120,6 @@ test("桌宠切换信息时保持位置，展开详情后隐藏简化气泡", as
     x: baseline.x - 60,
     y: baseline.y - 40,
   });
-  await page.screenshot({ path: testInfo.outputPath("pet-details.png") });
   await testInfo.attach("pet-positions", {
     body: JSON.stringify(measurements),
     contentType: "application/json",

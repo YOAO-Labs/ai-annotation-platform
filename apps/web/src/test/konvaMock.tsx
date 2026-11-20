@@ -2,8 +2,7 @@
  * react-konva DOM stand-in mock(画布栈统一地基 · 决策 C 的工程落地)。
  *
  * ⚠️ 本 mock 只验证「交互 + props 透传」,不验证真实 canvas 渲染。
- *     真实渲染回归交给 Playwright(见 e2e/tests/workbench-image-konva-smoke.spec.ts)。
- *     —— 三层测试分工:纯函数单测 / konva mock(本文件)/ Playwright 截图基线。
+ *     真实渲染由浏览器测试验证，例如 filter-workbench.spec.ts 检查隐藏和恢复标注后的画布像素。
  *
  * 做法:把每个 Konva 组件渲染成
  *     <div data-konva="Rect" data-testid={props.name} ...几何/样式 props 透传 ...>

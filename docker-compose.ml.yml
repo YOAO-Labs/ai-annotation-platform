@@ -1,25 +1,3 @@
-# Shared screenshot overlay. Official inference plugins each have an explicit
-# optional docker-compose.ml-<provider>.yml overlay with reviewed image inputs.
-# The screenshot stub needs no plugin image variables.
-
-services:
-  # 截图/视觉回归专用 CPU 协议 stub。平台宿主进程与 Celery 容器都通过已发布端口访问，
-  # registry URL 默认复用 ML_BACKEND_STORAGE_HOST 的主机部分并改用 9100；也可在 seed 命令覆盖。
-  screenshot-ml-stub:
-    build:
-      context: ./docs-site/dev/examples/mock-v2-backend
-    profiles: ["screenshots"]
-    ports:
-      - "9100:9100"
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:9100/health', timeout=3)"
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+# Shared storage for the optional inference plugin overlays.
 volumes:
   yolo_checkpoints:

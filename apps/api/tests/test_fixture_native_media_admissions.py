@@ -2,7 +2,6 @@
 
 Run with a verified disposable TEST_DATABASE_URL ending in ``_test``; conftest
 migrates that database. These transactional rows are rolled back after each test.
-The screenshot CLI with independent workers and HTTP reads must be qualified separately.
 """
 
 from uuid import uuid4
@@ -12,6 +11,55 @@ from sqlalchemy import text
 
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_legacy_native_reader_origin_is_not_reused_until_retired(db_session):
+    from app.services.fixture_run_ownership import seal
+
+    first, second = uuid4(), uuid4()
+    origin = f"http://proxy-{first.hex}.invalid:9000"
+    for run in (first, second):
+        await db_session.execute(
+            text(
+                "INSERT INTO yoao_fixture_v1.fixture_runs (id,family) VALUES (:run,'screenshot')"
+            ),
+            {"run": run},
+        )
+        await db_session.execute(
+            text(f"CREATE ROLE aap_fixture_media_read_{run.hex} LOGIN NOINHERIT")
+        )
+
+    async def register(run):
+        return await db_session.scalar(
+            text(
+                "SELECT yoao_assets_v1.register_fixture_native_reader("
+                ":run, CAST(:role AS name), :origin)"
+            ),
+            {"run": run, "role": f"aap_fixture_media_read_{run.hex}", "origin": origin},
+        )
+
+    async def identity(run):
+        return await db_session.scalar(
+            text("SELECT yoao_assets_v1.fixture_native_reader_identity(:run)"),
+            {"run": run},
+        )
+
+    assert await register(first) is True
+    original = await identity(first)
+    assert await register(second) is False
+    assert await identity(second) is None
+    await seal(db_session, first, family="screenshot")
+    assert await register(second) is False
+    assert await db_session.scalar(
+        text("SELECT yoao_assets_v1.retire_fixture_native_reader(:run)"), {"run": first}
+    )
+
+    assert await register(second) is True
+    assert await identity(first) == {**original, "state": "retired"}
+    replacement = await identity(second)
+    assert replacement["proxy_origin"] == original["proxy_origin"] == origin
+    assert replacement["name"] == f"aap_fixture_media_read_{second.hex}"
+    assert replacement["state"] == "active" and replacement["oid"] != original["oid"]
 
 
 @pytest.mark.parametrize("family", ["image", "media"])

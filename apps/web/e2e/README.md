@@ -21,7 +21,6 @@ pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e e2e/tests/auth.spec.ts
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --headed
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --ui
-pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # Mask native 独占入口自行准备并监督 e2e 环境，不要嵌套 dev:worktree exec
@@ -30,13 +29,13 @@ pnpm --filter web test:e2e:mask-native
 
 首次运行需要 `pnpm exec playwright install chromium` 装浏览器。
 
-CI 使用 `line` reporter 显示正在执行的用例及重试，同时保留 GitHub annotations、HTML 和 `e2e-results.json` 报告。Actions 摘要分别列出每个套件通过、失败、重试后通过（flaky）、跳过数量及执行时间。每次失败尝试都保留截图和 trace，包括零重试的视觉基线套件；报告缺失会明确提示检查启动或超时日志。分片内按单 worker 串行运行；排查长时间执行时先查看当前用例和超时信息，不能只凭 WebSocket 断连日志判断测试卡死。
+CI 使用 `line` reporter 显示正在执行的用例及重试，同时保留 GitHub annotations、HTML 和 `e2e-results.json` 报告。Actions 摘要分别列出每个套件通过、失败、重试后通过（flaky）、跳过数量及执行时间。每次失败尝试保留截图和 trace；成功路径不保存截图或对比图片基线。报告缺失时应检查启动或超时日志。分片内按单 worker 串行运行；排查长时间执行时先查看当前用例和超时信息，不能只凭 WebSocket 断连日志判断测试卡死。
 
-CI 功能用例最多重试一次；视觉基线不重试，压力用例最多重试一次。首个用例最终失败后终止当前分片，其他分片继续完成各自诊断。每个 Playwright 测试进程总限时 15 分钟，测试步骤限时 20 分钟，整个 E2E job（含安装和构建）限时 30 分钟。分层限时为清理和报告上传保留余量，并在测试进程无法自行退出时由 Actions 兜底。本地运行不启用这些 CI 早退限制。
+CI 核心 smoke 不重试，完整功能和压力用例最多重试一次。首个用例最终失败后终止当前分片，其他分片继续完成各自诊断。每个 Playwright 测试进程总限时 15 分钟，测试步骤限时 20 分钟，整个 E2E job（含安装和构建）限时 30 分钟。分层限时为清理和报告上传保留余量，并在测试进程无法自行退出时由 Actions 兜底。本地运行不启用这些 CI 早退限制。
 
-## 功能、视觉与压力测试
+## 功能、渲染与压力测试
 
-默认 `playwright.config.ts` 排除 `@visual`、`@stress`；扩展配置拆成两个入口，均复用相同项目、服务和数据隔离配置：`playwright.extended.config.ts` 只选择 `@visual`（零重试），`playwright.stress.config.ts` 选择 `@stress`（最多重试一次，用于区分确定性损坏与 runner 资源饥饿，重试通过仍标记 flaky）。不要在功能测试中混入整页或整个工作区的截图断言。给视觉测试添加 `{ tag: "@visual" }`，保持其标题、文件位置和项目名以复用既有基线；有意的外观变化经人工核对差异后，用 `pnpm test:e2e:visual --update-snapshots` 更新并提交基线，不能自动接受差异。
+默认 `playwright.config.ts` 排除 `@stress`；`playwright.stress.config.ts` 只选择 `@stress`，复用服务和数据隔离。压力集的一次诊断重试用于区分确定性损坏与 runner 资源饥饿，重试通过仍标记 flaky。通过可操作控件、布局尺寸、状态流转、实际像素采样和保存结果验证产品行为，而不是比较整页图。需要人工核对外观或提供演示时，按[按需截图与录屏](../../../docs-site/dev/how-to/update-screenshots.md)只操作本次相关流程，不增加采集套件。
 
 Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
 `PLAYWRIGHT_RASTER_MASK_MATRIX` 选择，未指定矩阵时不选这两组标签；不要用条件
@@ -73,16 +72,15 @@ HTTP 准入、确认全部真实请求及跟踪的工作结束并关闭数据库
 
 CI 调度规则由根目录 `scripts/plan-e2e-suites.mjs` 维护：
 
-- 每个 PR 始终执行四个功能分片、三个 Mask 套件及独立点云专项。
-- `apps/web/`、`apps/api/`、`packages/`、共享依赖/容器配置、E2E workflow 或路由脚本变更时，追加视觉和压力套件。分类保守覆盖共享依赖；布局或样式 PR 也会跑完整压力矩阵，只是与功能检查独立执行和报告。
-- 主分支执行全部已登记套件。`E2E extended` 每天 UTC 19:00（北京时间次日 03:00）及手动运行两个扩展套件。文档截图的每周 `Browser checks` 保持独立。
+- 普通 PR 使用核心 smoke 加受影响的 Mask、视频、点云等专项；共享依赖、未知路径等高影响变更保守扩大选集。白名单内的纯文档变更显式跳过应用 E2E；`E2E_SELECTION_MODE=legacy` 保留固定全量功能分片和专项的回退入口。
+- 主分支和 `E2E extended` 夜间运行（北京时间 03:00）使用全量选集。手动选择 `extended` 仅执行布局压力集；`full` 执行全量选集。
 - PR 路径读取失败会使计划 job 失败；`Frontend E2E` 汇总同时要求计划和所有已选套件成功，不会把漏跑当作通过。
 
 `seed` 只用于准备前置数据。核心创建用例必须验证真实 UI 操作、保存响应、API 读回和刷新恢复；不能在 UI 保存失败后调用 `seed.advanceTask` 等接口伪造成功。Canvas 指针坐标应依据当前媒体位置和尺寸计算，并确认没有被浮层遮挡。连续执行相互独立的边缘绘制时，通过真实 UI 收起前一个标注的浮窗，并检查拖拽起点命中画布。截图检查不能替代保存检查，存储状态检查也不能替代真实渲染检查。
 
 Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开及有限动画完成，再点击更多工具，防止展开期间滚动位置变化使按下和抬起命中不同位置。图片 Mask 重编辑使用 `helpers/mask-selection.ts` 选中准确标注，并通过选中信息卡的可访问按钮进入；不要按 DOM 顺序选择同名按钮或用强制点击绕过命中检查。预测精修按准确预测行和可访问操作进入，避免依赖组件内部按钮 ID。
 
-修改测试分类后先执行各命令的 `--list --reporter=line`，确认标签不会造成漏选；修改 CI 路由时执行 `node --test scripts/plan-e2e-suites.test.mjs`。本地验证结束后清理当前测试生成的 `test-results/`、`playwright-report/`、`e2e-results.json` 及专用环境数据，保留人工确认需要提交的基线图片。
+修改测试分类后先执行各命令的 `--list --reporter=line`，确认标签不会造成漏选；修改 CI 路由时执行 `node --test scripts/plan-e2e-suites.test.mjs`。本地验证结束后按归属清理专用环境数据及本次生成的 `test-results/`、`playwright-report/`、`e2e-results.json`，按需保留脱敏的失败诊断。
 
 本地 E2E 由 `dev:worktree` 创建并核对当前资源根的独立数据库、Redis、存储和
 受限 API 账号，自动选择不冲突的 Web/API 端口。不能用一个带 `_test`／`_e2e`
@@ -109,9 +107,9 @@ authority 的 Unix socket 使用 `/tmp` 下的私有随机短目录，避免工�
 系统 socket 路径长度限制；准确目录、socket 身份和原进程仍登记在该模式的私有记录中。
 临时目录的位置不会改变资源归属，不能按目录前缀批量清理。
 
-截图入口使用已核验工作树的受限 `DATABASE_URL` 和仅供私有夹具进程使用的
-`PLAYWRIGHT_E2E_DATABASE_URL`，并固定 `SCREENSHOT_FIXTURE_RUN_ID`。仍须核对实际
-API／worker 目标，不能以测试库后缀或单独指定的连接代替资源归属和服务身份核验。
+普通产品 API 使用已核验工作树的受限 `DATABASE_URL`，匹配的
+`PLAYWRIGHT_E2E_DATABASE_URL` 只供私有 E2E 夹具进程使用。这些夹具用于功能测试，
+不用于截图或录屏；两条连接仍需核对目标及身份。
 真实创建／保存请求始终通过受限产品 API；夹具不能在保存失败后伪造结果。
 邀请／接管场景先由私有夹具通道登记意图，再经受限产品 API 调用独立 Invitation
 能力；原生回放使用同一可销毁数据库中已核验的邀请专用凭据，不给普通 API 连接补
@@ -138,7 +136,7 @@ filtering 的无源 tracker 候选仅用于列表和预览验证；该夹具未�
 需要跨命名空间存活/清理证据时，可用 `fixtures/storage-object-probe.py` 经真实存储
 客户端读取对象字节。
 
-正常结束时 `globalTeardown` 只请求清理本次 suite 清单，截图入口也只清理自己的 run。
+正常结束时 `globalTeardown` 只请求清理本次 suite 清单。
 suite 清理先完成全部子运行的原生执行退休，再逐个清理数据；不依赖子运行 UUID 的
 排序来决定兄弟 Job 是否已退休，也不放宽未知 scope 的拒绝。
 每次实际进入原件读许可等待时单独保留三秒上限；执行退休和物理回收耗时不会挤占

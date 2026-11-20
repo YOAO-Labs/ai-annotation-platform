@@ -2326,8 +2326,6 @@ TEST_FILES = (
     "tests/test_identity_e2e_native.py",
     "tests/test_identity_e2e_live.py",
     "tests/test_identity_fixture_preferences_native.py",
-    "tests/test_identity_recording_native.py",
-    "tests/test_identity_recording_live.py",
     "tests/test_identity_role_audit_native.py",
     "tests/test_identity_role_audit_live.py",
     "tests/test_identity_seed_selection_live.py",
@@ -2423,11 +2421,9 @@ TEST_FILES = (
     "tests/test_inference_scope_retirement_bindings.py",
     "tests/test_inference_routing_native.py",
     "tests/test_inference_registry_ingress_native.py",
-    "tests/test_inference_registry_ingress_binding.py",
     "tests/test_inference_registry_ingress_postgres.py",
     "tests/test_inference_registry_ingress_selection.py",
     "tests/test_inference_registry_ingress_bindings.py",
-    "tests/test_inference_registry_ingress_uow.py",
     "tests/test_inference_registry_ingress_restore.py",
     "tests/test_inference_registry_ingress_migrations.py",
     "tests/test_inference_health_data_native.py",
@@ -2698,7 +2694,7 @@ TEST_FILES = (
     "tests/test_accepted_inputs_api_bridge.py",
     "tests/test_accepted_inputs_live.py",
     "tests/test_video_input_live.py",
-    "tests/test_screenshot_seed_catalog.py",
+    "tests/test_fixture_native_media_admissions.py::test_legacy_native_reader_origin_is_not_reused_until_retired",
     "tests/test_task_views.py",
     "tests/test_task_views_filter.py",
     "tests/test_tasks_drill_filters.py",
@@ -2841,7 +2837,6 @@ _STRICT_PROFILE_TARGETS = {
     # The historical audit temporarily replaces legacy_runtime, a cluster-wide LOGIN.
     "tests/test_identity_role_audit_live.py": "identity-role-audit",
     "tests/test_identity_e2e_live.py": "identity-e2e",
-    "tests/test_identity_recording_live.py": "recording",
     "tests/test_identity_seed_selection_live.py": "scale-seed",
     # The restore fixture retains terminal Jobs and delivers to all active admins.
     "tests/test_notifications_module_assembly_live.py": "notifications-restore",
@@ -9408,7 +9403,11 @@ def main(
 
         async def verify_execution_and_fixture_roles() -> None:
             import asyncpg
-            from fixture_media_control import _ASSETS, _JOBS
+            from fixture_media_control import (
+                _ASSETS,
+                _JOBS,
+                _RETIRED_PRODUCER_FUNCTIONS,
+            )
             from fixture_native_read_control import (
                 _READER_FUNCTIONS,
                 _RESOLVER_FUNCTIONS,
@@ -9478,6 +9477,7 @@ def main(
                 private_signatures = (
                     _JOBS
                     + _ASSETS
+                    + _RETIRED_PRODUCER_FUNCTIONS
                     + _READER_FUNCTIONS
                     + _RESOLVER_FUNCTIONS
                     + (
@@ -11933,7 +11933,6 @@ SELECT id FROM removed;
             or "tests/test_identity_e2e_live.py" in selected_test_paths
             or "tests/test_scale_seed_workspace_native.py" in selected_test_paths
             or "tests/test_identity_seed_selection_live.py" in selected_test_paths
-            or "tests/test_identity_recording_live.py" in selected_test_paths
             or "tests/test_media_seed_workspace_native.py" in selected_test_paths
             or "tests/test_media_seed_workspace_live.py" in selected_test_paths
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
@@ -12067,15 +12066,11 @@ SELECT id FROM removed;
             "tests/test_identity_seed_selection_live.py" in selected_test_paths
             and os.environ.get("AAP_IDENTITY_SEED_SELECTION_LIVE") == "1"
         )
-        identity_recording_live = (
-            "tests/test_identity_recording_live.py" in selected_test_paths
-            and os.environ.get("AAP_IDENTITY_RECORDING_FIXTURE_LIVE") == "1"
-        )
         identity_e2e_live = (
             "tests/test_identity_e2e_live.py" in selected_test_paths
             and os.environ.get("AAP_IDENTITY_E2E_FIXTURE_LIVE") == "1"
         )
-        if identity_e2e_live or identity_recording_live:
+        if identity_e2e_live:
 
             def workspace_import_cli_fence():
                 nonlocal phase
@@ -12100,11 +12095,7 @@ SELECT id FROM removed;
                             "consumer_role": "legacy_runtime",
                         },
                     )
-                evidence[
-                    "identity_recording_owner_channel"
-                    if identity_recording_live
-                    else "identity_e2e_owner_channel"
-                ] = {
+                evidence["identity_e2e_owner_channel"] = {
                     "runtime_role": "legacy_runtime",
                     "fixture_transport": "apps/web/e2e/fixtures/seed-request.py",
                     "fixture_role": "owner",

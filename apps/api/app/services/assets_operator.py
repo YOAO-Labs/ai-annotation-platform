@@ -1006,61 +1006,6 @@ class AssetsOperatorGateway:
             creation_id=creation_id,
         ), created
 
-    async def create_fixture_item_original(
-        self,
-        *,
-        run_id: UUID,
-        admission_id: UUID,
-        dataset_id: UUID,
-        item_id: UUID,
-        logical_path: str,
-        file_type: str,
-        content_type: str,
-        data: bytes,
-        requested_by: UUID,
-        entry_for_key,
-    ):
-        """Commit an actual operator item and its Creation before source I/O."""
-        import hashlib
-        from io import BytesIO
-        from types import SimpleNamespace
-
-        from app.db.models.dataset import DatasetItem
-        from app.services import fixture_run_ownership as ownership
-        from app.services.managed_original_creation import (
-            allocate_fixture_operator_item,
-            create_stream,
-        )
-
-        await ownership.reserve(
-            self.db, run_id, "item", item_id, logical_key=f"operator-item-{item_id.hex}"
-        )
-        await self.db.commit()
-        material = await allocate_fixture_operator_item(
-            self.db,
-            run_id=run_id,
-            admission_id=admission_id,
-            dataset_id=dataset_id,
-            item_id=item_id,
-            logical_path=logical_path,
-            file_type=file_type,
-            payload_sha256=hashlib.sha256(data).hexdigest(),
-            max_bytes=len(data),
-            requested_by=requested_by,
-            content_type=content_type,
-            entry_for_key=entry_for_key,
-        )
-        created = await create_stream(
-            self.db, material, BytesIO(data), content_type=content_type
-        )
-        item = await self.db.get(DatasetItem, item_id)
-        item.content_hash = created.sha256
-        await ownership.attach_original(self.db, item, material, created)
-        await self.db.commit()
-        return SimpleNamespace(
-            object_key=material["object_key"], creation_id=created.creation_id
-        ), created
-
     async def publish_item_original(
         self,
         *,

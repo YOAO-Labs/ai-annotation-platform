@@ -33,7 +33,7 @@ docker logs ai-annotation-platform-grounded-sam2-backend-1 --tail 100
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.ml.yml \
-  --profile gpu up -d grounded-sam2-backend
+  -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
 
 # 观察启动日志（GPU 加载通常需要 30–60 秒）
 docker logs -f ai-annotation-platform-grounded-sam2-backend-1

@@ -159,4 +159,4 @@ AI Annotation Platform 把视频标注拆成三层：关键帧加插值处理匀
 6. `video-tracker-positive-negative.gif`：双公交车正负点约束与整批采纳；
 7. `video-track-batch-propagate.gif`：双轨迹多选批量延展与一次回填。
 
-七段 GIF 均由 4K60 高清母版派生，发布到知乎或公众号时逐张上传，不要保留仓库相对路径。`video-track.gif` 与 `video-tracker-positive-negative.gif` 为控制体积降到 800px 宽，移动端小字（时间轴帧号、面板参数）可能不清，图注避免引用具体参数数字；其余五段为 1280px 宽。各 `-cover.png` 为 1600px 静态封面帧，供知乎头图或公众号封面裁切。对比 GIF 停在候选审阅与回填完成的画面，图注不要写成「已通过质检」；文本发现与批量延展段采纳后仍属人工接管前的轨迹状态。
+这里使用的是既有七段 GIF，原发布记录注明它们由 4K60 源素材派生。发布到知乎或公众号时逐张上传，不要保留仓库相对路径。`video-track.gif` 与 `video-tracker-positive-negative.gif` 宽 800px，移动端小字可能不清，图注避免引用具体参数数字；其余五段宽 1280px。各 `-cover.png` 为 1600px 静态封面帧，供知乎头图或公众号封面裁切。对比 GIF 停在候选审阅与回填完成的画面，图注不要写成「已通过质检」；文本发现与批量延展段采纳后仍属人工接管前的轨迹状态。只有明确要求更新某段时，才按[按需截图与录屏](../../docs-site/dev/how-to/update-screenshots.md)替换指定素材。

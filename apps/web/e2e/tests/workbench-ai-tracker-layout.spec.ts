@@ -39,7 +39,7 @@ async function savedVideoWorkspace(page: Page) {
   return (await response.json()).workbench.layout.workspace.contexts["annotate:video"];
 }
 
-test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, seed }, testInfo) => {
+test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, seed }) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -87,7 +87,6 @@ test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, se
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(range).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath("hidden-tracker.png") });
 
   await page.getByRole("tab", { name: "视频追踪", exact: true }).click();
   await stage.hover();
@@ -100,7 +99,6 @@ test("AI 范围预览仅随实际可见的追踪面板显示", async ({ page, se
   await page.getByTestId("workbench-ai-tracker").click();
   await stage.hover();
   await expect(range).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("visible-tracker.png") });
   expect(errors).toEqual([]);
 });
 

@@ -350,7 +350,7 @@ Implementation updates belong in the same change as the behavior:
 - Developer contracts: `docs-site/dev/concepts/visibility-and-permissions.md`, task/batch/scheduler concepts, `docs-site/api/guides/projects.md`, `docs-site/api/index.md`, SDK README and `README.md` where API usage changes.
 - Operations: add a role-migration runbook under `docs-site/ops/`, document rollback and issued-URL limits, and update the relevant security guidance.
 - Architecture: create a new ADR for platform identity versus project authority, linking the existing task-lock/review ADR and recording the stricter self-review and export decisions. Select its number at implementation time.
-- Add user-impact entries to `CHANGELOG.md` Unreleased; update affected screenshots through the project's media workflow only when the implemented UI is ready.
+- Add user-impact entries to `CHANGELOG.md` Unreleased. Update a specific media asset only when requested and the UI is ready, using the [on-demand workflow](../../docs-site/dev/how-to/update-screenshots.md).
 
 Do not present this pending design as current behavior in official documentation, update versions, or add a completed `Outcome` now. After implementation and verification, append `## Outcome` with landed commits, official documentation, checks actually run and remaining limitations; archive only when completed or superseded according to [plan conventions](README.md).
 

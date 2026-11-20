@@ -649,7 +649,7 @@ URL 改动、探测失败或快照过期后都按 unknown 保守报告，不会�
 
 ### docker compose 启用 GPU service
 
-五个官方推理插件分别使用独立 overlay；`docker-compose.ml.yml` 保留截图 stub，可在不设置插件变量时使用。服务 profile 与核心 infra 无 depends_on，可单独启用或并存。
+这五个官方推理服务分别由独立插件叠加文件定义，启用时同时传入共享的 `docker-compose.ml.yml`。服务 profile 与核心 infra 无 depends_on，可单独启用或并存。
 
 官方插件的源码与镜像构建说明由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护；OCI 镜像需从获准渠道另行取得。启用对应 overlay 前配置 `GSAM2_IMAGE`、`SAM3_IMAGE`、`YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`，使用已审核的仓库、manifest digest 和镜像内生命周期源码摘要，而非 image ID。未启用的插件无需配置。Compose 和原生插件安装的所有权不同，不会自动接管彼此。
 

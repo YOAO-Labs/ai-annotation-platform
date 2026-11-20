@@ -64,24 +64,6 @@ class IdentityProvisioningData:
             )
         )
 
-    async def lookup_seed_account_facts(
-        self, email: str
-    ) -> list[tuple[uuid.UUID, str, str, bool]]:
-        # Preserve loaded/dirty persona fields from the caller's identity map.
-        profile = aliased(User, account_profiles, adapt_on_names=True)
-        users = (
-            await self.db.execute(
-                select(profile)
-                .options(
-                    load_only(
-                        profile.id, profile.email, profile.role, profile.is_active
-                    )
-                )
-                .where(profile.email == email)
-            )
-        ).scalars()
-        return [(user.id, user.email, user.role, user.is_active) for user in users]
-
     async def lookup_seed_account_id(self, email: str) -> uuid.UUID | None:
         profile = aliased(User, account_profiles, adapt_on_names=True)
         user = await self.db.scalar(

@@ -1,7 +1,7 @@
 name: Release readiness
 
 # Run against the selected stable branch before publishing documentation.
-# This checks evidence; it never records a visual approval or publishes a release.
+# This checks the documentation build and references; it does not publish a release.
 on:
   workflow_dispatch:
 
@@ -42,9 +42,9 @@ jobs:
       - name: Documentation freshness
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm --filter docs-site check:freshness
-      - name: Media policy tests
+      - name: Test documentation reference checks
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter docs-site media:test
+        run: pnpm --filter docs-site test:references
       - name: Diagram integrity
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm --filter docs-site check:diagrams
@@ -54,10 +54,7 @@ jobs:
       - name: Navigation coverage
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm --filter docs-site check:navigation -- --strict
-      - name: Complete screenshot manifest
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: node docs-site/scripts/check-image-manifest.mjs --release
-      - name: Orphan images
+      - name: Documentation asset references
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node docs-site/scripts/check-orphan-images.mjs --strict
       - name: Materialize generated link targets
@@ -74,14 +71,3 @@ jobs:
       - name: Internal Markdown links
         if: ${{ !cancelled() && steps.link-targets.outcome == 'success' }}
         run: node scripts/check-dead-links.mjs docs-site
-      - name: Release media review and provenance
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter docs-site media:audit -- --release --output ../.artifacts/docs-acceptance.json
-      - name: Upload acceptance report
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-acceptance
-          path: .artifacts/docs-acceptance.json
-          if-no-files-found: error
-          retention-days: 30

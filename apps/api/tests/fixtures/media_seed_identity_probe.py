@@ -31,9 +31,9 @@ async def _run_admin(
 
     from app.db.base import async_session, engine
     from app.db.models.dataset import Dataset
-    from scripts import seed_coco8, seed_ocr, seed_video
+    from scripts import seed_coco8, seed_video
 
-    modules = {"coco8": seed_coco8, "video": seed_video, "ocr": seed_ocr}
+    modules = {"coco8": seed_coco8, "video": seed_video}
     if kind not in modules:
         raise SystemExit("unsupported media admin helper")
     module = modules[kind]
@@ -97,56 +97,6 @@ async def _run_admin(
         raise failure
 
 
-async def _run_screenshot_users() -> None:
-    from app.db.base import async_session, engine
-    from scripts.seed_screenshot_profile import _seed_users
-
-    result: dict[str, object] = {"operation": "screenshot_users"}
-    failure: Exception | None = None
-    try:
-        async with async_session() as db:
-            users = await _seed_users(db)
-            result["user_ids"] = {key: str(user_id) for key, user_id in users.items()}
-    except Exception as exc:
-        failure = exc
-        _error(result, exc)
-    finally:
-        await engine.dispose()
-
-    _emit(result)
-    if failure is not None:
-        raise failure
-
-
-async def _run_screenshot_catalog() -> None:
-    from app.db.base import async_session, engine
-    from app.services.screenshot_seed_catalog import (
-        ScreenshotSeedCatalogError,
-        build_screenshot_seed_catalog,
-    )
-
-    async with async_session() as db:
-        try:
-            catalog = await build_screenshot_seed_catalog(db)
-        except ScreenshotSeedCatalogError as exc:
-            result = {
-                "operation": "screenshot_catalog",
-                "ready": False,
-                "issues": exc.issues,
-            }
-        else:
-            result = {
-                "operation": "screenshot_catalog",
-                "ready": True,
-                "user_ids": {
-                    key: value["id"] for key, value in catalog["users"].items()
-                },
-                "project_keys": sorted(catalog["projects"]),
-            }
-    await engine.dispose()
-    _emit(result)
-
-
 async def _run_large_graph(owner_email: str, manifest_version: int) -> None:
     from app.db.base import engine
     from scripts import seed_large_images
@@ -204,10 +154,6 @@ def main() -> None:
                 application_name=application_name,
             )
         )
-    elif operation == "screenshot_users":
-        asyncio.run(_run_screenshot_users())
-    elif operation == "screenshot_catalog":
-        asyncio.run(_run_screenshot_catalog())
     elif operation == "large_graph":
         if len(arguments) != 2:
             raise SystemExit("large_graph requires owner email and manifest version")

@@ -5,8 +5,7 @@ import base from "./playwright.config";
 // layout restore can freeze the main thread for tens of seconds before the
 // manifest query fires, which is runner starvation, not a product defect. One
 // retry separates deterministic breakage (fails twice, still red) from such
-// starvation; retried passes stay visible as flaky. Visual baselines keep
-// reporting once via playwright.extended.config.ts.
+// starvation; retried passes stay visible as flaky.
 export default defineConfig(base, {
   grep: /@stress/,
   grepInvert: [],

@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures/seed";
 
-test("点云设置盖过精修面板，阻断工具键并保存点径", async ({ page, seed }, info) => {
+test("点云设置盖过精修面板，阻断工具键并保存点径", async ({ page, seed }) => {
   test.setTimeout(60_000);
   const data = await seed.owned();
   const lidar = await seed.seedLidar();
@@ -28,10 +28,6 @@ test("点云设置盖过精修面板，阻断工具键并保存点径", async ({
     .boundingBox();
   const child = await dialog.getByTestId("setting-field-pointcloud.colorizeContrast").boundingBox();
   expect(child!.x + child!.width).toBeLessThanOrEqual(parent!.x + parent!.width);
-  await page.screenshot({
-    path: info.outputPath("settings-pointcloud.png"),
-    animations: "disabled",
-  });
   await dialog.focus();
   await page.keyboard.press("b");
   await page.keyboard.press("Delete");

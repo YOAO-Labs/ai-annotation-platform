@@ -35,7 +35,7 @@ last_reviewed: 2026-10-26
 | 6379               | redis                               |    ❌ **不发布**    | 同上 `redis:6379`；broker / 限流 / 黑名单                                |
 | 9000 / 9001        | MinIO API / 控制台                  |    ❌ **不发布**    | 同上 `minio:9000`；presigned URL 可达性见 §5                             |
 | 8025 / 1025        | mailpit（dev）                      |    ❌ **不发布**    | 假收件箱，**生产应禁用**，改真实 SMTP                                    |
-| 8001–8005          | 可选 ML Backend profile             |  ⚠️ 当前发布到宿主  | `docker-compose.ml.yml` 不自动收紧绑定；只允许 worker 所在可信网络访问   |
+| 8001–8005          | 可选 ML Backend profile             |  ⚠️ 当前发布到宿主  | 插件叠加文件不自动收紧绑定；只允许 worker 所在可信网络访问               |
 | 9090 / 3001 / 9093 | Prometheus / Grafana / Alertmanager |    ⚠️ 仅内网/VPN    | 监控 profile，默认不启动；启用时务必限内网                               |
 
 > **两层绑定**：① 容器**内部**互通走 compose 内网 service DNS（`postgres:5432` 等），不需要发布到宿主——所以 prod 用 `ports: !reset []` 把基础文件给 dev 用的 `0.0.0.0` 发布**整个移除**，PG/Redis/MinIO 在宿主网卡上完全不可见。② api/web 仍需让外层反代够到，故发布但绑回环 `${PROXY_BIND_HOST:-127.0.0.1}`。

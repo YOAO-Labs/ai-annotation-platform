@@ -247,7 +247,8 @@ docker exec ai-annotation-platform-postgres-1 psql -U user -d annotation -c \
 ```bash
 docker logs ai-annotation-platform-grounded-sam2-backend-1 --tail 200
 docker compose ps celery-worker-gpu
-docker compose -f docker-compose.yml -f docker-compose.ml.yml ps grounded-sam2-backend sam3-backend
+# 使用实际部署的插件叠加与 Compose project；这里以 Grounded-SAM-2 为例。
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml ps grounded-sam2-backend
 ```
 
 缓解：

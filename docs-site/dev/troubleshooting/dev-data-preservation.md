@@ -16,12 +16,10 @@ last_reviewed: 2026-10-19
 
 本地 Playwright 不应连接开发进程或开发库：
 
-| 用途                |      Web |      API | 数据库                        |
-| ------------------- | -------: | -------: | ----------------------------- |
-| 日常开发            |   `3000` |   `8000` | `annotation`                  |
-| Playwright E2E      | 保留端口 | 保留端口 | 工作树自有 `yoao_wt_*_e2e`    |
-| 本地截图 / 视觉回归 |   `3001` |   `8010` | `annotation_screenshots_test` |
-| 视觉回归 CI         |   `3000` |   `8000` | `annotation_screenshots_test` |
+| 用途           |      Web |      API | 数据库                     |
+| -------------- | -------: | -------: | -------------------------- |
+| 日常开发       |   `3000` |   `8000` | `annotation`               |
+| Playwright E2E | 保留端口 | 保留端口 | 工作树自有 `yoao_wt_*_e2e` |
 
 从仓库根目录运行 `pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e`；
 启动器核验独立资源身份并分配保留端口，Playwright 启动专用 Web/API。
@@ -57,8 +55,7 @@ owner 标记及受限 runtime LOGIN 一致；仅满足上述路由门禁不足�
    identity、清单和数据库 owner 标记。
 2. 确认 owner 夹具与受限 API runtime 的连接指向同一已核验数据库，账号角色各司其职。
 3. 检查启动器分配的 Web/API 端口，不复用已在运行的开发服务。
-4. 截图自动化单独核对 `annotation_screenshots_test`，不要复用
-   `annotation_e2e` 或 `annotation`。
+4. [按需截图与录屏](../how-to/update-screenshots)也使用获授权的隔离环境和可丢弃数据，不借用日常开发库或另一套 E2E 环境。
 
 如果开发库中已经存在历史 E2E 残留，新门禁会阻止 cleanup 连接该库。
 先备份并核对资源所属，再由维护者对明确的历史 fixture 做一次性定向清理；

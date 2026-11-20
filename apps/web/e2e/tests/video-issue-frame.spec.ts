@@ -214,23 +214,18 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     } finally {
       try {
         if ((!verified || testInfo.status !== testInfo.expectedStatus) && !page.isClosed()) {
-          const captures = await Promise.allSettled([
-            page.screenshot({ fullPage: true, timeout: 3_000 }),
-            page.locator("body").ariaSnapshot({ timeout: 3_000 }),
-          ]);
-          const [screenshot, aria] = captures;
-          if (screenshot.status === "fulfilled")
-            await testInfo.attach("failure-before-cleanup", {
-              contentType: "image/png",
-              body: screenshot.value,
+          const aria = await page
+            .locator("body")
+            .ariaSnapshot({ timeout: 3_000 })
+            .catch((error: unknown) => {
+              fixture.evidence.push({ failureAriaUnavailable: String(error) });
+              return null;
             });
-          else fixture.evidence.push({ failureScreenshotUnavailable: String(screenshot.reason) });
-          if (aria.status === "fulfilled")
+          if (aria !== null)
             await testInfo.attach("failure-aria-before-cleanup", {
               contentType: "text/plain",
-              body: aria.value,
+              body: aria,
             });
-          else fixture.evidence.push({ failureAriaUnavailable: String(aria.reason) });
         }
         await Promise.all(pending);
         await testInfo.attach("video-issue-frame-evidence", {
@@ -638,10 +633,6 @@ test.describe("video Issue source-frame ownership", () => {
     await page.getByTestId(`discussion-issue-locate-${issue.id}`).click();
     await expectReady(page, fixture, 17);
     await expectPin(page, fixture, issue);
-    await test.info().attach("persisted-F17-Issue-pin", {
-      contentType: "image/png",
-      body: await stage(page).screenshot(),
-    });
     await seek(page, 3);
     await page.getByTestId("video-issue-marker").and(page.locator('[title="问题 · F 17"]')).click();
     await expectReady(page, fixture, 17);

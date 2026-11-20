@@ -4,7 +4,6 @@ import hashlib
 import io
 import tarfile
 import zipfile
-from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 import httpx
@@ -31,7 +30,7 @@ def _asset(
 ) -> SeedAsset:
     return SeedAsset(
         id="fixture",
-        profiles=("screenshots",),
+        profiles=("demo",),
         urls=("https://assets.example/fixture",),
         sha256=hashlib.sha256(payload).hexdigest(),
         size_bytes=len(payload),
@@ -86,80 +85,46 @@ def test_repository_manifest_records_public_docs_clearance():
     assets = load_manifest()
 
     assert {asset.id for asset in assets} == {
-        "auckland-traffic-1",
-        "auckland-traffic-2",
         "coco8",
         "coco8-seg",
-        "nuscenes-demo-lidar",
-        "nuscenes-demo-cam-front",
-        "nuscenes-demo-cam-front-left",
-        "nuscenes-demo-cam-front-right",
-        "nuscenes-demo-cam-back",
-        "nuscenes-demo-cam-back-left",
-        "nuscenes-demo-cam-back-right",
         "pcl-pairwise-capture-1",
         "pcl-pairwise-capture-2",
         "pcl-pairwise-capture-3",
         "pcl-pairwise-capture-4",
         "tracking-video",
-        "rapidocr-image",
-        "street-traffic-video",
         "sustechpoints-example",
     }
     statuses = {asset.id: asset.public_docs_status for asset in assets}
     assert statuses == {
-        "auckland-traffic-1": "approved",
-        "auckland-traffic-2": "approved",
         "coco8": "blocked",
         "coco8-seg": "blocked",
-        "nuscenes-demo-lidar": "approved_with_attribution",
-        "nuscenes-demo-cam-front": "approved_with_attribution",
-        "nuscenes-demo-cam-front-left": "approved_with_attribution",
-        "nuscenes-demo-cam-front-right": "approved_with_attribution",
-        "nuscenes-demo-cam-back": "approved_with_attribution",
-        "nuscenes-demo-cam-back-left": "approved_with_attribution",
-        "nuscenes-demo-cam-back-right": "approved_with_attribution",
         "pcl-pairwise-capture-1": "approved_with_attribution",
         "pcl-pairwise-capture-2": "approved_with_attribution",
         "pcl-pairwise-capture-3": "approved_with_attribution",
         "pcl-pairwise-capture-4": "approved_with_attribution",
         "tracking-video": "review_required",
-        "rapidocr-image": "approved_with_attribution",
-        "street-traffic-video": "approved_with_attribution",
         "sustechpoints-example": "review_required",
     }
-    assert {asset.id for asset in assets if "screenshots" in asset.profiles} == {
-        "auckland-traffic-1",
-        "auckland-traffic-2",
-        "nuscenes-demo-lidar",
-        "nuscenes-demo-cam-front",
-        "nuscenes-demo-cam-front-left",
-        "nuscenes-demo-cam-front-right",
-        "nuscenes-demo-cam-back",
-        "nuscenes-demo-cam-back-left",
-        "nuscenes-demo-cam-back-right",
-        "rapidocr-image",
-        "street-traffic-video",
+    assert {asset.id for asset in select_profile("demo", assets)} == {
+        "coco8",
+        "tracking-video",
+    }
+    assert {asset.id for asset in select_profile("online-training", assets)} == {
+        "coco8",
+        "coco8-seg",
+    }
+    assert {asset.id for asset in select_profile("legacy", assets)} == {
+        "pcl-pairwise-capture-1",
+        "pcl-pairwise-capture-2",
+        "pcl-pairwise-capture-3",
+        "pcl-pairwise-capture-4",
+        "sustechpoints-example",
     }
 
 
-def test_screenshot_profile_fails_closed_when_required_media_is_not_cleared():
-    with pytest.raises(SeedAssetError, match="missing required or approved assets"):
-        select_profile(
-            "screenshots",
-            required_ids={"coco8", "tracking-video", "rapidocr-image"},
-        )
-
-
-def test_screenshot_profile_rejects_uncleared_manifest_entry():
-    asset = replace(
-        _asset(b"fixture"),
-        profiles=("screenshots",),
-        public_docs_status="review_required",
-    )
-
-    with pytest.raises(SeedAssetError, match="not cleared for public docs"):
-        select_profile("screenshots", assets=(asset,))
+def test_profile_rejects_assets_from_other_profiles():
+    with pytest.raises(SeedAssetError, match="missing required assets: coco8-seg"):
+        select_profile("demo", required_ids={"coco8-seg"})
 
 
 def test_raw_asset_download_is_verified_cached_and_works_offline(tmp_path: Path):
@@ -237,7 +202,7 @@ def test_local_override_and_profile_resolution(tmp_path: Path):
     fixture_root.joinpath("fixture.bin").write_bytes(payload)
 
     resolved = ensure_profile(
-        "screenshots",
+        "demo",
         asset_dir=tmp_path / "assets",
         assets=(asset,),
     )
@@ -253,7 +218,7 @@ def test_manifest_rejects_unsafe_required_path(tmp_path: Path):
 schema_version = 1
 [[assets]]
 id = "fixture"
-profiles = ["screenshots"]
+profiles = ["demo"]
 urls = ["https://assets.example/fixture"]
 sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 size_bytes = 1

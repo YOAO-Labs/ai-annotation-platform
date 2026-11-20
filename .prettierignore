@@ -36,7 +36,6 @@ docs-site/api/guides/_routes.generated.md
 docs-site/dev/reference/env-vars.md
 docs-site/user-guide/workbench/hotkeys.generated.md
 docs-site/user-guide/workbench/settings.generated.md
-apps/web/e2e/screenshots/outputs/
 **/*.generated.*
 **/*golden*.json
 

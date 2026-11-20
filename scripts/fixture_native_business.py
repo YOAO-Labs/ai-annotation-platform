@@ -638,14 +638,12 @@ async def prepare(
     *,
     suite_id: uuid.UUID,
     raster_owner: Path | None = None,
-    root_family: str = "owned",
 ) -> tuple[Path, dict]:
     """Create or verify the exact journaled suite identities."""
     result = await _prepare(
         environment,
         suite_id=suite_id,
         raster_owner=raster_owner,
-        root_family=root_family,
     )
     if result is None:
         return await verified(environment, suite_id=suite_id, raster_owner=raster_owner)
@@ -657,7 +655,6 @@ async def _prepare(
     *,
     suite_id: uuid.UUID,
     raster_owner: Path | None = None,
-    root_family: str,
 ) -> tuple[Path, dict] | None:
     """Resume only exact, unpublished business-identity birth."""
     import fcntl
@@ -668,9 +665,7 @@ async def _prepare(
     )
 
     _require(
-        isinstance(suite_id, uuid.UUID)
-        and root_family in {"owned", "screenshot"}
-        and (root_family == "owned" or raster_owner is None),
+        isinstance(suite_id, uuid.UUID),
         "fixture_native_business_suite_invalid",
     )
     owner_url, resources, identity = await _verified_database(environment)
@@ -706,9 +701,9 @@ async def _prepare(
                     text(
                         "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs "
                         "WHERE id=:suite AND parent_run_id IS NULL AND scope_key IS NULL "
-                        "AND family=:family AND state='open')"
+                        "AND family='owned' AND state='open')"
                     ),
-                    {"suite": suite_id, "family": root_family},
+                    {"suite": suite_id},
                 )
             _require(opened is True, "fixture_native_business_suite_not_open")
         finally:

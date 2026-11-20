@@ -128,12 +128,12 @@ dataset 按 DS-NU-<name> 复用;同名 scene 已存在则跳过。详见脚本�
 
 ## 其他脚本
 
-- `seed.py`:dev 账号 + 示例项目；`--profile screenshots` 使用严格素材与截图 catalog 契约
+- `seed.py`:开发账号和示例项目（`demo`，默认），或 `--profile online-training` 在线训练示例
 - `seed_assets.py`:按 `seed-assets.toml` 下载固定版本素材，校验大小/SHA-256、安全解压并缓存
 - `seed_coco8.py`:真实 `third-party/coco8`(8 图)→ 图片检测项目 + 每图 Task + YOLO 框走 `import_yolo` 作**预标注**导入(非人工标注)
 - `seed_large_images.py`:校验 Web 侧现实大图清单，幂等创建 `P-LARGE-IMG` / `DS-LARGE-IMG`，并可入队、等待图片金字塔生成
 - `nuscenes_fixture.py`:从官方地址分段续传 nuScenes mini，在仓库外缓存并安全解压 key-frame samples
-- `seed_pointcloud.py`:nuScenes mini scene-0061 → 固定 dev 点云项目，并按 scene 建包（截图 profile 不建包）
+- `seed_pointcloud.py`:nuScenes mini scene-0061 → 固定 dev 点云项目，并按 scene 建包
 - `seed_scale.py`:在隔离测试库中为明确的 `--run-id UUID` 创建大规模压测夹具；使用同一 UUID 的 `--purge` 清理精确清单，未收尾的运行会阻止清理。
 - `import_images.py`:批量导入本地图片到 dataset，启动时输出实际数据库 session／current 用户以便核对受限身份。
 - `bootstrap_admin.py`:从 ENV 读取首次超管信息，提交由 CLI 持有；用户创建归 `IdentityCommandService`，`application/bootstrap_admin.py` 组合 `AuditService` 写入同事务审计。已存在邮箱不改资料、不追加审计。
@@ -141,65 +141,20 @@ dataset 按 DS-NU-<name> 复用;同名 scene 已存在则跳过。详见脚本�
 - `reset_datasets.py`:清空 datasets + 关联表
 - `dump-openapi.py`:导出 openapi.snapshot.json
 
-## Screenshot seed 素材
+## 示例素材与测试夹具
 
-素材清单同时记录来源、摘要、仓库许可证和媒体公开文档状态。默认缓存目录为
-`$XDG_CACHE_HOME/ai-annotation-platform/seed-assets`，也可显式指定：
+`seed_assets.py` 可为 `demo`、`online-training` 或 `legacy` 准备固定版本素材；用 `--offline`
+检查现有缓存。默认缓存位于 `$XDG_CACHE_HOME/ai-annotation-platform/seed-assets`
+（未设置时使用 `~/.cache`），可用 `--cache-dir` 指定。`--asset-dir` 可选用
+`<path>/<asset-id>/` 下已解压的本地目录。缓存可用不代表允许公开分发，拟公开的素材仍须核验许可。
 
-```bash
-cd apps/api
-PYTHONPATH=. uv run python scripts/seed_assets.py \
-  --profile screenshots --cache-dir /tmp/aap-seed-assets
-
-# 已有完整缓存时禁止联网
-PYTHONPATH=. uv run python scripts/seed_assets.py \
-  --profile screenshots --cache-dir /tmp/aap-seed-assets --offline
-```
-
-`--asset-dir <path>` 使用 `<path>/<asset-id>/` 下已经解压的本地目录。下载器拒绝摘要或
-大小不符、路径穿越、符号链接、设备文件和超出解压上限的归档。
-
-严格截图 profile 使用固定摘要的 CC0 道路照片、CC BY 城市交通视频、PCL BSD-3-Clause
-RGB-D 扫描和 RapidOCR 示例图；派生素材会先完成许可门禁、摘要校验和确定性转换，再上传
-到对象存储。`demo` 模式不受该门禁影响。
-
-截图 profile 必须在已准备独立原片存储的 `test` 或 `e2e` worktree 运行，并为每次运行提供
-唯一 UUID。`DATABASE_URL` 是受限产品账号，`PLAYWRIGHT_E2E_DATABASE_URL` 只供隔离夹具
-进程验证并连接同一个测试库的 owner；不得把 owner 账号交给 API、浏览器或其他测试。
-真实截图 seed 由私有启动器分配准入、启动受监管 API，并把当前根的控制绑定交给新生产者
-进程；不要直接调用 `seed.py --profile screenshots` 或自行拼接 admission。
-从仓库根单独准备并检查真实截图 API：
-
-```bash
-pnpm dev:worktree -- exec --mode e2e --with-worker -- \
-  node apps/web/scripts/run-screenshot-native.mjs --seed -- --ml-backend-mode live
-```
-
-入口显示实际 API 地址与 run ID，并保持运行；`Ctrl+C` 通过原 owner 排空和清理。
-仅验证非 ML 素材时追加 `--backend-requirements none`。专用协议 stub 已就绪时可使用
-`--ml-backend-mode stub`，不能把远程 live 地址当作 stub。运行截图矩阵时不预先启动此命令；
-Playwright 自行准备准入、seed 与 API 生命周期，见[截图工作流](../../../docs-site/dev/how-to/update-screenshots.md)。
-
-相同 run ID 的重跑只核对和对账该运行已登记的项目、数据集和原片，不接管共享夹具；
-中断后存在未确认写入时保留 admission 和存储收据，先查明实际工作是否结束，不得扫桶清理。
-旧普通输出没有本 run 的准确版本收据时明确拒绝认领；Beta 数据使用新的隔离 run，不补造兼容凭据。
-nuScenes 的私有原件同样先在一个事务内登记真实条目、creation 和恢复指纹，再执行原件写入与校验；
-校验完成后才挂接来源。operator 回执按本 run 的 creation／item 归属核验，不使用普通导入的
-提前发布路径，也不因条目已存在就将尚未校验的原件标为可用。
-标定 JSON 的读取使用当前原生 owner 核验过的原件只读身份；启动器显式交接这组读取配置，
-不继承调用方的 S3 凭据，也不向 seed 进程提供桶管理身份。
-媒体 producer 作用域使用实际业务 Session；异常先完成该事务的回滚，再释放原连接上的准入锁。
-回滚、解锁或关闭失败会保留原错误及清理错误，未结算的准入与发布责任不会因连接退出而自动消失。
-媒体发布使用独立的、仅有函数权限的 Jobs 发布账号（`JOBS_PUBLICATION_DATABASE_URL` 或
-`JOBS_PUBLICATION_DATABASE_URL_FILE`），不能借用夹具 owner 或业务账号。投递沿用平台当前队列入口：
-配置 `JOBS_QUEUE_URL` 时使用该远程服务，否则使用实际 Celery；远程发布失败不回退到另一条通道。
-stub URL 必须由当前运行独占，或已登记为该运行所有；live 模式只读取现有健康事实。
-真实异步预测、重试、导出或视频追踪作业若没有对应的执行与物理退役凭据，将阻止根清理。
-未完成并发隔离验收的夹具族仍应串行执行。
+E2E 测试继续由私有 owner 通道准备和清理夹具，普通 API 和浏览器不接收 owner 凭据。
+见 [E2E 数据准备](../../web/e2e/README.md#数据准备)。界面证据或演示按
+[按需截图与录屏](../../../docs-site/dev/how-to/update-screenshots.md)采集，不需要专用 seed profile。
 
 ## 超大图开发夹具
 
-浏览器基准、文档截图与后端 pyramid 共用
+浏览器基准与后端 pyramid 共用
 `apps/web/scripts/image-bench/fixtures.json` 中的现实大图清单。先在仓库根下载并校验原图，再从
 `apps/api` 导入当前开发栈：
 
@@ -215,10 +170,6 @@ PYTHONPATH=. uv run python scripts/seed_large_images.py \
 复核本地字节数与 SHA-256，上传使用固定对象 key 和摘要 metadata，重复运行不会重复建
 DatasetItem、Task 或 generation。固定项目和数据集被人工改名、改 owner 或接入其它资源时会拒绝覆盖；
 production 环境始终拒绝运行。
-
-截图 catalog 由私有夹具进程使用相同 `SCREENSHOT_FIXTURE_RUN_ID` 读取；普通 API
-和浏览器不持有 owner 凭据。目录按该运行的精确资源清单解析用户、项目、任务、批次
-和运行时 UUID，并校验所需 Backend 能力；数据不完整时返回错误，不回退到共享项目。
 
 ## audit_project_roles（项目级员工角色 · 增量 A 准备，只读）
 

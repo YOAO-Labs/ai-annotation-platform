@@ -419,7 +419,7 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
     page,
     request,
     trackCase,
-  }, testInfo) => {
+  }) => {
     await open(page, trackCase);
     for (const kind of ["bbox", "polygon", "polyline"] as const) {
       const track = trackCase.tracks[kind];
@@ -497,10 +497,6 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
       page.locator('[data-workbench-panel="canvas"]').getByTestId("video-track-context-bar"),
     ).toBeVisible();
     expect(await bar(page).evaluate((node, original) => node === original, identity)).toBe(true);
-    await page.screenshot({
-      path: testInfo.outputPath("video-track-context-wide.png"),
-      animations: "disabled",
-    });
     await page.setViewportSize({ width: 900, height: 740 });
     await state(page, "held", 5);
     await expect(bar(page)).toBeInViewport();
@@ -511,10 +507,6 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
     expect(bounds).not.toBeNull();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(900);
-    await page.screenshot({
-      path: testInfo.outputPath("video-track-context-narrow.png"),
-      animations: "disabled",
-    });
     await identity?.dispose();
   });
 

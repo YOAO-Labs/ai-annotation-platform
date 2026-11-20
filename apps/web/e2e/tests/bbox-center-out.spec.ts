@@ -191,16 +191,11 @@ const test = base.extend<{ centerCase: Case; withCandidate: boolean }>({
       passed = testInfo.status === testInfo.expectedStatus;
     } finally {
       try {
-        if (!page.isClosed()) {
-          await testInfo.attach(passed ? "verified-workbench" : "failure-before-cleanup", {
-            contentType: "image/png",
-            body: await page.screenshot({ fullPage: true }),
+        if (!passed && !page.isClosed()) {
+          await testInfo.attach("failure-aria-before-cleanup", {
+            contentType: "text/plain",
+            body: await page.locator("body").ariaSnapshot(),
           });
-          if (!passed)
-            await testInfo.attach("failure-aria-before-cleanup", {
-              contentType: "text/plain",
-              body: await page.locator("body").ariaSnapshot(),
-            });
         }
         await testInfo.attach("bbox-center-evidence", {
           contentType: "application/json",

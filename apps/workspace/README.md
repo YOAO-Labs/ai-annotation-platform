@@ -157,7 +157,7 @@ owner and legacy application grants. It retains 32 fixed functions and the two
 contracted facts views while removing private relation/column, receipt, sequence,
 helper and schema-CREATE access. Broad default grants on future public tables and
 sequences are removed for that consumer. Labeling counter facts and unrelated
-current privileges remain. Seed/screenshot operators retain a separate profile;
+current privileges remain. Trusted seed operators retain a separate profile;
 the migrator may retain its existing inheritance of the ordinary runtime role.
 Thirteen local cases qualify this credential boundary, including actual HTTP,
 Node and worker-service rollback. Eight existing module-role cases also pass;

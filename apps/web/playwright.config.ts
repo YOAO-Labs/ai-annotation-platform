@@ -50,7 +50,7 @@ if (
 }
 const rasterMaskCreateEnabled = rasterMaskMatrix === "native";
 const chromiumChannel = process.env.PLAYWRIGHT_CHROMIUM_CHANNEL;
-const excludedTags = ["@visual", "@stress"];
+const excludedTags = ["@stress"];
 if (rasterMaskMatrix !== "native") excludedTags.push("@mask-native");
 if (rasterMaskMatrix !== "readonly") excludedTags.push("@mask-readonly");
 const pointcloudWebGpuQualification = process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1";
@@ -108,8 +108,7 @@ const isolatedApiCommand = [
  */
 export default defineConfig({
   testDir: "./e2e",
-  // Documentation capture remains separate. Visual baselines and stress scenarios
-  // in tests/ run through playwright.extended.config.ts with their own CI reports.
+  // Layout stress uses its own config.
   testMatch: ["**/tests/**/*.spec.ts"],
   grepInvert: new RegExp(excludedTags.join("|")),
   // Unproved fixture families remain serial even when their runs are isolated.

@@ -54,7 +54,7 @@ ai-annotation-platform/
 │   │   │   ├── stores/          # Zustand UI 状态
 │   │   │   ├── types/           # 手写的 UI / 领域类型
 │   │   │   └── styles/          # Tailwind / shadcn runtime tokens
-│   │   ├── e2e/                # Playwright E2E + screenshots 自动化
+│   │   ├── e2e/                # Playwright 功能与渲染测试
 │   │   ├── vite.config.ts
 │   │   └── tsconfig.json
 │   │
@@ -90,7 +90,7 @@ ai-annotation-platform/
 ├── docs-site/                   # VitePress 用户手册 + 开发文档 + API
 ├── docs/                        # ADR / changelogs / plans / research
 ├── docker-compose.yml           # 本地基础服务（postgres/redis/minio/celery + 监控 profile）
-├── docker-compose.ml.yml        # ML Backend 叠加（GPU 推理服务 + 截图协议 stub）
+├── docker-compose.ml.yml        # ML 共享叠加（服务在各插件叠加文件）
 └── .env.example                 # 环境变量模板
 ```
 
@@ -718,7 +718,7 @@ Cleanup 保留原临时存储配置，API 仅获 `.probe-media-cache/` 下的对
 归档夹具影响后续消费者；验收记录保留三条预检 Audit 事件，不把它们当成测试产生的写入。
 会提交固定演示账号的父级 seed 测试也独立运行，避免其 `admin` 账号影响其他验收。
 历史角色审计会临时替换 PostgreSQL 实例级的 `legacy_runtime` LOGIN；视频跟踪冷 worker
-会提交没有夹具数据集归属的作业。两者各用自己的完整文件和独占实例，不与截图准备或回收共库。
+会提交没有夹具数据集归属的作业。两者各用自己的完整文件和独占实例，不与其他夹具共库。
 图片身份导入和 installed scale CLI 分别使用独占 profile。公开关系和独立 Node 探针完成后，
 验证器在数据库出生身份、准确用户／项目集合及无其他客户端的守卫下，仅退役自己的
 准备探针，再执行各自的空业务库场景；未知行或级联依赖使准备失败，不执行全表清空。
@@ -736,17 +736,6 @@ Workspace、Notifications、Audit 和 Jobs 的独立 Node 对照依赖须分别�
 普通 Identity 消费者的精确八函数包含接受后 API Key 事实读取，以及 JWT 撤销状态和凭据
 代次读取：分别服务于 `identity_request_authority` 和 `token_blacklist` 的事务内重验。
 这不授权私有表、凭据哈希或撤销写命令；各操作账号仍须断言自己的准确能力集合。
-
-截图调用方测试另需显式提供 `AAP_SCREENSHOT_SOURCE_CACHE` 和
-`AAP_SCREENSHOT_NUSCENES_ARCHIVE`，只传给本次隔离验收进程，不写入日常 `.env`：
-前者是含 `<asset-id>/<sha256>/source.bin`、`content/` 与 `.complete.json`
-的绝对源缓存目录；后者是官方 `v1.0-mini.tgz` 的绝对路径。
-源文件必须通过当前清单中的大小与 SHA-256 核验。为 pytest 指定本次任务独有的
-`--basetemp`；测试复制已核验源文件，在该临时目录重建派生缓存，并为每项测试
-创建独立 DuckDB，不修改共享源缓存或借用保留环境的分析库。
-每个 pytest worker 需预留约 4 GB 归档副本及解包、生成素材所需空间。
-源素材就绪不等于截图夹具已通过：实际媒体／模型服务、受限 Identity 读取、
-私有 catalog HTTP 与双运行准确退役仍须分别验证。
 
 默认选集中的旧 `test_dataset_import_cancellation.py` 已删除：其中是旧调用转发 mock，
 当前取消结果由已选的 `test_dataset_import.py`（旧任务 HTTP 取消）和
@@ -1357,49 +1346,15 @@ AAP_IDENTITY_E2E_FIXTURE_LIVE=1 \
 当前结果见[测试治理计划](docs/plans/1793261328_test-governance-module-plugin-contracts.md)，
 不因本地验收切换日常主环境或宣称整模块部署完成。
 
-### 截图夹具的 Identity 边界
+### 历史截图夹具的 Identity 边界
 
-作业恢复／拒绝夹具读取精确 email 对应的账号 ID，不新增角色或启用过滤；已有项目、
-数据集来源及任务路径守卫保持。偏好恢复仍先校验 URL 的 `_test`／`_e2e` 后缀与 JSON
-object，再完整替换账号偏好。公开偏好接口会深合并，不能代替此恢复操作。
-
-迁移到当前 head 后，可信录制 LOGIN 先应用 `identity-consumer-grants.sql`，再显式
-追加一项固定写入能力。以下命令仅用于自己拥有的隔离数据库：
-
-```bash
-psql -v expected_database=annotation_test -v migration_role=owner \
-  -v identity_owner=identity_code -v consumer_role=recording_operator \
-  -f infra/docker/identity-recording-fixture-grants.sql
-```
-
-该 LOGIN 必须无管理／角色继承权限，且已撤销 User 私表和列权限；普通 API 角色不能
-作为录制 operator。实际数据库名也必须以 `_test` 或 `_e2e` 结尾。运行原脚本时配置
-`DATABASE_URL`，偏好恢复也接受优先级更高的 `SCREENSHOT_DATABASE_URL`。其他领域的
-夹具写入仍需要其既有可信权限，本步骤只收口 Identity 操作。
-
-```bash
-apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-  --output .worktree/identity-recording-native.json \
-  --test-file tests/test_identity_recording_native.py \
-  --test-file tests/test_identity_fixture_preferences_native.py
-```
-
-修改前捕获的 37 项行为已通过受限凭据回放，另有 5 项 Node、共同回滚、真实行锁和
-实际数据库名检查。参照 Workspace 组合私网验收表设置四项镜像及身份变量后，可运行
-安装后的三项原始 CLI：
-
-```bash
-AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1 \
-  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-  --output .worktree/identity-recording-cold.json \
-  --test-file tests/test_identity_recording_live.py
-```
-
+已退役的录制工具曾验证受限 Identity 读取和固定偏好替换。修改前捕获的 37 项行为和
+5 项额外 Native 检查在当时通过，覆盖共同回滚、真实行锁和实际数据库名守卫。
 一个冷案例的 23 次原始 CLI 容器调用已通过，包含权限撤销／恢复、物理取消 137、
 真实后端释放、未提交值回滚及恢复。owner／API 工件分别匹配 286／1,318 个文件。
 收据见 `.worktree/identity-recording-qualification.json`，整体状态按
-[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。这不替代实际
-浏览器录制、ML 推理或完整录制工作流验收；旧媒体资产和人工审阅来源不被重写。
+[唯一台账](docs-site/dev/concepts/module-deployment.md#identity-截图夹具)记录。
+原录制 CLI 和专用授权已退役；历史收据不构成当前浏览器或 ML 验收。
 
 ### 历史角色审计的 Identity 与 Workspace 读取
 
@@ -1504,17 +1459,15 @@ AAP_IDENTITY_SEED_SELECTION_LIVE=1 \
 
 ### 媒体种子的 Identity 边界
 
-COCO8／视频／OCR 的账号创建使用现有 persona owner；截图准备和目录只读取公开账号
-事实并传递 UUID，大图仍按原 email 查找 owner。截图准备保留角色校验，目录另保留
-启用状态校验；旧账号不被重置。可信运维账号先使用普通 Identity 围栏，再应用
-`identity-seed-operator-grants.sql`，共五项普通函数加精确查询和 persona 创建。
+COCO8 和视频示例的账号创建使用现有 persona owner，旧账号不重置；大图仍按原
+email 查找 owner。可信运维账号先使用普通 Identity 围栏，再应用
+`identity-seed-operator-grants.sql` 追加精确查询和 persona 创建能力。
 该配置不增加普通 HTTP／worker 权限，其他领域仍沿用原运维权限。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --output .worktree/media-seed-identity-native.json \
   --test-file tests/test_media_seed_identity_native.py \
-  --test-file tests/test_screenshot_seed_catalog.py \
   --test-file tests/test_seed_large_images.py
 ```
 
@@ -1528,10 +1481,9 @@ AAP_MEDIA_SEED_IDENTITY_LIVE=1 \
 ```
 
 该案例只接受验收器自有环境。冷凭据禁止 User 私表／列，保留大图图谱的旧 Project／
-Dataset 运维权限，不冒充其他领域的最小凭据。77 项定向检查和十八次冷容器调用已通过，
-包含 137 退出后的实际后端释放、共同回滚和同邮箱恢复；十秒 SQL 阻塞不代表即时取消
-任意查询。收据见 `.worktree/media-seed-identity-qualification.json`；其他运维入口见
-[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)，日常主环境未切换。
+Dataset 运维权限，不冒充其他领域的最小凭据。历史组合验收的范围与收据见
+[唯一台账](docs-site/dev/concepts/module-deployment.md#媒体种子-identity-边界)；原记录中的
+录制子场景不属于当前选集。日常主环境未因此切换。
 
 ### Workspace 锁定权限与会话快照
 
@@ -2178,7 +2130,6 @@ pnpm test                        # vitest 单测
 pnpm --filter web test:coverage  # 前端带覆盖率
 pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 独立资源与受限 API
 pnpm --filter web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
-pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # 后端 / 共享包测试
@@ -2216,23 +2167,22 @@ pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && AAP_FRAME_CELERY_
 首页请求。调用后需显式导航到测试页面；已有 localStorage 偏好会保留，真实请求
 错误检查不作放宽。
 
-CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask、native Mask AI
-三个任务。应用、共享依赖和相关 CI 配置变更时，路由脚本
-`scripts/plan-e2e-suites.mjs` 追加独立视觉与压力套件；main 始终运行全部九套件，
-`E2E extended` 每晚和手动运行两个扩展套件。默认配置排除 `@visual` / `@stress`，
-但六种布局上下文的 14 次短流程及全部恢复断言仍属于每个 PR 的功能回归。
+CI E2E 由 `scripts/plan-e2e-suites.mjs` 路由：普通 PR 运行核心 smoke 与受影响专项，
+共享依赖或未知路径变更保守放大全量；主分支和 `E2E extended` 夜间定时执行全量，
+手动 `extended` 只运行布局压力集，`full` 使用全量选集。完整功能集保留四个 Chromium
+分片、点云专项，以及 readonly Mask、native Mask、native Mask AI 三个专项。
+默认配置排除 `@stress`，但六种布局上下文的 14 次短流程和恢复断言仍属于功能回归。
 每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；未完成隔离验收的
 夹具仍只用一个 Playwright worker。Raster 故障用例还要求协调器在产品服务启动前准备专属
 数据库、版本化存储和 `PLAYWRIGHT_RASTER_FAULT_MANIFEST`，不允许在线破坏共享对象。
 
-私有截图与 scale 命令要求协调器提供 `AAP_FIXTURE_TOOLS_ROOT` 绝对目录：主机为仓库
-`scripts` 目录，安装镜像为 `/opt/yoao-fixture-tools`。截图和 scale 的 run 均须由主机
-协调器先在隔离测试环境注册；截图 global setup 在 seed 前经 owner 通道登记
-`SCREENSHOT_FIXTURE_RUN_ID`，截图消费者和 `seed_scale.py --run-id UUID` / `--purge`
-只处理该精确 run，不再隐式创建它。不要把原始存储写入凭据或源码挂载交给已安装的普通消费进程。
+`seed_scale.py` 要求协调器提供 `AAP_FIXTURE_TOOLS_ROOT` 绝对目录：主机为仓库
+`scripts`，安装镜像为 `/opt/yoao-fixture-tools`。协调器先在隔离测试环境注册运行；
+`--run-id UUID` 与 `--purge` 只处理该精确 run，不再隐式创建它。不要把原始存储
+写入凭据或源码挂载交给已安装的普通消费进程。
 
-默认、视觉和压力套件使用构建产物，Mask 任务由 Playwright 启动隔离 API 和 Vite dev。
-功能用例最多重试一次；扩展用例中视觉基线不重试、压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
+完整功能和压力套件使用构建产物，Mask 专项使用各自的隔离启动器和配置。
+核心 smoke 不重试；完整功能和压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、
 失败截图和 trace 分别上传到 `playwright-report-<suite>`，Actions 摘要展示结果与耗时，
 并区分失败、flaky、跳过及全局错误。详见 [E2E 运行说明](apps/web/e2e/README.md)。
@@ -2267,186 +2217,17 @@ PYTHONPATH=. uv run python scripts/seed_large_images.py \
 `test-results/image-seeds/` 与当前开发对象存储；production 环境会拒绝运行。完整门槛、回填与诊断见
 [图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。
 
-## 截图自动化
+## 按需界面验收与文档媒体
 
-用户手册截图（`docs-site/user-guide/images/`）由 Playwright 脚本驱动重生成，
-不进默认 CI，由 maintainer 手动触发。截图脚本只使用 `screenshots`
-seed profile 和只读 catalog，不会随机选取开发库里的项目。`--repair` 只收敛带截图
-seed 标记的对象。整套自动化固定使用 `annotation_screenshots_test`，不连接
-开发库 `annotation`。
+需要验收界面、截图或录屏时，在获授权的隔离环境中新建 `agent-browser` 命名会话，
+以合适的角色和安全数据操作本次指定流程。核对真实结果，再单独检查临时截图或回放成片。
+只有明确要求更新发布素材时才提交指定文件和引用。CI 保留功能、布局与渲染断言及
+失败诊断，不生成成功路径截图或录屏。详见[按需截图与录屏](docs-site/dev/how-to/update-screenshots.md)。
 
-截图 seed 会同步初始化真实离线分析视图，无需等待 `cleanup` 队列。PostgreSQL `_test` / `_e2e` 库未显式设置 `DUCKDB_PATH` 时，默认使用当前 checkout 的 `.artifacts/analytics/` 私有文件，按数据库主机、端口和库名区分；seed 与 API 必须使用同一 checkout 和数据库。显式 `DUCKDB_PATH` 优先，相关进程须指向同一个专属文件，截图 seed 拒绝共享开发默认分析文件。详见[截图维护指南](docs-site/dev/how-to/update-screenshots.md#快速运行)。
-
-交互流程的点击与笔迹坐标来自 catalog 中随任务版本化的归一化语义锚点：锚点可由模型候选生成，但进入截图 seed 前必须经过标签或人工复核，录制器不在运行时猜测画布目标。点云静态场景同时包含轻量 PCL RGB-D 夹具与 nuScenes 六相机环视夹具；后者固定携带六路同步图像、内外参与单帧激光雷达，专门覆盖多相机画布状态。
-
-nuScenes 缓存需包含地图、元数据和关键帧传感器文件；初始化时会校验地图是否齐全。录制 catalog 根据数据集 UUID 解析导入器的隔离存储路径，逻辑帧名称保持固定。
-
-### 前置条件
-
-截图夹具准备、恢复和清理脚本会直接构造、更新及删除多领域测试行，
-`SCREENSHOT_DATABASE_URL` 必须指向自有一次性截图库的 schema-owner 连接。
-普通 API runtime 账号已撤销 Jobs 私表 INSERT／UPDATE／DELETE，不能用于这些脚本；
-截图 API／worker 的普通运行连接仍按既有授权装配。不要使用日常开发库或生产库。
-
-```bash
-docker compose up -d postgres redis minio
-cd apps/api
-export SCREENSHOT_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test
-DATABASE_URL="$SCREENSHOT_DATABASE_URL" uv run python scripts/prepare_e2e_db.py
-DATABASE_URL="$SCREENSHOT_DATABASE_URL" uv run alembic upgrade head
-cd ../..
-
-# 另开窗口启 API；截图 catalog/login 需要显式测试路由门禁
-cd apps/api && DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test \
-  E2E_SEED_ENABLED=true ENVIRONMENT=development \
-  uv run uvicorn app.main:app --host 127.0.0.1 --port 8010
-
-# 另开窗口，让截图 Web 只代理到上面的专用 API
-cd apps/web && API_PROXY_TARGET=http://127.0.0.1:8010 PORT=3001 pnpm dev --host 127.0.0.1
-pnpm exec playwright install chromium   # 首次需下载浏览器
-
-# 有 GPU/真实 backend：按能力发现并绑定图片、视频、OCR backend
-cd apps/api && DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test \
-  PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --repair --ml-backend-mode live
-```
-
-没有 GPU 时使用协议 stub。它仍经过 `/health`、`/setup`、全局 registry、项目启用关联和
-主 backend 绑定，不会在数据库里伪造“已连接”状态：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.ml.yml \
-  --profile screenshots up -d --build screenshot-ml-stub
-
-cd apps/api && DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test \
-  PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --repair --ml-backend-mode stub
-```
-
-stub 地址默认复用 `ML_BACKEND_STORAGE_HOST` 的主机部分并使用 `9100` 端口，确保宿主 API
-和 Celery 容器都能访问；Docker 网关不同时可显式传
-`--ml-backend-url http://<gateway>:9100`。seed 会按能力而非 backend 名称选择：图片要求
-point、interactive box 与 exemplar，视频要求交互 tracker，OCR 要求整图输入及文本属性输出。
-任一能力、连接、启用关联或主绑定缺失都会退出非零。
-
-录制超大图渐进细节前，还需要把固定 Cosmic Cliffs 夹具导入同一截图数据库，并确认共享媒体控制端与
-`assets-images-worker` 都使用该截图数据库和对象存储，且截图 API 的 `ASSETS_MEDIA_URL` 指向共享控制端。只有这个可选项目存在时，catalog 才会返回
-`large_image_demo`；其他截图与流程不依赖它。
-
-```bash
-pnpm --filter web image:seeds
-cd apps/api
-DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed_large_images.py \
-  --id nasa-cosmic-cliffs --enqueue-pyramids --wait-seconds 1800
-```
-
-图片 Worker 与截图 API/控制端必须使用同一 `SCREENSHOT_DATABASE_URL`；开发库 Worker 不会为截图库回写生成状态。
-
-### 触发
-
-Mac / Linux 分工录制优先使用 `pnpm --filter web screenshots:record -- --list`，
-再用 `--flow bbox-draw --plan` 预览依赖。正式录制默认采集 `marketing` 高清母版，
-再同源衍生项目需要的视频、GIF 与封面；`--profile docs --validate-only` 只预演，不生成正式源。
-手工场景无需模型，真实 ML 母版目前使用 Linux X11/NVIDIA，模型服务可独立部署。
-入口会修复隔离夹具，运行前须核对数据库和 Redis，并准备完整离线素材缓存。
-详见 [跨平台录制与隔离要求](docs-site/dev/how-to/update-screenshots.md#高清母版统一采集与衍生)。
-
-无显示器的 Linux NVIDIA 主机可在同一入口添加 `--headless-display`，为本次营销母版采集启动独立 Xorg 和 Metacity，
-结束时清理自己的图形会话，继续执行硬件合成、帧率与母版门禁。需要当前用户已有 GPU 设备访问权。
-专用会话关闭屏保和 DPMS，保持长时间准备夹具期间的显示输出。
-可在采集进程中通过 `MARKETING_HEADLESS_GPU` 指定 `nvidia-smi` 报告的 PCI bus ID，
-通过 `MARKETING_FFMPEG` / `MARKETING_FFPROBE` 指定编码工具；默认选择第一张 GPU，验证 PATH 中工具并在需要时尝试 `/usr/bin`。
-这些选项不需要写入共享 `.env`；入口不修改系统图形配置或持久化桌面偏好。
-
-```bash
-export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001
-export PLAYWRIGHT_API_BASE=http://127.0.0.1:8010
-
-SCREENSHOT_VALIDATE_ONLY=1 pnpm --filter web screenshots  # 只验证场景，不写 PNG/manifest
-pnpm --filter web screenshots                              # 生成 desktop-light 正式图
-pnpm --filter web screenshots:dark                         # 显式声明的深色场景
-pnpm --filter web screenshots:matrix                       # desktop-light/dark/mobile
-pnpm --filter web screenshots:flows                        # 流程预演，不生成正式素材
-pnpm --filter web screenshots:marketing                    # 4K60 MKV + MP4/H.264，需本机 X11/NVIDIA/ffmpeg
-pnpm docs:media:derive                                      # 从最新营销批次统一派生视频 / GIF / 封面
-pnpm docs:media:audit                                       # 检查引用、来源与人工复核版本
-pnpm --filter web screenshots:regression                   # 比较 9 张高价值视觉基线
-pnpm --filter web screenshots:regression:update            # 有意 UI 变化后更新基线
-```
-
-不要手工维护资产数量；静态 manifest、流程 manifest、磁盘文件和文档引用共同给出当前清单。
-所有视频录制入口只归档，不直接覆盖站点文件。标准源使用
-`pnpm docs:media:derive -- --quality standard --run <run-id> --asset video-track --format video --clip 2:8`；
-其中 `2:8` 必须换成实际审阅过的窗口；标准源 GIF 同样需要 `--clip`。仅派生 GIF 时使用 `--format gif`；多 GIF 资产须通过 `--gif-target` 分别指定各自窗口。
-派生器校验源哈希和质量证据，不放大或补帧提升标准源等级，并保留未选择资产的清单记录。
-宣传文章入口 `scripts/derive-article-media.mjs` 也复用同一校验、转码和来源记录实现。
-生成后人工审阅 PNG，以及 GIF / MP4 的核心动作与最终结果；完整 matrix 成功后才原子重建静态 manifest，定向运行和 validate-only 不会替换它。
-营销母版单独写入 Git 忽略的 `.artifacts/marketing/<run-id>/`，不可变的 4K60 MKV/H.264 采集源和
-4K60 MP4/H.264 通用母版分别按 SHA-256 命名。录制使用 1440×810 逻辑 viewport 与 1.8× 设备像素倍率，
-先由 X11 按 60Hz 主动采样 2592×1458 的真实动作，交给 NVENC 硬件编码，再用 Lanczos 统一到 3840×2160；工作台组件保持正常视觉比例。
-启动器会拒绝软件渲染、有效独立画面低于 55fps、独立帧占比低于 90%，以及其它重复帧伪装 60fps 的情况，并把校准实测值写入 manifest。每个目标需在高清营销资产目录登记主题、分镜和独立时长规格；
-组合多个功能的教程不归档为单项母版。归档时会强制检查 3840×2160、时长范围和 MP4/H.264 编码，
-通用 MP4 会按真实操作窗口去掉首屏加载；单次命令即使因失败重启 Playwright worker，也只使用一个固定批次和一份 manifest。
-内容规格、源 commit、两种格式的预留存储键以及 MP4 派生裁剪区间都会写入 manifest。
-该命令不直接覆盖站点媒体；运行 `pnpm docs:media:derive` 后才从母版统一生成文档 MP4、首页 WebM / MP4 fallback 与 WebP 封面。上传远端并校验前不要删除本地运行目录。
-本机显示不足 2700×1750 时，显式设置 `MARKETING_CAPTURE_DISPLAY`、必要时设置
-`MARKETING_XAUTHORITY`，并在命令参数中追加 `--resize-display`；启动器在结束后恢复原显示尺寸。
-流程脚本结束时会通过 `--repair` 恢复截图 seed 的期望状态。资产检查命令：
-
-```bash
-pnpm --filter web screenshots:lint
-node docs-site/scripts/check-image-manifest.mjs --release
-node docs-site/scripts/check-orphan-images.mjs --strict
-pnpm docs:media:audit -- --release
-```
-
-`flow-manifest.json` 保存 GIF、文档 MP4、首页视频与封面的生成 commit、seed、哈希和母版 lineage；
-`docs-site/maintainers/media-reviews.json` 单独保存人工复核 commit。只有工作树干净、媒体已提交并完成视觉检查后，才运行
-`pnpm docs:media:approve -- --asset <仓库相对路径>`。
-日常 `Docs validation` 用 `media:audit -- --integrity` 检查文件缺失与生成清单哈希一致性，
-人工复核过期或关联源码变化不阻塞 PR。每周一北京时间 11:17 的 `Docs media audit` 生成阶段待办报告，
-也支持手动运行。功能稳定、发布文档前，在 GitHub Actions 手动运行 **Release readiness** 并选择待验收分支，
-执行完整文档检查、截图 `--release` 检查及媒体 `--release` 审核；失败时也保留媒体报告。
-手动入口需工作流先进入默认分支，验收不会自动批准素材或发布版本。
-具体步骤见[生成来源与人工复核版本](docs-site/dev/how-to/update-screenshots.md#生成来源与人工复核版本)。
-
-普通 E2E 使用启动器核验的工作树 `e2e` 资源；截图使用
-`annotation_screenshots_test`。不要为省略建库步骤而把自动化的
-`DATABASE_URL` 指回开发库。
-
-### 改场景
-
-- 60 个 desktop-light 场景按功能放在 `apps/web/e2e/screenshots/scenes/`；新增项目场景
-  必须声明 `fixture` 并通过 catalog 逻辑键生成 `route`。
-- 主入口 `apps/web/e2e/screenshots/screenshots.spec.ts` 在浏览器导航前校验项目、任务、
-  批次、backend 和场景能力，并分别使用 `admin`、`anno` 和 `qa` 的真实身份。
-- 独立 config：`apps/web/playwright.screenshots.config.ts` —— 与默认 `playwright.config.ts`
-  分离（默认 `testMatch: ["**/tests/**/*.spec.ts"]` 不收录 screenshots）。
-- 用 `SCREENSHOT_VALIDATE_ONLY=1` 开发场景：它仍执行登录、导航、能力与 locator
-  检查，但不覆盖正式资产或 manifest。
-
-### 已知坑
-
-- **远程浏览器只显示模糊占位图**：根 `.env` 保持 `MINIO_PUBLIC_URL=/minio`，
-  DEV 会让签名媒体走页面同源的 `:3000/minio` 并由 Vite 转发到 MinIO，远程机器
-  只需打通 3000 端口。若返回 `localhost:9000` 或宿主机 `:9000`，会分别命中
-  访问者自己或受跨网段端口策略影响。`ML_BACKEND_STORAGE_HOST` 是容器的另一层
-  地址，可以继续使用 Docker 网关。`MINIO_PROXY_TARGET` 必须与 `MINIO_ENDPOINT` 的协议、Host及端口完全一致，确保代理恢复签名 Host；worktree 启动器自动对齐。模型端点在签名前单独选择，不能替换已签名 URL。修改 `.env` 或 Vite 代理配置后重启 API/Web。
-- **截图 seed 报 backend 能力不足**：live 模式只接受当前可达且能力快照覆盖截图场景的
-  registry，不按名称猜测。确认目标 backend 已启动并被 API 同步；无 GPU 时启动
-  `screenshot-ml-stub` 后改用 `--ml-backend-mode stub`。不要把浏览器的 `/minio`
-  地址拿来配置 backend，后者必须同时对宿主 API 和 Celery 容器可达。
-- **远程工作台一直「重连中」**：DEV 中的 WebSocket 默认跟随页面同源，由
-  Vite 将当前页面端口的 `/ws` 升级并转发到本机 API；LAN 与 SSH LocalForward
-  访问也保持同源。不要把 Docker 默认 IP 或服务器端 `localhost:8000` 发给远程浏览器；
-  只有刻意绕过 Vite proxy 时才设置浏览器可达的 `VITE_WS_HOST`。
-- **seed repair 后点项目被退回总览**：`--repair` 可能为 seed 自有项目生成新 UUID。
-  旧页签或已缓存的项目卡片仍指向旧 UUID 时会跳回总览；修复数据后强制刷新
-  项目总览一次。
-- **中文路径**：仓库根含中文（`AI标注平台设计/`）时，`import.meta.url` 会 percent-encode；
-  `screenshots.spec.ts` 已 `decodeURIComponent` 兜底，写到正确位置而非 `AI%E6%A0%87...` 镜像目录。
-- **时间或动画导致截图漂移**：截图 driver 已固定测试时钟、语言、时区、DPR 并禁用动画；
-  新场景还必须等待字体、图片解码和具体业务 ready selector，不要依赖单纯延时。
+远程浏览器访问的 `/ws`、`/minio` 应与实际 Web 地址同源，由 Vite 转发。不要把远端的
+`localhost` 或 Docker 内部地址交给浏览器。`MINIO_PROXY_TARGET` 的协议、Host 和端口
+须与 `MINIO_ENDPOINT` 一致，才能恢复签名 Host；worktree 启动器会对齐两者。模型读取
+采用自身可达地址，不修改已经签名的 URL。
 
 ## 测试账号
 
@@ -2468,7 +2249,7 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 重跑 seed 会保留已有任务和标注，并从 nuScenes `sample_data` 幂等回填旧相机条目缺失的
 像素宽高，供 3D 投影、持久化 2D 成员和残差质检共用。
 
-普通 demo 只有在传入 `--video /path/to/video.mp4` 时才创建视频示例；不再依赖 SAM vendor 内的文件。独立入口为 `PYTHONPATH=. uv run python scripts/seed_video.py --video /path/to/video.mp4`（在 `apps/api` 执行）。调用方负责确认素材可用于预期用途，文档／公开截图还须另行核验传播许可；`screenshots` profile 保留自己的确定性素材，不接受这个覆盖参数。
+普通 demo 只有在传入 `--video /path/to/video.mp4` 时才创建视频示例；不再依赖 SAM vendor 内的文件。独立入口为 `PYTHONPATH=. uv run python scripts/seed_video.py --video /path/to/video.mp4`（在 `apps/api` 执行）。调用方负责确认素材可用于预期用途，拟公开的图片、GIF 或视频还须核验传播许可。
 
 ### COCO8 在线训练夹具
 
@@ -3639,7 +3420,7 @@ Identity／Workspace 围栏；设置 `AAP_IDENTITY_E2E_FIXTURE_LIVE=1` 及匹配
 `AAP_WORKSPACE_MODULE_*` 镜像和 identity 后运行。它不切换主环境，也不证明整模块
 部署完成。清理遇到未退役视频返回 409，先取消并完成真实退役再重试。
 
-### 规模种子与截图支持读取
+### 规模种子的 Workspace 边界
 
 应用当前迁移和 owner grants 后，可信操作账号先应用普通 Workspace consumer
 围栏，再组合 `identity-scale-seed-grants.sql` 和 `workspace-scale-seed-grants.sql`。
@@ -3654,29 +3435,15 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --test-file tests/test_identity_seed_selection_native.py
 ```
 
-截图夹具的 golden 包含全库账号，需与图片导入夹具分开使用验收库，原基线保持：
+冷验收使用 `test_identity_seed_selection_live.py`，显式设置 `AAP_IDENTITY_SEED_SELECTION_LIVE=1`
+及匹配当前源码的 `AAP_WORKSPACE_MODULE_*` 工件。生产拒绝仍在 `seed_scale.py` 创建 engine
+前执行；保留引用或忙锁必须先解决再重试，不能补造退役证明。
 
-```bash
-apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-  --output .worktree/workspace-screenshot-readers.json \
-  --test-file tests/test_identity_recording_native.py::test_jobs_recording_identity \
-  --test-file tests/test_identity_recording_native.py::test_review_recording_identity \
-  --test-file tests/test_identity_recording_native.py::test_jobs_cached_email_keeps_original_id \
-  --test-file tests/test_identity_recording_native.py::test_jobs_cached_project_preserves_original_pipeline_and_name
-```
-
-冷验收分别复用 `test_identity_seed_selection_live.py` 和
-`test_identity_recording_live.py`，对应开关为 `AAP_IDENTITY_SEED_SELECTION_LIVE=1`
-和 `AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1`，使用匹配当前源码的
-`AAP_WORKSPACE_MODULE_*` 工件。生产拒绝仍在 `seed_scale.py` 创建 engine 前执行；
-保留引用或忙锁必须先解决再重试，不能补造退役证明。
-
-### 媒体种子与截图 Workspace 边界
+### 媒体种子的 Workspace 边界
 
 安装当前迁移并应用 module-data owner grants 后，可信操作账号先应用普通 Workspace
 consumer 围栏，再追加 `workspace-seed-operator-grants.sql` 的六项写入能力。普通 API／
-worker 保持原 32 项 Workspace 函数与事实读取。新的三项原生能力及事务语义见
-[运行指南](docs-site/api/guides/workspace-runtime.md#媒体及截图种子)。
+worker 保持原 32 项 Workspace 函数与事实读取，事务语义见[运行指南](docs-site/api/guides/workspace-runtime.md#媒体及截图种子)。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
@@ -3691,11 +3458,8 @@ AAP_WORKSPACE_MEDIA_SEED_LIVE=1 apps/api/.venv/bin/python \
 冷运行需要与当前源码匹配的既有 API 工件身份变量；复用 Workspace CLI 的隔离
 PostgreSQL／Redis／S3 夹具。实际媒体入口使用只读小夹具与原始视频副本，检查权限
 撤销后的回滚、恢复、重跑和对象哈希；不下载完整数据集，也不调用真实 ML 模型。
-截图定向检查覆盖两种 autoflush、成员时间、项目计数和中间 flush 的后端字段，固定
-夹具通过既有删除 owner 清理。本组 68 项去重 Native／消费者检查和一个冷组合案例已
-通过。非 editable Workspace／API 工件分别核对 292／1326 个文件；六次冷命令包含
-权限撤销与恢复、媒体重跑／哈希、截图元数据／成员及最终时间固定。完整截图录制与
-其他领域资格继续见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+历史 Native／冷组合资格及其确切范围见[唯一台账](docs-site/dev/concepts/module-deployment.md#workspace-媒体及截图种子)。
+已退役的录制测试不属于当前定向选集。
 
 ### 主种子冷运行验收
 

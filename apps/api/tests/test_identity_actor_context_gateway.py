@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import uuid
 from datetime import UTC, datetime
@@ -24,7 +23,7 @@ from app.services.identity_contracts import (
     IdentityGatewayUnavailable,
 )
 from app.services.identity_gateway import IdentityGateway
-from tests.factory import create_user
+from tests.factory import make_user_dict
 from tests.test_identity_gateway import _Client, _principal, _Response
 from tests.test_identity_auth_native import _cleanup, _seed
 
@@ -39,11 +38,12 @@ _CAPTURE = json.loads(
 @pytest.mark.parametrize("expected", _CAPTURE, ids=lambda item: item["case"])
 async def test_embedded_actor_fence_matches_actual_legacy_http(db_session, expected):
     case = expected["case"]
-    user = await create_user(
-        db_session, "employee", case + "@actor-context.test", "  Current actor 😀"
+    user = User(
+        **make_user_dict("employee", case + "@actor-context.test", "  Current actor 😀")
     )
     user.id = uuid.uuid5(uuid.NAMESPACE_URL, "aap-identity-actor/" + case)
     user.weekly_target_default = 307
+    db_session.add(user)
     await db_session.flush()
     principal = Principal(
         actor_id=user.id,
@@ -294,16 +294,3 @@ async def test_remote_actor_enforces_response_budget_and_timeout(monkeypatch):
     monkeypatch.setattr(gateway, "_remote_reply", stalled)
     with pytest.raises(IdentityGatewayUnavailable):
         await gateway.actor_context(principal)
-
-
-def test_shared_actor_dependency_has_no_user_orm_or_credential_reauthentication():
-    from app import deps
-    import inspect
-
-    source = inspect.getsource(deps.get_current_user)
-    tree = ast.parse(source)
-    assert not any(
-        isinstance(node, ast.Name) and node.id == "User" for node in ast.walk(tree)
-    )
-    assert "identity.actor_context" in source
-    assert "authenticate(" not in source

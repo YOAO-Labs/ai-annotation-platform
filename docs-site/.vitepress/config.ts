@@ -61,31 +61,6 @@ export default withMermaid(
     // mermaid 11.x 的 chunk 直接 import `dayjs/dayjs.min.js`（UMD 文件），Vite 当 ESM
     // 解析失败 → "does not provide an export named 'default'"。alias 指向 ESM 入口。
     vite: {
-      plugins: [
-        // M4 · 把 apps/web/e2e/screenshots/outputs/manifest.json 暴露为虚拟模块
-        // AutoImage.vue 通过 `import("virtual:screenshot-manifest")` 消费
-        {
-          name: "vite-plugin-screenshot-manifest",
-          resolveId(id: string) {
-            if (id === "virtual:screenshot-manifest") return "\0virtual:screenshot-manifest";
-          },
-          load(id: string) {
-            if (id !== "\0virtual:screenshot-manifest") return;
-            const manifestPath = resolve(
-              __here,
-              "../../apps/web/e2e/screenshots/outputs/manifest.json",
-            );
-            try {
-              const data = existsSync(manifestPath)
-                ? JSON.parse(readFileSync(manifestPath, "utf8"))
-                : {};
-              return `export default ${JSON.stringify(data)}`;
-            } catch {
-              return "export default {}";
-            }
-          },
-        },
-      ],
       resolve: {
         alias: [{ find: /^dayjs\/dayjs\.min\.js$/, replacement: "dayjs/esm/index.js" }],
       },

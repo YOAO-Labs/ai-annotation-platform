@@ -6,11 +6,11 @@ on:
       - "docs-site/**"
       - "docs/**"
       - "apps/api/openapi.snapshot.json"
-      - "apps/web/e2e/screenshots/**"
       - "CHANGELOG.md"
       - "ROADMAP.md"
       - "ROADMAP/**"
       - "scripts/check-dead-links.mjs"
+      - "scripts/image-reference-utils*.mjs"
       - ".github/workflows/docs-validate.yml"
       # 生成文档的真值来源:改了它们但忘了重新生成,本工作流的 check:codegen 拦住
       - "apps/api/app/api/v1/**"
@@ -23,11 +23,11 @@ on:
       - "docs-site/**"
       - "docs/**"
       - "apps/api/openapi.snapshot.json"
-      - "apps/web/e2e/screenshots/**"
       - "CHANGELOG.md"
       - "ROADMAP.md"
       - "ROADMAP/**"
       - "scripts/check-dead-links.mjs"
+      - "scripts/image-reference-utils*.mjs"
       - "apps/api/app/api/v1/**"
       - "apps/web/src/pages/Workbench/state/hotkeys.ts"
       - "apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts"
@@ -86,15 +86,11 @@ jobs:
       - name: Internal Markdown links
         run: node scripts/check-dead-links.mjs docs-site
 
-      - name: User-guide image coverage
-        run: node docs-site/scripts/check-image-manifest.mjs --strict && node docs-site/scripts/check-orphan-images.mjs --strict
+      - name: Documentation asset references
+        run: node docs-site/scripts/check-orphan-images.mjs --strict
 
-      - name: Media audit policy tests
-        run: pnpm --filter docs-site media:test
-
-      # Review freshness belongs to manual acceptance, not each PR.
-      - name: Published media integrity
-        run: pnpm --filter docs-site media:audit -- --integrity
+      - name: Test documentation reference checks
+        run: pnpm --filter docs-site test:references
 
       - name: Excalidraw diagram integrity
         run: pnpm --filter docs-site check:diagrams

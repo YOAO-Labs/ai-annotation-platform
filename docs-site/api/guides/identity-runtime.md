@@ -98,7 +98,9 @@ API 的 consumer 配置。`yoao_identity_fixture_v1.account_profiles` 只提供�
 
 完整 E2E 数据准备／清理使用独立 owner 夹具进程，而非给普通 API 追加这些权限。Identity／Workspace 原生场景将 seed 请求与受限业务 HTTP 显式分流；受限固定能力、私表拒绝和借用事务的检查仍独立保留。owner 通道成功不计作受限角色执行完整 seed 的资格，见[测试边界](/dev/testing)。
 
-## 截图夹具的账号与偏好
+## 历史截图夹具的账号与偏好 {#截图夹具的账号与偏好}
+
+原录制夹具 CLI 和专用授权入口已退役。以下记录遗留数据库合同，不是当前的运行或授权步骤。
 
 恢复／拒绝夹具按精确 email 从公开 `account_profiles` 关系读取 UUID，不增加角色或
 启用状态条件。单账号查询保持原 Session 的缓存行为，不用 email 映射重新查找已缓存行。
@@ -109,12 +111,8 @@ API 的 consumer 配置。`yoao_identity_fixture_v1.account_profiles` 只提供�
 停用账号保持原行为，不走公开偏好接口的深合并。调用方持有事务，正常等待行锁；没有
 隐式提交、重试、审计或账号授权。SQL NULL／非 object 值返回 SQLSTATE 22023。
 
-函数在实际数据库名严格以 `_test` 或 `_e2e` 结尾时才执行，否则返回 42501；大小写不被
-规范化。普通 API 仍是两视图／五函数，不能执行此能力。可信录制 LOGIN 先应用普通
-Identity 围栏，再由 `identity-recording-fixture-grants.sql` 追加一项 EXECUTE；它仍无
-User 私表或列权限。原始脚本的生产拒绝、来源／任务守卫及偏好工具的 URL 检查保持。
-此能力不授予其他领域的夹具写入权限；命令和限定资格见仓库 `DEV.md` 及
-[模块台账](/dev/concepts/module-deployment#identity-截图夹具)。
+函数仅在实际数据库名严格以 `_test` 或 `_e2e` 结尾时执行，否则返回 42501；后缀区分大小写。
+普通 API 不获得这项能力。历史资格仅覆盖当时的受限消费者，见[模块台账](/dev/concepts/module-deployment#identity-截图夹具)。
 
 ## 历史角色审计关系
 
@@ -175,10 +173,9 @@ Identity API 仍只有两视图／五函数；审计 LOGIN 仅追加三个审计
 该配置拒绝普通 API 账号、角色继承和 User 私表／列权限。
 主种子的限定验收见[模块台账](/dev/concepts/module-deployment#主种子账号与演示成员)。
 
-媒体子种子也复用这项固定 persona 能力。COCO8／视频保留中文管理员名称，OCR 保留
-`Admin`，已有账号仍完整复用。截图准备与目录按原顺序读取公开账号事实，分别保留
-角色校验和角色＋启用状态校验；后续只传递 UUID。大图保留原精确邮箱 owner 选择。
-这几项消费者的迁移不增加协议、SQL 函数、角色或公开 REST；其定向与冷运行资格见
+COCO8 和视频示例复用固定 persona 能力，新账号保留中文管理员名称，已有账号原样复用；
+大图保留按精确邮箱选择 owner 的行为。这些消费者不新增协议、SQL 函数、角色或公开 REST。
+历史定向和冷运行资格见
 [模块台账](/dev/concepts/module-deployment#媒体种子-identity-边界)。
 
 Identity operational provisioning 是给 bootstrap/import CLI 使用的内部 SQL owner，不是 HTTP/SDK 账号创建接口。Portable protocol `aap-identity-provisioning/v1` 只有 exact-email lookup 与 `bootstrap_admin`／`import_admin` create 两种模式；`AccountProvisioningManager` 通过 `create_bootstrap_super_admin(...)` 返回 UUID 或 `None`，通过 `ensure_import_admin(environment=...)` 返回 UUID。API caller adapter 不返回可变 User 或 password hash。
@@ -732,7 +729,7 @@ PUBLIC 授权、所有权或其他遗留权限仍可绕过时，整笔授权回�
 冷镜像的实际 HTTP 流程；迁移 head 0306、冻结 SQL 回滚与自有资源清理通过。完整
 资格范围与剩余阻断见[模块台账](/dev/concepts/module-deployment#identity-内嵌运行权限)。
 主开发环境和生产配置的切换必须单独验收；直接启动 API 的其他入口不在本流程中。独立部署仍在完整 owner 授权之后最后应用前述 consumer
-清单；可信录制及门控 E2E 操作继续使用各自固定能力和数据库守卫。
+清单；门控 E2E 操作继续使用私有夹具通道、固定能力及数据库守卫。
 
 ## 注册策略的 owner 读取
 

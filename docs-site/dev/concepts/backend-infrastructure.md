@@ -7,7 +7,7 @@ last_reviewed: 2026-10-19
 
 # 后端基础设施（容器）
 
-本页对照 `docker-compose.yml`、`docker-compose.ml.yml` 与 `docker-compose.training.yml`，说明各基础设施、后台队列与计算容器**做什么**、**存什么**以及**如何启停**。
+本页对照 `docker-compose.yml`、可选的 ML 插件叠加与 `docker-compose.training.yml`，说明各基础设施、后台队列与计算容器**做什么**、**存什么**以及**如何启停**。
 
 ## 一图看全
 
@@ -25,8 +25,8 @@ last_reviewed: 2026-10-19
 # 默认服务（postgres / redis / minio / mailpit / 7 类 celery-worker / celery-beat）
 docker compose up -d
 
-# GPU 推理后端（需 NVIDIA Container Toolkit，定义于 docker-compose.ml.yml）
-docker compose -f docker-compose.yml -f docker-compose.ml.yml --profile gpu up -d grounded-sam2-backend
+# GPU 推理后端（需 NVIDIA Container Toolkit；共享叠加与实际插件叠加都传入）
+docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-gsam2.yml --profile gpu up -d grounded-sam2-backend
 docker compose -f docker-compose.yml -f docker-compose.ml.yml -f docker-compose.ml-yolo.yml --profile gpu-yolo up -d yolo-backend
 
 # 独立训练执行器（定义于 docker-compose.training.yml）
@@ -132,7 +132,7 @@ Celery 内置默认队列名为 `celery`，不在任何 Worker 的 `-Q` 列表�
 
 ### ML Backend 推理服务与训练执行器（可选叠加）
 
-- **5 个第一方 ML Backend（SAM 在 `docker-compose.ml.yml`；YOLO、ONNXTools 与 RapidOCR 在各自插件叠加文件）**：
+- **以下 5 个第一方 ML Backend 各自使用插件叠加文件**：
   - `grounded-sam2-backend`（`:8001`，profile `gpu`）
   - `sam3-backend`（`:8002`，profile `gpu-sam3`）
   - `yolo-backend`（`:8003`，profile `gpu-yolo`，同时支持 `/managed-models` 受控自训权重挂载与 `/managed-evaluation/*` 冻结评估）

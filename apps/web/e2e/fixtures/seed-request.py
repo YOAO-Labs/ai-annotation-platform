@@ -96,19 +96,19 @@ def prepare(payload):
                 "Mask lifecycle requires the local worktree database"
             )
     else:
+        if payload.get("operation") is not None or not isinstance(
+            payload.get("path"), str
+        ):
+            raise SeedSetupRefused("Only fixture endpoints may use setup credentials")
         path = urlsplit(payload["path"])
         if (
-            payload.get("operation") is not None
-            or path.scheme
+            path.scheme
             or path.netloc
             or not path.path.startswith("/api/v1/__test/seed/")
             or ".." in path.path.split("/")
         ):
             raise SeedSetupRefused("Only fixture endpoints may use setup credentials")
-        method = payload.get("method", "POST")
-        if method != "POST" and not (
-            method == "GET" and path.path == "/api/v1/__test/seed/catalog"
-        ):
+        if payload.get("method", "POST") != "POST":
             raise SeedSetupRefused("Fixture owner method is not permitted")
     select_fixture_owner(owner)
     return payload
@@ -752,159 +752,6 @@ async def serve_authority(ready_fd):
     state["journal_failure"] = None
     state["disposal_failure"] = None
     connections = set()
-    screenshot_roots = {}
-
-    async def prepare_screenshot_native(run_id, api_port):
-        from sqlalchemy import select
-        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-        from sqlalchemy.pool import NullPool
-        from app.db.models.fixture_run import FixtureRunAdmission
-        from app.services import fixture_run_ownership as ownership
-
-        if (
-            supervised_suite() is not None
-            or (api_port is None and resources["mode"] != "test")
-            or (
-                api_port is not None
-                and (
-                    resources["mode"] not in {"test", "e2e"}
-                    or type(api_port) is not int
-                    or not 1 <= api_port <= 65535
-                    # The first launcher in this authority passes the port it
-                    # was configured with. A concurrent sibling launcher has
-                    # its own isolated port, so only the first run can match
-                    # the authority process environment.
-                    or (
-                        str(api_port)
-                        != original_environment.get("PLAYWRIGHT_ISOLATED_API_PORT")
-                        and not screenshot_roots
-                    )
-                )
-            )
-        ):
-            raise SeedSetupRefused("Invalid screenshot native topology")
-        if api_port is not None and any(
-            entry["control"].journal.get("state") != "retired"
-            and entry["control"].journal.get("api", {}).get("port") == api_port
-            for entry in screenshot_roots.values()
-        ):
-            raise SeedSetupRefused("Screenshot native API port reused")
-        existing = screenshot_roots.get(run_id)
-        if existing is not None:
-            control = existing["control"]
-            if control.api_owned != (api_port is not None) or (
-                api_port is not None
-                and control.journal.get("api", {}).get("port") != api_port
-            ):
-                raise SeedSetupRefused("Screenshot native topology changed")
-        engine = create_async_engine(
-            owner_url, poolclass=NullPool, hide_parameters=True
-        )
-        try:
-            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-                root = await ownership._lock_run(db, run_id)
-                if (
-                    root.family != "screenshot"
-                    or root.parent_run_id is not None
-                    or root.scope_key is not None
-                    or root.state != "open"
-                ):
-                    raise SeedSetupRefused("Screenshot native root is not open")
-                active = await db.scalar(
-                    select(FixtureRunAdmission.id)
-                    .where(
-                        FixtureRunAdmission.run_id == run_id,
-                        FixtureRunAdmission.kind == "screenshot_seed",
-                        FixtureRunAdmission.state == "active",
-                    )
-                    .limit(1)
-                )
-                if active is not None:
-                    raise SeedSetupRefused("Screenshot seed admission remains active")
-                admission_id = await ownership.admit(db, run_id, "screenshot_seed")
-                await db.commit()
-        finally:
-            await engine.dispose()
-        entry = screenshot_roots.get(run_id)
-        if entry is None:
-            from app.services.fixture_native_runtime import FixtureNativeRuntime
-            from fixture_native_playwright import NativeSuiteControl
-
-            root_directory = directory / ("suite-" + run_id.hex)
-            root_directory.mkdir(mode=0o700)
-            journal_path = root_directory / "native-supervisor.json"
-            journal = {
-                "schema": "aap-fixture-native-supervisor/v1",
-                "suite_id": str(run_id),
-                "resources": resources,
-                "pid": os.getpid(),
-                "start": process_start(os.getpid()),
-                "authority_nonce": generation["nonce"],
-                "root_origin": {"family": "screenshot", "parent_run_id": None},
-                "birth_admission_id": str(admission_id),
-                "state": "preparing",
-                "api_owned": api_port is not None,
-            }
-            atomic_json(journal_path, journal, exclusive=True)
-            control = NativeSuiteControl(
-                dict(original_environment),
-                run_id,
-                resources,
-                root_directory,
-                journal,
-                journal_path,
-                authority_owned=True,
-                root_family="screenshot",
-            )
-            entry = {"control": control, "runtime": None}
-            screenshot_roots[run_id] = entry
-            await control.prepare()
-            entry["runtime"] = FixtureNativeRuntime(
-                control.environment, run_id, root_directory
-            )
-        control, runtime = entry["control"], entry["runtime"]
-        expected_state = (
-            "serving"
-            if api_port is not None and control.api is not None
-            else "control_started"
-        )
-        if runtime is None or control.journal.get("state") != expected_state:
-            raise SeedSetupRefused("Screenshot native owner is unsettled")
-        await control.resume()
-        await runtime.prepare(run_id, admission_id)
-        if api_port is not None and control.api is None:
-            await control.start_api(api_port)
-        import fixture_media_control
-
-        receipt = await fixture_media_control.receipt_path(run_id)
-        run = runtime.runs[run_id]
-        if receipt != run["control_receipt"]:
-            raise SeedSetupRefused("Screenshot native control identity changed")
-        dsn_file = await fixture_media_control.verified_worker_dsn_path(run_id, receipt)
-        if dsn_file != run["dsn"] or not dsn_file.is_absolute():
-            raise SeedSetupRefused("Screenshot native control credential changed")
-        from yoao_assets_media_runtime.additional_original import (
-            load_additional_original_config,
-        )
-
-        original = load_additional_original_config(control.profile)
-        if original is None:
-            raise SeedSetupRefused("Screenshot original reader is unavailable")
-        result = {
-            "admission_id": str(admission_id),
-            "origin": control.origin,
-            "token": control.token,
-            "control_dsn_file": str(dsn_file),
-            "original_read": {
-                "endpoint": original.endpoint,
-                "bucket": original.bucket,
-                "access_key": original.access_key,
-                "secret_key": original.secret_key,
-            },
-        }
-        if api_port is not None:
-            result["api_origin"] = f"http://127.0.0.1:{api_port}"
-        return result
 
     def persist_offline():
         owned = read_owner(directory, resources)
@@ -1195,17 +1042,6 @@ async def serve_authority(ready_fd):
                                 raise SeedSetupRefused(
                                     "Fixture provider identity is unknown"
                                 )
-                            pending_screenshot_roots = {
-                                run_id
-                                for run_id, item in screenshot_roots.items()
-                                if item["runtime"] is None
-                                or item["runtime"].runs
-                                or item["control"].journal.get("state") != "retired"
-                            }
-                            if suite_uuid in pending_screenshot_roots:
-                                raise SeedSetupRefused(
-                                    "Screenshot native root remains owned"
-                                )
                             remaining = any(row.state != "retired" for row in rows)
                             if remaining or providers:
                                 if (
@@ -1234,10 +1070,6 @@ async def serve_authority(ready_fd):
                                     "body": json.dumps({"state": "shared"}),
                                 }
                             else:
-                                if pending_screenshot_roots:
-                                    raise SeedSetupRefused(
-                                        "Screenshot native roots remain owned"
-                                    )
                                 state["stop_operation"] = operation_id
                                 response = {
                                     "status": 200,
@@ -1252,15 +1084,6 @@ async def serve_authority(ready_fd):
                             ):
                                 raise SeedSetupRefused(
                                     "Invalid fixture offline seal request"
-                                )
-                            if any(
-                                item["runtime"] is None
-                                or item["runtime"].runs
-                                or item["control"].journal.get("state") != "retired"
-                                for item in screenshot_roots.values()
-                            ):
-                                raise SeedSetupRefused(
-                                    "Screenshot native roots remain owned"
                                 )
                             app, engine = state["app"], state["engine"]
                             if app is None or engine is None:
@@ -1427,39 +1250,6 @@ async def serve_authority(ready_fd):
                                 raise
                             state["offline"] = None
                             response = {"status": 200, "body": "{}"}
-                        elif operation == "owner_screenshot_native_prepare":
-                            if set(payload) not in (
-                                {"operation", "run_id"},
-                                {"operation", "run_id", "api_port"},
-                            ):
-                                raise SeedSetupRefused(
-                                    "Invalid screenshot native request"
-                                )
-                            if (
-                                "api_port" in payload
-                                and type(payload["api_port"]) is not int
-                            ):
-                                raise SeedSetupRefused(
-                                    "Invalid screenshot native API port"
-                                )
-                            try:
-                                run_id = UUID(payload["run_id"])
-                            except (TypeError, ValueError, AttributeError):
-                                raise SeedSetupRefused(
-                                    "Invalid screenshot native identity"
-                                ) from None
-                            if str(run_id) != payload["run_id"]:
-                                raise SeedSetupRefused(
-                                    "Invalid screenshot native identity"
-                                )
-                            binding = await _settled(
-                                asyncio.create_task(
-                                    prepare_screenshot_native(
-                                        run_id, payload.get("api_port")
-                                    )
-                                )
-                            )
-                            response = {"status": 200, "body": json.dumps(binding)}
                         elif operation == "owner_native_api_start":
                             if (
                                 native_control is None
@@ -1536,9 +1326,6 @@ async def serve_authority(ready_fd):
 
                                 app = FastAPI()
                                 app.state.fixture_backends = FixtureBackends()
-                                app.state.fixture_screenshot_native_roots = (
-                                    screenshot_roots
-                                )
                                 suite = supervised_suite()
                                 if suite is not None:
                                     from app.services.fixture_native_runtime import (
@@ -1584,8 +1371,7 @@ async def serve_authority(ready_fd):
                                         transport=httpx.ASGITransport(state["app"]),
                                         base_url="http://fixture.local",
                                     ) as client:
-                                        result = await client.request(
-                                            payload.get("method", "POST"),
+                                        result = await client.post(
                                             payload["path"],
                                             json=payload.get("data"),
                                             headers=payload.get("headers"),
@@ -1706,7 +1492,6 @@ def validate_client_payload(payload):
         "owner_offline_status",
         "owner_native_api_start",
         "owner_native_suite_retire",
-        "owner_screenshot_native_prepare",
     }:
         return
     keys = (

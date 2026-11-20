@@ -4,7 +4,6 @@
  */
 import DefaultTheme from "vitepress/theme";
 import DocsLayout from "./DocsLayout.vue";
-import AutoImage from "./components/AutoImage.vue";
 import ExcalidrawDiagram from "./components/ExcalidrawDiagram.vue";
 import DocsHome from "./components/DocsHome.vue";
 import DocLinkCard from "./components/DocLinkCard.vue";
@@ -23,7 +22,6 @@ export default {
   extends: DefaultTheme,
   Layout: DocsLayout,
   enhanceApp({ app, router }) {
-    app.component("AutoImage", AutoImage);
     app.component("ExcalidrawDiagram", ExcalidrawDiagram);
     app.component("DocsHome", DocsHome);
     app.component("DocLinkCard", DocLinkCard);

@@ -1,8 +1,12 @@
 # Documentation media refresh — macOS-capturable scope
 
-> Status: static matrix and all Mac-recordable workflow recordings executed and approved (sixteen of seventeen flows); S3 pointcloud canary and the Linux/GPU batch remain. See `## Outcome` and `## Remaining work` at the end of this file.
+> Status: superseded. The refresh campaign ended at the outcome below. Its deferred batches are historical, not pending work or release blockers. For a specific requested replacement, follow [on-demand UI checks and capture](../../../docs-site/dev/how-to/update-screenshots.md).
+>
+> Campaign result: the static matrix and sixteen of seventeen Mac-recordable workflows were captured and approved at the time; the S3 point-cloud canary and Linux/GPU batch remained.
 > Maintainer decisions (2026-09-13): refresh the existing library only; re-record only what this Apple Silicon Mac can record; agent-delegated visual review is authorized and must be recorded honestly.
 > The twelve proposed marketing masters remain in [new capability marketing masters](1789230200_new-capability-marketing-masters.md) and are not enrolled here.
+>
+> The commands, original stages, and recorded outcomes below belong to the September campaign. They are not current operating instructions; historical approvals, metrics, and unqualified runs retain their original status.
 
 ## 1. Audit-gate baseline
 
@@ -50,7 +54,7 @@ Re-record reasons: dirty capture tree, stale seed, or content replaced after rev
 ### S0 — Freeze and runtime
 
 1. Land any pending documentation or source edits first; record the frozen commit and confirm a clean tree.
-2. Provision the isolated capture runtime per [update-screenshots.md](../../docs-site/dev/how-to/update-screenshots.md): dedicated `annotation_screenshots_test` database, explicit nonzero capture Redis DB for both `REDIS_URL` and `CELERY_BROKER_URL`, API on `8010` with `E2E_SEED_ENABLED=true`, one `screenshots@` worker, web on `3001`, offline seed with `--ml-backend-mode stub` (the `screenshot-ml-stub` service is already healthy on `9100`).
+2. Provision the isolated capture runtime per [update-screenshots.md](../../../docs-site/dev/how-to/update-screenshots.md): dedicated `annotation_screenshots_test` database, explicit nonzero capture Redis DB for both `REDIS_URL` and `CELERY_BROKER_URL`, API on `8010` with `E2E_SEED_ENABLED=true`, one `screenshots@` worker, web on `3001`, offline seed with `--ml-backend-mode stub` (the `screenshot-ml-stub` service is already healthy on `9100`).
 3. Save the pre-capture audit JSON as baseline evidence: `pnpm docs:media:audit -- --json --output .artifacts/media-refresh/baseline.json`.
 4. Smoke-check the selected flows read-only: `pnpm --filter @anno/web screenshots:record -- --flow bbox-draw --plan`.
 

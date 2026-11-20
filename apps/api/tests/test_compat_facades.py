@@ -632,7 +632,6 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
         consumer_modules=(
             "app.api.v1.projects",
             "scripts.seed_pointcloud",
-            "scripts.seed_screenshot_profile",
         ),
     ),
     FacadeSpec(

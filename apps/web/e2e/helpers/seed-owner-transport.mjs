@@ -236,23 +236,6 @@ export async function prepareFixtureSuite(suiteId, family) {
   return JSON.parse(response.body);
 }
 
-export async function prepareScreenshotNative(runId, apiPort, operationId) {
-  transport ??= startOwner();
-  const response = await transport.post(
-    { operation: "owner_screenshot_native_prepare", run_id: runId, api_port: apiPort },
-    120_000,
-    operationId,
-  );
-  if (response.status !== 200) {
-    throw new Error(`Screenshot native preparation failed: ${response.status}`);
-  }
-  const binding = JSON.parse(response.body);
-  if (binding.api_origin !== `http://127.0.0.1:${apiPort}`) {
-    throw new Error("Screenshot API origin changed during preparation");
-  }
-  return { operationId: response.operation_id, apiOrigin: binding.api_origin };
-}
-
 export async function verifyFixtureSuite(suiteId, family) {
   transport ??= startOwner();
   const response = await transport.post(
@@ -287,7 +270,7 @@ function safeFailureBody(body) {
   return JSON.stringify({ detail: "Fixture operation failed; see the private owner journal" });
 }
 
-async function requestFixture(url, method, options) {
+export async function postFixture(url, options) {
   const target = new URL(url);
   if (!target.pathname.startsWith("/api/v1/__test/seed/")) {
     throw new Error("Setup credentials may only prepare fixture endpoints");
@@ -295,7 +278,7 @@ async function requestFixture(url, method, options) {
   transport ??= startOwner();
   const response = await transport.post(
     {
-      method,
+      method: "POST",
       path: target.pathname + target.search,
       data: options?.data,
       headers: options?.headers,
@@ -313,15 +296,4 @@ async function requestFixture(url, method, options) {
     text: async () => body,
     json: async () => JSON.parse(body),
   };
-}
-
-export function postFixture(url, options) {
-  return requestFixture(url, "POST", options);
-}
-
-export function getScreenshotCatalog(url, options) {
-  if (new URL(url).pathname !== "/api/v1/__test/seed/catalog") {
-    throw new Error("Fixture catalog transport only permits the screenshot catalog");
-  }
-  return requestFixture(url, "GET", options);
 }

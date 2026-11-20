@@ -174,7 +174,7 @@ test.describe("shared Markdown authoring", () => {
     page,
     request,
     seed,
-  }, testInfo) => {
+  }) => {
     const fixture = await prepareGuide(page, request, seed);
     const writes: string[] = [];
     page.on("request", (req) => {
@@ -210,16 +210,6 @@ test.describe("shared Markdown authoring", () => {
       "list-style-type",
       "disc",
     );
-    await page.screenshot({
-      path: testInfo.outputPath("markdown-reading-light.png"),
-      fullPage: true,
-    });
-    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
-    await page.screenshot({
-      path: testInfo.outputPath("markdown-reading-dark.png"),
-      fullPage: true,
-    });
-    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
     await mode(editor, "编辑");
     await richText(editor).focus();
     await richText(editor).press("Control+Home");
@@ -236,7 +226,7 @@ test.describe("shared Markdown authoring", () => {
     page,
     request,
     seed,
-  }, testInfo) => {
+  }) => {
     const fixture = await prepareGuide(page, request, seed, "旧说明");
     let editor = await openGuide(page, fixture.project_id);
     const body = richText(editor);
@@ -305,9 +295,6 @@ test.describe("shared Markdown authoring", () => {
     await expect
       .poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth))
       .toBeGreaterThan(0);
-    await page.screenshot({ path: testInfo.outputPath("guide-light.png"), fullPage: true });
-    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
-    await page.screenshot({ path: testInfo.outputPath("guide-dark.png"), fullPage: true });
   });
 
   test("a failed guide save retains the draft for an explicit retry", async ({
@@ -1043,7 +1030,7 @@ test.describe("shared Markdown authoring", () => {
     page,
     request,
     seed,
-  }, testInfo) => {
+  }) => {
     const data = await seed.owned();
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     await seed.injectToken(page, data.admin_email);
@@ -1060,13 +1047,6 @@ test.describe("shared Markdown authoring", () => {
     await expect(linkAddress).toBeVisible();
     await linkAddress.fill("https://example.com/annotation-guide");
     await expect(linkAddress).toBeFocused();
-    await page.screenshot({ path: testInfo.outputPath("template-link-popup.png"), fullPage: true });
-    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
-    await page.screenshot({
-      path: testInfo.outputPath("template-link-popup-dark.png"),
-      fullPage: true,
-    });
-    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
     await page.getByRole("button", { name: "保存链接", exact: true }).click();
     await mode(editor, "预览");
     await expect(
@@ -1103,7 +1083,7 @@ test.describe("shared Markdown authoring", () => {
     page,
     request,
     seed,
-  }, testInfo) => {
+  }) => {
     const data = await seed.owned();
     await seed.injectToken(page, data.admin_email);
     await page.goto("/bugs");
@@ -1184,6 +1164,5 @@ test.describe("shared Markdown authoring", () => {
     expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(376);
-    await page.screenshot({ path: testInfo.outputPath("bug-mobile.png"), fullPage: true });
   });
 });

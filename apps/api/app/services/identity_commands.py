@@ -92,11 +92,6 @@ class IdentityCommandService:
                 status_code=503, detail="身份认证服务暂不可用"
             ) from None
 
-    async def lookup_seed_account_facts(
-        self, email: str
-    ) -> list[tuple[uuid.UUID, str, str, bool]]:
-        return await IdentityProvisioningData(self.db).lookup_seed_account_facts(email)
-
     async def ensure_seed_persona(
         self, *, email: str, name: str, password: str, role: str, group_name: str | None
     ) -> tuple[uuid.UUID, bool]:

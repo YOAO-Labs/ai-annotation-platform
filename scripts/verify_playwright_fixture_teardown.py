@@ -73,8 +73,7 @@ NATIVE = ("celery-media", "celery-pyramid", "media-worker", "image-worker", "pro
 FAILURE = "INTENTIONAL_GLOBAL_TEARDOWN_ACCEPTANCE_FAILURE"
 CASE_SECONDS = 2 * (2 * 120 + 7 * 120) + 2 * 120
 
-# Same run-resource joins as tests/test_screenshot_exit_live.py: no display
-# names, prefixes or unowned rows enter this neighbor proof.
+# Compare only resources linked to the neighboring run by durable ownership.
 ROW_QUERIES = {
     "resources": "SELECT to_jsonb(r) FROM yoao_fixture_v1.fixture_run_resources r WHERE r.run_id=:run ORDER BY r.kind,r.resource_id",
     "users": "SELECT to_jsonb(t) FROM public.users t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='user' WHERE r.run_id=:run ORDER BY t.id",

@@ -12,7 +12,7 @@ test("secondary capsule preserves configuration and real child writes across col
   page,
   request,
   seed,
-}, testInfo) => {
+}) => {
   test.setTimeout(120_000);
   const data = await seed.owned();
   const token = await seed.accessToken(data.admin_email);
@@ -52,19 +52,13 @@ test("secondary capsule preserves configuration and real child writes across col
       "aria-hidden",
       "true",
     );
-    await page.screenshot({ path: testInfo.outputPath("secondary-capsule.png") });
     await page.getByTestId("secondary-settings-trigger").hover();
     await expect(page.getByTestId("secondary-quick-disclosure")).toHaveAttribute(
       "aria-hidden",
       "false",
     );
     await expect(page.getByTestId("secondary-prompt")).toBeVisible();
-    await page.screenshot({
-      path: testInfo.outputPath("secondary-hover.png"),
-      animations: "disabled",
-    });
     await expect(page.getByTestId("secondary-cap-select")).toBeHidden();
-    await page.getByTestId("secondary-settings-trigger").hover();
     await expect(page.getByTestId("secondary-run")).toBeDisabled();
     await page.getByTestId("secondary-prompt").fill("car");
     await expect(page.getByTestId("secondary-run")).toBeEnabled();
@@ -147,7 +141,6 @@ test("secondary capsule preserves configuration and real child writes across col
             );
           })
           .toBe(true);
-        await page.screenshot({ path: testInfo.outputPath(`secondary-${theme}-${width}.png`) });
         await closeContextToolbar(page, "secondary");
       }
     }

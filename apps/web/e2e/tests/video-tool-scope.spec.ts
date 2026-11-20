@@ -3,7 +3,6 @@ import type { APIRequestContext, APIResponse, Locator, Page } from "@playwright/
 import { writeFile } from "node:fs/promises";
 
 import { expect, test as base, type SeedData } from "../fixtures/seed";
-import { renderedMediaBounds } from "../screenshots/flows/_canvas";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const KINDS = ["bbox", "polygon", "polyline", "mask"] as const;
@@ -252,6 +251,29 @@ async function seek(page: Page, target: number) {
     await key(page, forward ? "ArrowRight" : "ArrowLeft");
     await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(current));
   }
+}
+
+// Pointer actions target the rendered video, not the letterboxed stage.
+async function renderedMediaBounds(stage: Locator) {
+  const stageBox = await stage.boundingBox();
+  if (!stageBox) throw new Error("视频工作台没有可见边界");
+  const { x, y, width, height } = await stage.evaluate((element) => ({
+    x: Number(element.getAttribute("data-media-x")),
+    y: Number(element.getAttribute("data-media-y")),
+    width: Number(element.getAttribute("data-media-width")),
+    height: Number(element.getAttribute("data-media-height")),
+  }));
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    throw new Error("视频工作台未暴露有效的媒体渲染区");
+  }
+  return { x: stageBox.x + x, y: stageBox.y + y, width, height };
 }
 
 async function clickPoint(page: Page, point: Point) {
@@ -1172,10 +1194,7 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     expect(await annotations(request, scopeCase)).toHaveLength(4);
   });
 
-  test("F2-5 短面板反复切范围保留工具可达性、当前项与菜单键盘行为", async ({
-    page,
-    scopeCase,
-  }, testInfo) => {
+  test("F2-5 短面板反复切范围保留工具可达性、当前项与菜单键盘行为", async ({ page, scopeCase }) => {
     await open(page, scopeCase);
     await page.setViewportSize({ width: 1440, height: 768 });
     await shortenCanvas(page);
@@ -1240,10 +1259,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
       "track",
     ]);
     expect(scopeCase.writes).toEqual([]);
-    await page.screenshot({
-      path: testInfo.outputPath("video-tool-scope-short.png"),
-      animations: "disabled",
-    });
     await identity?.dispose();
   });
 });

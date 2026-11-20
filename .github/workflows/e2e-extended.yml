@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "E2E scope for the manual run"
+        description: "E2E scope: layout stress only (extended) or all suites (full)"
         required: false
         default: extended
         type: choice

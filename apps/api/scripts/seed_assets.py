@@ -225,22 +225,10 @@ def select_profile(
     selected = tuple(asset for asset in available_assets if profile in asset.profiles)
     if not selected:
         raise SeedAssetError(f"seed asset profile has no assets: {profile}")
-    if profile == "screenshots":
-        uncleared = sorted(
-            asset.id
-            for asset in selected
-            if asset.public_docs_status not in {"approved", "approved_with_attribution"}
-        )
-        if uncleared:
-            raise SeedAssetError(
-                "screenshots profile contains media not cleared for public docs: "
-                + ", ".join(uncleared)
-            )
     missing = sorted(set(required_ids) - {asset.id for asset in selected})
     if missing:
         raise SeedAssetError(
-            f"{profile} profile is missing required or approved assets: "
-            + ", ".join(missing)
+            f"{profile} profile is missing required assets: " + ", ".join(missing)
         )
     return selected
 
@@ -482,7 +470,9 @@ def ensure_profile(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", default="screenshots")
+    parser.add_argument(
+        "--profile", choices=("demo", "online-training", "legacy"), default="demo"
+    )
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--asset-dir", type=Path)
     parser.add_argument("--offline", action="store_true")

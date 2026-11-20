@@ -127,16 +127,11 @@ const test = base.extend<{ boundaryCase: Case }>({
       passed = testInfo.status === testInfo.expectedStatus;
     } finally {
       try {
-        if (!page.isClosed()) {
-          await testInfo.attach(passed ? "verified-workbench" : "failure-before-cleanup", {
-            contentType: "image/png",
-            body: await page.screenshot({ fullPage: true }),
+        if (!passed && !page.isClosed()) {
+          await testInfo.attach("failure-aria-before-cleanup", {
+            contentType: "text/plain",
+            body: await page.locator("body").ariaSnapshot(),
           });
-          if (!passed)
-            await testInfo.attach("failure-aria-before-cleanup", {
-              contentType: "text/plain",
-              body: await page.locator("body").ariaSnapshot(),
-            });
         }
         await testInfo.attach("polygon-boundary-trace-evidence", {
           contentType: "application/json",
@@ -277,7 +272,7 @@ test("H3-1 concave source defaults to shorter arc, switches direction, appends a
   page,
   request,
   boundaryCase: fixture,
-}, testInfo) => {
+}) => {
   const source = await createSource(request, fixture, { type: "polygon", points: concave });
   await open(page, fixture);
   const first = await clickPoint(page, [0.94, 0.64]);
@@ -296,10 +291,6 @@ test("H3-1 concave source defaults to shorter arc, switches direction, appends a
     "true",
   );
   await count(page, 1);
-  await testInfo.attach("concave-selected-preview", {
-    contentType: "image/png",
-    body: await page.screenshot(),
-  });
   await controls(page).getByRole("button", { name: "确认追加", exact: true }).click();
   await count(page, 5);
   await page.keyboard.press("Enter");

@@ -1,6 +1,10 @@
 # New capability marketing masters
 
-> Status: new stories proposed and unscheduled; Mac recording capability integrated. No new story has been enrolled, captured, published, or backed up by this plan.
+> Status: superseded. The batch campaign and repository recording workflow are retired; no capture or archive maintenance remains scheduled under this plan. For a specific requested demo, follow [on-demand UI checks and capture](../../../docs-site/dev/how-to/update-screenshots.md).
+> The original proposals, inventory, commands, and Mac pilot evidence below are historical, not current instructions or fresh verification.
+>
+> Original planning status: new stories proposed and unscheduled; Mac recording capability integrated. No new story had been enrolled, captured, published, or backed up by this plan.
+>
 > Baseline: local `52ad4497`, inspected on 2026-09-13. Priority selected by the maintainer: recent capability demonstrations reusable in documentation, the website, and presentations.
 
 ## Recommendation

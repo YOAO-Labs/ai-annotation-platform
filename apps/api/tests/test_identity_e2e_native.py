@@ -271,7 +271,6 @@ async def test_owned_cleanup_preserves_external_actor_reference_until_removed(
     "grant_file",
     [
         "identity-e2e-fixture-grants.sql",
-        "identity-recording-fixture-grants.sql",
         "identity-scale-seed-grants.sql",
         "identity-seed-operator-grants.sql",
     ],

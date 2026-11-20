@@ -113,24 +113,14 @@ function sharedContractEntries() {
   return [];
 }
 
-const extended = [
-  {
-    suite: "visual",
-    command: "test:e2e:visual",
-    built: true,
-    legacyGate: true,
-    scope: "extended",
-    reason: "visual baselines for shared layout/theme surfaces",
-  },
-  {
-    suite: "layout-stress",
-    command: "test:e2e:stress",
-    built: true,
-    legacyGate: true,
-    scope: "extended",
-    reason: "long-horizon layout stress (54 rearrangements)",
-  },
-];
+const layoutStress = {
+  suite: "layout-stress",
+  command: "test:e2e:stress",
+  built: true,
+  legacyGate: true,
+  scope: "extended",
+  reason: "long-horizon layout stress (54 rearrangements)",
+};
 
 // The focused video suite is planned-only; legacy covers its specs through
 // chromium. Both full matrices require the separate pointcloud project.
@@ -169,7 +159,7 @@ const domainSpecialties = [
   },
 ];
 
-export const SUITE_CONTRACT = [...smoke, ...functional, ...domainSpecialties, ...extended];
+export const SUITE_CONTRACT = [...smoke, ...functional, ...domainSpecialties, layoutStress];
 const allSuites = SUITE_CONTRACT;
 
 // Legacy gate rule (frozen): shared frontend/runtime changes can affect every
@@ -186,9 +176,9 @@ function affectsExtended(path) {
   );
 }
 
-// Shadow rule (plan §6.3 narrowing proposal): extended checks target shared
-// visual/layout surfaces, so only those inputs (plus shared runtime, tooling
-// and CI definitions) propose them. P9 evaluates the diff before any switch.
+// Shadow rule (plan §6.3 narrowing proposal): layout stress targets shared
+// layout surfaces, so only those inputs (plus shared runtime, tooling and CI
+// definitions) propose it. P9 evaluates the diff before any switch.
 function affectsExtendedShadow(path) {
   return (
     ["apps/web/src/styles/", "apps/web/index.html", "apps/web/e2e/tests/workbench-layout"].some(
@@ -365,11 +355,11 @@ export function selectSuites(eventName, paths, options = {}) {
       throw new Error(`Invalid nightly E2E scope: ${scope} (expected extended or full)`);
     if (scope === "extended")
       return {
-        planned: extended.map(({ suite }) => suite),
+        planned: [layoutStress.suite],
         classification: { event: "schedule", note: "nightly extended-only explicitly requested" },
         reasons: [
           {
-            suite: "visual+layout-stress",
+            suite: layoutStress.suite,
             selected: true,
             because: "nightly scope set to extended-only",
           },
@@ -440,14 +430,14 @@ export function selectSuites(eventName, paths, options = {}) {
         warnings: [],
       };
     return {
-      planned: extended.map(({ suite }) => suite),
+      planned: [layoutStress.suite],
       classification: {
         event: "workflow_dispatch",
         note: "manual entry stays extended-only and explicitly labeled",
       },
       reasons: [
         {
-          suite: "visual+layout-stress",
+          suite: layoutStress.suite,
           selected: true,
           because: "manual runs select the extended checks explicitly",
         },
@@ -566,14 +556,12 @@ export function selectSuites(eventName, paths, options = {}) {
         addPlanned(entry.suite, "broadened selection runs every dedicated domain contract");
     }
     if (broaden || classification.appCode.some(affectsExtendedShadow)) {
-      for (const suite of extended) {
-        addPlanned(
-          suite.suite,
-          classification.multiDomain
-            ? "multi-domain change broadens verification to the extended checks"
-            : "shared visual/layout surface (styles, layout tooling or runtime config) changed",
-        );
-      }
+      addPlanned(
+        layoutStress.suite,
+        classification.multiDomain
+          ? "multi-domain change broadens verification to layout stress"
+          : "shared layout surface (styles, layout tooling or runtime config) changed",
+      );
     }
     if (planned.length === 0)
       throw new Error(
@@ -620,16 +608,13 @@ export function shadowPlan(eventName, paths, options = {}) {
 // Full functional coverage includes the dedicated pointcloud project.
 export function planE2ESuites(eventName, paths) {
   const legacy = SUITE_CONTRACT.filter((suite) => suite.legacyGate);
-  const extendedOnly = ["visual", "layout-stress"];
   if (["schedule", "workflow_dispatch"].includes(eventName))
-    return { include: legacy.filter(({ suite }) => extendedOnly.includes(suite)) };
+    return { include: legacy.filter(({ scope }) => scope === "extended") };
   if (eventName === "push") return { include: legacy };
   if (eventName !== "pull_request") throw new Error(`Unsupported E2E event: ${eventName}`);
   if (!Array.isArray(paths)) throw new Error("PR changed paths must be supplied");
   return {
-    include: legacy.filter(
-      ({ suite }) => !extendedOnly.includes(suite) || paths.some(affectsExtended),
-    ),
+    include: legacy.filter(({ scope }) => scope !== "extended" || paths.some(affectsExtended)),
   };
 }
 

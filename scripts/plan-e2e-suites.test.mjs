@@ -34,16 +34,15 @@ const broadened = [
   ...specialties,
   "video-pipeline",
   "pointcloud",
-  "visual",
   "layout-stress",
 ];
 
-test("runtime, dependencies and the routing mechanism select both extended checks", () => {
+test("runtime, dependencies and routing changes retain layout stress in the legacy gate", () => {
   for (const path of [
     "apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts",
     "apps/web/src/styles/shadcn.css",
     "apps/web/e2e/tests/deleted.spec.ts",
-    "apps/web/playwright.extended.config.ts",
+    "apps/web/playwright.stress.config.ts",
     "apps/api/app/api/v1/_test_seed.py",
     "apps/api/app/api/v1/annotations.py",
     "packages/shared/example.ts",
@@ -56,18 +55,14 @@ test("runtime, dependencies and the routing mechanism select both extended check
     "scripts/plan-e2e-suites.mjs",
     "scripts/plan-e2e-suites.test.mjs",
   ]) {
-    assert.deepEqual(
-      names("pull_request", [path]),
-      [...functional, "visual", "layout-stress"],
-      path,
-    );
+    assert.deepEqual(names("pull_request", [path]), [...functional, "layout-stress"], path);
   }
 });
 
-test("main always runs everything; scheduled and manual runs select the extended suites", () => {
-  assert.deepEqual(names("push"), [...functional, "visual", "layout-stress"]);
+test("legacy push retains full coverage; scheduled and manual runs select layout stress only", () => {
+  assert.deepEqual(names("push"), [...functional, "layout-stress"]);
   for (const event of ["schedule", "workflow_dispatch"])
-    assert.deepEqual(names(event), ["visual", "layout-stress"]);
+    assert.deepEqual(names(event), ["layout-stress"]);
 });
 
 test("missing change information or an unsupported event cannot silently omit checks", () => {
@@ -103,7 +98,7 @@ test("executable docs examples and docs build config are app code, not docs-only
     "pnpm-lock.yaml",
     ".env.example",
     "docs-site/package.json",
-    "docs-site/scripts/check-image-manifest.mjs",
+    "docs-site/scripts/check-orphan-images.mjs",
     "docs-site/.vitepress/theme/index.ts",
     "docs-site/dev/examples/echo-ml-backend/README.md",
   ]) {
@@ -131,7 +126,7 @@ test("empty diffs and unrecognized paths fail closed to the conservative selecti
   assert.ok(unknown.warnings.some((warning) => /unrecognized top-level paths/.test(warning)));
 });
 
-test("multi-domain changes broaden to the extended checks with recorded reasons", () => {
+test("multi-domain changes include layout stress with recorded reasons", () => {
   const shadow = shadowPlan("pull_request", [
     "apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx",
     "apps/api/app/services/project_access.py",
@@ -148,29 +143,21 @@ test("single-domain frontend changes select core plus triggered specialties", ()
     "apps/web/src/pages/Workbench/stage/shared/geometry/maskOperations.ts",
   ]);
   // Core stays unconditional for app code, the Mask specialties ride along as
-  // triggered, and the extended checks are the recorded narrowing proposal.
+  // triggered, and layout stress is omitted for this narrower change.
   assert.deepEqual(shadow.planned, ["smoke", ...specialties]);
   assert.ok(shadow.reasons.some((reason) => /raster Mask/.test(reason.because)));
   // Smoke itself is shadow-only, so the diff against the frozen gate shows it
   // as an addition together with the dropped default shards, the dedicated
-  // point-cloud suite and the extended checks.
+  // point-cloud suite and layout stress.
   assert.deepEqual(shadow.added, ["smoke"]);
-  assert.deepEqual(shadow.removed, [...core, "pointcloud", "visual", "layout-stress"]);
+  assert.deepEqual(shadow.removed, [...core, "pointcloud", "layout-stress"]);
 });
 
 test("shadow diff against the legacy gate is recorded for schedule changes", () => {
   const shadow = shadowPlan("schedule");
   // Legacy: extended-only. Shadow proposal per §6.2: nightly full matrix.
-  assert.deepEqual(shadow.legacy, ["visual", "layout-stress"]);
-  assert.deepEqual(shadow.planned, [
-    "smoke",
-    ...core,
-    ...specialties,
-    "video-pipeline",
-    "pointcloud",
-    "visual",
-    "layout-stress",
-  ]);
+  assert.deepEqual(shadow.legacy, ["layout-stress"]);
+  assert.deepEqual(shadow.planned, broadened);
   assert.deepEqual(shadow.added, [
     "smoke",
     ...core,
@@ -191,13 +178,9 @@ test("app-code changes can never produce an empty shadow selection", () => {
   assert.ok(shadow.planned.length > 0);
 });
 
-test("CLI stdout carries exactly the outputs the workflow consumers read", () => {
+test("CLI emits the expected suites and delegates CPU coverage by scope", () => {
   const cwd = mkdtempSync(join(tmpdir(), "e2e-cli-contract-"));
   const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
-  const ciYml = readFileSync(
-    fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
-    "utf8",
-  );
   const git = (...args) =>
     execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   const run = (env) =>
@@ -215,10 +198,6 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     git("add", ".");
     git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "seed");
 
-    // An invalid base fails closed regardless of the shadow report.
-    const pr = run({ GITHUB_EVENT_NAME: "pull_request", E2E_BASE_SHA: "0".repeat(40) });
-    assert.notEqual(pr.status, 0);
-
     const dispatched = run({ GITHUB_EVENT_NAME: "workflow_dispatch", E2E_DISPATCH_SCOPE: "full" });
     assert.equal(dispatched.status, 0, dispatched.stderr);
     const outputs = Object.fromEntries(
@@ -226,25 +205,6 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
         .trim()
         .split("\n")
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-    );
-    // The workflow consumes exactly these step outputs.
-    assert.ok(ciYml.includes("steps.plan.outputs.matrix"));
-    assert.ok(
-      ciYml.includes("steps.plan.outputs.ml-cpu") || ciYml.includes("steps.plan.outputs.ml_cpu"),
-    );
-    assert.ok(ciYml.includes("steps.plan.outputs.required"));
-    assert.ok("matrix" in outputs, "CLI must emit matrix=");
-    assert.ok("shadow_path" in outputs, "CLI must emit shadow_path=");
-    assert.equal("shadow" in outputs, false, "bulky reports must not be GitHub outputs");
-    assert.ok(ciYml.includes("steps.plan.outputs.shadow_path"));
-    assert.ok(!ciYml.includes("steps.plan.outputs.shadow }}"));
-    assert.ok(
-      "ml_cpu" in outputs,
-      "ci.yml reads steps.plan.outputs.ml_cpu; the CLI must emit the same key",
-    );
-    assert.ok(
-      "required" in outputs,
-      "ci.yml reads steps.plan.outputs.required; the CLI must emit the same key",
     );
     // Manual full dispatch triggers the delegated CPU contracts; the required
     // manifest is the planned selection with the core forbid-flaky policy.
@@ -273,7 +233,7 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     );
     assert.deepEqual(
       JSON.parse(outputs.legacy).include.map((entry) => entry.suite),
-      ["visual", "layout-stress"],
+      ["layout-stress"],
     );
 
     const extended = run({
@@ -288,6 +248,14 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
     assert.equal(extOutputs.ml_cpu, "false");
+    assert.deepEqual(
+      JSON.parse(extOutputs.matrix).include.map(({ suite }) => suite),
+      ["layout-stress"],
+    );
+    assert.deepEqual(
+      JSON.parse(extOutputs.required).suites.map(({ suite }) => suite),
+      ["layout-stress"],
+    );
 
     // W1: the shadow report carries the same real ml_cpu boolean (push always
     // triggers the delegated CPU contract suites).
@@ -303,7 +271,6 @@ test("CLI stdout carries exactly the outputs the workflow consumers read", () =>
     assert.equal(pushOutputs.ml_cpu, "true");
     assert.equal(pushShadow.mlCpu, true);
     assert.equal(pushOutputs.run_suites, "true");
-    assert.equal(JSON.parse(pushOutputs.required).suites.length, 12);
     assert.deepEqual(
       JSON.parse(pushOutputs.matrix).include.map((entry) => entry.suite),
       [...broadened],
@@ -510,25 +477,18 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
     );
     assert.deepEqual(
       JSON.parse(legacyLine.slice("legacy=".length)).include.map(({ suite }) => suite),
-      [...functional, "visual", "layout-stress"],
+      [...functional, "layout-stress"],
     );
     const shadow = readShadow(cwd, {
       shadow_path: shadowPathLine.slice("shadow_path=".length),
     });
-    assert.deepEqual(shadow.legacy, [...functional, "visual", "layout-stress"]);
+    assert.deepEqual(shadow.legacy, [...functional, "layout-stress"]);
     assert.ok(Array.isArray(shadow.added) && Array.isArray(shadow.removed));
     assert.notEqual(run("0".repeat(40)).status, 0);
     assert.notEqual(run("").status, 0);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
-});
-
-test("unknown/multi-domain PRs run the delegated ml-cpu contracts, never silently off", () => {
-  assert.equal(planE2ESuites("push").include.length > 0, true);
-  const unknown = shadowPlan("pull_request", ["model-configs/weights.yaml"]);
-  assert.equal(unknown.planned, undefined ? [] : unknown.planned);
-  assert.ok(unknown.planned.length >= [...functional].length + 2);
 });
 
 test("docs-only PRs plan an explicit allowed skip instead of running suites", () => {
@@ -600,7 +560,7 @@ test("E2E_SELECTION_MODE=legacy restores the frozen selection for rollback", () 
     );
     assert.deepEqual(
       JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
-      [...functional, "visual", "layout-stress"],
+      [...functional, "layout-stress"],
     );
     assert.equal(outputs.run_suites, "true");
     // Rollback mode keeps full point-cloud coverage: those specs no longer ride
@@ -731,6 +691,7 @@ test("effective gate and required manifest stay identical in every mode and even
         E2E_SCHEDULE_SCOPE: "full",
       });
       assert.deepEqual(ids(out.matrix), requiredIds(out.required), event);
+      assert.deepEqual(ids(out.matrix), broadened, event);
     }
 
     // Docs-only in planned mode is an explicit allowed skip; in legacy

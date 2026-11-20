@@ -77,18 +77,6 @@ class IdentityE2EFixtures:
         )
         return result.scalar_one()
 
-    async def peek_admin(self):
-        result = await self.db.execute(
-            self._profile_select()
-            .where(_FixtureAccount.role == "super_admin")
-            .order_by(
-                _FixtureAccount.email.like("%@e2e.test").asc(),
-                _FixtureAccount.created_at.desc(),
-            )
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
-
     async def create_user(self, role: str, email: str, name: str):
         from tests.factory import make_user_dict
 

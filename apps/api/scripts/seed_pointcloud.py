@@ -2,12 +2,12 @@
 
 The primary P-PC-DEV / DS-PC-DEV fixture is the official nuScenes mini scene-0061.
 It is downloaded into the user cache on demand and is never copied into the repo.
-The directory importer remains available for the small screenshot-only multicamera seed.
+The local directory importer also supports developer fixtures with multiple cameras.
 
 独立跑:
     cd apps/api && PYTHONPATH=. uv run python scripts/seed_pointcloud.py
 
-Both entry points are reused by apps/api/scripts/seed.py.
+The nuScenes seed is also used by apps/api/scripts/seed.py.
 """
 
 import asyncio
@@ -86,7 +86,6 @@ async def seed_pointcloud(
     dataset_display_id: str = DATASET_DISPLAY_ID,
     dataset_name: str = DATASET_NAME,
     project_name: str = "点云联合标注 (dev)",
-    fixture_scope: tuple[uuid.UUID, uuid.UUID] | None = None,
 ) -> dict | None:
     """把点云夹具灌入当前栈,owner 为传入用户。
 
@@ -105,8 +104,6 @@ async def seed_pointcloud(
     from app.services.assets_spatial import AssetsSpatialGateway
 
     if await find_import_project(db, project_display_id) is not None:
-        if fixture_scope is not None:
-            raise ValueError("fixture point-cloud project display ID is already in use")
         return None
 
     if not fixture.exists():
@@ -137,77 +134,27 @@ async def seed_pointcloud(
         commit=False,
     )
     await db.refresh(ds, attribute_names=["metadata_"])
-    if fixture_scope is not None:
-        from app.services import fixture_run_ownership as ownership
-
-        await ownership.reserve_original_dataset(
-            db, fixture_scope[0], ds.id, logical_key="pointcloud_multicam_demo"
-        )
-        await ownership.publish_resource(db, fixture_scope[0], "dataset", ds.id)
-        await ownership.reserve(
-            db,
-            fixture_scope[0],
-            "project",
-            project_id,
-            logical_key="pointcloud_multicam_demo",
-            published=True,
-        )
-        await db.commit()
-
     bucket = storage_service.datasets_bucket
 
-    async def upload(relpath: str, file_type: str):
+    def upload(relpath: str, file_type: str) -> None:
         local = fixture / relpath
         key = f"{dataset_name}/{relpath}"
         payload = local.read_bytes()
-        if fixture_scope is None:
-            storage_service.client.put_object(Bucket=bucket, Key=key, Body=payload)
-            db.add(
-                DatasetItem(
-                    dataset_id=ds.id,
-                    file_name=Path(relpath).name,
-                    file_path=key,
-                    file_type=file_type,
-                    file_size=len(payload),
-                    content_hash=hashlib.sha256(payload).hexdigest(),
-                )
-            )
-        else:
-            item_id = uuid.uuid4()
-            await ownership.reserve(
-                db,
-                fixture_scope[0],
-                "item",
-                item_id,
-                logical_key=f"pointcloud_multicam_demo/{relpath}",
-            )
-            await db.commit()
-            item = DatasetItem(
-                id=item_id,
+        storage_service.client.put_object(Bucket=bucket, Key=key, Body=payload)
+        db.add(
+            DatasetItem(
                 dataset_id=ds.id,
                 file_name=Path(relpath).name,
-                file_path="",
+                file_path=key,
                 file_type=file_type,
                 file_size=len(payload),
-                metadata_={"storage_relative_path": relpath},
+                content_hash=hashlib.sha256(payload).hexdigest(),
             )
-            allocation, original = await ownership.create_original(
-                db,
-                run_id=fixture_scope[0],
-                admission_id=fixture_scope[1],
-                item=item,
-                logical_path=relpath,
-                payload=payload,
-                content_type="application/octet-stream",
-                requested_by=owner_id,
-            )
-            item.content_hash = original.sha256
-            await ownership.attach_original(db, item, allocation, original)
-            await ownership.publish_resource(db, fixture_scope[0], "item", item_id)
+        )
 
     n = 0
     for pcd in sorted((fixture / "lidar").glob("*.pcd")):
-        await upload(f"lidar/{pcd.name}", "point_cloud")
+        upload(f"lidar/{pcd.name}", "point_cloud")
         n += 1
     camera_root = fixture / "camera"
     if camera_root.is_dir():
@@ -215,12 +162,12 @@ async def seed_pointcloud(
             if not cam_dir.is_dir():
                 continue
             for jpg in sorted(cam_dir.glob("*.jpg")):
-                await upload(f"camera/{cam_dir.name}/{jpg.name}", "image")
+                upload(f"camera/{cam_dir.name}/{jpg.name}", "image")
                 n += 1
     calibration_root = fixture / "calib/camera"
     if calibration_root.is_dir():
         for cj in sorted(calibration_root.glob("*.json")):
-            await upload(f"calib/camera/{cj.name}", "other")
+            upload(f"calib/camera/{cj.name}", "other")
             n += 1
 
     ds.file_count = n
@@ -319,9 +266,6 @@ async def seed_nuscenes_scene(
     cache_dir: Path | None = None,
     offline: bool = False,
     create_batch: bool = True,
-    fixture_scope: tuple[uuid.UUID, uuid.UUID] | None = None,
-    fixture_dataset_display_id: str | None = None,
-    fixture_project_display_id: str | None = None,
 ) -> tuple[dict, list[str]]:
     """把 nuScenes-mini 的 scene-0061(39 帧)灌入当前栈,建 scene 模式点云项目并按 scene 建包。
 
@@ -345,14 +289,7 @@ async def seed_nuscenes_scene(
     from app.services.batch import BatchService
 
     nuscenes_root = ensure_nuscenes_mini(cache_dir=cache_dir, offline=offline)
-    if fixture_scope is not None:
-        if not fixture_dataset_display_id or not fixture_project_display_id:
-            raise ValueError(
-                "fixture nuScenes seed requires exact run-local display IDs"
-            )
-        stale_storage_keys = []
-    else:
-        stale_storage_keys = await _remove_legacy_dev_seed(db, owner_id=owner_id)
+    stale_storage_keys = await _remove_legacy_dev_seed(db, owner_id=owner_id)
 
     info = await import_nuscenes(
         db,
@@ -362,11 +299,10 @@ async def seed_nuscenes_scene(
         owner_id=owner_id,
         version="v1.0-mini",
         frame="ego",
-        dataset_display_id=fixture_dataset_display_id or DATASET_DISPLAY_ID,
-        project_display_id=fixture_project_display_id or PROJECT_DISPLAY_ID,
+        dataset_display_id=DATASET_DISPLAY_ID,
+        project_display_id=PROJECT_DISPLAY_ID,
         project_name=NUSCENES_PROJECT_NAME,
         tool_bindings=POINTCLOUD_TOOL_BINDINGS,
-        fixture_scope=fixture_scope,
     )
 
     from app.db.models.dataset import Dataset
@@ -386,6 +322,7 @@ async def seed_nuscenes_scene(
         )
     await db.flush()
 
+    info["batches"] = 0
     if create_batch:
         try:
             batches = await BatchService(db).split(
@@ -395,9 +332,7 @@ async def seed_nuscenes_scene(
             )
             info["batches"] = len(batches)
         except HTTPException:
-            info["batches"] = 0  # 无未分包任务(重跑已建包)
-    else:
-        info["batches"] = 0
+            pass  # 无未分包任务(重跑已建包)
     info["fixture"] = str(nuscenes_root)
     info["replaced_legacy"] = bool(stale_storage_keys)
     return info, stale_storage_keys

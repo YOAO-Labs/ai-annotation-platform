@@ -19,14 +19,9 @@ from yoao_workspace.media_seed_project_contract import (
     decode_seed_project_projection_write,
 )
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
-from app.services.labeling_project_counter_data import (
-    register_project_counter_projection,
-)
-from app.services.workspace_read_relations import project_member_facts, project_rows
+from app.services.workspace_read_relations import project_rows
 
 seed_projects = aliased(Project, project_rows(), adapt_on_names=True)
-seed_members = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
 _PENDING = "workspace_seed_project_pending"
 _EXPIRE_TIME = "workspace_seed_project_expire_time"
 _FIELDS = frozenset(MEDIA_SEED_PROJECT_PROJECTION_FIELDS)
@@ -84,22 +79,6 @@ async def create_media_seed_project(
     return decode_media_seed_project_created(
         raw, kind=kind, display_id=display_id, expected_project_id=project_id
     )
-
-
-async def pin_seed_project_timestamps(
-    db: AsyncSession, project: Project, *, created_at: datetime, updated_at: datetime
-) -> None:
-    patch = {"created_at": created_at, "updated_at": updated_at}
-    raw = await db.scalar(
-        _WRITE,
-        {
-            "project_id": project.id,
-            "patch": json.dumps(patch, default=_json_value, allow_nan=False),
-        },
-    )
-    _decode(raw, project.id)
-    for name, value in patch.items():
-        attributes.set_committed_value(project, name, value)
 
 
 @event.listens_for(Project, "before_update")
@@ -170,9 +149,6 @@ def _clear_finished_seed_scope(session, transaction):
 
 __all__ = [
     "create_media_seed_project",
-    "pin_seed_project_timestamps",
     "register_seed_project_projection",
-    "register_project_counter_projection",
     "seed_projects",
-    "seed_members",
 ]

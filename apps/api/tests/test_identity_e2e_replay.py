@@ -82,26 +82,6 @@ async def test_e2e_login_reads_current_profile_and_cache(
             record_property("identity_e2e_replay", "login-" + case)
 
 
-async def test_e2e_peek_keeps_precedence_and_inactive_accounts(
-    test_engine, fixture_operator, record_property
-):
-    async with accounts(test_engine):
-        async with test_engine.begin() as owner:
-            await owner.execute(
-                text(
-                    "UPDATE users SET created_at=(SELECT max(created_at) + "
-                    "interval '1 second' FROM users) WHERE id=:id"
-                ),
-                {"id": IDS["dev"]},
-            )
-        before = await snapshot(test_engine)
-        async with async_sessionmaker(fixture_operator, expire_on_commit=False)() as db:
-            result = await routes.seed_peek(db)
-            assert result.admin_email == "keeper@example.test"
-        assert await snapshot(test_engine) == before
-        record_property("identity_e2e_replay", "peek-priority")
-
-
 @pytest.mark.parametrize("scope", ["run", "suite"])
 async def test_owner_cleanup_identity_dependencies_and_scope(
     test_engine, scope, record_property

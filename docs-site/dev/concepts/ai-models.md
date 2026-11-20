@@ -49,7 +49,7 @@ apps/api (FastAPI 3.11) ──HTTP /predict──▶ grounded-sam2-backend
 
 ### 1.1 固定插件镜像与独立 GPU profile
 
-所有官方推理实现由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护。平台不再构建本地 SAM 源码；`docker-compose.ml.yml` 仅保留截图 stub，各插件使用独立、显式启用的叠加文件。
+所有官方推理实现由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护。平台不再构建本地 SAM 源码；`docker-compose.ml.yml` 是共享叠加，服务由各插件的 `docker-compose.ml-<provider>.yml` 显式启用。
 
 | 插件          | 叠加文件                          | profile         | 端口   |
 | ------------- | --------------------------------- | --------------- | ------ |

@@ -118,11 +118,11 @@ class ModuleDataSelectionTests(unittest.TestCase):
     def test_default_gate_never_publishes_junit_after_a_profile_failure(self):
         selected = (
             "tests/test_video_frame_service.py",
-            "tests/test_identity_recording_live.py",
+            "tests/test_identity_e2e_live.py",
         )
         nodes = [
             "tests/test_video_frame_service.py::test_frame",
-            "tests/test_identity_recording_live.py::test_recording",
+            "tests/test_identity_e2e_live.py::test_installed_api_consumes_owner_prepared_project_roles",
         ]
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "acceptance.json"
@@ -136,7 +136,7 @@ class ModuleDataSelectionTests(unittest.TestCase):
                     )
                     return 0
                 name = receipt.stem
-                failed = name == "recording"
+                failed = name == "identity-e2e"
                 receipt.write_text(
                     json.dumps(
                         {
@@ -167,7 +167,7 @@ class ModuleDataSelectionTests(unittest.TestCase):
             evidence = json.loads(output.read_text())
             self.assertEqual(evidence["status"], "failed")
             self.assertEqual(evidence["profiles"]["ordinary"]["status"], "passed")
-            self.assertEqual(evidence["profiles"]["recording"]["status"], "failed")
+            self.assertEqual(evidence["profiles"]["identity-e2e"]["status"], "failed")
             self.assertFalse(output.with_name("acceptance.junit.xml").exists())
 
     def test_default_interruption_cannot_leave_a_prior_pass(self):

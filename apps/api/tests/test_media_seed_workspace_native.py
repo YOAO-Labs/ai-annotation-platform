@@ -16,7 +16,7 @@ from sqlalchemy import event, text
 
 from app.db.models.dataset import Dataset
 from app.db.models.project import Project
-from scripts import seed_coco8, seed_ocr, seed_video
+from scripts import seed_coco8, seed_video
 from tests.factory import create_user
 from tests.test_datasets_upload_zip import (
     _FakeDatasetSourceStorage,
@@ -82,44 +82,6 @@ async def media_world(test_engine):
         yield owner, producer
 
 
-@pytest.fixture
-async def screenshot_world(media_world):
-    from app.application.project_deletion import delete_project
-
-    owner, _producer = media_world
-    tables = ("projects", "datasets", "users")
-    async with owner() as db:
-        before = {
-            table: set((await db.scalars(text(f"SELECT id FROM {table}"))).all())
-            for table in tables
-        }
-    try:
-        yield media_world
-    finally:
-        async with owner.begin() as db:
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            for table in tables:
-                added = (
-                    set((await db.scalars(text(f"SELECT id FROM {table}"))).all())
-                    - before[table]
-                )
-                if added:
-                    if table == "projects":
-                        for project_id in sorted(added):
-                            actor_id = await db.scalar(
-                                text("SELECT owner_id FROM projects WHERE id=:id"),
-                                {"id": project_id},
-                            )
-                            await delete_project(db, project_id, actor_id=actor_id)
-                    else:
-                        await db.execute(
-                            text(
-                                f"DELETE FROM {table} WHERE id=ANY(CAST(:ids AS uuid[]))"
-                            ),
-                            {"ids": list(added)},
-                        )
-
-
 async def _state(owner, display_id):
     async with owner() as db:
         value = await db.scalar(
@@ -132,12 +94,12 @@ async def _state(owner, display_id):
     return value
 
 
-@pytest.mark.parametrize("kind", ["coco8", "ocr", "video"])
+@pytest.mark.parametrize("kind", ["coco8", "video"])
 async def test_media_seed_creates_linked_assets_and_preserves_repeat(
     media_world, kind, monkeypatch, tmp_path
 ):
     owner, producer = media_world
-    module = {"coco8": seed_coco8, "ocr": seed_ocr, "video": seed_video}[kind]
+    module = {"coco8": seed_coco8, "video": seed_video}[kind]
     display_id = "P-" + uuid.uuid4().hex[:12]
     dataset_id = "D-" + uuid.uuid4().hex[:12]
     monkeypatch.setattr(module, "PROJECT_DISPLAY_ID", display_id)
@@ -157,11 +119,7 @@ async def test_media_seed_creates_linked_assets_and_preserves_repeat(
             labels.mkdir(parents=True)
             Image.new("RGB", (8, 6)).save(images / (name + ".jpg"))
             (labels / (name + ".txt")).write_text("0 0.5 0.5 0.5 0.5\n")
-        options = {"fixture": tmp_path, "prediction_model_version": "frozen-test"}
-    elif kind == "ocr":
-        image = tmp_path / "ocr.jpg"
-        Image.new("RGB", (8, 6)).save(image)
-        options = {"image": image}
+        options = {"fixture": tmp_path}
     else:
         video = ROOT / "docs-site/public/home/sam-tools/smart-point.webm"
         media_hash = hashlib.sha256(video.read_bytes()).hexdigest()
@@ -278,116 +236,6 @@ async def test_coco_existing_merge_keeps_transaction_and_cache(
             {"id": pending_id},
         )
     _replay(f"coco-existing-{autoflush}-{commit}", state, record_property)
-
-
-@pytest.mark.skipif(LEGACY, reason="new restricted consumer acceptance")
-@pytest.mark.parametrize("autoflush", [True, False])
-async def test_screenshot_reconcile_pins_workspace_and_member_state(
-    screenshot_world, autoflush, monkeypatch
-):
-    from app.services.screenshot_seed_catalog import build_screenshot_seed_catalog
-    from scripts.seed_screenshot_profile import (
-        FIXED_TIME as SEED_FIXED_TIME,
-        ScreenshotSeedPreparation,
-        reconcile_screenshot_seed,
-    )
-    from app.services.screenshot_seed_spec import PROJECT_SPECS
-    from tests.test_screenshot_seed_catalog import _ready_profile
-
-    owner, producer = screenshot_world
-
-    async def digest(_db, item):
-        return hashlib.sha256(item.file_path.encode()).hexdigest()
-
-    monkeypatch.setattr(
-        "app.services.screenshot_seed_catalog._storage_object_digest",
-        digest,
-    )
-    async with owner.begin() as db:
-        projects, _tasks = await _ready_profile(db)
-        ids = {key: project.id for key, project in projects.items()}
-    digests = {key: "a" * 64 for key in PROJECT_SPECS}
-    reports = []
-    for _ in range(2):
-        async with producer(autoflush=autoflush) as db:
-            reports.append(
-                await reconcile_screenshot_seed(
-                    db,
-                    preparation=ScreenshotSeedPreparation(adopt_keys=frozenset()),
-                    asset_sha256=digests,
-                )
-            )
-            catalog = await build_screenshot_seed_catalog(
-                db, backend_requirements="none"
-            )
-            assert set(catalog["projects"]) == set(PROJECT_SPECS)
-        async with owner() as db:
-            for project_id in ids.values():
-                assert (
-                    await db.execute(
-                        text("SELECT created_at,updated_at FROM projects WHERE id=:id"),
-                        {"id": project_id},
-                    )
-                ).one() == (SEED_FIXED_TIME, SEED_FIXED_TIME)
-            members = (
-                await db.execute(
-                    text(
-                        "SELECT role,assigned_at,version FROM project_members WHERE project_id=:id ORDER BY role"
-                    ),
-                    {"id": ids["image_demo"]},
-                )
-            ).all()
-            assert [(row.role, row.assigned_at) for row in members] == [
-                ("annotator", SEED_FIXED_TIME),
-                ("reviewer", SEED_FIXED_TIME),
-            ]
-    assert reports == [{"projects": 5, "tasks": 50, "batches": 5}] * 2
-
-
-@pytest.mark.skipif(LEGACY, reason="new restricted consumer acceptance")
-async def test_screenshot_backend_project_fields_survive_intermediate_autoflush(
-    screenshot_world, monkeypatch
-):
-    from sqlalchemy import select
-    from app.db.models.ml_backend_registry import MLBackendRegistry
-    from app.services.screenshot_seed_backends import reconcile_screenshot_backends
-    from tests.test_screenshot_seed_catalog import _ready_profile
-
-    owner, producer = screenshot_world
-    async with owner.begin() as db:
-        await _ready_profile(db)
-
-    async def candidates(db):
-        return list((await db.scalars(select(MLBackendRegistry))).all())
-
-    monkeypatch.setattr(
-        "app.services.screenshot_seed_backends._live_candidates", candidates
-    )
-    async with producer() as db:
-        report = await reconcile_screenshot_backends(db, mode="live")
-        assert set(report["bindings"]) == {"image_demo", "video_demo", "ocr_demo"}
-    async with owner() as db:
-        assert (
-            await db.scalar(
-                text(
-                    "SELECT count(*) FROM projects WHERE ml_backend_pool_id IS NOT NULL"
-                )
-            )
-            == 3
-        )
-    async with producer() as db:
-        await reconcile_screenshot_backends(
-            db, mode="live", backend_requirements="none"
-        )
-    async with owner() as db:
-        assert (
-            await db.scalar(
-                text(
-                    "SELECT count(*) FROM projects WHERE ml_backend_pool_id IS NOT NULL OR preannotate_pipeline IS DISTINCT FROM '[]'::jsonb"
-                )
-            )
-            == 0
-        )
 
 
 @pytest.mark.skipif(LEGACY, reason="new restricted consumer acceptance")

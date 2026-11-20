@@ -175,16 +175,11 @@ const test = base.extend<{ sliceCase: Case }>({
       passed = testInfo.status === testInfo.expectedStatus;
     } finally {
       try {
-        if (!page.isClosed()) {
-          await testInfo.attach(passed ? "verified-workbench" : "failure-before-cleanup", {
-            contentType: "image/png",
-            body: await page.screenshot({ fullPage: true }),
+        if (!passed && !page.isClosed()) {
+          await testInfo.attach("failure-aria-before-cleanup", {
+            contentType: "text/plain",
+            body: await page.locator("body").ariaSnapshot(),
           });
-          if (!passed)
-            await testInfo.attach("failure-aria-before-cleanup", {
-              contentType: "text/plain",
-              body: await page.locator("body").ariaSnapshot(),
-            });
         }
         await testInfo.attach("mask-slice-evidence", {
           contentType: "application/json",
@@ -510,16 +505,12 @@ test("H4b-1 holed non-square multi-component mask cancels, then saves the displa
   page,
   request,
   sliceCase: fixture,
-}, testInfo) => {
+}) => {
   const original = holed(),
     source = await seedMask(request, fixture, original);
   await open(page, fixture);
   await begin(page, source.id);
   await preview(page);
-  await testInfo.attach("mask-slice-preview", {
-    body: await page.screenshot({ fullPage: true }),
-    contentType: "image/png",
-  });
   await primaryKey(page, "Escape");
   expect(fixture.writes).toHaveLength(0);
   await reloadAndRead(page, request, fixture);

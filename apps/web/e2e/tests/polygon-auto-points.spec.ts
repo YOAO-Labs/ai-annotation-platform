@@ -126,16 +126,11 @@ const test = base.extend<{ polygonCase: Case }>({
       passed = testInfo.status === testInfo.expectedStatus;
     } finally {
       try {
-        if (!page.isClosed()) {
-          await testInfo.attach(passed ? "verified-workbench" : "failure-before-cleanup", {
-            contentType: "image/png",
-            body: await page.screenshot({ fullPage: true }),
+        if (!passed && !page.isClosed()) {
+          await testInfo.attach("failure-aria-before-cleanup", {
+            contentType: "text/plain",
+            body: await page.locator("body").ariaSnapshot(),
           });
-          if (!passed)
-            await testInfo.attach("failure-aria-before-cleanup", {
-              contentType: "text/plain",
-              body: await page.locator("body").ariaSnapshot(),
-            });
         }
         await testInfo.attach("polygon-auto-points-evidence", {
           contentType: "application/json",
@@ -446,7 +441,7 @@ test.describe("H2 polygon auto points", () => {
   test("H2-4 真实长路径在20,000点暂停并保留草稿，可撤一点再取消，未自动保存", async ({
     page,
     polygonCase: fixture,
-  }, testInfo) => {
+  }) => {
     test.setTimeout(180_000);
     await open(page, fixture);
     const start = await startScreen(page);
@@ -464,10 +459,6 @@ test.describe("H2 polygon auto points", () => {
     await page.keyboard.up("Alt");
     await expect(stage(page)).toHaveAttribute("data-polygon-draft-count", "20000");
     await expect(page.getByTestId("polygon-auto-points-status")).toContainText("自动落点已暂停");
-    await testInfo.attach("polygon-budget-preserved", {
-      contentType: "image/png",
-      body: await page.screenshot({ fullPage: true }),
-    });
     await autoPath(page, start, [
       [320, 0],
       [0, 0],

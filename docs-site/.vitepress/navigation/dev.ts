@@ -29,7 +29,7 @@ export function createDevSidebar(
           link: "/dev/how-to/validate-segmentation-online-learning",
         },
         { text: "调试 WebSocket", link: "/dev/how-to/debug-websocket" },
-        { text: "更新截图", link: "/dev/how-to/update-screenshots" },
+        { text: "按需截图与录屏", link: "/dev/how-to/update-screenshots" },
         { text: "更新 Excalidraw 图表", link: "/dev/how-to/update-excalidraw-diagrams" },
         {
           text: "迁移内联样式到 CSS Modules",
@@ -176,7 +176,6 @@ export function createDevSidebar(
         { text: "连接器安全", link: "/dev/reference/connector-security" },
         { text: "内部 API 端点", link: "/dev/reference/internal-api-endpoints" },
         { text: "生成物归属", link: "/dev/reference/generated-artifacts" },
-        { text: "高清营销资产", link: "/dev/reference/marketing-asset-catalog" },
       ],
     },
     {

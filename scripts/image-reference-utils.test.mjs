@@ -1,50 +1,52 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { extractImageReferences, resolveImageReference } from "./image-reference-utils.mjs";
-import { normalizeScreenshotManifest } from "./screenshot-manifest-utils.mjs";
+import {
+  extractImageReferences,
+  resolveLocalMediaPath,
+  withoutMarkdownCode,
+} from "./image-reference-utils.mjs";
 
-const repoRoot = "/repo";
 const docsRoot = "/repo/docs-site";
 const mdPath = "/repo/docs-site/user-guide/projects/index.md";
 
-test("extracts Markdown, img and AutoImage references", () => {
+test("extracts Markdown images and static HTML img sources", () => {
   assert.deepEqual(
     extractImageReferences(`
 ![A](../images/a.png)
+![With a title](<../images/a second.png> "Title")
 <img src="../images/b.png" />
-<AutoImage src="projects/c.png" alt="C" />
+<img :src="dynamic" />
 `),
-    [
-      { src: "../images/a.png", kind: "markdown" },
-      { src: "../images/b.png", kind: "markdown" },
-      { src: "projects/c.png", kind: "auto-image" },
-    ],
+    ["../images/a.png", "../images/a second.png", "../images/b.png"],
   );
 });
 
-test("resolves AutoImage paths from the shared user-guide image root", () => {
-  const resolved = resolveImageReference({
-    src: "projects/c.png",
-    kind: "auto-image",
-    mdPath,
-    repoRoot,
-    docsRoot,
-  });
+test("does not treat examples in fences, inline code or comments as references", () => {
+  const markdown = [
+    "````markdown",
+    "![Example](missing.png)",
+    "```",
+    '<img src="also-missing.png" />',
+    "`````",
+    "`![Inline example](inline.png)`",
+    "<!-- ![Comment](comment.png) -->",
+    "![Published](published.png)",
+  ].join("\n");
+  assert.deepEqual(extractImageReferences(withoutMarkdownCode(markdown)), ["published.png"]);
+});
+
+test("resolves local image paths without metadata and skips external sources", () => {
+  const resolve = (src) => resolveLocalMediaPath(src, mdPath, docsRoot);
   assert.equal(
-    resolved?.absolute,
-    path.normalize("/repo/docs-site/user-guide/images/projects/c.png"),
+    resolve("../images/my%20capture.webp?revision=2#example"),
+    path.join(docsRoot, "user-guide/images/my capture.webp"),
   );
-  assert.equal(resolved?.key, "docs-site/user-guide/images/projects/c.png");
-});
-
-test("normalizes both legacy and current manifest shapes", () => {
-  assert.deepEqual(normalizeScreenshotManifest({ "a.png": { auto: true } }).entries, {
-    "a.png": { auto: true },
-  });
-  assert.deepEqual(
-    normalizeScreenshotManifest({ schema_version: 2, entries: { "b.png": { auto: false } } })
-      .entries,
-    { "b.png": { auto: false } },
+  assert.equal(
+    resolve("/user-guide/images/capture.webp"),
+    path.join(docsRoot, "user-guide/images/capture.webp"),
   );
+  assert.equal(resolve("//example.com/capture.webp"), null);
+  assert.equal(resolve("https://example.com/capture.webp"), null);
+  assert.equal(resolve("data:image/png;base64,AAAA"), null);
 });

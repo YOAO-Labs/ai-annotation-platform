@@ -165,7 +165,7 @@ test("未完成 PSR 与在途保存阻止播放，编辑快捷键先暂停", asy
   await expect(field).toBeEnabled();
 });
 
-test("容器宽度响应、主题与展开偏好不重建点云画布", async ({ page, seed }, testInfo) => {
+test("容器缩放与展开时间轴不重建点云画布", async ({ page, seed }) => {
   const data = await prepare(page, seed);
   await open(page, data.lidar_project_id, data.lidar_task_ids[0]);
   const canvas = page.locator("[data-workbench-render-surface] > canvas");
@@ -186,14 +186,6 @@ test("容器宽度响应、主题与展开偏好不重建点云画布", async ({
   );
   await page.getByTestId("scene-timeline-toggle").click();
   await expect(page.getByTestId("scene-timeline-virtual-canvas")).toBeVisible();
-  for (const theme of ["light", "dark"]) {
-    await page.evaluate(
-      (value) => document.documentElement.setAttribute("data-theme", value),
-      theme,
-    );
-    await page.waitForTimeout(300); // Let existing button color transitions settle.
-    await page.screenshot({ path: testInfo.outputPath(`scene-timeline-${theme}.png`) });
-  }
   for (const width of [1440, 1728, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     await expect(timeline(page)).toBeVisible();

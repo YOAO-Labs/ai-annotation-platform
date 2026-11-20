@@ -111,7 +111,7 @@
 
 - 提升 `BatchesSection`、`useWorkbenchShellModel`、`useImageAnnotationActions` 等复杂页面和 hook 的有效测试覆盖，不在路线图固化易过期的覆盖率快照。
 - 为 `vite` 代理 `/ws` 的多并发 CONNECTING 卡死制作最小复现；生产链路不受影响。
-- 在已建立的 Playwright 视觉基线上，拆分 `useStageViewport` 相关的首帧 paint 时序。
+- 拆分 `useStageViewport` 相关的首帧 paint 时序，保留可观察的画布就绪与呈现验证。
 
 ## 战略与研究输入
 

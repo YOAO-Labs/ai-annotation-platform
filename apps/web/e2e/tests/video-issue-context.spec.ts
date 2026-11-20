@@ -323,23 +323,18 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     } finally {
       try {
         if ((!verified || testInfo.status !== testInfo.expectedStatus) && !page.isClosed()) {
-          const captures = await Promise.allSettled([
-            page.screenshot({ fullPage: true, timeout: 3_000 }),
-            page.locator("body").ariaSnapshot({ timeout: 3_000 }),
-          ]);
-          const [screenshot, aria] = captures;
-          if (screenshot.status === "fulfilled")
-            await testInfo.attach("failure-before-cleanup", {
-              contentType: "image/png",
-              body: screenshot.value,
+          const aria = await page
+            .locator("body")
+            .ariaSnapshot({ timeout: 3_000 })
+            .catch((error: unknown) => {
+              fixture.evidence.push({ failureAriaUnavailable: String(error) });
+              return null;
             });
-          else fixture.evidence.push({ failureScreenshotUnavailable: String(screenshot.reason) });
-          if (aria.status === "fulfilled")
+          if (aria !== null)
             await testInfo.attach("failure-aria-before-cleanup", {
               contentType: "text/plain",
-              body: aria.value,
+              body: aria,
             });
-          else fixture.evidence.push({ failureAriaUnavailable: String(aria.reason) });
         }
         await Promise.all(pending);
         await testInfo.attach("video-issue-context-evidence", {
@@ -1164,10 +1159,6 @@ test.describe("video Issue persisted context", () => {
     for (const issue of issues) await locate(page, fixture, issue);
     expect(await listIssues(request, fixture)).toHaveLength(10);
     expect(fixture.writes).toHaveLength(10);
-    await test.info().attach("ten-context-Issues", {
-      contentType: "image/png",
-      body: await page.screenshot({ fullPage: true }),
-    });
   });
 
   test("G2-2 outside原始对象、归一化缩放平移和时间窗跨刷新/resize恢复，稍后自动聚焦不覆盖Issue视图", async ({

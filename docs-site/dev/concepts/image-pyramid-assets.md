@@ -16,7 +16,7 @@ overscan。没有 ready pyramid 的小图继续使用原 single-image 路径。
 
 ## 可复现开发夹具
 
-浏览器基准、文档截图和服务端生成验证共用
+浏览器基准与服务端生成验证共用
 `apps/web/scripts/image-bench/fixtures.json` 的 `realLargeImages` 清单。三种输入分别覆盖高熵 RGB、
 接近硬上限的超宽 JPEG，以及 optional 门附近的超高 RGBA 竖图；清单固定尺寸、字节数、SHA-256、
 来源页、署名和使用政策。

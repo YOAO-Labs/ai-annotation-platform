@@ -139,8 +139,7 @@ class WorkspaceImportCli:
             and (
                 not fixture_run_ids
                 or any(not isinstance(value, uuid.UUID) for value in fixture_run_ids)
-                or fixture_family not in {"scale", "screenshot"}
-                or (fixture_family == "screenshot" and len(fixture_run_ids) != 1)
+                or fixture_family != "scale"
                 or runtime_database_url is not None
                 or identity_auth_database_url is not None
                 or os.geteuid() == 0
@@ -395,14 +394,6 @@ class WorkspaceImportCli:
                 or command[5:] not in (("4", "2", "1"), ("--purge",))
             ):
                 raise ValueError("Fixture owner may only seed or purge its exact runs")
-        elif self.fixture_family == "screenshot" and command[:2] not in {
-            ("python", "scripts/screenshot_job_recovery_fixture.py"),
-            ("python", "scripts/screenshot_review_reject_fixture.py"),
-            ("python", "scripts/restore_screenshot_user_preferences.py"),
-        }:
-            raise ValueError(
-                "Private screenshot CLI permits only its fixed fixture commands"
-            )
         self._assert_transport()
         metadata_mounts = [
             value
@@ -762,7 +753,6 @@ class WorkspaceImportCli:
                 "YOAO_WORKTREE_RESOURCE_ROOT",
                 "YOAO_WORKTREE_MODE",
                 "AAP_FIXTURE_TOOLS_ROOT",
-                "SCREENSHOT_FIXTURE_RUN_ID",
             )
         ):
             raise RuntimeError("CLI fixture authority differs from its private profile")
@@ -957,7 +947,7 @@ class WorkspaceImportCli:
     def _fixture_environment(self) -> dict[str, str]:
         if self.fixture_family is None:
             return {}
-        values = {
+        return {
             "PLAYWRIGHT_E2E_DATABASE_URL": self.test_engine.url.render_as_string(
                 hide_password=False
             ),
@@ -968,9 +958,6 @@ class WorkspaceImportCli:
             "YOAO_WORKTREE_MODE": "test",
             "AAP_FIXTURE_TOOLS_ROOT": "/opt/yoao-fixture-tools",
         }
-        if self.fixture_family == "screenshot":
-            values["SCREENSHOT_FIXTURE_RUN_ID"] = str(next(iter(self.fixture_run_ids)))
-        return values
 
     def _prepare_private_fixture_context(self) -> None:
         root = Path(self._required("YOAO_WORKTREE_RESOURCE_ROOT"))
