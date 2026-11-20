@@ -795,11 +795,31 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 | 只有未通过的定向记录               |    1 | `mask-gc-runtime` 的独立预算用例；严格内核峰值继续延期。                                         |
 | 所查 JUnit 中没有该节点的执行结果  |   36 | 其中 27 项在 `parent-seed-native`，其余 9 项分属 8 组；它们均已在当前候选实际收集。              |
 
-清单逐行给出当前组、最近的定向结果和更早默认轮的观察，引用的报告、collection、JUnit 均附摘要。历史故障注入或整组未通过时，节点通过与整组成功分列。**没有把任何一项登记为 `599a727dd` 默认通过。** 本次完成的是 G7 的 92 项对账，不是 G7 全部退出门。若要优先补没有证据的范围，从 `parent-seed-native` 的 27 项开始；不必为对账重跑全套。
+清单逐行给出当前组、最近的定向结果和更早默认轮的观察，引用的报告、collection、JUnit 均附摘要。历史故障注入或整组未通过时，节点通过与整组成功分列。**没有把任何一项登记为 `599a727dd` 默认通过。** 上表是首次对账时的状态，下列前向执行不回写历史。
 
 **首次前向执行**（`d9ceedf51b`）：`parent-seed-native` 原 27 项全部运行，26 通过，`test_capture_parent_accounts` 失败，清退成功。冻结快照包含 `status`、`last_seen_at` 和 `preferences`，但该用例只读 `users`；前两项已经由 `identity_account_presence` 持有，后一项由 `identity_account_preferences` 持有。修正观察查询，按用户 ID 内连接两个 owner，不补默认值、不删快照字段、不改冻结 JSON。首次 JUnit：`t1-gate/g7-parent-d9ceedf51-1/pytest.xml`（SHA256 `7d8f91d64507ee0ca863af381ab0b57fe384ba95f0ed61690fa4ce482450d93c`）。
 
-**修正后**（`c9ec704afe`）：原 27 个 node ID 与新 collection、JUnit 一一匹配；同次运行 27/27 通过，无错误、失败或跳过。含建库及清退 8 分 42 秒；无保留数据库，PostgreSQL、Redis、临时根和 MinIO 引导容器、卷、网络已清退。见[两轮逐项回执与剩余清单](g7-parent-seed-native.json)。原 36 项缺定向观察的节点还剩 9 项：Audit 5 项，其余为 media seed、parent seed、Workspace import、Workspace seed 各 1 项。它们和严格内核峰值延期分列；不重算旧默认轮。
+**修正后**（`c9ec704afe`）：原 27 个 node ID 与新 collection、JUnit 一一匹配；同次运行 27/27 通过，无错误、失败或跳过。含建库及清退 8 分 42 秒；无保留数据库，PostgreSQL、Redis、临时根和 MinIO 引导容器、卷、网络已清退。见[两轮逐项回执与当时的剩余清单](g7-parent-seed-native.json)。
+
+### 剩余九项定向执行
+
+`85af02f806`／`bo0479` 按原 8 个分组各起独占环境。上轮余下的 9 个 node ID 和 8 份实际 collection、JUnit 一一对应：**2 通过、7 失败，无跳过或缺项**。8 组环境均正常清退，无保留数据库、临时根或引导实例。[逐节点回执](g7-tail-85af02f80.json)列出各组耗时、源码与镜像、入口选择、JUnit、报告和清退摘要。
+
+| 原分组                                                            | 通过／执行 | 首个实测结果                                                                                                               |
+| ----------------------------------------------------------------- | ---------: | -------------------------------------------------------------------------------------------------------------------------- |
+| `audit-maintenance-native`                                        |        2/2 | 受限 SQL LOGIN 的快照、竞争删除、分区身份和事务回滚均通过。                                                                |
+| `audit-consumers-cold`                                            |        0/1 | 冷 API 启动后未取得 `/health/db` 就绪，进程退出 139，Docker 的 `OOMKilled=false`。日志不足以定位崩溃栈；导出与恢复未验证。 |
+| `audit-maintenance-consumers-cold`                                |        0/1 | 已安装的 Beat 派发 `ensure`；worker 在 `catalog → parse_bounds` 返回 `audit_archive_source_invalid`，未进入归档恢复。      |
+| `audit-maintenance-module`                                        |        0/1 | 恢复库中的 CLI 已写出月份对象、移除分区、记录事件；物理读取保留了大整数及原 JSON。公开列表返回 200，但没有该对象。         |
+| `media-seed`、`parent-seed`、`workspace-import`、`workspace-seed` |        0/4 | 四个独立库都在 `_assert_empty_owned_rows` 失败，尚未执行安装镜像中的业务 CLI。                                             |
+
+四个种子／导入组的准备报告均已通过 Notifications 偏好与投递检查。验证器为它们提交了偏好用户、投递项目和成员关系；核对确切出生身份后退役这些行的分支只对另两个 profile 启用。失败的 JUnit 没有保留完整逐表计数，不能断言没有其他残留。修复应由验证器退役自己创建的行，不能清空业务表、跳过空库断言或提高 CLI 权限。
+
+Beat 组的准备报告列出了 `audit_logs_y1999m03`；以该月份的标准 UTC 范围调用当前 `parse_bounds` 会被拒绝，而用例的 `2001-02` 和另一个探针的 `2098-04` 均可解析。不要把拒绝非法分区改成忽略它。此轮未触及杀进程后的恢复；旧用例期望写对象后杀进程不留下 Job，而当前 worker 在对象 I/O 前已提交 Job，须按真实的作业与归档归属一起核对。
+
+独立 CLI 的写入成功不等于公开发布：它写固定月份键和 `audit.archive` 事件；[公开读取契约](../../../../docs-site/api/guides/audit-archives.md)只列出数据库中已发布的归档。该用例还在恢复库执行 CLI、在原库请求 HTTP；既不能把物理读取算作 API 读取，也不能通过扫描桶接管旧对象。应在同一恢复库验证真实生产者的登记和读取。
+
+至此，原 92 项中，**83 项**有可定位候选的定向通过及清退，**1 项**有定向通过但缺精确源码提交，**8 项**只有未通过的定向证据（本轮 7 项，另 1 项是已延期的 `mask-gc-runtime` 严格峰值）。这是跨候选逐项对账，不是一次 84/92 的验收，更不是默认 T1／T2 通过。
 
 ## J1：同一 API key 轮询与导出授权竞争
 

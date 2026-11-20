@@ -1,0 +1,287 @@
+{
+  "scope": "Directed execution of the nine original node IDs in eight exclusive profiles. A JUnit failure is an observation, not qualification. These runs do not replace the historical default or certify a single joint pass. Private paths are relative to stage-f-20261112.",
+  "candidate": "85af02f806cf4a73aed2bd04212330f3f28dfa2d",
+  "migration_head": "bo0479",
+  "basis": {
+    "g7-unrun-f6e349674.json": "126d53bd8e4e5754c25b2a58807089741d711a8a2cc1e1c68d3a98f88080c54e",
+    "g7-parent-seed-native.json": "da2fc1de0c6c0ccbeea7692b91bf0300088f18942e0b5419bd1dd6411c2be00f"
+  },
+  "driver": {
+    "private_path": "t1-gate/joint-prereqs-3d45da957-3/selected.py",
+    "sha256": "d7cf3c0f0eeb073889c3c6237a2edb37ac92366cb2ce125a922be1fd7529148e"
+  },
+  "counts": {
+    "original_nodes": 9,
+    "profiles": 8,
+    "passed": 2,
+    "failed": 7,
+    "errors": 0,
+    "skipped": 0,
+    "missing": 0,
+    "profiles_cleaned": 8
+  },
+  "directed_evidence_for_92_after_this_slice": {
+    "settled_at_known_candidate": 83,
+    "settled_without_candidate_sha": 1,
+    "only_unsettled_directed": 8,
+    "no_directed_observation": 0
+  },
+  "images": {
+    "audit": {
+      "private_receipt": "t1-gate/joint-254fe2a54-1/images-254fe2a54/audit.json",
+      "receipt_sha256": "c383990839bdfa5548b9e3c1e32f06ca5d122e0a6ae1fa862d13a557c70b2b7f",
+      "image_id": "sha256:d53ecb00e5ede6a19a21a776b62a63e642dd382c3fb56a0023ba342b46c1b0e0",
+      "source_commit_on_image": "254fe2a54080555da18b6008c9b4e292263e9f82",
+      "copy_inputs_checked": 37,
+      "input_manifest_sha256": "7c5117124c13bcebc2fa7099eb36db19e747507e180f74e856d75abad32ba600",
+      "installed_files_checked_offline": 31,
+      "disposition": "37 matching inputs; original immutable image and offline installed-file proof"
+    },
+    "api": {
+      "private_receipt": "t1-gate/g7-tail-inputs-85af02f80/receipts/api.json",
+      "receipt_sha256": "29a4eb409f55dace8b2a0aa7bdb13987b7038eb4ba175fb0a9b47e74558c1175",
+      "image_id": "sha256:64bf34b1004fe68233d477bae243abde55f21daffe05e3700ba64e21627eb61b",
+      "source_commit_on_image": "85af02f806cf4a73aed2bd04212330f3f28dfa2d",
+      "copy_inputs_checked": 5946,
+      "input_manifest_sha256": "bba809f4397b9eaaa6a1dafb764f403b8e4cddf346479a51f966fae05ef9378b",
+      "installed_files_checked_offline": 5279,
+      "disposition": "rebuilt on candidate; networkless installed package and API checks"
+    },
+    "workspace-api": {
+      "private_receipt": "t1-gate/g7-tail-inputs-85af02f80/receipts/workspace-api.json",
+      "receipt_sha256": "fb872c689ec5e794e2ee147dc341b9e9ba16bcac6b7349d4259e6b9dd690f381",
+      "image_id": "sha256:3eb10e2890a2d8affd53ed8626e5cd0eba806c250d1440d10e5211dca5baae70",
+      "source_commit_on_image": "85af02f806cf4a73aed2bd04212330f3f28dfa2d",
+      "copy_inputs_checked": 5946,
+      "input_manifest_sha256": "bba809f4397b9eaaa6a1dafb764f403b8e4cddf346479a51f966fae05ef9378b",
+      "installed_files_checked_offline": 5279,
+      "disposition": "rebuilt on candidate; networkless installed package and API checks"
+    }
+  },
+  "profiles": {
+    "audit-consumers-cold": {
+      "images": ["api"],
+      "private_run": "t1-gate/g7-audit-consumers-cold-85af02f80-1",
+      "elapsed_seconds": 499.99,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_audit_consumers_cold.py::test_current_cold_audit_api_worker_queries_exports_and_restore": "failed"
+      },
+      "first_failure": "cold_api_exited_139_before_database_readiness",
+      "sha256": {
+        "selection": "9bb38c2543fb06d10e2333372f076279ad910a33f3f0843226457f752acbf0d3",
+        "junit": "1132c33cf1c443e21a58c4c0dac523c06b99ee675d1ab38235fd6cfb9a6e3c02",
+        "collection": "e859749ad2fa8cf10ace6e304852cba6dce3ba01fcf0a10737aec7c87215057b",
+        "report": "4120139a7e425d645acdcf63eaaca1948a0bc4f132bff7fdac86c04c0bf61208",
+        "bootstrap": "e99686fb1f6a3600db4c01643ba8af01dce583752644304c0b5a325639fc8071",
+        "verdict": "538f48e44133b55a5e842f6f85df0b1da0caff1e8e1fb2fc2c0b7e1f08579256"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "audit-maintenance-consumers-cold": {
+      "images": ["api"],
+      "private_run": "t1-gate/g7-audit-maintenance-consumers-cold-85af02f80-1",
+      "elapsed_seconds": 494.14,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_audit_maintenance_consumers_cold.py::test_installed_beat_maintenance_consumers_recover_archive_after_restore": "failed"
+      },
+      "first_failure": "beat_rejected_partition_bounds_during_ensure",
+      "sha256": {
+        "selection": "fe1d3bb52acb2e9f8e77d96ceea8b38d4956fb413a031be3e32f1abb7e16af31",
+        "junit": "7d4b85ac0320a00ac48817e2d90a056c38255b0d9fac59e821bf57a09b74e8a5",
+        "collection": "cfd4a19892cdab754a77e1e9f9b63c1b05b29e9d9ae9e9c9f15775cd211a85f9",
+        "report": "aad4b9e52bf758c3a0a3d0187e7d40a5db906a386331a827fcc4d52f398f74f0",
+        "bootstrap": "2db88a8385d2db78c65f1f304e75735a661dae75d7abab13e6d673f3630fd8ea",
+        "verdict": "63c4ac310817d7f4eaedc8e0f6c361b022f7200135be93fbe6b6b7fbc7b2d04c"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "audit-maintenance-module": {
+      "images": ["audit"],
+      "private_run": "t1-gate/g7-audit-maintenance-module-85af02f80-1",
+      "elapsed_seconds": 502.66,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_audit_maintenance_module_live.py::test_cold_archive_process_loss_orphan_takeover_and_full_restore": "failed"
+      },
+      "first_failure": "monthly_object_missing_from_public_archive_list",
+      "sha256": {
+        "selection": "f12dba1c3830a17791d3ce9dc96fafc4a8b734cb208be1c037b59b426a28a7da",
+        "junit": "4a8481b82e8798f6e18f5e7c9cebea9fe27aeb4d8bb0a234f52c628b4b4502f8",
+        "collection": "cc13f4c145201be7e6fd67384a7baa31b892c6609456287cc1aaf600a441febf",
+        "report": "7c8f53a782c651f39ecb751119b99b6416ba1db92c2eae93449ed1afd2f5fe55",
+        "bootstrap": "e0d2d05bba3a1ef847bbb69d26aaa9edc5aa762200e0b14acf8d4454979c40e6",
+        "verdict": "9bea9112ebfea02dd1b5a21b9e0829b3c2d0918b2e358ffd4fa6cfb2de2e00d3"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "audit-maintenance-native": {
+      "images": [],
+      "private_run": "t1-gate/g7-audit-maintenance-native-85af02f80-1",
+      "elapsed_seconds": 444.62,
+      "pytest_exit": 0,
+      "verifier": "passed",
+      "nodeids": {
+        "tests/test_audit_maintenance_native.py::test_maintenance_preserves_partition_identity_lock_and_caller_rollback": "passed",
+        "tests/test_audit_maintenance_native.py::test_maintenance_login_snapshots_exact_json_and_serializes_competing_drop": "passed"
+      },
+      "sha256": {
+        "selection": "83862a59f4ca80554d0c2a5844e53f9fa3e535c11ce84ea94fcb14f7c174c523",
+        "junit": "774b52643aec57e6dd0e643556c48737aa612fe02d398b37fcb27915a5a4a492",
+        "collection": "c01f0a4bde1bbc7d4f1c46f3d8f5cee5abdb6f7bc94a2d5004034bd477b9db6e",
+        "report": "629ffa9459cb2b6476ef70c95c73564b0fdc2dfe2c269eec32a2216085cd84f4",
+        "bootstrap": "f8dcd176c050fb723e4278d463d87d41516edf1c19e6a37808952a4f2f688c1e",
+        "verdict": "cd88dd3ba8ff9dfdce283bca1a505f8eea54a930d853738c5b6ed2856bc1c884"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "media-seed": {
+      "images": ["workspace-api"],
+      "private_run": "t1-gate/g7-media-seed-85af02f80-1",
+      "elapsed_seconds": 469.35,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_media_seed_identity_live.py::test_media_seed_identity_consumers_use_owned_identity_capabilities": "failed"
+      },
+      "first_failure": "verifier_business_rows_not_empty_before_cli",
+      "sha256": {
+        "selection": "808dfab1caf970ff4fa79f2b23cecefe73f5de6162a4cc2dd8b7d87eb74b2520",
+        "junit": "c0679d9f0618d4809a578a26622c9604c3cc668ed0b0a65a488f64b00d1a65f5",
+        "collection": "98a850260ca4780543f0104d41d407398b2224b6f851a36f7a2069da3d8afc5b",
+        "report": "c3e1a85c7808fe2b843aee90bc516da888e78feb32bbb20c0b427a2107177f18",
+        "bootstrap": "474eb669fa5778f23b8b8455b3303a0d3a54452780166d76a26ac9dee4e4e112",
+        "verdict": "4f61f57c4c8e2381c0a55f205a5d3931a74af6c89a1bff9430f13b9f840fb8e9"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "parent-seed": {
+      "images": ["workspace-api"],
+      "private_run": "t1-gate/g7-parent-seed-85af02f80-1",
+      "elapsed_seconds": 465.52,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_seed_parent_operator_live.py::test_seed_parent_helpers_run_with_operator_only_capabilities": "failed"
+      },
+      "first_failure": "verifier_business_rows_not_empty_before_cli",
+      "sha256": {
+        "selection": "644bf91cfca14a81beb893dc4879625da8900e9b3a556fa3d02bc14ade2de210",
+        "junit": "4cb3a01879cc90b75483b4ed32f067d6fa87db8742fba34cd47274f8698083c7",
+        "collection": "383ebda373eb8d2e77d63fc158ba8d36edcc953b2df27c1fdf808d7578ccc6ec",
+        "report": "e5006646f21ad7087d30f704507bf2da878fe5ca29926f9439748ad9c67c6514",
+        "bootstrap": "e3ae1448104270bb1580ffd90ce8268c9675bddc296583f4bb18b747f9d78746",
+        "verdict": "189545c953fa955990f05533fd22465c01df2f2ac45072854a1f785c7790104b"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "workspace-import": {
+      "images": ["workspace-api"],
+      "private_run": "t1-gate/g7-workspace-import-85af02f80-1",
+      "elapsed_seconds": 473.95,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_workspace_import_cli_live.py::test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabilities": "failed"
+      },
+      "first_failure": "verifier_business_rows_not_empty_before_cli",
+      "sha256": {
+        "selection": "0e3c45d81a4e8c527122db11bc8400d71bd292154c215dcf239c646c01992d8d",
+        "junit": "61cc8eded53044b7a84ae2b77d4bfac5484245a17b3d30cb5226c6b0eadca82c",
+        "collection": "54ae515fe9baaafd0692c3734ea5f01620be8ea620a15a0bd9536089c3ddda85",
+        "report": "1fd9faadb9d8dd97eca2a698506d9f904878bd2122b5fa846bc0ad85cfe9daf3",
+        "bootstrap": "fad7cd388dba054ac70570bda8e788afed5cad02bf4d26098bfe5ee9640d027e",
+        "verdict": "384ce225ae1f2fa40f3645e477dffe1dc55b74b2134eebe9d50b13a7527f2d24"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    },
+    "workspace-seed": {
+      "images": ["workspace-api"],
+      "private_run": "t1-gate/g7-workspace-seed-85af02f80-1",
+      "elapsed_seconds": 465.86,
+      "pytest_exit": 1,
+      "verifier": "failed",
+      "nodeids": {
+        "tests/test_workspace_seed_operator_live.py::test_seed_entrypoints_run_through_the_fenced_api_image": "failed"
+      },
+      "first_failure": "verifier_business_rows_not_empty_before_cli",
+      "sha256": {
+        "selection": "e843a01474a7bec9fd84dc1aabd13e314529165375b40f4e696d4e21fcf01dd3",
+        "junit": "644fa5f033e16481d27be186492921d34e48ecff9b41c6e56ce5269776d2bc61",
+        "collection": "af06173f9546ef6fa2b5bbd58de9a0ab6273811226e503a044cb38a59f555ea4",
+        "report": "6fae9b5c0ef8b3f049f90be04eb70ab7349d732ef04e378e1dfd09a7683bf21d",
+        "bootstrap": "7a2a6ba54dddb81f9d02770c5e6be52cad3d2f99439801a1ec9138536738b84c",
+        "verdict": "02bba94e059e90032249433b28d1152e447f79bacbf846837130e846a563363f"
+      },
+      "cleanup": {
+        "owned_resources_destroyed": true,
+        "retained_databases": [],
+        "postgres_removed": true,
+        "errors": [],
+        "bootstrap_empty": true,
+        "bootstrap_removed": true,
+        "resource_root_removed": true
+      }
+    }
+  }
+}

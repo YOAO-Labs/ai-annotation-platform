@@ -134,11 +134,10 @@ dedicated LOGIN activation and consolidated runtime acceptance remain pending.
 ## Independent maintenance runtime
 
 The `yoao-audit-maintenance` one-shot CLI provides `ensure-partitions`,
-`archive-partitions`, and `refresh-daily`. It uses the same fixed
-`yoao_audit_v1.maintenance_command(jsonb)` capability as the retained API/Celery
-adapter and verifies at startup that its database LOGIN can execute only that
-function. It has no HTTP listener, scheduler, queue, or application imports.
-The existing API/Celery binding remains available during migration.
+`archive-partitions`, and `refresh-daily`. It uses the fixed
+`yoao_audit_v1.maintenance_command(jsonb)` capability and verifies at startup
+that its database LOGIN can execute only that function. It has no HTTP
+listener, scheduler, queue, or application imports.
 
 Set `AUDIT_MAINTENANCE_DATABASE_URL` or its `_FILE` counterpart for every
 command. Either the direct value or the file can provide a secret, never both.
@@ -166,6 +165,13 @@ failure keeps that partition and allows later partitions to continue; the
 returned counts describe only completed archives. The same month uses the existing
 deterministic archive key. S3 calls have five-second connect and 60-second read
 timeouts.
+
+Do not use `archive-partitions` for months that must remain readable through
+`GET /api/v1/audit-logs/archives`. This CLI removes the source partition and
+records an `audit.archive` event, but does not publish an `audit_archive_outputs`
+record. The public API does not list or adopt a fixed-month object just because
+it exists in the bucket. For API-readable archives, use the platform maintenance
+worker and follow the [archive publication and recovery procedure](../../docs-site/ops/deploy/storage-recovery.md#审计归档归属的部署顺序).
 
 The container runs non-root and exposes no port. Its default command is help;
 the Compose service is behind the `maintenance` profile and defaults to the
