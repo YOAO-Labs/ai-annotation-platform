@@ -179,6 +179,8 @@ pnpm dev:worktree -- up --with-worker
 MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配置；迁移、API、
 测试和可选 worker 的目标通过子进程环境统一覆盖，不改共享库。
 
+模式只由启动器注入 `YOAO_WORKTREE_MODE`；不要写入 `.env`。新数据库使用 `yoao_wt_`、桶与 Redis 容器使用 `yoao-wt-`。`aap` 命名的旧清单只交给匹配旧工具盘点和退役，不按名称接管或改标签。状态性切换见[工作树环境](docs-site/dev/how-to/worktree-environments.md)。
+
 在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。已受理的不可变输入对象使用独立 `MINIO_INPUTS_BUCKET`（默认 `accepted-inputs`），该桶必须启用 versioning，且不能设置自动过期；`media-cache` 保持非版本化。旧八桶/九桶工作树只会在显式 `init/up` 时按阶段扩展到十桶；`doctor/stop/destroy` 仍按旧清单只读、停止或销毁，不会隐式创建新桶。升级中断会留下 `.worktree/<mode>/training-bucket-upgrade.json` 或 `inputs-bucket-upgrade.json`；缺少归属标签的新桶不会被自动接管。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
 
 CI 的 E2E 套件也通过 `pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web <套件命令>` 启动。Job 的初始数据库 owner 连接只交给协调器；普通 API 使用独立受限运行账号，启动环境不含迁移或夹具 owner 连接。`test` / `e2e` 准备同时核验专属导入桶和已受理输入桶的 versioning；不修改其他模式或未确认归属的桶。CI 中已构建的 Web 套件继续使用校验过指纹的 `dist` 与 preview，不因切入工作树入口而改测开发服务器。

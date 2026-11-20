@@ -62,7 +62,7 @@ export default async function screenshotGlobalSetup(config: FullConfig): Promise
   if (identity.root !== root || !/^[a-f0-9]{16}$/.test(identity.id)) {
     throw new Error("Screenshot worker identity is not the worktree identity.");
   }
-  const expected = `worktree-${identity.id}-${process.env.AAP_WORKTREE_MODE}`;
+  const expected = `worktree-${identity.id}-${process.env.YOAO_WORKTREE_MODE}`;
   const runHex = runId.replaceAll("-", "");
   const requiredWorkers = [
     `${expected}@local`,

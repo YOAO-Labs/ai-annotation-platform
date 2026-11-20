@@ -290,7 +290,7 @@ async def seed_database(input_path, output_path):
     from app.services.storage_location import register_connection
 
     value = json.loads(Path(input_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     address = make_url(os.environ["MIGRATION_DATABASE_URL"])
     require(
         address.database == value["database"]

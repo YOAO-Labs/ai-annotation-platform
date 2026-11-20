@@ -36,7 +36,7 @@ pnpm dev:worktree -- up --with-worker
 
 `test` 和 `e2e` 还会对归属核验通过的 `MINIO_IMPORT_BUCKET` 启用并检查 versioning，供测试导入原件固定版本使用；`dev` 不因此改变导入桶策略。该准备步骤不接管外部桶，也不把已受理输入桶或导入桶的设置推广到派生缓存。
 
-已保存的八桶和九桶环境仍可运行 `doctor`、`stop` 和 `destroy`；这些命令按旧清单操作，不会创建或接管第十个桶。显式 `init/up` 才会迁移：八桶清单先增加训练桶并保存九桶中间清单，再增加输入桶；九桶清单直接增加输入桶，最后将清单原子更新为十桶。旧资源与数据保留。
+八桶和九桶是用途清单的版本，不是另一套 owner 身份。同一资源命名和归属下，`doctor`、`stop` 和 `destroy` 按保存清单操作，不创建第十个桶。显式 `init/up` 才会增加缺失的训练桶或输入桶，并原子保存清单。使用 `aap` 资源名或旧归属标签的环境必须交回匹配的旧工具，不适用这项扩展。
 
 若创建输入桶时中断，恢复记录在 `.worktree/<mode>/inputs-bucket-upgrade.json`。缺少归属标签的桶不会被自动接管或清空；管理员需核对精确桶名、归属记录和内容，确认可安全处理后再显式完成 `init`。未完成的输入桶升级会阻止旧清单销毁，以免遗留未登记资源。不要删除旧资源清单或恢复记录来绕过归属检查。
 
@@ -44,7 +44,7 @@ pnpm dev:worktree -- up --with-worker
 
 | 资源            | 隔离方式                                                          |
 | --------------- | ----------------------------------------------------------------- |
-| PostgreSQL      | 共享实例，库名为 `aap_wt_<id>_<mode>`；数据库 comment 记录归属    |
+| PostgreSQL      | 共享实例，库名为 `yoao_wt_<id>_<mode>`；数据库 comment 记录归属   |
 | Redis           | 独立、带归属标签的容器；端口仅绑定本机，AOF 存放在工作树目录      |
 | MinIO           | 共享实例，十个 bucket 分别使用环境前缀并记录归属标签              |
 | API/Web         | 当前 checkout 的进程，自动分配空闲端口并设置 API/WebSocket 代理   |
@@ -52,7 +52,7 @@ pnpm dev:worktree -- up --with-worker
 | DuckDB/临时文件 | 当前工作树、当前模式的独立目录                                    |
 
 `.worktree/identity.json` 保存稳定 ID 和 checkout 路径；提交代码不会改变 ID。各模式下的资源清单和进程记录不包含数据库密码或完整连接串。
-基础配置共用 owner 时，启动器为当前模式创建 `aap_wt_<id>_<mode>_app` 普通 LOGIN，角色 comment 记录相同资源归属；随机密码仅保存在权限为 `0600` 的 `.worktree/<mode>/runtime-credentials.json`。API／普通 worker 使用这个账号，迁移与维护 worker 继续使用原 owner。已有分离账号配置不被替换。
+基础配置共用 owner 时，启动器为当前模式创建 `yoao_wt_<id>_<mode>_app` 普通 LOGIN，角色 comment 记录相同资源归属；随机密码仅保存在权限为 `0600` 的 `.worktree/<mode>/runtime-credentials.json`。API／普通 worker 使用这个账号，迁移与维护 worker 继续使用原 owner。已有分离账号配置不被替换。
 
 该目录已被 Git 忽略，**不要复制、软链接或随手删除它**；丢失归属记录后不能靠资源名自动接管旧数据。凭据文件损坏、权限过宽、目标或迁移账号变化、已有角色缺少匹配凭据时都会拒绝继续，不自动改密或接管。移动工作树前，应先停止并按需销毁旧环境。
 
@@ -130,7 +130,9 @@ pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e
 pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 ```
 
-`exec` 的命令从工作树根目录执行，`--` 后面的参数原样传给子进程。`TEST_DATABASE_URL` 和 `PLAYWRIGHT_E2E_DATABASE_URL` 由入口统一覆盖。入口自动注入 `AAP_WORKTREE_MODE`；在 `dev` 模式中，pytest 和 Playwright 会在准备测试数据库前明确拒绝运行，且不导出其他模式的可用测试连接。需要同类测试并行时使用不同工作树，不要绕过模式锁或手工改写这个内部标识。
+`exec` 的命令从工作树根目录执行，`--` 后面的参数原样传给子进程。`TEST_DATABASE_URL` 和 `PLAYWRIGHT_E2E_DATABASE_URL` 由入口统一覆盖。入口自动注入 `YOAO_WORKTREE_MODE`；在 `dev` 模式中，pytest 和 Playwright 会在准备测试数据库前明确拒绝运行，且不导出其他模式的可用测试连接。需要同类测试并行时使用不同工作树，不要绕过模式锁或手工改写这个内部标识。
+
+切换命名时，先用旧工具的 `doctor` 盘点旧模式；有待保留的数据先备份并在隔离目标演练恢复。旧工具只退役它能按完整身份验证且获准销毁的资源，再用新入口初始化。不要改写旧 manifest、重贴桶标签或重命名数据库来取得所有权。冲突的 `AAP_WORKTREE_MODE`、旧 owner 或遗留进程都不是新环境的授权。
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
 

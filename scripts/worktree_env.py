@@ -105,19 +105,46 @@ def load_identity(root: Path, *, create: bool = False) -> dict:
     return document
 
 
+def worktree_mode(environment: dict) -> str | None:
+    """Reject ambiguous selectors instead of silently entering standalone mode."""
+    for key in environment:
+        if key.upper() == "AAP_WORKTREE_MODE":
+            raise WorktreeError("检测到旧工作树模式变量；请使用匹配的旧工具退役旧环境")
+        if key.upper() == "YOAO_WORKTREE_MODE" and key != "YOAO_WORKTREE_MODE":
+            raise WorktreeError("工作树模式变量必须使用规范名称 YOAO_WORKTREE_MODE")
+    mode = environment.get("YOAO_WORKTREE_MODE")
+    if mode is not None and mode not in MODES:
+        raise WorktreeError("无效的 YOAO_WORKTREE_MODE")
+    return mode
+
+
+def validate_launch_mode(root: Path, mode: str) -> None:
+    from dotenv import dotenv_values
+
+    if worktree_mode(os.environ) not in (None, mode):
+        raise WorktreeError("启动模式与调用方工作树模式不一致")
+    for name in (".env", ".env.local"):
+        path = root / name
+        if path.is_file() and any(
+            key.upper() in {"AAP_WORKTREE_MODE", "YOAO_WORKTREE_MODE"}
+            for key in dotenv_values(path, interpolate=False)
+        ):
+            raise WorktreeError(f"{name} 不能配置由启动器分配的工作树模式变量")
+
+
 def topology(root: Path, identity: dict, mode: str) -> dict:
     validate_identity(root, identity)
     if mode not in MODES:
         raise WorktreeError("环境必须是 dev、test 或 e2e")
-    name = f"aap-wt-{identity['id']}-{mode}"
+    name = f"yoao-wt-{identity['id']}-{mode}"
     checkout = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:16]
     return {
         "id": identity["id"],
         "root": str(root.resolve()),
         "mode": mode,
-        "owner": f"aap-worktree:{identity['id']}:{mode}:{checkout}",
+        "owner": f"yoao-worktree:{identity['id']}:{mode}:{checkout}",
         "confirmation": f"{identity['id']}:{mode}",
-        "database": f"aap_wt_{identity['id']}_{mode}",
+        "database": f"yoao_wt_{identity['id']}_{mode}",
         "redis_name": f"{name}-redis",
         "buckets": {key: f"{name}-{suffix}" for key, suffix in BUCKETS.items()},
         "directory": str(state_path(root, mode)),
@@ -137,6 +164,9 @@ def _validate_environment_sources(
 ):
     """Validate connection sources without creating a child environment."""
     from sqlalchemy.engine import make_url
+
+    if worktree_mode(inherited) not in (None, resources["mode"]):
+        raise WorktreeError("继承的工作树模式与资源清单不一致")
 
     local = {"localhost", "127.0.0.1", "::1"}
     runtime = make_url(database_url)
@@ -224,7 +254,7 @@ def isolated_environment(
         "PLAYWRIGHT_E2E_DATABASE_URL": test_url,
         "AAP_WORKTREE_RESOURCE_ROOT": resources["root"],
         "AAP_FIXTURE_TOOLS_ROOT": str(code_root / "scripts"),
-        "AAP_WORKTREE_MODE": resources["mode"],
+        "YOAO_WORKTREE_MODE": resources["mode"],
         "FIXTURE_RUNTIME_DATABASE_URL": "",
         "REDIS_URL": redis_url,
         "CELERY_BROKER_URL": redis_url,

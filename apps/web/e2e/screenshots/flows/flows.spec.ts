@@ -324,7 +324,7 @@ test.beforeAll(({ browserName: _browserName }, testInfo) => {
 
 function screenshotDatabaseEnv(): NodeJS.ProcessEnv {
   if (
-    !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+    !["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE ?? "") ||
     !process.env.DATABASE_URL ||
     !process.env.PLAYWRIGHT_E2E_DATABASE_URL ||
     !process.env.SCREENSHOT_FIXTURE_RUN_ID

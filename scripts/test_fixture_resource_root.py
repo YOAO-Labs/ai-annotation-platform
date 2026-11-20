@@ -26,7 +26,7 @@ class FixtureResourceRootTests(unittest.TestCase):
         self.manifest_path = state_path(self.root, "test", "resources.json")
         atomic_json(self.manifest_path, {"resources": self.resources, "postgres": {}})
         self.environment = {
-            "AAP_WORKTREE_MODE": "test",
+            "YOAO_WORKTREE_MODE": "test",
             "AAP_WORKTREE_RESOURCE_ROOT": str(self.root),
         }
 

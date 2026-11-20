@@ -629,7 +629,7 @@ async def test_existing_celery_scheduler_delivers_across_separate_task_loops(
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "ENVIRONMENT": "development",
-        "AAP_WORKTREE_MODE": "test",
+        "YOAO_WORKTREE_MODE": "test",
         "DATABASE_URL": os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"],
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",

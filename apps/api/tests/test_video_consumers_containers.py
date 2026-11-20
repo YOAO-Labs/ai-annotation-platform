@@ -61,14 +61,14 @@ pytestmark = [
     pytest.mark.skipif(
         os.environ.get("AAP_VIDEO_CONSUMER_CONTAINER_ACCEPTANCE") != "1"
         or os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
-        or os.environ.get("AAP_WORKTREE_MODE") != "test",
+        or os.environ.get("YOAO_WORKTREE_MODE") != "test",
         reason="requires explicitly enabled verifier-owned DB/S3/Redis and images",
     ),
 ]
 
 _ACCEPTANCE_LABEL = "org.aap.acceptance"
 _IDENTITY_LABEL = "org.aap.acceptance-id"
-_WORKTREE_OWNER_LABEL = "org.aap.worktree-owner"
+_WORKTREE_OWNER_LABEL = "org.yoao.worktree-owner"
 _CHUNK_SIZE = 12
 _TERMINAL = {"completed", "failed", "cancelled"}
 _PROFILES = {

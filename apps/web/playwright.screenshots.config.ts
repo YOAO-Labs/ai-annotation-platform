@@ -18,11 +18,12 @@ import { defineConfig, devices } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { selectedWorktreeMode } from "./e2e/helpers/browser-environment.mjs";
 import { MARKETING_PROJECT_NAME } from "./e2e/screenshots/_helpers/marketing-recorder";
 import { recordingPlan, marketingCaptureDriver } from "./e2e/screenshots/recording-plan.mjs";
 import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
-if (!["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+if (!["test", "e2e"].includes(selectedWorktreeMode() ?? "")) {
   throw new Error("Screenshot capture requires pnpm dev:worktree exec --mode e2e --with-worker.");
 }
 if (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL) {

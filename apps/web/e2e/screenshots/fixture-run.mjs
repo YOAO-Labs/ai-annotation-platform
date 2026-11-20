@@ -29,14 +29,14 @@ import {
 const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function captureDirectory(runId, { allowUnbornRoot = false } = {}) {
-  if (!canonicalUuid.test(runId) || !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE)) {
+  if (!canonicalUuid.test(runId) || !["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE)) {
     throw new Error("Screenshot capture requires an exact isolated run identity");
   }
   const root = realpathSync(process.env.AAP_WORKTREE_RESOURCE_ROOT ?? "");
   const directory = path.join(
     root,
     ".worktree",
-    process.env.AAP_WORKTREE_MODE,
+    process.env.YOAO_WORKTREE_MODE,
     "fixture-authority",
     `suite-${runId.replaceAll("-", "")}`,
   );
@@ -270,7 +270,7 @@ export function requireScreenshotCaptureClosed(runId) {
     typeof supervisor.authority_nonce !== "string" ||
     !/^[a-f0-9]{64}$/.test(supervisor.authority_nonce) ||
     supervisor.resources?.root !== realpathSync(process.env.AAP_WORKTREE_RESOURCE_ROOT ?? "") ||
-    supervisor.resources?.mode !== process.env.AAP_WORKTREE_MODE ||
+    supervisor.resources?.mode !== process.env.YOAO_WORKTREE_MODE ||
     !Array.isArray(supervisor.native_run_ids) ||
     supervisor.native_run_ids.length !== 1 ||
     supervisor.native_run_ids[0] !== runId

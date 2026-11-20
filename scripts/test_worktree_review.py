@@ -32,7 +32,7 @@ class ReviewRegressions(unittest.TestCase):
             database_url="postgresql+asyncpg://runtime:fixture@127.0.0.1/db"
         )
         backend.url = make_url("postgresql+asyncpg://owner:fixture@[::1]/db")
-        backend.resources = {"database": "aap_wt_fixture_test"}
+        backend.resources = {"database": "yoao_wt_fixture_test"}
         for acquired in (True, False):
             with self.subTest(different_server=acquired):
                 owner, runtime_connection = AsyncMock(), AsyncMock()
@@ -121,10 +121,20 @@ class ReviewRegressions(unittest.TestCase):
                 self.assertNotIn(
                     topology(root, identity, mode)["database"], json.dumps(env)
                 )
-            self.assertEqual(env["AAP_WORKTREE_MODE"], "dev")
+            self.assertEqual(env["YOAO_WORKTREE_MODE"], "dev")
             self.assertTrue(
                 env["TEST_DATABASE_URL"].startswith("worktree-mode-required:")
             )
+
+    def test_old_or_ambiguous_mode_never_inherits_a_test_database(self):
+        for selectors in (
+            {"AAP_WORKTREE_MODE": "e2e"},
+            {"AAP_WORKTREE_MODE": "", "YOAO_WORKTREE_MODE": "e2e"},
+            {"Yoao_Worktree_Mode": "test"},
+            {"YOAO_WORKTREE_MODE": ""},
+        ):
+            with self.subTest(selectors=selectors), self.assertRaises(WorktreeError):
+                worktree_env.worktree_mode(selectors)
 
     def test_frontend_and_application_environments_drop_unneeded_credentials(self):
         self.assertTrue(hasattr(worktree_env, "frontend_environment"))
@@ -162,12 +172,11 @@ class ReviewRegressions(unittest.TestCase):
             with self.assertRaises(WorktreeError):
                 runtime.session_record(resources)
 
-
     def test_pytest_rejects_dev_mode_before_loading_database_fixtures(self):
         result = subprocess.run(
             [sys.executable, "-c", "import runpy; runpy.run_path('tests/conftest.py')"],
             cwd=ROOT / "apps/api",
-            env={**os.environ, "AAP_WORKTREE_MODE": "dev"},
+            env={**os.environ, "YOAO_WORKTREE_MODE": "dev"},
             capture_output=True,
             text=True,
             timeout=15,

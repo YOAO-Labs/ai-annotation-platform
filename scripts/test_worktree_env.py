@@ -30,7 +30,7 @@ class IdentityTests(unittest.TestCase):
             self.assertEqual(len(dev["buckets"]), 10)
             self.assertEqual(
                 dev["buckets"]["MINIO_INPUTS_BUCKET"],
-                f"aap-wt-{first['id']}-dev-accepted-inputs",
+                f"yoao-wt-{first['id']}-dev-accepted-inputs",
             )
             document = json.loads((root / ".worktree/identity.json").read_text())
             self.assertEqual(document["root"], str(root.resolve()))

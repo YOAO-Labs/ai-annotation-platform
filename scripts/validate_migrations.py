@@ -46,6 +46,15 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from worktree_env import (
+    WorktreeError,
+    load_identity,
+    read_state,
+    state_path,
+    topology,
+    worktree_mode,
+)
+
 REPO = Path(__file__).resolve().parent.parent
 API = REPO / "apps/api"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -112,26 +121,32 @@ def resolve_anchor(environ: dict | None = None) -> Anchor:
     if not OWNED_DB_RE.match(database):
         raise ValidationError(f"unexpected database name {database!r}")
 
-    mode = environment.get("AAP_WORKTREE_MODE")
+    try:
+        mode = worktree_mode(environment)
+    except WorktreeError as exc:
+        raise ValidationError(str(exc)) from exc
     if mode:
         if mode not in {"test", "e2e"}:
             raise ValidationError(
                 "worktree migration validation only runs in test/e2e mode, never dev"
             )
-        state = REPO / ".worktree" / mode / "resources.json"
+        root = Path(environment.get("AAP_WORKTREE_RESOURCE_ROOT", REPO)).resolve()
+        state = state_path(root, mode, "resources.json")
         if not state.exists():
             raise ValidationError(
                 f"missing {state}; run 'pnpm dev:worktree -- init --mode {mode}' first"
             )
-        document = json.loads(state.read_text())
-        resources = document["resources"]
+        document = read_state(state)
+        resources = topology(root, load_identity(root), mode)
+        if document.get("resources") != resources:
+            raise ValidationError(
+                "worktree manifest does not match the current checkout identity"
+            )
         if database != resources["database"]:
             raise ValidationError(
                 "connection string database does not match the owned mode database"
             )
         owner = resources["owner"]
-        if not owner.startswith("aap-worktree:"):
-            raise ValidationError("worktree owner tag is malformed")
         postgres = document.get("postgres") or {}
         endpoint = (
             (str(postgres.get("host")), int(postgres.get("port", 5432)))
@@ -774,7 +789,9 @@ async def phase_forward(anchor: Anchor, state: RunState) -> None:
         or policy.upgrade_path.index(CONVERSION_REVISION)
         != policy.upgrade_path.index(LEGACY_REVISION) + 1
     ):
-        raise ValidationError("role-conversion qualification revisions are not adjacent")
+        raise ValidationError(
+            "role-conversion qualification revisions are not adjacent"
+        )
     await create_owned_database(anchor, state, database)
     run_alembic(anchor, database, "upgrade", LEGACY_REVISION)
     if await current_revision(anchor, database) != [LEGACY_REVISION]:

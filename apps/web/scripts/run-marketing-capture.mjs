@@ -112,7 +112,7 @@ async function preflight() {
   }
   // The capture configuration starts its own API; global setup validates the
   // exact worktree and per-run Native workers after startup.
-  if (!["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+  if (!["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE ?? "")) {
     throw new Error("[marketing] 请通过已验证的截图工作树入口启动录制。");
   }
 }

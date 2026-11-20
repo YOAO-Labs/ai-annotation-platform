@@ -419,10 +419,10 @@ def test_owned_constructor_failure_preserves_unsettled_transport(monkeypatch):
 
 @pytest.fixture
 def live_storage():
-    if os.environ.get("AAP_WORKTREE_MODE") != "test":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "test":
         pytest.skip("Actual provider checks require a disposable worktree test mode")
     bucket = settings.minio_media_cache_bucket
-    assert re.fullmatch(r"aap-wt-[0-9a-f]{16}-test-media-cache", bucket)
+    assert re.fullmatch(r"yoao-wt-[0-9a-f]{16}-test-media-cache", bucket)
     storage = StorageService()
     storage.client.put_bucket_versioning(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}

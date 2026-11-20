@@ -8,13 +8,13 @@ from site_agent_recovery import Recovery, rows
 
 class RecoveryGuards(unittest.TestCase):
     def test_development_environment_cannot_observe_database(self):
-        with patch.dict("os.environ", {"AAP_WORKTREE_MODE": "dev"}, clear=True):
+        with patch.dict("os.environ", {"YOAO_WORKTREE_MODE": "dev"}, clear=True):
             with self.assertRaisesRegex(ValueError, "test_mode_required"):
                 rows("SELECT 1")
 
     def test_wrong_database_is_rejected_before_connection(self):
         environment = {
-            "AAP_WORKTREE_MODE": "test",
+            "YOAO_WORKTREE_MODE": "test",
             "DATABASE_URL": "postgresql+asyncpg://localhost/retained_dev",
         }
         with patch.dict("os.environ", environment, clear=True):

@@ -38,7 +38,7 @@ def enable_owned_import_versioning(storage, *, root):
     from worktree_env import WorktreeError, load_identity, topology
     from worktree_resources import OWNER_TAG
 
-    if os.environ.get("AAP_WORKTREE_MODE") != "test":
+    if os.environ.get("YOAO_WORKTREE_MODE") != "test":
         raise WorktreeError("Test mode is required for fixture bucket versioning")
     root = Path(root)
     resources = topology(root, load_identity(root), "test")

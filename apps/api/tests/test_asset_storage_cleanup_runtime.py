@@ -37,7 +37,7 @@ pytestmark = [
 _PG_IMAGE = "postgres:16-alpine"
 _CONTAINER_LABEL = "org.aap.acceptance"
 _CONTAINER_ID_LABEL = "org.aap.acceptance-id"
-_BUCKET_OWNER_TAG = "aap-worktree-owner"
+_BUCKET_OWNER_TAG = "yoao-worktree-owner"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PENDING_QUERY = """
 SELECT operation_id, asset_id, bucket, prefix, created_at
@@ -184,7 +184,7 @@ def _verified_resource_manifest(test_engine, cleanup_url: URL) -> dict:
         pytest.fail("the verifier's resource manifest has an invalid shape")
     resource_id = identity.get("id")
     checkout = hashlib.sha256(str(resource_root).encode()).hexdigest()[:16]
-    owner = f"aap-worktree:{resource_id}:test:{checkout}"
+    owner = f"yoao-worktree:{resource_id}:test:{checkout}"
     if not (
         identity.get("schema") == 1
         and re.fullmatch(r"[0-9a-f]{16}", str(resource_id))
@@ -202,8 +202,8 @@ def _verified_resource_manifest(test_engine, cleanup_url: URL) -> dict:
     ):
         pytest.fail("test resources do not match their owned identity")
     expected_buckets = {
-        "MINIO_DATASETS_BUCKET": f"aap-wt-{resource_id}-test-datasets",
-        "MINIO_MEDIA_CACHE_BUCKET": f"aap-wt-{resource_id}-test-media-cache",
+        "MINIO_DATASETS_BUCKET": f"yoao-wt-{resource_id}-test-datasets",
+        "MINIO_MEDIA_CACHE_BUCKET": f"yoao-wt-{resource_id}-test-media-cache",
     }
     buckets = resource.get("buckets")
     if not isinstance(buckets, dict) or any(

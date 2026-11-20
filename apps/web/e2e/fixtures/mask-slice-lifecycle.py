@@ -17,13 +17,13 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.engine import make_url  # noqa: E402
-from worktree_env import load_identity, read_state, state_path, topology  # noqa: E402
+from worktree_env import load_identity, read_state, state_path, topology, worktree_mode  # noqa: E402
 from worktree_runtime import WorktreeError, require_owner  # noqa: E402
 
 _RESOURCE_ROOT = Path(
     os.environ.get("AAP_E2E_RESOURCE_ROOT", str(_REPO_ROOT))
 ).resolve()
-OWNER_TAG = "aap-worktree-owner"
+OWNER_TAG = "yoao-worktree-owner"
 
 
 class GuardError(AssertionError):
@@ -41,12 +41,12 @@ def assert_owned_disposable_bucket(
 ) -> None:
     """Fail closed unless ``bucket`` is an exclusively owned disposable test bucket.
 
-    Worktree modes (``AAP_WORKTREE_MODE=test|e2e``) must declare this exact
+    Worktree modes (``YOAO_WORKTREE_MODE=test|e2e``) must declare this exact
     database and ``MINIO_BUCKET`` slot in the active resources manifest and
     carry the manifest owner tag (``scripts/worktree_runtime.require_owner``
     semantics: foreign owner raises, missing tag is rejected). Without a
     worktree mode only the legacy isolated-CI bucket naming is accepted, and an
-    unrecognized ``aap-wt-*`` bucket is rejected instead of falling back to it.
+    unrecognized ``yoao-wt-*`` bucket is rejected instead of falling back to it.
     """
     if mode is not None:
         if mode not in {"test", "e2e"}:
@@ -75,8 +75,8 @@ def assert_owned_disposable_bucket(
         if not owned:
             raise GuardError("MINIO_BUCKET has no owner tag for this worktree")
         return
-    if bucket.startswith("aap-wt-"):
-        raise GuardError("aap-wt-* bucket requires an active worktree mode")
+    if bucket.startswith(("aap-wt-", "yoao-wt-")):
+        raise GuardError("worktree bucket requires an active worktree mode")
     if not bucket.endswith(("-e2e", "_e2e", "-test", "_test")):
         raise GuardError("legacy isolated CI bucket naming required")
 
@@ -127,7 +127,7 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
         raise GuardError("mask lifecycle requires E2E development mode")
     # A disposable DB alone is insufficient: GC must never scan a shared bucket.
     bucket = os.environ.get("MINIO_BUCKET", "")
-    mode = os.environ.get("AAP_WORKTREE_MODE")
+    mode = worktree_mode(os.environ)
     resources = None
     if mode is not None:
         if mode not in {"test", "e2e"} or not _RESOURCE_ROOT.is_relative_to(_REPO_ROOT):

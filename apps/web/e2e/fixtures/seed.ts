@@ -303,7 +303,7 @@ function preparedRasterFaultEntry(
 ): PreparedRasterFaultEntry {
   const path = process.env.PLAYWRIGHT_RASTER_FAULT_MANIFEST;
   const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
-  if (!path || !suiteId || !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+  if (!path || !suiteId || !["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE ?? "")) {
     throw new Error(
       "Raster fault cases require an independently prepared isolated fixture manifest",
     );

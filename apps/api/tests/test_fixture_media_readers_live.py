@@ -825,7 +825,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 f"Retained uncertain Media reader resources: suite={suite.suite_id if suite else None} "
                 f"runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} "
                 f"client_pid={owner.process.pid if owner else None} "
-                f"authority_record=.worktree/{os.environ.get('AAP_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
+                f"authority_record=.worktree/{os.environ.get('YOAO_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
                 f"media_pid={media.control_process.pid if media else None} "
                 f"workers={[p.pid for p in processes]}; no forced cleanup",
                 flush=True,

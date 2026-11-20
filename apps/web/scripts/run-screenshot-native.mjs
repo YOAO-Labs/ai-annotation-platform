@@ -21,7 +21,7 @@ if (seedArgs.some((arg) => /^(?:--profile|--run-id|--admission-id|--help)(?:=|$)
   throw new Error("The screenshot launcher owns the profile and admission identities");
 }
 if (
-  !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE) ||
+  !["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE) ||
   !process.env.DATABASE_URL ||
   !process.env.PLAYWRIGHT_E2E_DATABASE_URL ||
   process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE ||

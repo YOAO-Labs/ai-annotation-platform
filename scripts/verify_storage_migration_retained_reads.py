@@ -82,7 +82,7 @@ async def seed_retained(input_path, output_path):
     from app.workers._db import task_session
 
     value = json.loads(Path(input_path).read_bytes())
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     created = datetime.now(timezone.utc)
     actor_id = uuid.UUID(value["actor_id"])
     image = io.BytesIO()
@@ -284,7 +284,7 @@ async def worker_read(fixture_path, *, hold=False):
     from app.workers._db import task_session
 
     value = unpacked(json.loads(Path(fixture_path).read_bytes()))
-    require(os.environ.get("AAP_WORKTREE_MODE") == "test", "test_mode_required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "test", "test_mode_required")
     verified, media_url = [], None
     async with task_session() as db:
 

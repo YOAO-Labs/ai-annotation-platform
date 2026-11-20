@@ -137,7 +137,7 @@ async def test_shutdown_ack_reconnects_and_preserves_exact_owner_identity(test_e
     record_dir = (
         Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
         / ".worktree"
-        / os.environ["AAP_WORKTREE_MODE"]
+        / os.environ["YOAO_WORKTREE_MODE"]
         / "fixture-authority"
     )
     first_suite, neighbor = uuid.uuid4(), uuid.uuid4()
@@ -266,7 +266,7 @@ async def _control(owner, run, fixture, action):
 async def _provider_handle(run):
     async def find():
         root = Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
-        mode = os.environ["AAP_WORKTREE_MODE"]
+        mode = os.environ["YOAO_WORKTREE_MODE"]
         record = json.loads(
             (root / ".worktree" / mode / "fixture-authority" / "owner.json").read_text()
         )
@@ -1029,7 +1029,7 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                 (
                     Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
                     / ".worktree"
-                    / os.environ["AAP_WORKTREE_MODE"]
+                    / os.environ["YOAO_WORKTREE_MODE"]
                     / "fixture-authority"
                     / "owner.json"
                 ).read_text()
@@ -1221,7 +1221,7 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                 f"suite={suite.suite_id if suite else None} "
                 f"runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} "
                 f"client_pid={owner.process.pid if owner else None} "
-                f"authority_record=.worktree/{os.environ.get('AAP_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
+                f"authority_record=.worktree/{os.environ.get('YOAO_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
                 f"jobs={job_a},{job_b} queue={queue} "
                 f"celery_pid={celery_worker.pid if celery_worker else None} "
                 f"execution_pid={execution_process.pid if execution_process else None} "

@@ -1118,7 +1118,7 @@ async def main():
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args()
     os.umask(0o077)
-    require(os.environ.get("AAP_WORKTREE_MODE") == "e2e", "e2e worktree mode required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "e2e", "e2e worktree mode required")
     require(
         not any(
             os.environ.get(k)

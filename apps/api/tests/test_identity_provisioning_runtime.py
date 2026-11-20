@@ -198,7 +198,7 @@ async def test_real_bootstrap_cli_uses_only_operational_capabilities(
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "ENVIRONMENT": "development",
-        "AAP_WORKTREE_MODE": "test",
+        "YOAO_WORKTREE_MODE": "test",
         "DATABASE_URL": url,
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",

@@ -1257,7 +1257,7 @@ async def test_complete_identity_migration_roundtrip(test_engine):
     environment["MIGRATION_DATABASE_URL"] = test_engine.url.render_as_string(
         hide_password=False
     )
-    environment.pop("AAP_WORKTREE_MODE", None)
+    environment.pop("YOAO_WORKTREE_MODE", None)
     environment["AAP_MIGRATION_VALIDATION_OWNER"] = "identity-module-validator:" + str(
         uuid.uuid4()
     )

@@ -100,7 +100,7 @@ async def ingest_world(test_engine):
         test_engine.url.port,
         test_engine.url.database,
     )
-    assert url.database.startswith("aap_wt_") and url.database.endswith("_test")
+    assert url.database.startswith("yoao_wt_") and url.database.endswith("_test")
     engine = create_async_engine(url, hide_parameters=True)
     world = _World(
         await _seed_world(test_engine),

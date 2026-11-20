@@ -16,7 +16,7 @@
 
 前置条件:
     连接必须是获准写入的一次性测试库（本地 annotation_test 或本 worktree 的
-    aap_wt_*_test）。用 pnpm dev:worktree -- exec --mode test -- <command> 运行；
+    yoao_wt_*_test）。用 pnpm dev:worktree -- exec --mode test -- <command> 运行；
     开发模式下本文件在 import 阶段直接拒绝执行。
 
 跑法:
@@ -39,7 +39,14 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 
 from tests import pytest_sharding
 
-if os.environ.get("AAP_WORKTREE_MODE") == "dev":
+if any(key.upper() == "AAP_WORKTREE_MODE" for key in os.environ):
+    raise pytest.UsageError("旧工作树模式变量仍存在；拒绝进入独立数据库测试")
+if any(
+    key.upper() == "YOAO_WORKTREE_MODE" and key != "YOAO_WORKTREE_MODE"
+    for key in os.environ
+) or os.environ.get("YOAO_WORKTREE_MODE") not in {None, "dev", "test", "e2e"}:
+    raise pytest.UsageError("工作树模式不明确，拒绝进入独立数据库测试")
+if os.environ.get("YOAO_WORKTREE_MODE") == "dev":
     raise pytest.UsageError(
         "开发模式不能运行数据库测试；请使用 pnpm dev:worktree -- exec --mode test -- <command>"
     )
@@ -69,7 +76,7 @@ def _validate_test_db_target(url: str) -> str:
 
     规则：连接串必须可解析；驱动必须是 postgresql；库名必须以 _test 结尾
     （覆盖文档化的历史默认 annotation_test 与 worktree 启动器分配的
-    aap_wt_*_test）。显式 TEST_DATABASE_URL 与派生默认一视同仁，不能绕过。
+    yoao_wt_*_test）。显式 TEST_DATABASE_URL 与派生默认一视同仁，不能绕过。
 
     用户可见错误只包含异常类型名 / 驱动名 / 库名——绝不回显原始 URL 或底层
     异常文本，也不保留异常链，避免畸形连接串里的凭据泄漏到输出。
@@ -92,8 +99,10 @@ def _validate_test_db_target(url: str) -> str:
         raise RuntimeError(
             f"拒绝非一次性测试库目标：库名 {parsed.database!r} 不以 _test 结尾。"
             "pytest 必须运行在获准的一次性测试库（annotation_test 或 "
-            "aap_wt_*_test）上；开发/生产库一律拒绝。"
+            "yoao_wt_*_test）上；开发/生产库一律拒绝。"
         )
+    if parsed.database.startswith("aap_wt_"):
+        raise RuntimeError("旧工作树测试库必须由匹配的旧工具管理")
     return url
 
 

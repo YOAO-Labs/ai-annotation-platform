@@ -47,8 +47,8 @@ from worktree_runtime import (
     validate_revisions,
 )
 
-OWNER_LABEL = "org.aap.worktree-owner"
-OWNER_TAG = "aap-worktree-owner"
+OWNER_LABEL = "org.yoao.worktree-owner"
+OWNER_TAG = "yoao-worktree-owner"
 IDENTITY_RUNTIME_CAPABILITIES = (
     "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
     "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
@@ -847,8 +847,25 @@ class LocalResources:
         path = state_path(self.root, resources["mode"], "resources.json")
         if retire_finished_bootstrap and not path.exists():
             raise WorktreeError("没有已登记的资源清单；拒绝退休或接管")
+        if not path.exists() and any(
+            state_path(self.root, resources["mode"], name).exists()
+            for name in (
+                "run.json",
+                "services.json",
+                "runtime-credentials.json",
+                "fixture-store-owner.json",
+            )
+        ):
+            raise WorktreeError("资源清单缺失但仍有归属状态；拒绝重新分配或接管")
         if path.exists():
             saved = read_state(path)
+            if (
+                not isinstance(saved.get("resources"), dict)
+                or saved["resources"].get("owner") != resources["owner"]
+            ):
+                raise WorktreeError(
+                    "基础设施目标与已有资源清单不一致；使用匹配的旧工具，不得重贴标签"
+                )
             saved_postgres = saved.get("postgres")
             if isinstance(saved_postgres, dict) and "database_oid" in saved_postgres:
                 oid = saved_postgres["database_oid"]
@@ -1084,9 +1101,9 @@ class LocalResources:
                         credentials = self._runtime_credentials(required=True)
                     await connection.execute(
                         text(
-                            "SELECT set_config('aap.worktree_runtime_role',:role,true),"
-                            "set_config('aap.worktree_runtime_password',:password,true),"
-                            "set_config('aap.worktree_runtime_owner',:owner,true)"
+                            "SELECT set_config('yoao.worktree_runtime_role',:role,true),"
+                            "set_config('yoao.worktree_runtime_password',:password,true),"
+                            "set_config('yoao.worktree_runtime_owner',:owner,true)"
                         ),
                         {
                             "role": role,
@@ -1097,9 +1114,9 @@ class LocalResources:
                     await connection.exec_driver_sql("""DO $create_runtime$
                     BEGIN
                         EXECUTE format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
-                            current_setting('aap.worktree_runtime_role'),current_setting('aap.worktree_runtime_password'));
+                            current_setting('yoao.worktree_runtime_role'),current_setting('yoao.worktree_runtime_password'));
                         EXECUTE format('COMMENT ON ROLE %I IS %L',
-                            current_setting('aap.worktree_runtime_role'),current_setting('aap.worktree_runtime_owner'));
+                            current_setting('yoao.worktree_runtime_role'),current_setting('yoao.worktree_runtime_owner'));
                     END;
                     $create_runtime$;""")
                     observed = await self._runtime_role_record(
@@ -1209,7 +1226,13 @@ class LocalResources:
             isolation_level="AUTOCOMMIT",
             poolclass=NullPool,
             hide_parameters=True,
-            connect_args={"timeout": 5, "command_timeout": 10},
+            # PostgreSQL marks a database invalid before its removal checkpoint.
+            # Bound lock acquisition, not the physical checkpoint after admission.
+            connect_args={
+                "timeout": 5,
+                "command_timeout": None if action == "drop" else 10,
+                "server_settings": {"lock_timeout": "10s"},
+            },
         )
         name = self.resources["database"]
         try:
@@ -1321,7 +1344,7 @@ class LocalResources:
                         else None
                     )
                 finally:
-                    if action != "inspect":
+                    if action != "inspect" and not connection.invalidated:
                         await connection.execute(
                             text("SELECT pg_advisory_unlock(hashtext(:name))"),
                             {"name": name},
@@ -3555,6 +3578,9 @@ class LocalResources:
         state_path(self.root, self.resources["mode"], "resources.json").unlink(
             missing_ok=True
         )
+        # A completed, verified destruction also ends this controller's birth proof.
+        self.manifest["postgres"].pop("database_oid", None)
+        self.target_manifest["postgres"].pop("database_oid", None)
         print(
             f"[dev:worktree] 已删除本环境资源 {self.resources['confirmation']}",
             file=sys.stderr,

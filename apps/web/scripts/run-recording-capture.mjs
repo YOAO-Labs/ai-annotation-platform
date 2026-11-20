@@ -80,7 +80,7 @@ if (values["headless-display"]) {
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
 if (
-  !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+  !["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE ?? "") ||
   !process.env.DATABASE_URL ||
   !process.env.PLAYWRIGHT_E2E_DATABASE_URL
 ) {

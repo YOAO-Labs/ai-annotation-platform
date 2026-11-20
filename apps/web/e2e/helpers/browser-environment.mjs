@@ -20,6 +20,23 @@ const allowed = {
   DISPLAY: true,
 };
 
+export function selectedWorktreeMode(env = process.env) {
+  if (
+    Object.keys(env).some(
+      (key) =>
+        key.toUpperCase() === "AAP_WORKTREE_MODE" ||
+        (key.toUpperCase() === "YOAO_WORKTREE_MODE" && key !== "YOAO_WORKTREE_MODE"),
+    )
+  ) {
+    throw new Error("Remove the legacy or ambiguous worktree mode before launching a browser.");
+  }
+  const mode = env.YOAO_WORKTREE_MODE;
+  if (mode !== undefined && !["dev", "test", "e2e"].includes(mode)) {
+    throw new Error("Invalid YOAO_WORKTREE_MODE.");
+  }
+  return mode;
+}
+
 /** @returns {Record<string, string>} */
 export function browserEnvironment({ dropForwardedDisplay = false } = {}) {
   return Object.fromEntries(
@@ -27,11 +44,7 @@ export function browserEnvironment({ dropForwardedDisplay = false } = {}) {
       ([key, value]) =>
         value !== undefined &&
         Object.hasOwn(allowed, key) &&
-        !(
-          dropForwardedDisplay &&
-          key === "DISPLAY" &&
-          /^localhost:\d+(?:\.\d+)?$/.test(value)
-        ),
+        !(dropForwardedDisplay && key === "DISPLAY" && /^localhost:\d+(?:\.\d+)?$/.test(value)),
     ),
   );
 }

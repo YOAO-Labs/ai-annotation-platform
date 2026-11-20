@@ -39,7 +39,7 @@ export async function runDetectionOnlineTraining(page: Page, options: { marketin
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
   const target = new URL(process.env.DATABASE_URL ?? "");
   if (
-    !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+    !["test", "e2e"].includes(process.env.YOAO_WORKTREE_MODE ?? "") ||
     (!target.pathname.endsWith("_e2e") && !target.pathname.endsWith("_test"))
   )
     throw new Error("Detection demonstration requires a disposable worktree capture database");

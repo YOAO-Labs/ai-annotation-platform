@@ -57,7 +57,7 @@ def test_owner_seed_refuses_cross_boundary_setup_without_leaking_credentials(
         env={
             **os.environ,
             "ENVIRONMENT": "development",
-            "AAP_WORKTREE_MODE": mode,
+            "YOAO_WORKTREE_MODE": mode,
             "PLAYWRIGHT_E2E_DATABASE_URL": f"postgresql+asyncpg://owner:{secret}@{host}/{owner_database}",
             "DATABASE_URL": f"postgresql+asyncpg://runtime:{secret}@127.0.0.1/{runtime_database}",
         },
@@ -94,7 +94,7 @@ def test_mask_lifecycle_owner_refuses_foreign_database_or_disabled_e2e(
             **os.environ,
             "ENVIRONMENT": environment,
             "E2E_SEED_ENABLED": enabled,
-            "AAP_WORKTREE_MODE": "e2e",
+            "YOAO_WORKTREE_MODE": "e2e",
             "PLAYWRIGHT_E2E_DATABASE_URL": f"postgresql+asyncpg://owner:{secret}@127.0.0.1/fixture_e2e",
             "DATABASE_URL": f"postgresql+asyncpg://runtime:{secret}@127.0.0.1/{runtime_database}",
         },
@@ -121,7 +121,7 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
         root, directory, ready_fd = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3])
         os.environ.update({
             "ENVIRONMENT": "development", "E2E_SEED_ENABLED": "true",
-            "AAP_WORKTREE_MODE": "e2e",
+            "YOAO_WORKTREE_MODE": "e2e",
             "DATABASE_URL": "postgresql+asyncpg://runtime:secret@127.0.0.1/fixture_e2e",
             "PLAYWRIGHT_E2E_DATABASE_URL": "postgresql+asyncpg://owner:secret@127.0.0.1/fixture_e2e",
         })

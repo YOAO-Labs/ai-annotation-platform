@@ -47,7 +47,7 @@ def verified_environment():
     from sqlalchemy.engine import make_url
 
     require(__debug__, "Benchmark requires Python assertions")
-    require(os.environ.get("AAP_WORKTREE_MODE") == "e2e", "Owned e2e mode required")
+    require(os.environ.get("YOAO_WORKTREE_MODE") == "e2e", "Owned e2e mode required")
     resources = topology(ROOT, load_identity(ROOT), "e2e")
     backend = LocalResources(resources, settings, code_root=ROOT)
     try:

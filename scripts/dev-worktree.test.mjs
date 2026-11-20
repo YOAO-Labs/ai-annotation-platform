@@ -167,7 +167,7 @@ test("Playwright keeps owner credentials in setup and runtime credentials in the
         env: {
           ...process.env,
           CI: "",
-          AAP_WORKTREE_MODE: "e2e",
+          YOAO_WORKTREE_MODE: "e2e",
           DATABASE_URL: runtime,
           PLAYWRIGHT_E2E_DATABASE_URL: owner,
         },
@@ -201,16 +201,41 @@ test("Playwright keeps owner credentials in setup and runtime credentials in the
       },
     });
     assert.equal(launched.status, 0, launched.stderr);
-    const [prepare, migrate, server] = (await readFile(log, "utf8"))
+    const [prepare, migrate, supervisor] = (await readFile(log, "utf8"))
       .trim()
       .split("\n")
       .map(JSON.parse);
     assert.equal(prepare.database, owner);
     assert.equal(migrate.migration, owner);
-    assert.equal(server.database, runtime);
-    assert.equal(server.migration, "");
-    assert.equal(server.test, "");
-    assert.equal(server.fixture, "");
+    assert.equal(supervisor.database, runtime);
+    assert.equal(supervisor.migration, owner);
+    assert.ok(supervisor.args.some((arg) => arg.endsWith("/fixture_native_playwright.py")));
+    const repo = fileURLToPath(new URL("../", import.meta.url));
+    const apiChild = spawnSync(
+      join(repo, "apps/api/.venv/bin/python"),
+      [
+        "-c",
+        [
+          "import json, os",
+          "from fixture_native_playwright import _api_environment",
+          "env = _api_environment(dict(os.environ), 'http://127.0.0.1', 'fixture')",
+          "print(json.dumps([env[k] for k in ('DATABASE_URL', 'MIGRATION_DATABASE_URL', 'TEST_DATABASE_URL', 'PLAYWRIGHT_E2E_DATABASE_URL')]))",
+        ].join("\n"),
+      ],
+      {
+        cwd: join(repo, "scripts"),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DATABASE_URL: supervisor.database,
+          MIGRATION_DATABASE_URL: supervisor.migration,
+          TEST_DATABASE_URL: supervisor.test,
+          PLAYWRIGHT_E2E_DATABASE_URL: supervisor.fixture,
+        },
+      },
+    );
+    assert.equal(apiChild.status, 0, apiChild.stderr);
+    assert.deepEqual(JSON.parse(apiChild.stdout), [runtime, "", "", ""]);
     assert.equal(api.env.MIGRATION_DATABASE_URL, owner);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -264,9 +289,12 @@ test("isolated exec reserves distinct Playwright ports and preserves exit status
   }
 });
 
-test("canonical exec cooperatively waits beyond the old kill grace and stays interrupted", { timeout: 12_000 }, async () => {
-  const module = new URL("./dev-worktree.mjs", import.meta.url).href;
-  const command = `
+test(
+  "canonical exec cooperatively waits beyond the old kill grace and stays interrupted",
+  { timeout: 12_000 },
+  async () => {
+    const module = new URL("./dev-worktree.mjs", import.meta.url).href;
+    const command = `
     process.on("SIGTERM", () => setTimeout(() => {
       console.log("drained");
       process.exit(0);
@@ -274,32 +302,38 @@ test("canonical exec cooperatively waits beyond the old kill grace and stays int
     console.log("ready");
     setTimeout(() => process.exit(9), 9_000);
   `;
-  const runner = spawn(process.execPath, [
-    "--input-type=module", "-e",
-    `import { runIsolatedCommand } from ${JSON.stringify(module)};
+    const runner = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { runIsolatedCommand } from ${JSON.stringify(module)};
      process.exitCode = await runIsolatedCommand(
        ${JSON.stringify([process.execPath, "-e", command])},
        { cooperativeE2e: true }
      );`,
-  ], { stdio: ["ignore", "pipe", "pipe"] });
-  let output = "";
-  let signalled = false;
-  runner.stdout.on("data", (chunk) => {
-    output += chunk;
-    if (!signalled && output.includes("ready")) {
-      signalled = true;
-      runner.kill("SIGTERM");
-    }
-  });
-  runner.stderr.resume();
-  const result = await new Promise((resolve, reject) => {
-    runner.once("error", reject);
-    runner.once("close", (code, signal) => resolve({ code, signal }));
-  });
-  assert.equal(signalled, true);
-  assert.match(output, /drained/);
-  assert.deepEqual(result, { code: 143, signal: null });
-});
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "";
+    let signalled = false;
+    runner.stdout.on("data", (chunk) => {
+      output += chunk;
+      if (!signalled && output.includes("ready")) {
+        signalled = true;
+        runner.kill("SIGTERM");
+      }
+    });
+    runner.stderr.resume();
+    const result = await new Promise((resolve, reject) => {
+      runner.once("error", reject);
+      runner.once("close", (code, signal) => resolve({ code, signal }));
+    });
+    assert.equal(signalled, true);
+    assert.match(output, /drained/);
+    assert.deepEqual(result, { code: 143, signal: null });
+  },
+);
 
 test("service supervisor cannot bypass runtime preparation", async () => {
   assert.equal(typeof launcher.runRuntime, "function");
@@ -326,7 +360,12 @@ test("CLI help works before dependency setup without touching services", async (
   const directory = await mkdtemp(join(tmpdir(), "worktree-cli-bootstrap-test-"));
   try {
     await mkdir(join(directory, "scripts"));
-    for (const file of ["dev-worktree.mjs", "worktree_runtime.py", "worktree_env.py"]) {
+    for (const file of [
+      "dev-worktree.mjs",
+      "worktree_runtime.py",
+      "worktree_env.py",
+      "linux_pidfd.py",
+    ]) {
       await copyFile(new URL(file, import.meta.url), join(directory, "scripts", file));
     }
     const result = spawnSync(

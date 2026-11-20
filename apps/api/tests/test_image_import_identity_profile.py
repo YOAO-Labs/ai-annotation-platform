@@ -299,7 +299,7 @@ async def test_image_import_identity_behavior(
         owner_client.put_bucket_tagging(
             Bucket=bucket,
             Tagging={
-                "TagSet": [{"Key": "aap-worktree-owner", "Value": resources["owner"]}]
+                "TagSet": [{"Key": "yoao-worktree-owner", "Value": resources["owner"]}]
             },
         )
         _verify_bucket_owner(owner_client, bucket, resources["owner"])
