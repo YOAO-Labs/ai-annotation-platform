@@ -719,3 +719,10 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 中断导入在读回原件并结算后退出；后续截图夹具、两种回填和 worker 信号均未再被旧许可阻塞。合成 GC 探针后，真实节点按预算删除了目标对象。bbox 与 mask 均取得真实 `job_not_active` 终态续租拒绝，重启后各读回 16 份相符回执，实际并发峰值均为 4；没有放宽拒绝码、重试预算或验证条件。
 - 同一冻结检出的 18 份镜像身份、6,163 个宿主输入、独立安装的 385 个 Workspace 文件通过预检。重建 3 个 API 镜像，其余 15 个的 COPY 输入不变。`inputs-f6e349674/index.json` SHA256：`69d3d4bf8988fb06562f4649d57883e9d9097535f694824535d90a7ea787de53`。
 - 2026-11-20 00:16:43 UTC，`t1-t2-prereqs-f6e349674-1` 的验证器写入 `running / default-collection`：未传 `--test-file`，428 个默认选择器、25 组。`joint-contracts-20261120-3/default-start.json` 绑定了实际报告和首次观测。未把定向通过数转入默认轮；两项严格内核峰值仍延期，J1 未开放。
+
+### 默认联合轮终局 f6e349674
+
+- 2026-11-20 00:16:43–05:51:10 UTC（北京时间 08:16–13:51），默认验收耗时 5 小时 34 分。428 个选择器、25 组实际收集 3,337 项：**3,241 通过、0 断言失败、3 个准备错误、1 项延期跳过、92 未运行**。普通组清理失败，验收器退出 1，后续 24 组未启动。两个严格 8K 内核峰值分别为延期跳过、未运行，均未验证。`joint-contracts-20261120-3/joint-verdict.json` SHA256：`5dcf73349d087a98ca57d668c87857942df091ac04d09edb069e98358f57f71c`。
+- T2 的原 44 项：**39 通过、3 个准备错误、2 未运行**（Identity 双运行和 scale）。截图目录此次 15 项中 12 项通过；其余 3 项没有执行到业务断言，不是 3 个截图结果不符。普通组 JUnit 用例时间合计 315.3 分钟；其中截图目录 95.8 分钟、媒体种子身份 46.3 分钟、Identity 跨运行 28.0 分钟。前置 44/44 的选集和用时不计入本轮。
+- 第一个错误是 `test_final_timestamps_preserve_later_seed_updates` 的 `fixture_native_role_identity_changed`。截图 run `e394b91b…` 的数据库登录角色已创建，但读取身份没有登记。夹具进程仍持有的代理监听地址与已退役 run `44839a03…` 的地址相同；`fixture_native_read_principals` 对 `proxy_origin` 的唯一约束包含已退役行。登记的 `ON CONFLICT DO NOTHING` 未写入新身份。对应的 `screenshot_seed` 准入仍为活动状态，清理返回 `409 fixture_run_unsettled`；另外两个截图用例也在准备阶段被拒。终局无未结算的存储操作。只读数据库、进程监听与失败回执的对账：`joint-contracts-20261120-3/causal-attribution.json`，SHA256 `4f5b279194088ca9e0a0b84b5538fb716d5f3b180c4bd6fd21dfe845ad733f4b`。
+- 保留 JUnit 和失败回执后，按出生记录清退本轮独占的 2 个宿主进程、4 个容器及其专属存储、临时资源根、冻结检出和私有解释器。行政清退不改变验收器退出码，不算产品正常清理。回执：`joint-contracts-20261120-3/administrative-retirement/receipt.json`、`joint-contracts-20261120-3/checkout-retirement.json`。未启动新一轮默认验收。
