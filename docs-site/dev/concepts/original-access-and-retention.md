@@ -103,7 +103,7 @@ SDK 每步单次尝试，真实成功响应先独立持久化，再按真实非 
 
 ### 导出 ZIP 与独立媒体交付（迁移 0211、0224、0234、0236、0237、0248）
 
-`export` 的物理归属由 `ExportOutput` ZIP 和 `ExportMediaBundle` 独立媒体共同承担，`ExportArtifact` 仅索引缓存。媒体包分配后，配套 ZIP 继承同一保存目标（`_aap_managed/export/`），共用首次 168 小时（7 天）截止期限和一次 3600 秒 claim。
+`export` 的物理归属由 `ExportOutput` ZIP 和 `ExportMediaBundle` 独立媒体共同承担，`ExportArtifact` 仅索引缓存。媒体包分配后，配套 ZIP 继承同一保存目标（`_yoao_managed/export/`），共用首次 168 小时（7 天）截止期限和一次 3600 秒 claim。
 
 #### 引用图片的后台导出
 

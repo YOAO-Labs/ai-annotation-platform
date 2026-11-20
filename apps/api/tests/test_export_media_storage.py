@@ -544,6 +544,35 @@ def test_fixture_media_url_stays_inside_short_delivery_deadline(monkeypatch):
         )
 
 
+def test_managed_media_gc_refuses_byte_identical_neighbor_versions():
+    row, client = record(), Client()
+    root = "_yoao_managed/export/"
+    row.storage_ref.update(
+        schema=2,
+        location_id=str(uuid.UUID(int=998)),
+        binding_generation=2,
+        key_prefix=root + row.storage_ref["key_prefix"],
+    )
+    row.inventory["objects"] = {
+        root + key: value for key, value in row.inventory["objects"].items()
+    }
+    key = next(iter(row.inventory["objects"]))
+    for _ in range(2):
+        client.add(key)
+    with pytest.raises(physical.ExportMediaStorageError) as error:
+        physical.delete_inventory(client, row)
+    assert error.value.code == "export_media_storage_integrity_mismatch"
+    assert [item["VersionId"] for item in client.rows[key]] == ["1", "2"]
+    assert physical.delete_inventory(client, row, member_versions={key: "1"}) == 1
+    assert [item["VersionId"] for item in client.rows[key]] == ["2"]
+    assert physical.delete_inventory(client, row, member_versions={key: "1"}) == 0
+    client.rows[key][0]["VersionId"] = "null"
+    client.get_bucket_versioning = lambda **_: {"Status": "Suspended"}
+    with pytest.raises(physical.ExportMediaStorageError) as error:
+        physical.verify_object(client, row, RELATIVE)
+    assert error.value.code == "export_media_storage_integrity_mismatch"
+
+
 @pytest.mark.parametrize("versioned", [True, False])
 def test_gc_removes_only_saved_known_subset_and_all_versions_even_after_expiry(
     versioned,

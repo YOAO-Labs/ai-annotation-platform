@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -68,7 +69,7 @@ EXPORT_MEDIA_STORAGE_REF_CHECK = """
        AND storage_ref->>'config_revision' = '1' AND (storage_ref->>'key_prefix') = 'lidar-export-media/objects/' || id::text || '/')
       OR (storage_ref->>'location_id' <> '4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7'
        AND right((storage_ref->>'key_prefix'), length('lidar-export-media/objects/' || id::text || '/')) = 'lidar-export-media/objects/' || id::text || '/'
-       AND left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/')) ~ '^([^/]+/)*_aap_managed/export/$'
+       AND left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/')) ~ '^([^/]+/)*_(aap|yoao)_managed/export/$'
        AND octet_length(left((storage_ref->>'key_prefix'), length((storage_ref->>'key_prefix')) - length('lidar-export-media/objects/' || id::text || '/'))) <= 904
        AND (storage_ref->>'key_prefix') !~ '[[:cntrl:]]'
        AND position(chr(92) in (storage_ref->>'key_prefix')) = 0
@@ -205,3 +206,20 @@ class ExportMediaBundle(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExportMediaMemberVersion(Base):
+    """Immutable version returned by a verified external member PUT."""
+
+    __tablename__ = "export_media_member_versions"
+    bundle_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("export_media_bundles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    member_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    version_id: Mapped[str] = mapped_column(
+        String(1024),
+        CheckConstraint("version_id <> '' AND version_id <> 'null'"),
+        nullable=False,
+    )

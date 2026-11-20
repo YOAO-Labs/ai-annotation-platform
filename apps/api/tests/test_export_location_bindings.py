@@ -39,6 +39,7 @@ from tests.test_export_storage import reference, record, migration_route, RAW, K
 LOCATION = uuid.UUID(int=551)
 ENDPOINT = "https://saved-export.example.test"
 ROOT = "team/图片/[a](b)/_aap_managed/export/"
+NEW_ROOT = "team/图片/[a](b)/_yoao_managed/export/"
 
 
 def external_reference(**changes):
@@ -87,6 +88,8 @@ def test_two_owner_refs_accept_literal_unicode_prefix_and_copy_facts():
         ("object_key", "/_aap_managed/export/" + KEY),
         ("object_key", "team//_aap_managed/export/" + KEY),
         ("object_key", "team/_aap_managed/avatars/" + KEY),
+        ("object_key", "__aap_reference__/" + NEW_ROOT + KEY),
+        ("object_key", "team/_yoao_managed/avatars/" + KEY),
         (
             "object_key",
             ROOT + "image/" + str(uuid.uuid4()) + "/" + KEY.partition("/")[2],
@@ -109,6 +112,13 @@ def test_maximum_root_leaves_exact_space_for_zip():
     )
     with pytest.raises(storage.ExportStorageError):
         targets.managed_prefix(base + "x")
+    # The old spelling was one byte shorter. Its largest saved key remains readable.
+    old_root = base + "x/_aap_managed/export/"
+    assert len((old_root + KEY).encode()) == 1024
+    assert (
+        storage.resolve_ref(external_reference(object_key=old_root + KEY)).object_key
+        == old_root + KEY
+    )
 
 
 @pytest.mark.parametrize("kind", ["zip", "media"])
@@ -195,6 +205,7 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
     now = datetime.now(timezone.utc)
     row = record(
         storage_ref=external_reference(),
+        upload_proof={"version_id": "original-version", "etag": '"original"'},
         created_at=now - timedelta(hours=1),
         expires_at=now + timedelta(hours=1),
     )
@@ -203,6 +214,7 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
         assert (
             url.startswith(ENDPOINT + "/exports-original/")
             and "storage-proxy" not in url
+            and "versionId=original-version" in url
         )
         identifier, relative = uuid.uuid4(), str(uuid.uuid4()) + ".bin"
         ref = external_media_ref(identifier)
@@ -221,10 +233,13 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
                 },
             },
         )
-        media_url = media.signed_url(client, item, relative, now=now)
+        media_url = media.signed_url(
+            client, item, relative, now=now, version="media-original"
+        )
         assert (
             media_url.startswith(ENDPOINT + "/exports-original/")
             and "storage-proxy" not in media_url
+            and "versionId=media-original" in media_url
         )
         assert "X-Amz-Expires=3600" in url and "X-Amz-Expires=3600" in media_url
     finally:
@@ -236,7 +251,7 @@ def test_export_probe_checks_cleanup_listing_and_leaves_no_objects(missing_permi
     objects = Objects("version")
 
     def listing(**kwargs):
-        assert kwargs["MaxKeys"] == 1 and kwargs["Prefix"].startswith(ROOT)
+        assert kwargs["MaxKeys"] == 1 and kwargs["Prefix"].startswith(NEW_ROOT)
         if missing_permission == "list":
             raise PermissionError("denied")
         return {"ResponseMetadata": {"HTTPStatusCode": 200}}
@@ -253,7 +268,7 @@ def test_export_probe_checks_cleanup_listing_and_leaves_no_objects(missing_permi
         1,
         ENDPOINT,
         "exports-original",
-        ROOT,
+        NEW_ROOT,
         purpose="export",
         _access=objects,
     )
@@ -311,7 +326,7 @@ async def test_media_and_paired_zip_retain_saved_target_across_later_switch(
         logical_sources=logical,
     )
     assert before.storage_ref["location_id"] == str(location.id)
-    assert all(key.startswith(ROOT) for key in before.inventory["objects"])
+    assert all(key.startswith(NEW_ROOT) for key in before.inventory["objects"])
     await db.commit()
     claimed = await bundles.claim(db, before.id)
     binding = await db.get(StorageBinding, "export")
@@ -334,7 +349,7 @@ async def test_media_and_paired_zip_retain_saved_target_across_later_switch(
         media_bundle_id=before.id,
     )
     assert paired.storage_ref["location_id"] == str(location.id)
-    assert paired.storage_ref["object_key"].startswith(ROOT + "image/")
+    assert paired.storage_ref["object_key"].startswith(NEW_ROOT + "image/")
     assert (
         paired.expires_at == before.expires_at
         and paired.created_at == before.created_at
@@ -400,13 +415,14 @@ async def test_media_inventory_prefix_is_literal_even_when_it_contains_regex(
         for column in ExportMediaBundle.__table__.columns
     }
     values.update(id=uuid.uuid4(), zip_output_id=uuid.uuid4())
-    correct = ROOT + media.prefix_for(values["id"])
+    correct = NEW_ROOT + media.prefix_for(values["id"])
     values["storage_ref"] = {**values["storage_ref"], "key_prefix": correct}
     values["inventory"] = {
         "schema": 1,
         "objects": {
             key.replace(
-                ROOT + media.prefix_for(original.id), correct.replace("[a](b)", "ab")
+                NEW_ROOT + media.prefix_for(original.id),
+                correct.replace("[a](b)", "ab"),
             ): receipt
             for key, receipt in values["inventory"]["objects"].items()
         },

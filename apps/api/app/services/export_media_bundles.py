@@ -19,6 +19,7 @@ from sqlalchemy.exc import DBAPIError
 
 from types import SimpleNamespace
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
+from app.db.models.export_media_bundle import ExportMediaMemberVersion
 from app.services import export_media_storage as physical
 from app.services import export_storage
 from app.services.content_snapshot import ContentError
@@ -919,6 +920,17 @@ async def check_claim(db, receipt, *, lock=False):
     current = _fence(dict(row))
     _check(current, receipt)
     return current
+
+
+async def member_versions(db, bundle_id, owner):
+    if not owner.external:
+        return {}
+    rows = await db.execute(
+        select(
+            ExportMediaMemberVersion.member_id, ExportMediaMemberVersion.version_id
+        ).where(ExportMediaMemberVersion.bundle_id == bundle_id)
+    )
+    return {owner.key(f"{member_id}.bin"): version for member_id, version in rows}
 
 
 async def publish(db, receipt):

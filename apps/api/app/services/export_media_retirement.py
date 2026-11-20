@@ -18,6 +18,7 @@ from sqlalchemy.orm import aliased, load_only
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.storage_maintenance import StorageOperation
+from app.services import export_media_bundles as bundles
 from app.services import export_media_removal_accounting as removal
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
@@ -250,7 +251,15 @@ async def lock_owner(db, identifier, *, inventory=False):
     return await db.scalar(
         select(Bundle)
         .options(load_only(*(getattr(Bundle, name) for name in fields)))
-        .where(Bundle.id == identifier)
+        .where(
+            Bundle.id == identifier,
+            # The same database clock enforces the final state transition. Do
+            # not let a fast worker clock remove bytes before that transition.
+            or_(
+                Bundle.published_at.is_(None),
+                Bundle.expires_at <= func.clock_timestamp(),
+            ),
+        )
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
@@ -361,6 +370,9 @@ async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
         if zip_output is None:
             target = await transfer._async(transfer._io_target(db, receipt))
             accounting = removal.recorder(db, receipt)
+            versions = await bundles.member_versions(
+                db, receipt.id, physical.resolve(receipt)
+            )
 
             def remove():
                 with physical.open_storage(
@@ -369,7 +381,10 @@ async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
                     **({"target": target} if target is not None else {}),
                 ) as client:
                     return physical.delete_inventory(
-                        client, receipt, accounting=accounting
+                        client,
+                        receipt,
+                        accounting=accounting,
+                        **({"member_versions": versions} if versions else {}),
                     )
 
             await transfer.physical_work(remove)

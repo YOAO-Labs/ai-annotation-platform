@@ -138,6 +138,10 @@ class Owner:
     def ref(self):
         return deepcopy(self._ref)
 
+    @property
+    def external(self):
+        return self._ref["location_id"] != str(LEGACY_LOCATION_ID)
+
     def key(self, relative):
         if not isinstance(relative, str) or _RELATIVE.fullmatch(relative) is None:
             _reject("invalid_key")
@@ -197,16 +201,9 @@ def resolve_ref(ref, *, expected_prefix=None):
             if ref["config_revision"] != 1 or prefix != logical:
                 _reject()
         else:
-            from app.services.export_storage_target import (
-                MANAGED_NAMESPACE,
-                managed_prefix,
-            )
+            from app.services.managed_s3_target import saved_export_base
 
-            root = prefix[: -len(logical)]
-            if (
-                not root.endswith(MANAGED_NAMESPACE)
-                or managed_prefix(root[: -len(MANAGED_NAMESPACE)]) != root
-            ):
+            if saved_export_base(prefix[: -len(logical)]) is None:
                 _reject("invalid_key")
     endpoint = _endpoint(ref["endpoint_url"])
     if (
@@ -226,11 +223,12 @@ async def io_target(db, record):
     location = await db.get(
         StorageLocation, uuid.UUID(owner.ref["location_id"]), populate_existing=True
     )
-    target = await target_for(db, location)
+    logical = prefix_for(_field(record, "id"))
+    target = await target_for(db, location, saved_root=owner.prefix[: -len(logical)])
     if (
         target.endpoint_url != owner.ref["endpoint_url"]
         or target.bucket != owner.bucket
-        or target.key_prefix + prefix_for(_field(record, "id")) != owner.prefix
+        or target.key_prefix + logical != owner.prefix
     ):
         _reject()
     return target
@@ -516,13 +514,31 @@ def _version(response):
 
 
 def _read(
-    client, owner, key, expected, deadline, *, written=None, accounting_attempt=None
+    client,
+    owner,
+    key,
+    expected,
+    deadline,
+    *,
+    written=None,
+    pinned_version=None,
+    routed=False,
+    accounting_attempt=None,
 ):
     _budget(deadline)
     params = {"Bucket": owner.bucket, "Key": key}
+    if pinned_version is not None:
+        params["VersionId"] = pinned_version
     head = client.head_object(**params)
     _http_ok(head)
     etag, version = head.get("ETag"), _version(head)
+    if pinned_version is not None and version != pinned_version:
+        _reject("integrity_mismatch")
+    if owner.external and not routed and written is None and pinned_version is None:
+        if version is not None:
+            _reject("integrity_mismatch")
+        # Suspended buckets can serve a current null version over older versions.
+        require_version(client, owner, None)
     if (
         not _plain(etag, 1024)
         or type(head.get("ContentLength")) is not int
@@ -536,7 +552,7 @@ def _read(
     condition = {"IfMatch": etag}
     if version is not None:
         condition["VersionId"] = version
-    response = client.get_object(**params, **condition)
+    response = client.get_object(**(params | condition))
     body = response.get("Body") if isinstance(response, dict) else None
     if body is None:
         raise mark_unsettled(ExportMediaStorageError("unavailable"))
@@ -579,10 +595,10 @@ def _read(
     return dict(expected)
 
 
-def verify_object(client, record, relative):
+def verify_object(client, record, relative, *, version=None):
     owner = resolve(record)
     _client(client, owner)
-    return _verify_object(client, record, owner, relative)
+    return _verify_object(client, record, owner, relative, pinned_version=version)
 
 
 def _read_owner(client, record, relative):
@@ -604,15 +620,17 @@ def _read_owner(client, record, relative):
 def verify_read(client, record, relative):
     """Hash a saved member through its admitted, exact migration read route."""
     return _verify_object(
-        client, record, _read_owner(client, record, relative), relative
+        client, record, _read_owner(client, record, relative), relative, routed=True
     )
 
 
-def _verify_object(client, record, owner, relative):
+def _verify_object(client, record, owner, relative, **identity):
     key, expected = _expected(record, owner, relative)
     _live(record)
     try:
-        result = _read(client, owner, key, expected, time.monotonic() + VERIFY_SECONDS)
+        result = _read(
+            client, owner, key, expected, time.monotonic() + VERIFY_SECONDS, **identity
+        )
         _live(record)
         return result
     except Exception as exc:
@@ -647,7 +665,9 @@ def _borrowed_fd(descriptor, expected):
             raise mark_unsettled(exc)
 
 
-def write_object(client, record, relative, source_fd, *, accounting=None):
+def write_object(
+    client, record, relative, source_fd, *, accounting=None, on_version=None
+):
     """Borrow an int FD serially, restore its cursor, and close only our duplicate."""
     owner = resolve(record)
     _client(client, owner)
@@ -696,9 +716,12 @@ def write_object(client, record, relative, source_fd, *, accounting=None):
                 expected,
                 deadline,
                 written=written,
+                pinned_version=_version(written),
                 accounting_attempt=attempt,
             )
         _live(record)
+        if on_version is not None:
+            on_version(_version(written))
         return result
     except Exception as exc:
         raise _translate(exc) from None
@@ -778,10 +801,21 @@ def verify_inventory(client, record):
         raise _translate(exc) from None
 
 
-def signed_url(client, record, relative, *, now=None):
+def require_version(client, owner, version):
+    if owner.external and version is None:
+        try:
+            status = client.get_bucket_versioning(Bucket=owner.bucket).get("Status")
+        except Exception as exc:
+            raise _translate(exc) from None
+        if status is not None:
+            _reject("integrity_mismatch")
+
+
+def signed_url(client, record, relative, *, now=None, version=None):
     owner = resolve(record)
     _client(client, owner)
-    return _signed_url(client, record, owner, relative, now=now)
+    require_version(client, owner, version)
+    return _signed_url(client, record, owner, relative, now=now, version=version)
 
 
 def sign_read(client, record, relative, *, now=None):
@@ -790,7 +824,9 @@ def sign_read(client, record, relative, *, now=None):
     return _signed_url(client, record, owner, relative, now=now, migrated=True)
 
 
-def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
+def _signed_url(
+    client, record, owner, relative, *, now=None, migrated=False, version=None
+):
     key, _expected_receipt = _expected(record, owner, relative)
     current = _instant(now or datetime.now(timezone.utc))
     seconds = int((_instant(_field(record, "expires_at")) - current).total_seconds())
@@ -805,7 +841,11 @@ def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
         url = storage_presigning.generate_url(
             client,
             "get_object",
-            params={"Bucket": owner.bucket, "Key": key},
+            params={
+                "Bucket": owner.bucket,
+                "Key": key,
+                **({"VersionId": version} if version else {}),
+            },
             expires_in=min(RETENTION_SECONDS, seconds),
             audience="browser"
             if not migrated and owner.ref["location_id"] == str(LEGACY_LOCATION_ID)
@@ -873,7 +913,7 @@ def _versions(client, owner, expected, deadline, *, maximum):
         markers = next_markers
 
 
-def delete_inventory(client, record, *, accounting=None):
+def delete_inventory(client, record, *, accounting=None, member_versions=None):
     """Retired-owner only: permit missing known entries, never delete unknown keys."""
     owner = resolve(record)
     _client(client, owner)
@@ -881,11 +921,37 @@ def delete_inventory(client, record, *, accounting=None):
     deadline = time.monotonic() + VERIFY_SECONDS
     try:
         limits = _limits(record)
-        visible = _objects(client, owner, expected, deadline, limits=limits)
-        versions = _versions(client, owner, expected, deadline, maximum=limits[2])
-        version_keys = {row["Key"] for row in versions}
-        if not set(visible) <= version_keys:
-            _reject("integrity_mismatch")
+
+        def owned_versions():
+            visible = _objects(client, owner, expected, deadline, limits=limits)
+            versions = _versions(client, owner, expected, deadline, maximum=limits[2])
+            if not set(visible) <= {row["Key"] for row in versions}:
+                _reject("integrity_mismatch")
+            if not owner.external:
+                return versions
+            selected = []
+            versioned = None
+            for row in versions:
+                birth = (member_versions or {}).get(row["Key"])
+                if birth is not None:
+                    if birth == row["VersionId"]:
+                        selected.append(row)
+                elif row["VersionId"] != "null":
+                    _reject("integrity_mismatch")
+                else:
+                    if versioned is None:
+                        versioned = (
+                            client.get_bucket_versioning(Bucket=owner.bucket).get(
+                                "Status"
+                            )
+                            is not None
+                        )
+                    if versioned:
+                        _reject("integrity_mismatch")
+                    selected.append(row)
+            return selected
+
+        versions = owned_versions()
         for row in versions:
             _budget(deadline)
             if accounting is None:
@@ -900,9 +966,7 @@ def delete_inventory(client, record, *, accounting=None):
             _http_ok(response, statuses=(200, 204))
             if accounting is not None:
                 observation.complete(response)
-        if _objects(client, owner, expected, deadline, limits=limits) or _versions(
-            client, owner, expected, deadline, maximum=limits[2]
-        ):
+        if owned_versions():
             _reject("integrity_mismatch")
         return len(versions)
     except Exception as exc:

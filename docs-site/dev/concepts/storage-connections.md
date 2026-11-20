@@ -197,7 +197,7 @@ API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校
 | `avatars`             | `MINIO_AVATARS_BUCKET`       | `reviewed_avatar_switch`         | `AvatarUpload` 保存独立 `storage_ref`（`_aap_managed/avatars/`）与一次性 `VersionId` 回执                       |
 | `bug_reports`         | `MINIO_BUG_REPORTS_BUCKET`   | `reviewed_bug_attachment_switch` | `BugAttachmentUpload` 保存独立 `storage_ref`（`_aap_managed/bug-reports/`）与 180 天单上传期限                  |
 | `audit_archive`       | `MINIO_AUDIT_ARCHIVE_BUCKET` | `reviewed_audit_archive_switch`  | `AuditArchiveOutput` 在候选提交前分配固定目标（`_aap_managed/audit-archive/`）                                  |
-| `export`              | `MINIO_EXPORT_BUCKET`        | `reviewed_export_switch`         | `ExportOutput` 与 `ExportMediaBundle` 共享保存目标（`_aap_managed/export/`）与首次 7 天期限                     |
+| `export`              | `MINIO_EXPORT_BUCKET`        | `reviewed_export_switch`         | `ExportOutput` 与 `ExportMediaBundle` 共享保存目标（`_yoao_managed/export/`）与首次 7 天期限                    |
 | `import`              | `MINIO_IMPORT_BUCKET`        | `reviewed_import_switch`         | `PredictionInputLease`、`ManagedOriginalCreation.staging_ref`、`MaskFormatUpload` 独立保存暂存位置              |
 | `datasets`            | `MINIO_DATASETS_BUCKET`      | `reviewed_dataset_switch`        | `ManagedOriginalCreation` 唯一写入，`DatasetAssetLocation` / `DatasetAuxiliaryOriginal` 保存当前副本引用        |
 | `media_cache`         | `MINIO_MEDIA_CACHE_BUCKET`   | `reviewed_media_cache_switch`    | `OriginalCacheEntry`、`ThumbnailOutput`、`ImagePyramidOutput`、`VideoDerivativeOutput` 保存引用并走同源能力 URL |

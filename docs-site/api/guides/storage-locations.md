@@ -80,7 +80,7 @@ last_reviewed: 2026-10-26
 | `avatars`         | `reviewed_avatar_switch`         | `_aap_managed/avatars/`       | 条件写入、完整读回、准确删除（`unlocated_users=0`）     | [头像用途切换](#头像用途切换)             |
 | `bug-reports`     | `reviewed_bug_attachment_switch` | `_aap_managed/bug-reports/`   | 条件写入、完整读回、准确删除                            | [报告附件用途切换](#报告附件用途切换)     |
 | `audit-archive`   | `reviewed_audit_archive_switch`  | `_aap_managed/audit-archive/` | 条件写入、完整读回、准确删除                            | [审计归档用途切换](#审计归档用途切换)     |
-| `export`          | `reviewed_export_switch`         | `_aap_managed/export/`        | 条件写入、完整读回、准确删除、对象与版本列举            | [导出用途切换](#导出用途切换)             |
+| `export`          | `reviewed_export_switch`         | `_yoao_managed/export/`       | 条件写入、完整读回、准确删除、对象与版本列举            | [导出用途切换](#导出用途切换)             |
 | `datasets`        | `reviewed_dataset_switch`        | `_aap_managed/datasets/`      | 空 PUT、非空条件分段上传（MPU）、完整读回与准确收尾     | [数据集原件用途切换](#数据集原件用途切换) |
 | `media-cache`     | `reviewed_media_cache_switch`    | `_aap_managed/media-cache/`   | 条件写入、完整读回、准确删除、前缀列举                  | [媒体缓存用途切换](#媒体缓存用途切换)     |
 | `annotations`     | `reviewed_annotations_switch`    | `_aap_managed/annotations/`   | 条件写入、空 PUT、非空条件 MPU、完整读回与准确删除      | [标注文件用途切换](#标注文件用途切换)     |
@@ -533,7 +533,7 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 
 `history` 分别返回 ZIP 的 `zip_pending / zip_ready / zip_retired`，媒体包的 `media_building / media_ready / media_retiring / media_deleted`。真实探针返回 `conditional_write / full_read / delete / list / list_versions`。失败或未知收尾不切换；竞争变化返回冲突并要求重新预览。用途映射使用 `change_policy=reviewed_export_switch`。
 
-ZIP 和独立媒体包共同使用 export 绑定。仅新分配采用新目标，旧 ready、在途及缓存仍按保存位置读取；配套 ZIP 从媒体包继承位置。目标为默认托管位置或已登记的全局 S3，外部对象位于连接基前缀下 `_aap_managed/export/`。下载端点、固定七天期限及密钥轮换语义见[用户指南](/user-guide/datasets/storage-connections#切换导出的新写入位置)；未覆盖的新定位由[恢复工具](/ops/deploy/storage-recovery#导出用途切换的部署顺序)在修改映射前拒绝。
+ZIP 和独立媒体包共同使用 export 绑定。仅新分配采用新目标，旧 ready、在途及缓存仍按保存位置读取；配套 ZIP 从媒体包继承位置。目标为默认托管位置或已登记的全局 S3，外部对象位于连接基前缀下 `_yoao_managed/export/`。下载端点、固定七天期限及密钥轮换语义见[用户指南](/user-guide/datasets/storage-connections#切换导出的新写入位置)；未覆盖的新定位由[恢复工具](/ops/deploy/storage-recovery#导出用途切换的部署顺序)在修改映射前拒绝。
 
 ## 数据集原件用途切换
 

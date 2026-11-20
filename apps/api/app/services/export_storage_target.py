@@ -2,16 +2,20 @@
 
 from app.services import managed_s3_target as shared
 
-MANAGED_NAMESPACE = "_aap_managed/export/"
+MANAGED_NAMESPACE = shared.EXPORT_NAMESPACE
 
 
 def managed_prefix(base):
     return shared.managed_prefix(base, purpose="export")
 
 
-async def target_for(db, location, *, require_enabled=True):
+async def target_for(db, location, *, require_enabled=True, saved_root=None):
     return await shared.target_for(
-        db, location, purpose="export", require_enabled=require_enabled
+        db,
+        location,
+        purpose="export",
+        require_enabled=require_enabled,
+        saved_export_root=saved_root,
     )
 
 

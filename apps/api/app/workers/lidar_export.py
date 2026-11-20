@@ -173,8 +173,10 @@ async def _io(
             from app.services import export_zip_accounting
 
             failure = await export_zip_accounting.finish(accounting, failure)
-        if entered and permit._settled and (
-            failure is None or not storage_access.failure_unsettled(failure)
+        if (
+            entered
+            and permit._settled
+            and (failure is None or not storage_access.failure_unsettled(failure))
         ):
             await export_execution_context.settle_io(failure)
         elif entered and failure is None:
@@ -404,6 +406,7 @@ async def _lookup(db, receipt, key, *, guard):
         expires_at=previous.expires_at,
     )
     owner = media_storage.resolve(record)
+    member_versions = await bundles.member_versions(db, record.id, owner)
     await db.commit()
 
     async def source_guard(owned, references=()):
@@ -483,7 +486,12 @@ async def _lookup(db, receipt, key, *, guard):
                             {"target": media_target} if media_target is not None else {}
                         ),
                     ) as client:
-                        return media_storage.verify_object(client, record, relative)
+                        return media_storage.verify_object(
+                            client,
+                            record,
+                            relative,
+                            version=member_versions.get(full_key),
+                        )
 
                 await _io(db, previous, verify, guard=exact_guard, published=True)
 
