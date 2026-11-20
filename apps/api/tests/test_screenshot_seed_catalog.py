@@ -13,18 +13,19 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.fixture_run import FixtureRunResource
+from app.db.models.fixture_run import FixtureRun, FixtureRunResource
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services import screenshot_seed_catalog as catalog
 from app.services.annotation_evidence import assert_review_evidence_current
+from app.services.fixture_run_ownership import seal
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
     SEED_REVISION,
@@ -45,6 +46,53 @@ requires_screenshot_runtime = pytest.mark.skipif(
     os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
     reason="requires the owned module-data verifier and screenshot runtime",
 )
+
+
+async def test_screenshot_reader_reuses_origin_only_after_retirement(db_session):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    origin = f"http://proxy-{first.hex}.invalid:9000"
+    db_session.add_all(
+        [FixtureRun(id=run, family="screenshot") for run in (first, second)]
+    )
+    await db_session.flush()
+    # The outer test transaction rolls back these passwordless LOGINs and both runs.
+    for run in (first, second):
+        await db_session.execute(
+            text(f"CREATE ROLE aap_fixture_media_read_{run.hex} LOGIN NOINHERIT")
+        )
+
+    async def register(run):
+        return await db_session.scalar(
+            text(
+                "SELECT yoao_assets_v1.register_fixture_native_reader("
+                ":run, CAST(:role AS name), :origin)"
+            ),
+            {"run": run, "role": f"aap_fixture_media_read_{run.hex}", "origin": origin},
+        )
+
+    async def identity(run):
+        return await db_session.scalar(
+            text("SELECT yoao_assets_v1.fixture_native_reader_identity(:run)"),
+            {"run": run},
+        )
+
+    assert await register(first) is True
+    original = await identity(first)
+    assert await register(second) is False
+    assert await identity(second) is None
+    await seal(db_session, first, family="screenshot")
+    assert await register(second) is False  # Sealing is not reader retirement.
+    retired = await db_session.scalar(
+        text("SELECT yoao_assets_v1.retire_fixture_native_reader(:run)"), {"run": first}
+    )
+    assert retired is True
+
+    assert await register(second) is True
+    assert await identity(first) == {**original, "state": "retired"}
+    replacement = await identity(second)
+    assert replacement["proxy_origin"] == original["proxy_origin"] == origin
+    assert replacement["name"] == f"aap_fixture_media_read_{second.hex}"
+    assert replacement["state"] == "active" and replacement["oid"] != original["oid"]
 
 
 @pytest.fixture
