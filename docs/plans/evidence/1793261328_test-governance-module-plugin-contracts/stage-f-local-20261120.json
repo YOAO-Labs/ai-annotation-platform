@@ -1,0 +1,480 @@
+{
+  "run": "stage-f-local-20261120",
+  "branch": "feat/test-optimization",
+  "base": "d2a6bda3101d03d228580e8d6fd307df8dbad6d9",
+  "worktree_commit": "876b961cd2c09d626c82df6fd80ca6596637af83",
+  "export_commit": "271c6428d5110966f6d1283f214e3908c7d8e5f3",
+  "scope": "J1, external export allocations (N6-S), disposable worktree adoption (N6-E), J2. Not the T1/T2 default run.",
+  "private_files_relative_to": ".artifacts/stage-f-local-20261120/",
+  "installed_distributions": {
+    "yoao_sdk-0.20.0-py3-none-any.whl": "43d5df8657fe62c43294ec01c9c355e09eb4abe9e91f8d7b1f7776ada6b400d2",
+    "yoao_sdk-0.20.0.tar.gz": "583e2fd4d538c9c01bcd9e336447903fccbb2c49dd4596fc58caa75a1c13f3ea"
+  },
+  "historical_format_readers": {
+    "archives": [
+      {
+        "path": ".worktree/test-language-c-8afc874d/image-export.zip",
+        "member": "aap_json/annotations.json",
+        "archive_sha256": "6bc6bb18fda48619a216576dd1792c8ac4a3bdc8cb94860e13e9f0a0a213b6a0",
+        "member_sha256": "bd3fbdcc0443db8a982cd9626a93cba336da2c37afb77d4cde0bdd31bfb9b19d",
+        "media_type": "image",
+        "current_direct_and_catalog": true
+      },
+      {
+        "path": ".worktree/test-language-c-8afc874d/video-export.zip",
+        "member": "aap_json/annotations.json",
+        "archive_sha256": "ec0e36c7104529d5e776ea3bbaa96844e1a3feaab6ad682ebe2cab953168d14c",
+        "member_sha256": "1d462f96b3b53c50a22b467671b4c2773af0046449e3bf13a566327d7e122f06",
+        "media_type": "video",
+        "current_direct_and_catalog": true
+      },
+      {
+        "path": ".worktree/test-language-c-8afc874d/video-scoped-export.zip",
+        "member": "aap_json/annotations.json",
+        "archive_sha256": "38015fb8a2c74a5fdcf4d51dda41934e67f24ed2a3248a9e64211b7d0881df14",
+        "member_sha256": "adce5439d530472c7abafe14ae620ab0d5db3e3591551583f50794277b675111",
+        "media_type": "video",
+        "current_direct_and_catalog": true
+      },
+      {
+        "path": ".worktree/test-language-e-17482e/live-lidar-native-wheel.zip",
+        "member": "annotations.json",
+        "archive_sha256": "288630fe52a1ffe1fd4beeb2af47e340c45cced5a98e0340613ff6f8dadee197",
+        "member_sha256": "64b25781992139a8dbacb8c30b11da3ba6f79cdf89ff7f9ba5cee0b2686a9e10",
+        "media_type": "lidar",
+        "current_direct_and_catalog": true
+      }
+    ],
+    "oracles_sha256": "0193c656d69445d224c7b3ce32d305a0e362aaf3f26cd77345c3bf685b79778a",
+    "empty_task_negatives_each_reader": 3
+  },
+  "ordinary_exports": {
+    "attempts": [
+      {
+        "receipt": "matrix-7-verdict.json",
+        "sha256": "0b21358ac6b92d2314912b1a4db603364297ab13b42b20c8cdf884a445c778ef",
+        "passed": ["image_batch", "video_project", "video_scoped"],
+        "not_passed": {
+          "image_project": "JobFailedError",
+          "image_selected": "NotFoundError",
+          "lidar_iso": "IndexError",
+          "lidar_source": "IndexError"
+        }
+      },
+      {
+        "receipt": "matrix-5-verdict.json",
+        "sha256": "4e229861baf507cfb4abd7b22c765f942dbfb1580a4e349d89a2ad61a3667c9d",
+        "passed": ["image_project", "video_scoped"],
+        "not_passed": {
+          "image_selected": "NotFoundError",
+          "lidar_iso": "IndexError",
+          "lidar_source": "IndexError"
+        }
+      },
+      {
+        "receipt": "matrix-3-verdict.json",
+        "sha256": "e9c005dbd6591575e75d77a71fa25c42b3ecc31afbf1c6b2ba5abf677b294758",
+        "passed": ["image_selected", "lidar_iso", "lidar_source"],
+        "not_passed": {}
+      },
+      {
+        "receipt": "matrix-before-clock-verdict.json",
+        "sha256": "06e4a6e0eb0710ef1aa2323dc65989b68eb52b875a7e1962ebd45c9b35b4356f",
+        "passed": ["image_selected"],
+        "not_passed": {}
+      },
+      {
+        "receipt": "matrix-expired-cache-refusal.json",
+        "sha256": "dac2319fdf2cb2fe094b5457fb863dbfe8cd5f27dbdb86f42e9f8500bb2ee9b3",
+        "passed": [],
+        "not_passed": {
+          "image_selected": "JobFailedError"
+        }
+      },
+      {
+        "receipt": "matrix-1-verdict.json",
+        "sha256": "e7bff55550599ccac632e0886b58f5d42e031609c2b6a1b2950a4d96659f64bd",
+        "passed": ["image_selected"],
+        "not_passed": {}
+      }
+    ],
+    "latest_verified_per_selector": {
+      "image_batch": {
+        "job_id": "b8a9e6f5-0ab6-4c1a-8bbf-3c08c21ce0ab",
+        "tasks": 3,
+        "version": "c1722c75-4a15-4602-8a42-c3a4cce600a1",
+        "sha256": "77a3de7b2c990c102f15e14cde0a9678cbb899c73beb3b54681ba1da6e76874e"
+      },
+      "video_project": {
+        "job_id": "cb717aec-e960-437f-a2b5-486a51d17e1f",
+        "tasks": 1,
+        "version": "312e4433-4a61-4f6b-b3a3-1645cd853e82",
+        "sha256": "19b4c4457fd28741b978af6b2f60efe616f3cfd6f1ce591cff13a1d9340e2bf2"
+      },
+      "video_scoped": {
+        "job_id": "9297057a-1e3e-4c65-914d-6b032b5a87a5",
+        "tasks": 1,
+        "version": "8831cb15-51a1-4985-9bbe-91574524b081",
+        "sha256": "9ec4eaee6fcf195a0685e989ac7aedce2c6c67ffaaeeb64d362b54e2952ec145"
+      },
+      "image_project": {
+        "job_id": "4b77961f-cabc-4ca5-8977-73feb647dc0a",
+        "tasks": 6,
+        "version": "1c7ff41b-a700-45d0-85c8-3f34b42c6a90",
+        "sha256": "1e4c5fce28b4cd853f91c75cae1982d6921ad8e72dd7c993ddff7d10d50eaff2"
+      },
+      "image_selected": {
+        "job_id": "e3cf7f22-9bca-454a-9760-45723ab9139e",
+        "tasks": 2,
+        "version": "f3416e3f-45e8-4345-8715-b6292c911bd5",
+        "sha256": "58370db7e5c6c25e5ee32c382d2a07b8a53d1353b59ef74b7ec7641bbec3f86f"
+      },
+      "lidar_iso": {
+        "job_id": "879c2b9d-92b2-4375-9ad8-e42831c3a210",
+        "tasks": 2,
+        "version": "0ca8701c-03f2-49b3-9f89-8f35974239d8",
+        "sha256": "6b57aa6ddbc3da313f964707b2d8777ef0461e380ae19ffbd3447793b2aa62c7"
+      },
+      "lidar_source": {
+        "job_id": "6b57d326-9ad9-486e-a37e-4f05bfd013df",
+        "tasks": 2,
+        "version": "e4dd7220-842b-440f-b139-e9ed6c56eef2",
+        "sha256": "67ba6b6ec4a97d511a6c87891b9490dc798f4572debfabc11b97aa9014984da1"
+      }
+    },
+    "scope": "Selections at different points; not a single all-green invocation."
+  },
+  "annotation_imports": {
+    "image": {
+      "status": "passed",
+      "dry_run": 6,
+      "committed": 6,
+      "source_sha256": "ec0ae331a5f54afd32f4371ed5a077622f8dad1717bc130e27e529a8faea98b5",
+      "geometry_readback": true
+    },
+    "video": {
+      "status": "passed",
+      "dry_run": 1,
+      "committed": 1,
+      "source_sha256": "d2b90cf41b7e2887a28811fc188337565761f6d843369d4954a7ca07c34a6277",
+      "geometry_readback": true
+    },
+    "lidar": {
+      "status": "passed",
+      "dry_run": 4,
+      "committed": 4,
+      "source_sha256": "7f0091dfab71a0107e9f7a991db0f496f54d97198a1355770e3dcb2a130d5ae8",
+      "geometry_readback": true
+    }
+  },
+  "browser": {
+    "run": {
+      "status": "passed",
+      "request_id": "80fee9f1-c9e5-45ab-a5b8-09c82f964356",
+      "resource_id": "5e9febb5-dd48-43fe-8c8a-b50039673ccb",
+      "server_status": [202, 202],
+      "one_business_row": true,
+      "old_bytes_retained": true,
+      "explicit_replay": true,
+      "changed_body_conflict": null,
+      "page_errors": []
+    },
+    "study": {
+      "status": "passed",
+      "request_id": "45e697eb-dca5-4f3f-a601-2267e435e70c",
+      "resource_id": "48d6a872-1c30-5cd2-94c1-2b4ab8eeb1c6",
+      "server_status": [202, 202],
+      "one_business_row": true,
+      "old_bytes_retained": true,
+      "explicit_replay": true,
+      "changed_body_conflict": null,
+      "page_errors": []
+    },
+    "detect": {
+      "status": "passed",
+      "request_id": "feb83dff-7984-4a98-b7e3-a949a37d7286",
+      "resource_id": "a16e732b-aeb3-418b-a9ac-0128f444d556",
+      "server_status": [202, 202],
+      "one_business_row": true,
+      "old_bytes_retained": true,
+      "explicit_replay": true,
+      "changed_body_conflict": 409,
+      "page_errors": []
+    },
+    "segment": {
+      "status": "passed",
+      "request_id": "dba59738-fce5-46e0-b220-9353042248ae",
+      "resource_id": "2b199d50-0156-46e4-a3ac-8f8f1e54cc57",
+      "server_status": [202, 202],
+      "one_business_row": true,
+      "old_bytes_retained": true,
+      "explicit_replay": true,
+      "changed_body_conflict": 409,
+      "page_errors": []
+    },
+    "import": {
+      "status": "passed",
+      "legacy_chosen": true,
+      "current_round_trip": true,
+      "consumed_once": true
+    }
+  },
+  "executor_presence_only": {
+    "image_digest": "sha256:aba4f1bbfc25221f0d0f21b3dc38b76ab577bf21a79c5d29a583417009801fe9",
+    "weight_sha256": ["0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"],
+    "weight_bytes": 5613764,
+    "new_work_claims": false,
+    "final_state": "stopped",
+    "official_asset_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt",
+    "previous_preview_qualification": "portable-python-run-ledger.md#用官方-yolo11n-权重补验原六项"
+  },
+  "workspace_and_neighbor": {
+    "selectors": [
+      "tests/test_workspace_owner_transfer_roles.py",
+      "tests/test_workspace_owner_transfer_native.py",
+      "tests/test_workspace_owner_transfer_compatibility.py",
+      "tests/test_workspace_owner_transfer_restore.py",
+      "tests/test_workspace_owner_transfer_namespace_migration.py",
+      "tests/test_screenshot_seed_catalog.py::test_screenshot_retirement_preserves_another_owned_run"
+    ],
+    "runs": [
+      {
+        "report": "j1-joint.json",
+        "sha256": "331d212f6a569f7c5d835efc961ed0ba27a59e1105a75704b0ce28d05727323b",
+        "status": "passed",
+        "alembic_head": "bo0476",
+        "phase": "pytest",
+        "junit": {
+          "report": "j1-joint.junit.xml",
+          "sha256": "2a4566f30c82ab027b073ea5491219cc8573401401f96135d95437c117dfc9aa",
+          "tests": 17,
+          "passed": 17,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "resources_destroyed": true,
+        "postgres_removed": true,
+        "cleanup_errors": 0
+      },
+      {
+        "report": "j1-final.json",
+        "sha256": "210fa5cb5b9d8675418d1b299e40d2d013cbb7e68cb85ebe02646a5c8cf8fa45",
+        "status": "failed",
+        "alembic_head": "bo0477",
+        "phase": "create-scoped-storage-identity",
+        "junit": null,
+        "resources_destroyed": true,
+        "postgres_removed": true,
+        "cleanup_errors": 0,
+        "failure_boundary": "Pre-pytest: private MinIO endpoint was not identifiable as an owned service; no tests ran."
+      },
+      {
+        "report": "j1-closed.json",
+        "sha256": "5bac6688d372d60cc95f8e048d2e615bc43863b71ec651a844f15ef1b82d336c",
+        "status": "failed",
+        "alembic_head": "bo0477",
+        "phase": "pytest",
+        "junit": {
+          "report": "j1-closed.junit.xml",
+          "sha256": "c9bc23a49f93634c36627aaad4a4d805404566e954505d42e53787bab2152ba3",
+          "tests": 17,
+          "passed": 16,
+          "failures": 0,
+          "errors": 1,
+          "skipped": 0
+        },
+        "resources_destroyed": true,
+        "postgres_removed": true,
+        "cleanup_errors": 0,
+        "failure_boundary": "Screenshot fixture rejected missing absolute AAP_SCREENSHOT_SOURCE_CACHE. Sixteen Workspace cases passed; the neighbor case did not start."
+      },
+      {
+        "report": "j1-final-neighbor.json",
+        "sha256": "fb28142b791113bb6df0d082f67149793757f85c36e97b7342539d4691dada7b",
+        "status": "passed",
+        "alembic_head": "bo0477",
+        "phase": "pytest",
+        "junit": {
+          "report": "j1-final-neighbor.junit.xml",
+          "sha256": "9fb06dfd59bd9bc8107269dcb6fe9e76e584a00a0999bcf89b454c0f12ee64a4",
+          "tests": 1,
+          "passed": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "resources_destroyed": true,
+        "postgres_removed": true,
+        "cleanup_errors": 0,
+        "retirement_receipt_sha256": "cd5e5c19f9d3e5c73c383709ab20ea5ccdcc943405028c43fbb302e4d2118abd"
+      }
+    ]
+  },
+  "stateful_exports": {
+    "backup_sha256": {
+      "old-bo0475.dump": "6a3b97b68eebc393fcd97c0b50f7615c7a2bf8ca805e43d2279f21cea67168bf",
+      "post-write.dump": "f83b94de7a96411f0996897e4cf0e6069dcfd62c052316e453719b8ed07703e8",
+      "post-members.dump": "528acae9fc7293eea838e00b835780fefe22fffc8f62083a7c2da9694151bda3",
+      "final-clock.dump": "0ef729ef37ccda2bb10d1e1fff7fb8d1035d5bed80c863f99123f20b38328725"
+    },
+    "old_and_new_zip_restore": {
+      "head": "bo0476",
+      "historical_original_version": "6adbe003-ea3d-4608-a50b-11cb9f2cd76f",
+      "historical_zip_sha256": "31247a14ce71ac361e644badf234643bbe74c008108ebec924bcf568a15515d6",
+      "identical_neighbor_version": "8801f014-9cce-4aad-9062-d0eb9ff05c2c",
+      "new_original_version": "0a7ffa78-a04d-47a2-ae8b-3a778d2a53b6",
+      "ordinary_zip_version": "81fad618-3845-4147-a22d-f6fef50de23f",
+      "ordinary_zip_sha256": "446403bc0ab133c3a9c953994b9d3fd72fcedc103f4092a49817cf24ca745fa1",
+      "post_write_rollback_to_old_is_lossless": false,
+      "seven_day_before_deadline_refused": true,
+      "unproven_read_refused": true,
+      "unproven_sign_refused": true,
+      "unproven_delete_refused": true,
+      "active_read_refused": true,
+      "expired_original_retired": true,
+      "byte_identical_neighbor_preserved": true,
+      "new_preserved_after_old_gc": true,
+      "worker_preserved_after_old_gc": true,
+      "deadline_probe": "Application clock only; the separately restored bo0477 member scenario also advances the isolated PostgreSQL clock."
+    },
+    "final_restored_worker": {
+      "fast_application_clock_cannot_delete_before_database_deadline": true,
+      "job": "e3cf7f22-9bca-454a-9760-45723ab9139e",
+      "bundle": "e920e2c3-1bde-4937-a30d-ea50de20ef11",
+      "immutable_update_sqlstate": "23514",
+      "restored_version_ids": [
+        "71257fe8-418d-4339-970b-ffcb59d010eb",
+        "b99d6d97-82ed-4995-861b-97d77125b617"
+      ],
+      "exact_zip_version": "f3416e3f-45e8-4345-8715-b6292c911bd5",
+      "manifest_hashes": [
+        "96c3ccfffba02505c6c7868fddb3bcdf9db0cfc985466a0cf39a67d9bfe14032",
+        "6a6aafb0c5cbc9464fe88467ede0bb3f747f94f7f7f6115d56cdd1034850ec19"
+      ],
+      "identical_member_neighbor": "ce614e7b-df08-4f69-9673-67724e340706",
+      "identical_zip_neighbor": "2e4bc9f5-5a3d-4e72-9183-b41ba587e74b",
+      "held_operation_blocked_both": true,
+      "original_member_and_zip_absent": true,
+      "both_identical_neighbors_preserved": true,
+      "database_clock_offset_days": 8,
+      "expired_without_mutating_deadlines": true
+    },
+    "scoped_iam": {
+      "both_saved_roots_read": true,
+      "new_conditional_put_exact_delete": true,
+      "legacy_new_put_denied": true,
+      "foreign_new_put_denied": true,
+      "foreign_delete_denied": true,
+      "unscoped_list_denied": true,
+      "legacy_key_only_delete_denied": true,
+      "scoped_identity_retired": true
+    },
+    "downgrade_refusal_log_sha256": "aadfb79589f95cca5036896b34a32c8062f627564d85ee25ddf7d7b61c5f03b5",
+    "clock_failure_and_cached_refusal": {
+      "prior_error_log_sha256": "8887639b25ad2e65e17610a7e51d9e28ac9df647d55a0b21636ba0f202a719a9",
+      "refused_cache_job": "9494c1ec-2395-4935-a73c-43a78622576c",
+      "final_worker_job": "e3cf7f22-9bca-454a-9760-45723ab9139e",
+      "final_worker_zip_sha256": "58370db7e5c6c25e5ee32c382d2a07b8a53d1353b59ef74b7ec7641bbec3f86f"
+    }
+  },
+  "local_environment": {
+    "mode_marker": "YOAO_WORKTREE_MODE",
+    "prior_topology_tool_sha256": "fce4281de282bf8171cae1712cc8f11df1c0d62cdd35c0779525fa5d03bf8613",
+    "manifest_unchanged_on_refusal": {
+      "dev": true,
+      "test": true,
+      "e2e": true
+    },
+    "ambiguous_selectors_refused": 4,
+    "two_environment_live_logs_sha256": {
+      "worktree-live-isolation.log": "d615fe0825a60c68c8eacea5b47a36dce4c57995d5ca87734b665b622e81fc01",
+      "isolation-physical-final.log": "23f84af950cdcd8a5fefd141b2264274e43bb096744157da05d84b2f1f97f0de",
+      "isolation-rebuild-final.log": "ddec52d8e0f32ad4f2b00bc99d87890462e164ace3991d672e02059f72ddfeae"
+    },
+    "physical_probes": "Active user session vs autovacuum, independent database/Redis/objects, owner removal and rebuild. The two live contracts passed in separate runs.",
+    "mode_stop_exit_codes": {
+      "e2e": 0,
+      "test": 0,
+      "dev": 0
+    },
+    "mode_destroy_exit_codes": {
+      "e2e": 0,
+      "test": 0,
+      "dev": 0
+    },
+    "early_isolation_run_redis_removed": 2,
+    "private_main_db_store_and_clock_removed": 3,
+    "frozen_predecessor_inventory_receipt_sha256": "75356938518c7226e77409cb34c994e8cd0a14a2a44740b4b1a357f7a02a2e75",
+    "isolated_mode_regressions": {
+      "unit_tests": 211,
+      "log_sha256": "79653acf1f88378d87962d22cad5e165793153ded632036232b24d4ff3880f4f",
+      "note": "Separate from the real PostgreSQL/Redis/MinIO interleaving."
+    },
+    "completed_private_receipts_sha256": "2c70d8a0afffebc9cab819c30d47b65893ff776b1ce35aefb5b3faf5b975ce05",
+    "main_retirement_receipt_sha256": "ade3d1883f0cd68a61d4d0f03094701e918d54005e7ed653db597272600594cf"
+  },
+  "focused_reports": [
+    {
+      "report": "both-media-storage.xml",
+      "sha256": "cf99a8792d776d8df218d60fca94cbab5bdfa0e7288b261fc93faa8245f732da",
+      "tests": 347,
+      "passed": 275,
+      "failures": 1,
+      "errors": 71,
+      "skipped": 0
+    },
+    {
+      "report": "qualified-test-regressions.xml",
+      "sha256": "80e58796d29ce721966e5077132e35d64b4b54488c06c5fd2886829099dc94c0",
+      "tests": 72,
+      "passed": 69,
+      "failures": 3,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "report": "historical-schema-cases.xml",
+      "sha256": "6ac8467404daf257473a33bb4f782f8b2eae4252a3d6b70d6c6fb3929b71dde4",
+      "tests": 3,
+      "passed": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "report": "clock-and-member-contract.xml",
+      "sha256": "c08df3dddf9b81573aa6c41bca2715ddceb4a7e73b115e60643716a4d1717012",
+      "tests": 137,
+      "passed": 137,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "report": "suspended-version.xml",
+      "sha256": "ef02e75a6867d0309b4497f10a245fbbbdd5f4fe8b59bc84a806ab150ca9785b",
+      "tests": 1,
+      "passed": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "report": "browser-storage-cases.xml",
+      "sha256": "c0bfb9d86f785dc90cf96973ebad0f5ec325daf9cf70a0c13d8e79745e94ebc6",
+      "tests": 44,
+      "passed": 44,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "known_limits": [
+    "T1/T2, kernel peak, #151, #152 and provider/GPU drain not qualified by this run.",
+    "A simultaneous Jobs poll under the submitting API key exposed a NOWAIT contention; this run separates the reader credential without claiming to fix it.",
+    "External object versions must be preserved separately from database backups; the generic nine-bucket recovery tool does not restore arbitrary external locations.",
+    "No daily or production adoption, publishing, push, merge, or training run."
+  ],
+  "focused_result_accounting": "These are separate runs, not an aggregate pass count. First 347: 275 passed, 71 database setup errors, one old test double lacked upload_proof. Only affected cases rerun on the owned test database: 69/72 then 3/3 after bringing the old ephemeral SQL fixture up to its required shape."
+}
