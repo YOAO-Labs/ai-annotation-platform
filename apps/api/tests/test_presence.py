@@ -1,4 +1,4 @@
-"""v0.8.3 · 在线状态心跳机制：login / heartbeat / mark_inactive_offline 验证。"""
+"""在线状态心跳机制：login / heartbeat / mark_inactive_offline 验证。"""
 
 from __future__ import annotations
 

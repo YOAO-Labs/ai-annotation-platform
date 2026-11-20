@@ -1,4 +1,4 @@
-"""v0.10.29 Wave3-G · 视频章节 frame_step / source 元数据互转 + 网格对齐 helper 单测。
+"""视频章节 frame_step / source 元数据互转 + 网格对齐 helper 单测。
 
 frame_step / source 不新增数据库列, 而是约定存进 chapter_metadata (JSONB)。
 schema 层做强类型互转, 旧章节缺键时退化为 frame_step=None / source="manual"。

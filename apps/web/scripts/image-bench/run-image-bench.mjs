@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// v0.10.10 · I8.2 · image-bench orchestrator（镜像 scripts/video-bench/run-video-bench.mjs）。
+// image-bench orchestrator（镜像 scripts/video-bench/run-video-bench.mjs）。
 //
 // 当前作用：构建 size × density 矩阵，写 manifest.json 到 test-results/image-bench/{runId}/。
 // 真正的 Playwright trace 捕获待 _test_seed 加 ?image_size=&annotation_density= 参数 + 真实
@@ -96,7 +96,7 @@ async function main() {
       `- Base URL: \`${args.baseUrl}\``,
       `- Matrix: ${matrix.length} runs`,
       "",
-      "本目录由 `pnpm --filter web image:bench` 写入。当前 v0.10.10 首版仅落 fixture 矩阵与契约；",
+      "本目录由 `pnpm --filter web image:bench` 写入，记录 fixture 矩阵和基准配置。",
       "真实 trace 捕获待 _test_seed router 加 ?image_size= / ?annotation_density= 参数 + 测试图片资源落地",
       "（PIL 程序生成 2K/8K 渐变 + polygon-dense 标注 / 或 git-lfs 入仓）。",
       "",

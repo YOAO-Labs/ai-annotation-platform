@@ -1,5 +1,5 @@
 /**
- * v0.19.0 · ADR-0044 · MlBackendsSection 启用清单单测 —
+ * ADR-0044 · MlBackendsSection 启用清单单测 —
  * 已启用角标 / 勾选启用调 setEnablement / 空态 / AI 设置保存设主后端 (仅从已启用项选)。
  *
  * 项目层不再「注册 backend」(全局 backend 由超管在模型市场注册); 旧上限态断言已废弃。

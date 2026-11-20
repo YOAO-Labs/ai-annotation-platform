@@ -2,7 +2,6 @@
 title: 新项目端到端流程
 audience: [project_admin, annotator, reviewer]
 type: tutorial
-since: v0.9.0
 status: stable
 last_reviewed: 2026-07-12
 ---
@@ -56,7 +55,7 @@ last_reviewed: 2026-07-12
 
 ## Step 3：创建批次与分配任务
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workflows/batch-assign-dialog.png — 批次分配对话框（标注员/审核员选择） -->
+<!-- TODO IMAGE_CHECKLIST: images/workflows/batch-assign-dialog.png — 批次分配对话框（标注员/审核员选择） -->
 
 1. 项目设置 → **批次管理** → **创建批次**，把未归类任务按业务节奏切分；scene 模式项目按 scene 分包。若 Step 2 已创建批次，无需重复创建。
 2. 每个批次分别选择 1 名标注员和 1 名审核员；需要把多个批次分给多人时，使用「按项目分派批次」。

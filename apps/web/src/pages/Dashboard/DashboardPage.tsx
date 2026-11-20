@@ -39,7 +39,7 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { useDashboardQuerySync } from "./useDashboardQuerySync";
 
-// v0.10.28 · 列表图标改读媒体维度 data_type (image / video / lidar).
+// 列表图标改读媒体维度 data_type (image / video / lidar).
 const DATA_TYPE_ICONS: Record<string, IconName> = {
   image: "image",
   video: "video",
@@ -70,9 +70,9 @@ function ProjectRow({
 }) {
   const total = p.total_tasks || 1;
   const pct = Math.round((p.completed_tasks / total) * 100);
-  // v0.7.0：aiPct = AI 派生标注覆盖的任务数 / 总任务数（替换 v0.6.x 的启发式 pct * 0.6）
+  // aiPct = AI 派生标注覆盖的任务数 / 总任务数。
   const aiPct = p.ai_enabled ? Math.round(((p.ai_completed_tasks ?? 0) / total) * 100) : 0;
-  // v0.6.7：「已动工」副条 = (in_progress + review + completed) / total，让 0 完成但有进度的项目可见
+  // 「已动工」副条 = (in_progress + review + completed) / total，让 0 完成但有进度的项目可见
   const startedPct = Math.round(
     (((p.in_progress_tasks ?? 0) + p.review_tasks + p.completed_tasks) / total) * 100,
   );
@@ -257,7 +257,7 @@ export function DashboardPage() {
     ],
   );
   const wizardOpen = searchParams.get("new") === "1";
-  // v0.10.11 · 从 ProjectGrid "复制项目" 跳来时携带 ?from=<id>; Wizard 据此预填.
+  // 从 ProjectGrid "复制项目" 跳来时携带 ?from=<id>; Wizard 据此预填.
   const wizardSourceProjectId = searchParams.get("from") || undefined;
   // B-35 · list/grid 切换使用独立的 layout 参数，避免占用页面级 view 参数。
   const viewMode: "list" | "grid" = searchParams.get("layout") === "grid" ? "grid" : "list";

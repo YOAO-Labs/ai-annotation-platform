@@ -38,7 +38,7 @@ interface Props {
 }
 
 /**
- * v0.9.6 · 统一 batch 状态徽章; pre_annotated 时紫色 + sparkles icon
+ * 统一 batch 状态徽章; pre_annotated 时紫色 + sparkles icon
  * 让标注员 / admin 一眼知道「AI 预标已就绪, 先看 AI 候选」.
  */
 export function BatchStatusBadge({ status, compact }: Props) {

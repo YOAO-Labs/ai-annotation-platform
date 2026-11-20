@@ -1,12 +1,12 @@
 /**
- * v0.18.2 · 多阶段预标注「下游阶段卡」(路径 B M2).
+ * 多阶段预标注「下游阶段卡」(路径 B M2).
  *
  * 每张卡自持一份 usePreannotateConfig + PreannotateConfigForm 实例 (复用共享组件, 不改其本身,
  * 红线), 再补 M2 的阶段级字段: 父框类别过滤 (parent_class_filter) / ROI 扩展 (roi.pad) /
  * 写回属性键 (write.keys)。卡片把派生出的 stage payload 通过 onChange 上抛给容器, 由容器在运行时
  * 组装成 pipeline_stages 的并行兄弟。多张卡共享同一源阶段 = 单层并行扇出。
  *
- * v0.18.5 · 配置硬化: parent_class_filter / write.keys 由自由文本框升级为选择器 (类别取项目类别,
+ * 配置硬化: parent_class_filter / write.keys 由自由文本框升级为选择器 (类别取项目类别,
  * 属性键取下游 backend 自报 output_attribute_schema, 回落项目 attribute_schema), 消灭拼写误配;
  * 下游 backend 不产属性时给 ⚠ 警示; 键冲突 chip 由容器传 conflictKeys 标红。
  */
@@ -27,7 +27,7 @@ import type { PipelineStagePayload, PipelineStageStat } from "@/hooks/usePreanno
 import { classifyDownstream, type StageCaps } from "../utils/pipelineGraph";
 import styles from "./ProjectDetailPanel.module.css";
 
-// v0.18.8 · 运行态 → Badge 原语 (语义色 + 暗色配对走设计系统, 不裸色)。
+// 运行态 → Badge 原语 (语义色 + 暗色配对走设计系统, 不裸色)。
 const RUN_STATE_BADGE: Record<
   string,
   { variant: "outline" | "ai" | "success" | "danger"; label: string; dot?: boolean }
@@ -51,24 +51,24 @@ interface Props {
   projectMlBackendId?: string | null;
   /** 源阶段 backend, 用于默认选一个不同的下游 backend。 */
   sourceBackendId: string | null;
-  /** v0.18.5 · 项目类别 (类名)，父框类别过滤多选的回落选项。 */
+  /** 项目类别 (类名)，父框类别过滤多选的回落选项。 */
   projectClasses: string[];
-  /** v0.20.x · 上游(源/父)阶段筛完的有效类别名 —— 父框类别选项优先取此 (下游只会见到这些框);
+  /** 上游(源/父)阶段筛完的有效类别名 —— 父框类别选项优先取此 (下游只会见到这些框);
    *  空/缺 → 回落 projectClasses。父框类别另支持自由文本输入, 不限于这些选项。 */
   parentClassOptions?: string[];
-  /** v0.18.5 · 项目 attribute_schema 字段键，写回属性键多选的回落选项 (backend 未自报 schema 时)。 */
+  /** 项目 attribute_schema 字段键，写回属性键多选的回落选项 (backend 未自报 schema 时)。 */
   projectAttributeKeys: string[];
-  /** v0.18.5 · 本卡 write.keys 中与其它并行阶段冲突的键 (容器算好下发), 命中 chip 标红。 */
+  /** 本卡 write.keys 中与其它并行阶段冲突的键 (容器算好下发), 命中 chip 标红。 */
   conflictKeys?: Set<string>;
-  /** v0.18.6 · 本阶段运行态统计 (容器从实时/终态下发); 无=未跑。 */
+  /** 本阶段运行态统计 (容器从实时/终态下发); 无=未跑。 */
   stat?: PipelineStageStat;
-  /** v0.18.6 · 本阶段运行态 (徽标用): pending/running/done。 */
+  /** 本阶段运行态 (徽标用): pending/running/done。 */
   runState?: "pending" | "running" | "done";
-  /** v0.18.16 · 检查器里非选中卡 CSS 隐藏 (不卸载, 保住自持配置状态)。 */
+  /** 检查器里非选中卡 CSS 隐藏 (不卸载, 保住自持配置状态)。 */
   hidden?: boolean;
   /** 派生出的 stage payload (未就绪=null) 上抛给容器; 容器据此组装 pipeline_stages。 */
   onChange: (id: string, payload: PipelineStagePayload | null) => void;
-  /** v0.18.16 §13 · 上抛能力旗标, 供画布作可达性 / 产属性警示 (标红不硬拦)。 */
+  /** §13 · 上抛能力旗标, 供画布作可达性 / 产属性警示 (标红不硬拦)。 */
   onCaps?: (id: string, caps: StageCaps | null) => void;
   onRemove: (id: string) => void;
 }
@@ -100,10 +100,10 @@ export function StageCard({
   const [classFilter, setClassFilter] = useState<Set<string>>(new Set());
   const [pad, setPad] = useState(0.05);
   const [writeKeys, setWriteKeys] = useState<Set<string>>(new Set());
-  // v0.18.15 · 子物体命名 (写回属性键前缀, 如 hat → hat_color); 仅 attributes (分类) 阶段有意义。
+  // 子物体命名 (写回属性键前缀, 如 hat → hat_color); 仅 attributes (分类) 阶段有意义。
   const [label, setLabel] = useState("");
 
-  // v0.18.5 · 写回属性键选项: 优先下游 backend 自报 output_attribute_schema 的 key (最准),
+  // 写回属性键选项: 优先下游 backend 自报 output_attribute_schema 的 key (最准),
   // 回落项目 attribute_schema 字段 key。
   const backendAttrOptions = useMemo(() => {
     const models = cfg.capabilitiesQ.data?.models ?? [];
@@ -136,11 +136,11 @@ export function StageCard({
     ? cfg.buildArgs("skip_predicted")
     : null;
 
-  // v0.18.2 / v0.18.13 / v0.18.15 / v0.20.x · 下游可选 model: 非交互、原子 (composition!=composite) 的批量单元 ——
+  // 下游可选 model: 非交互、原子 (composition!=composite) 的批量单元 ——
   //   classification (裁 ROI 跑分类, crop 投递, 产属性) / box-seg (segmentation + bbox prompt,
   //   消费上游框出 mask, geometry 投递, 产几何) / detection (普通检测器在父 crop 上检子物体,
-  //   crop 投递 + 坐标回映, 产几何, v0.18.15) / ocr 识别 (rec 原子在父 crop 上认字, crop 投递,
-  //   产 text/orientation/language 属性 —— 跨 backend「上游 det → 下游 rec」编排的下游, v0.20.x)。
+  //     crop 投递 + 坐标回映，产几何) / OCR 识别 (rec 原子在父 crop 上认字，crop 投递，
+  //     产 text/orientation/language 属性，可跨 backend 接在 det 阶段下游)。
   //   编排只组合 atom: 一锅端 composite (如 ocr-e2e) / 交互式不作下游。
   const downstreamModels = useMemo(() => {
     const models = cfg.capabilitiesQ.data?.models ?? [];
@@ -170,8 +170,8 @@ export function StageCard({
 
   // 下游 model 归类 (判据抽到 pipelineGraph.classifyDownstream, 与全局侧 GlobalStageInspector 共用):
   //   box-seg geometry (消费上游框出 polygon, geometry 投递) / crop-detect geometry (父 crop 检子物体,
-  //   crop 投递 + 坐标回映, v0.18.15) / 文本识别 (rec 原子, task=ocr, crop 投递, 产 text/orientation/
-  //   language 属性, v0.20.x)。产几何的两类共用: 隐藏属性字段、允许作父阶段。
+  //     crop 投递 + 坐标回映) / 文本识别 (rec 原子，task=ocr，crop 投递，产 text/orientation/
+  //     language 属性)。产几何的两类共用：隐藏属性字段、允许作父阶段。
   const { isBoxSegGeometry, isCropDetectGeometry, isGeometryDownstream, isOcrRecognize } =
     classifyDownstream(selectedModel);
 
@@ -197,7 +197,7 @@ export function StageCard({
   const variantSliceKey = JSON.stringify(cfg.currentVariantSlice);
   const payload = useMemo<Omit<PipelineStagePayload, "stage" | "parent_stage"> | null>(() => {
     const classArr = Array.from(classFilter);
-    // v0.18.12 · box-seg geometry 下游: 直接由 backend+model 构造, 不依赖 prompt/configReady。
+    // box-seg geometry 下游: 直接由 backend+model 构造, 不依赖 prompt/configReady。
     // 变体取选中 model 自己声明的轴 (box-seg 只有 sam_variant), 从共享 variant 选择器值过滤。
     if (cfg.selectedCatalogId && !stageArgs) return null;
     if (isGeometryDownstream && cfg.backendId && selectedModel) {
@@ -287,7 +287,7 @@ export function StageCard({
     return () => onChangeRef.current(id, null);
   }, [id]);
 
-  // v0.19.2 WS1 · 选中分类下游 model 自报了属性类型却不含 class → 跑完属性恒空 (与端点 422 对齐)。
+  // 选中分类下游 model 自报了属性类型却不含 class → 跑完属性恒空 (与端点 422 对齐)。
   // undefined = 未自报 (不判); false = 自报了但缺 class。
   const selectedModelTypes = selectedModel?.output_attribute_types ?? [];
   const producesClass =
@@ -295,7 +295,7 @@ export function StageCard({
   // isOcrRecognize 排除: rec 产 text/orientation/language (本就不含 class), 该警告对识别阶段是误报。
   const showNoClassWarning =
     !isGeometryDownstream && !isOcrRecognize && capabilitiesReady && producesClass === false;
-  // v0.19.2 WS1 · write.keys 与 model 自报 output_attribute_schema 对账 (config-time 警告, 不硬挡):
+  // write.keys 与 model 自报 output_attribute_schema 对账 (config-time 警告, 不硬挡):
   // 选的键不在 model schema 字段集 → 该 model 可能不产出。schema 缺失时跳过 (向后兼容)。
   const schemaKeySet = new Set(
     (selectedModel?.output_attribute_schema ?? [])
@@ -305,13 +305,13 @@ export function StageCard({
   const unknownWriteKeys =
     schemaKeySet.size > 0 ? Array.from(writeKeys).filter((k) => !schemaKeySet.has(k)) : [];
 
-  // v0.19.3 WS2 · 选中下游 model 自报 batchable (resource_profile.batchable) → false 即交互/有状态,
+  // 选中下游 model 自报 batchable (resource_profile.batchable) → false 即交互/有状态,
   // 不能进批量预标 (与端点 _assert_capabilities 对齐)。非 boolean = 未自报 (不判)。
   const rpBatchable = selectedModel?.resource_profile?.batchable;
   const batchable = typeof rpBatchable === "boolean" ? rpBatchable : undefined;
   const showNotBatchableWarning = capabilitiesReady && batchable === false;
 
-  // v0.18.16 §13 · 能力旗标上抛 (供画布可达性 / 产属性警示)。
+  // §13 · 能力旗标上抛 (供画布可达性 / 产属性警示)。
   const supportedInputs = selectedModel?.supported_inputs ?? [];
   const supportedInputsKey = supportedInputs.join(",");
   const outputClassesKey = JSON.stringify(
@@ -380,7 +380,7 @@ export function StageCard({
         </span>
       </div>
 
-      {/* v0.18.8 · 运行态: 进度条 (成功/目标) + 计数块 (StatCard 风格), 替换纯文本行。 */}
+      {/* 运行态: 进度条 (成功/目标) + 计数块 (StatCard 风格), 替换纯文本行。 */}
       {stat && (
         <div className={styles.stageRun}>
           <ProgressBar value={okPct} />
@@ -433,7 +433,7 @@ export function StageCard({
         </label>
       )}
 
-      {/* v0.18.12 · 下游模型选择: 同一 backend 暴露多个可作下游的批量原子时显式选 (分类 / 框→分割)。 */}
+      {/* 下游模型选择: 同一 backend 暴露多个可作下游的批量原子时显式选 (分类 / 框→分割)。 */}
       <CatalogModelSelect cfg={cfg} />
       {!cfg.selectedCatalogId && downstreamModels.length > 1 && (
         <label className={styles.field}>
@@ -491,7 +491,7 @@ export function StageCard({
         </div>
       )}
 
-      {/* v0.19.3 WS2 · 选中 model 自报 batchable=false (交互/有状态) → 不能批量预标 (端点会 422)。 */}
+      {/* 选中 model 自报 batchable=false (交互/有状态) → 不能批量预标 (端点会 422)。 */}
       {showNotBatchableWarning && (
         <div className={styles.stageWarn}>
           <Icon name="warning" size={12} />
@@ -501,7 +501,7 @@ export function StageCard({
         </div>
       )}
 
-      {/* v0.19.2 WS1 · 选中 model 自报属性类型却不含 class → 跑完属性恒空 (端点会 422)。 */}
+      {/* 选中 model 自报属性类型却不含 class → 跑完属性恒空 (端点会 422)。 */}
       {showNoClassWarning && (
         <div className={styles.stageWarn}>
           <Icon name="warning" size={12} />
@@ -547,7 +547,7 @@ export function StageCard({
         </div>
       )}
 
-      {/* v0.18.15 · 子物体命名 (写回属性键前缀): 父是几何阶段时, 给本阶段属性加命名空间,
+      {/* 子物体命名 (写回属性键前缀): 父是几何阶段时, 给本阶段属性加命名空间,
           如父=hat 检测、本阶段写 color → hat_color。留空=写原始键 (双阶段零退化)。 */}
       {!isGeometryDownstream && (
         <div className={styles.field}>
@@ -580,7 +580,7 @@ export function StageCard({
             conflictKeys={conflictKeys}
             emptyHint="下游模型未声明输出属性，且项目无属性字段；留空=接收全部键"
           />
-          {/* v0.19.2 WS1 · write.keys 对账: 选的键不在 model 自报 schema 内 → 可能永不产出 (仅警告)。 */}
+          {/* write.keys 对账: 选的键不在 model 自报 schema 内 → 可能永不产出 (仅警告)。 */}
           {unknownWriteKeys.length > 0 && (
             <div className={styles.stageWarn}>
               <Icon name="warning" size={12} />

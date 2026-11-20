@@ -44,7 +44,7 @@ const STATE_VARIANT: Record<string, "success" | "warning" | "outline" | "danger"
   error: "danger",
 };
 
-// v0.19.0 · ADR-0044 · 「管理 backend」悬浮面板: 列出全部全局 backend, 在此勾选启用/停用。
+// ADR-0044 · 「管理 backend」悬浮面板: 列出全部全局 backend, 在此勾选启用/停用。
 // 主表只展示已启用项, 增删启用都在本面板里做。
 function ManageBackendsPanel({
   open,
@@ -197,7 +197,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
 
   const onBind = (b: MLBackendResponse) => commitBackend(b.id, b.name);
 
-  // v0.19.0 · ADR-0044 · 启用/停用某全局 backend。
+  // ADR-0044 · 启用/停用某全局 backend。
   const onToggleEnabled = (item: ProjectMLBackendItem, next: boolean) => {
     setEnablement.mutate(
       { registryId: item.backend.id, payload: { enabled: next } },
@@ -440,7 +440,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                                 {p}
                               </Badge>
                             ))}
-                            {/* v0.10.37 · 视频追踪能力 (supported_trackers 非空 ⇒ 支持 video 模态) */}
+                            {/* 视频追踪能力 (supported_trackers 非空 ⇒ 支持 video 模态) */}
                             {cap.supported_trackers?.map((t) => (
                               <Badge key={t} variant="ai">
                                 <Icon name="video" size={10} />

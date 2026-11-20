@@ -1,7 +1,7 @@
 import type { VideoTrackGeometry, VideoTrackKeyframe, VideoTrackOutsideRange } from "@/types";
 import type { Command } from "./useAnnotationHistory";
 
-// v0.10.30 · 2.3 keyframe.attributes 是「逐帧覆盖」(仅承载 schema 中 mutable=true 的键)。
+// keyframe.attributes 是「逐帧覆盖」(仅承载 schema 中 mutable=true 的键)。
 // 手写 @/types 的 VideoTrackKeyframe 暂未补 attributes 字段 (Wave 0 仅同步了 OpenAPI 生成类型),
 // 故此处用局部扩展类型读写, 等收尾时把 attributes 回填到 src/types/index.ts。
 type KeyframeAttributes = Record<string, unknown> | null | undefined;
@@ -128,7 +128,7 @@ export interface VideoPropagateOptions {
 }
 
 /**
- * v0.10.30 · 2.6 Propagate: 把 fromFrame 处解析出的 bbox 复制到后续 / 向前 N 帧。
+ * Propagate: 把 fromFrame 处解析出的 bbox 复制到后续 / 向前 N 帧。
  * 纯几何变换, 不触后端; 返回铺帧后的新 geometry, 与 from 帧无变化时返回 null。
  *
  * - 复制源 bbox = fromFrame 处的关键帧框 (调用方负责传入已解析的 fromBbox)。

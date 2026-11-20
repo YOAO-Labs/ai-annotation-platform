@@ -4,7 +4,7 @@ import { fitToCanvas } from "./fit";
 /**
  * 公共 viewport 原语 · 缩放(纯计算)。
  *
- * v0.16.x 画布栈统一地基:把「围绕光标定点缩放」与「缩放上下限」从 ImageStage(`onWheel`)
+ * 画布栈统一地基:把「围绕光标定点缩放」与「缩放上下限」从 ImageStage(`onWheel`)
  * 与 useViewportTransform(`zoomAt` / `MIN_SCALE`/`MAX_SCALE`)的各自内联实现收口成单一来源。
  * 滚轮 deltaY → 缩放因子的映射保留在 imageStageSettings.wheelZoomFactor(已有单测),
  * 本模块只负责「给定目标 scale,围绕屏幕定点求新 vp」与范围 clamp。

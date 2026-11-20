@@ -1,4 +1,4 @@
-// v0.20.16-ui · SecondaryInferenceBar (下拉选能力 + 运行 悬浮面板) 组件测试:
+// SecondaryInferenceBar (下拉选能力 + 运行 悬浮面板) 组件测试:
 // - 无能力 / readOnly → 不渲染
 // - 有能力 → 渲染分组下拉 + 运行按钮; 运行选中能力 → 调 run + toast (几何/属性 sub)
 // - attributes-型选中且缺承接字段 → 出现补全 CTA; 运行后 warning toast
@@ -59,7 +59,7 @@ const annotation = {
   class_name: "car",
 } as AnnotationResponse;
 
-// v0.21.17 · SecondaryInferenceBar 内 useSecondaryParamPrefs 改走共享 useUserPreferences
+// SecondaryInferenceBar 内 useSecondaryParamPrefs 改走共享 useUserPreferences
 // (react-query), 需 QueryClientProvider。测试无登录用户 → query disabled, 不发 GET。
 let queryClient: QueryClient;
 const wrapper = ({ children }: { children: ReactNode }) =>

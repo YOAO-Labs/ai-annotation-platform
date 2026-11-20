@@ -1,4 +1,4 @@
-// v0.6.3 P1 单测：覆盖 v0.6.3 新增的 applyLeaf tmpId undo 本地分支。
+// 覆盖 applyLeaf 的 tmpId undo 本地分支。
 //
 // 思路：直接测从 hook 模块导出的纯函数 applyLeaf，构造 mock handlers，
 // 不需要 React 渲染环境。
@@ -24,7 +24,7 @@ function makeHandlers(over: Partial<HistoryHandlers> = {}): HistoryHandlers {
 const dummyPayload = { annotation_type: "bbox", class_name: "x", geometry: {} as never };
 afterEach(() => vi.unstubAllGlobals());
 
-describe("applyLeaf · create undo (v0.6.3 P0 tmpId 本地分支)", () => {
+describe("applyLeaf · create undo（tmpId 本地分支）", () => {
   it("annotationId 是 tmpId 且 removeLocalCreate 提供 → 走本地分支，不调 deleteAnnotation", async () => {
     const removeLocalCreate = vi.fn(async () => {});
     const h = makeHandlers({ removeLocalCreate });
@@ -243,7 +243,7 @@ describe("applyLeaf · video Mask frame undo / redo", () => {
   });
 });
 
-// ── v0.8.7 F8 · sessionStorage 持久化 ────────────────────────────────
+// ── sessionStorage 持久化 ────────────────────────────────
 
 describe("history sessionStorage 持久化", () => {
   beforeEach(() => {

@@ -1,8 +1,7 @@
-"""v0.6.4 · 统一 display_id 生成器：Postgres SEQUENCE 驱动的「字母前缀 + 顺序号」。
+"""统一 display_id 生成器：Postgres SEQUENCE 驱动的「字母前缀 + 顺序号」。
 
-替代 v0.6.3 之前散落的 `MAX(display_id)+1` 与 UUID hex 截断逻辑。bug_reports
-保持 `B-N`；tasks/datasets/projects/task_batches 改造，task_batches 用 `BT-N`
-前缀以避免与 bug 的 `B-` 冲突。
+bug_reports 保持 `B-N` 命名。task_batches 使用 `BT-N`，
+避免与 bug 的 `B-` 前缀冲突。
 
 迁移见 `alembic/versions/0021_unify_display_id.py`：建 5 个序列、回填存量、
 unique 约束、setval 同步。
@@ -20,9 +19,9 @@ ENTITY_TO_PREFIX: dict[str, str] = {
     "datasets": "D",
     "projects": "P",
     "batches": "BT",
-    # v0.10.14 · E2 · ProjectTemplate (前缀避开 P/T/B/D 单字母, 用 PT)
+    # ProjectTemplate (前缀避开 P/T/B/D 单字母, 用 PT)
     "project_templates": "PT",
-    # v0.14.0 · 跨 task 帧序列地基(scene)
+    # 跨 task 帧序列地基(scene)
     "scenes": "SCN",
 }
 

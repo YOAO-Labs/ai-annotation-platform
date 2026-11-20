@@ -1,6 +1,6 @@
 import { layoutCommand, openLayoutSettings } from "../helpers/workbench-layout";
 /**
- * v0.16.x · 点云工作台交互断言基线(P2)—— 拆 3D 整簇前的真正守护网。
+ * 点云工作台交互断言基线(P2)—— 拆 3D 整簇前的真正守护网。
  *
  * 见 docs/plans/archive/2026-06-17-v0.16.x-pointcloud-e2e-baseline-for-3d-split.md §1:
  * 以"交互后状态断言"(GPU 无关、确定性)钉死 usePsrEditor / usePointCloudSelection
@@ -1138,8 +1138,8 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
   });
 
   // 三视图(TriOrthoView)overlay 可交互守护:editable 时 overlay canvas 的 computed
-  // pointer-events 必须为 "auto"(否则拖边/角精修完全失效)。守护 v0.17.6 module.css→Tailwind
-  // 迁移引入的 `pointer-events-none` + `pointer-events-auto` 同挂、none 胜出的回归。
+  // pointer-events 必须为 "auto"，否则拖边/角精修完全失效。
+  // 防止 `pointer-events-none` 和 `pointer-events-auto` 同挂时前者覆盖后者。
   test("选中框 → 三视图 overlay 可接收事件(pointer-events: auto)", async ({ page, seed }) => {
     const data = await seed.owned();
     const lidar = await seed.seedLidar();

@@ -150,7 +150,7 @@ function getPredictionSource(b: Annotation | AiBox) {
   return "predictionSource" in b ? b.predictionSource : null;
 }
 
-// v0.14.9 · doc_layout 版面类别 (后端 class_name). 命中时在候选行展示版面 type badge.
+// doc_layout 版面类别 (后端 class_name). 命中时在候选行展示版面 type badge.
 const DOC_LAYOUT_LABELS: Record<string, string> = {
   title: "标题",
   paragraph: "段落",
@@ -162,7 +162,7 @@ const DOC_LAYOUT_LABELS: Record<string, string> = {
   footer: "页脚",
 };
 
-// v0.14.9 · 从 AI 候选 attributes 抽 OCR 文本摘要 (单行截断). 无文本返回 null.
+// 从 AI 候选 attributes 抽 OCR 文本摘要 (单行截断). 无文本返回 null.
 function ocrTextSummary(b: Annotation | AiBox): string | null {
   if (!("attributes" in b) || !b.attributes) return null;
   const text = b.attributes.text;
@@ -171,7 +171,7 @@ function ocrTextSummary(b: Annotation | AiBox): string | null {
   return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
 }
 
-// v0.18.0 · 二阶段候选属性摘要 (车型 / 颜色等 select). 排除 text(OCR 摘要已单列) 与
+// 二阶段候选属性摘要 (车型 / 颜色等 select). 排除 text(OCR 摘要已单列) 与
 // 非原子值. 此处无项目 schema, 只能展示原始存储值 (英文枚举); 中文标签由侧栏属性预览
 // (AttributeForm + options) 负责. 仅 AI 候选行展示, 给采纳前一眼可辨的信号.
 function attributesSummary(b: Annotation | AiBox): string[] {
@@ -185,7 +185,7 @@ function attributesSummary(b: Annotation | AiBox): string[] {
   return out;
 }
 
-// v0.14.9 · 命中 doc_layout 版面类别时返回中文 badge 文案, 否则 null.
+// 命中 doc_layout 版面类别时返回中文 badge 文案, 否则 null.
 function docLayoutBadge(b: Annotation | AiBox): string | null {
   const key = b.cls?.toLowerCase?.();
   return key && key in DOC_LAYOUT_LABELS ? DOC_LAYOUT_LABELS[key] : null;
@@ -203,11 +203,11 @@ interface BoxListItemProps {
   onSelect: (e?: { shiftKey?: boolean }) => void;
   onAccept?: () => void;
   onReject?: () => void;
-  /** v0.10.8 · I11 · 精修：仅 AI 行 + polygon 几何时由父级注入，否则不渲染按钮。 */
+  /** 精修：仅 AI 行 + polygon 几何时由父级注入，否则不渲染按钮。 */
   onRefine?: () => void;
   onDelete?: () => void;
   onChangeClass?: () => void;
-  /** v0.10.5 M4-β · I15 切换 lock/hidden；仅人工框传入。 */
+  /** 切换 lock/hidden；仅人工框传入。 */
   onToggleFlag?: (flag: "is_locked" | "is_hidden") => void;
   orphan?: boolean;
   rasterMaskStatus?: RasterMaskRecordStatus;
@@ -252,7 +252,7 @@ export function BoxListItem({
               detail: `${rasterMaskStatus.backendReason ?? rasterMaskStatus.reason} · ${rasterMaskStatus.message}`,
             };
   const predictionSource = isAi ? getPredictionSource(b) : null;
-  // v0.14.9 · OCR / doc_layout 候选: 文本摘要 + 版面 type badge (仅 AI 行展示).
+  // OCR / doc_layout 候选: 文本摘要 + 版面 type badge (仅 AI 行展示).
   const ocrText = isAi ? ocrTextSummary(b) : null;
   const layoutBadge = isAi ? docLayoutBadge(b) : null;
   const attrSummary = isAi ? attributesSummary(b) : [];

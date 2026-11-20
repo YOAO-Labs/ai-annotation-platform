@@ -68,7 +68,7 @@ async def publish_batch_status_change(
     from_status: str,
     to_status: str,
 ) -> None:
-    """v0.9.13 · batch 状态变更广播 (B-15 / 多端实时刷新).
+    """batch 状态变更广播 (B-15 / 多端实时刷新).
 
     由 BatchService.transition() 与 check_auto_transitions() 在 db.flush() 之后调用.
     频道: `project:{project_id}:batch`. 消费方: 前端 useBatchEventsSocket → invalidate

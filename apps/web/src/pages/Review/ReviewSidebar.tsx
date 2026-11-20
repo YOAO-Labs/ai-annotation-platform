@@ -16,7 +16,7 @@ interface Group {
   pending: number;
 }
 
-/** v0.7.1 B-18 · 质检审核左侧栏：项目→批次的两级树。
+/** 质检审核左侧栏：项目→批次的两级树。
  *  自动展开当前选中批次所在的项目；其他项目默认折叠。 */
 export function ReviewSidebar({ batches, selectedBatchId, onSelect }: Props) {
   const groups = useMemo<Group[]>(() => {

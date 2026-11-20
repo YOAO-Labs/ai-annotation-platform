@@ -1,5 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-// v0.14.9 · 模型市场「能力目录」面板 — 能力声明协议 v2 的消费视图.
+// 模型市场「能力目录」面板 — 能力声明协议 v2 的消费视图.
 // 与「项目级 ML Backend」表格不同, 这里按 *model 条目* 展开:
 //   - 枚举所有项目已注册 backend (admin overview), 对每个 backend 拉 /capabilities 拿 models[];
 //   - 每个 model 渲染一张卡片 (task/infra/modality badge + 输出几何 + 输出属性 + variants + resource);
@@ -71,7 +71,7 @@ interface BackendResult {
 
 // 协议卡视图把 instances 端点的 model 合成 FlatModel, 以便复用 ModelCard 渲染 (与其他
 // 分组视图对齐)。instances 端点不带运行时池 (池大小 / 加载态在卡上显示占位); resource_profile
-// 自 v0.19.2 WS0 起已透传, 故「可批量 / 设备 / 资源」徽标可直接渲染。当 admin 的 flatModels
+// 响应包含「可批量 / 设备 / 资源」字段，可直接渲染徽标。当 admin 的 flatModels
 // (来自 /capabilities) 有同名条目时, 上层会优先用富数据 (带运行时池)。
 function instanceModelToFlat(
   inst: CapabilityInstance,
@@ -142,9 +142,9 @@ export function CapabilityCatalogPanel() {
   const infraFilter = useMemo(() => new Set(catalog.catalogInfra), [catalog.catalogInfra]);
   const modalityFilter = useMemo(() => new Set(catalog.catalogModality), [catalog.catalogModality]);
 
-  // v0.14.11 · 协议级能力目录 (与 backend 注册解耦); 用作 groupBy=task 时的协议卡数据源。
+  // 协议级能力目录 (与 backend 注册解耦); 用作 groupBy=task 时的协议卡数据源。
   const { data: protocol } = useProtocolCapabilities();
-  // v0.14.11 · 平台已知 backend 实例 (env-only + 项目级注册合并, 登录用户可访问);
+  // 平台已知 backend 实例 (env-only + 项目级注册合并, 登录用户可访问);
   // 协议卡视图直接消费这个端点, 不再依赖 admin overview, 让普通用户也能看到 model 清单。
   const { data: instancesData } = useCapabilityInstances();
 
@@ -175,7 +175,7 @@ export function CapabilityCatalogPanel() {
     enabled: isSuperAdmin,
   });
 
-  // v0.14.12 · 按 URL 合并跨项目注册. 同一 ML backend (相同 URL) 在 N 个项目下都
+  // 按 URL 合并跨项目注册. 同一 ML backend (相同 URL) 在 N 个项目下都
   // 注册过时, 这里只保留首条用于 capabilities 探测, 其余的项目名收入 registeredProjects。
   // 避免: ① 重复显示同名 group; ② 重复打 /capabilities (浪费请求 + 后端 rate limit)。
   const backendRefs = useMemo(() => {
@@ -235,7 +235,7 @@ export function CapabilityCatalogPanel() {
   );
 
   // 3) 展开为 FlatModel 列表 (合成单 model 的老 backend 也走同一路径).
-  //    v0.14.12 · 同时合并 instancesData 中的 env-only 实例 (如 yolo-backend),
+  //    同时合并 instancesData 中的 env-only 实例 (如 yolo-backend),
   //    让 groupBy=backend / infra / none 视图也能看到 docker-compose 自带 backend,
   //    而不仅在协议卡视图 (groupBy=task) 出现。
   const flatModels: FlatModel[] = useMemo(() => {
@@ -264,7 +264,7 @@ export function CapabilityCatalogPanel() {
             ];
       // stale: backend 离线 / 上次探测失败时, 目录可能是缓存旧值.
       const stale = r.backend.state !== "connected";
-      // v0.14.12 · backendName 用 cap.name (源 backend 自报名, 如 "grounded-sam2-backend")
+      // backendName 用 cap.name (源 backend 自报名, 如 "grounded-sam2-backend")
       // 而非 r.backend.name (用户取的项目别名, 如 "gsam2.1"). 能力目录是对协议层 backend
       // 的展示, 不依附用户的项目命名. 项目别名信息已经在「注册状态」列体现。
       const originalBackendName = cap.name || r.backend.name;
@@ -283,7 +283,7 @@ export function CapabilityCatalogPanel() {
           warmupEndpoint:
             cap.warmup_endpoint ?? r.backend.health_meta?.capabilities?.warmup_endpoint,
           stale,
-          // v0.18.29 · 该 model 命中的受控词表越界诊断 (按 model_id 关联)。
+          // 该 model 命中的受控词表越界诊断 (按 model_id 关联)。
           warnings: cap.warnings?.filter((w) => w.model_id === m.id),
         });
       }
@@ -369,7 +369,7 @@ export function CapabilityCatalogPanel() {
     return map;
   }, [flatModels]);
 
-  // v0.14.11 · 协议卡视图: 遍历 protocol.tasks 渲染 9 张卡 (零接入也显示);
+  // 协议卡视图: 遍历 protocol.tasks 渲染 9 张卡 (零接入也显示);
   // 数据源是 instances 端点 (env-only + 注册合并, 与 admin overview 完全解耦),
   // 按 model.task 挂到协议卡。search / taskFilter 同时作用于 task 卡过滤。
   const protocolView = useMemo(() => {
@@ -484,7 +484,7 @@ export function CapabilityCatalogPanel() {
   };
 
   const anyCapLoading = results.some((r) => r.isLoading);
-  // v0.14.12 · 合并 env 兜底后, 统计与「项目级 backend 计数」分开:
+  // 合并 env 兜底后, 统计与「项目级 backend 计数」分开:
   // 未接入任何已启用项目的平台内置 backend 数 (与 backendRefs 互斥, 不重复计)。
   const envOnlyCount = (instancesData?.instances ?? []).filter(
     (i) => !registeredBackendIds.has(i.backend_id),
@@ -579,8 +579,8 @@ export function CapabilityCatalogPanel() {
         ) : backendRefs.length === 0 &&
           (instancesData?.instances ?? []).length === 0 &&
           groupBy !== "task" ? (
-          // v0.14.11 · 0 backend + 非 task 分组: 沿用旧空态; task 分组下走协议卡视图。
-          // v0.14.12 · 同时有 env-only instances 时, 这里不再显示空态。
+          // 0 backend + 非 task 分组: 沿用旧空态; task 分组下走协议卡视图。
+          // 同时有 env-only instances 时, 这里不再显示空态。
           <>
             {primaryToolbar}
             <div className={EMPTY_STATE_CLASS}>
@@ -637,9 +637,9 @@ export function CapabilityCatalogPanel() {
             {anyCapLoading && flatModels.length === 0 && groupBy !== "task" ? (
               <div className={NOTE_CLASS}>正在读取模型服务的能力…</div>
             ) : groupBy === "task" && protocolView ? (
-              // v0.14.11 · 协议卡视图: 即使模型清单为空也展示协议卡 (零接入引导)。
+              // 协议卡视图: 即使模型清单为空也展示协议卡 (零接入引导)。
               <>
-                {/* v0.14.11 · 横幅触发改为「所有协议卡都没有 model 挂载」(覆盖
+                {/* 横幅触发改为「所有协议卡都没有 model 挂载」(覆盖
                     env-only + 注册两条路径), 而非只看注册数。这样 docker-compose
                     自带的 gsam2 / sam3 在跑时就不会再误显示「未接入」横幅。 */}
                 {protocolView.every((v) => v.mounted.length === 0) && (

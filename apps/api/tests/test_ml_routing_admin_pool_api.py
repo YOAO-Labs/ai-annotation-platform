@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §12.1 · Super Admin service-pool / member management API tests."""
+"""ADR-0050 §12.1 · Super Admin service-pool / member management API tests."""
 
 from __future__ import annotations
 

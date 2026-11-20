@@ -14,12 +14,12 @@ from uuid import UUID
 from datetime import datetime
 
 
-# v0.9.11 · PredictionShape — DB 存 LabelStudio 标准 {type, value, score};
+# PredictionShape — DB 存 LabelStudio 标准 {type, value, score};
 # read 路径 to_internal_shape 转 {type, class_name, geometry, confidence} 后由 PredictionOut 暴露.
 # 前端 codegen 据此派生 (替代 src/types/index.ts 手写). 复用 _jsonb_types.{Bbox,Polygon,MultiPolygon}Geometry,
 # 保持与 AnnotationResponse.geometry 类型一致 (frontend 的 Geometry alias 同时覆盖 annotation + prediction).
 # Union 含 dict fallback 兼容未知 LS 类型 (e.g. keypoints) 的 to_internal_shape 空 geometry.
-# v0.9.14 · 新增 MultiPolygonGeometry 分支支持 mask 多连通域 / 空洞.
+# MultiPolygonGeometry 表达掩码的多个连通域和孔洞。
 class PredictionShape(BaseModel):
     type: str  # LabelStudio 类型: rectanglelabels | polygonlabels | ...
     class_name: str
@@ -34,7 +34,7 @@ class PredictionShape(BaseModel):
         dict[str, Any],
     ]
     confidence: float
-    # v0.14.9 · OCR / doc_layout 识别属性 (attributes.text / language / orientation);
+    # OCR / doc_layout 识别属性 (attributes.text / language / orientation);
     # 由 to_internal_shape 从 result shape 顶层提取, 非 OCR 时为 {}. read 路径透出供
     # 工作台候选展示文本摘要 + 采纳时写入 annotation.attributes.
     attributes: dict[str, Any] = {}
@@ -53,13 +53,13 @@ class PredictionOut(BaseModel):
     model_version: str | None = None
     score: float | None = None
     source: str | None = None
-    # v0.10.17 · 工具单位; to_internal_shape 按 result.type 推断 (rectanglelabels→bbox,
+    # 工具单位; to_internal_shape 按 result.type 推断 (rectanglelabels→bbox,
     # polygonlabels/multipolygonlabels→region, point/line→bbox 占位).
     tool_unit_id: _ToolUnitId = "bbox"
     result: list[PredictionShape]
     cluster: int | None = None
     created_at: datetime
-    # v0.9.5 · 工作台 AIInspectorPanel 单条费用 / 推理时间透传（PredictionMeta join）
+    # 工作台 AIInspectorPanel 单条费用 / 推理时间透传（PredictionMeta join）
     inference_time_ms: int | None = None
     total_cost: float | None = None
 

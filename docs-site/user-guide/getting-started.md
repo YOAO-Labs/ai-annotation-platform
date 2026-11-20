@@ -31,6 +31,8 @@ flowchart LR
 
 平台进行会话升级后，已有登录可能需要重新认证，使用原账号和密码登录即可。若提示认证服务暂不可用，请稍后重试；这不代表密码错误，也不需要立即重置密码。
 
+注册验证和密码重置邮件的主题以 `[YOAO]` 开头。打开链接前，核对网址是否属于你使用的 YOAO 站点。邮件列出链接的 UTC 到期时间；晚收到邮件不会延长有效期。如果不是你发起的请求，可以忽略。
+
 ::: tip 平台角色与项目角色
 本平台支持**多重角色身份**：你在平台拥有全局账号角色（员工 / 管理员），并在具体项目中担任**标注员 (Annotator)** 或 **质检员 (Reviewer)**。
 
@@ -46,7 +48,7 @@ flowchart LR
 
 </div>
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 登录页全屏；标注红框：邮箱输入、密码输入、登录按钮、「忘记密码」链接。1920×1080，浏览器框架可保留。 -->
+<!-- TODO IMAGE_CHECKLIST: 登录页全屏；标注红框：邮箱输入、密码输入、登录按钮、「忘记密码」链接。1920×1080，浏览器框架可保留。 -->
 
 窄屏布局和密码恢复示例可按需展开：
 
@@ -59,7 +61,7 @@ flowchart LR
 
 ![忘记密码](./images/getting-started/forgot-password.png)
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 忘记密码页；输入邮箱后的成功 toast 截图。 -->
+<!-- TODO IMAGE_CHECKLIST: 忘记密码页；输入邮箱后的成功 toast 截图。 -->
 
 </details>
 
@@ -84,7 +86,7 @@ flowchart LR
 <details>
 <summary>查看首页和平台导航示例</summary>
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/getting-started/annotator-dashboard.png — 标注员仪表盘全屏，标注红框：产能/质量分区 + 「打开」按钮 -->
+<!-- TODO IMAGE_CHECKLIST: images/getting-started/annotator-dashboard.png — 标注员仪表盘全屏，标注红框：产能/质量分区 + 「打开」按钮 -->
 
 桌面端可点击侧边栏顶部的按钮收起导航，仅显示图标；悬停图标可查看入口名称。展开后拖动右侧边缘可调整宽度（200–320px），双击边缘恢复默认 220px。也可用 Tab 聚焦边缘，以左右方向键每次调整 10px，Home / End 调至最小／最大宽度。收起状态和展开宽度保存在当前浏览器中；窄屏仍使用完整的抽屉导航。
 

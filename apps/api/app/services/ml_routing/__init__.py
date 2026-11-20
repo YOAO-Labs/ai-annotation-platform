@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 · ML Backend request routing domain.
+"""ADR-0050 · ML Backend request routing domain.
 
 在 ``ml_backend_registry`` (物理实例, ADR-0044) 与服务池 (逻辑能力, ADR-0050) 之上
 实现「项目请求一个逻辑能力 → 平台原子选择一个物理实例」的路由层。

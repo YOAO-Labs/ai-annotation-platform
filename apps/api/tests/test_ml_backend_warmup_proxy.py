@@ -1,4 +1,4 @@
-"""v0.14.14 · POST /api/v1/projects/{pid}/ml-backends/{bid}/warmup 代理端点测试.
+"""POST /api/v1/projects/{pid}/ml-backends/{bid}/warmup 代理端点测试.
 
 只测路由层: 调度 MLBackendService.warmup() 时是否原样转发 body, 是否对 backend 上游
 HTTP 错误做 4xx/5xx 透传 / 502 兜底.

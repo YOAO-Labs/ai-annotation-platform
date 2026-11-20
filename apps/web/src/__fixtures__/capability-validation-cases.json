@@ -1,5 +1,5 @@
 {
-  "_doc": "v0.19.3 WS3 · 预标注能力判据跨端契约 fixture (单一事实源)。后端 pytest 喂 services/pipeline_validation.check_capability_violations 断言违例码集合; 前端 vitest 喂 pipelineGraph.stageWarning 断言首条警示。任一端判据漂移 → 对应端测试红。每例至多触发一条判据 (除显式 both 例), expect_codes 顺序与后端一致 (batchable 先于 class); 前端单条警示取 expect_codes[0]。",
+  "_doc": "前后端共用的预标注能力判据。后端逐项比较违例码序列与 expect_codes，前端显示首个违例的警示。多个判据同时触发时，batchable 判据先于 class。",
   "codes": {
     "not_batchable": "resource_profile.batchable 显式 false (交互/有状态) → 不能批量预标",
     "no_class_attribute": "写属性的下游, 模型自报 output_attribute_types 非空但不含 class → 属性恒空"

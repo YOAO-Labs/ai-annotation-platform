@@ -60,21 +60,21 @@ export function isVideoBbox(
   return ann.geometry.type === "video_bbox";
 }
 
-/** v0.21.21 · 单帧 polygon 判定 (非 track, 与 isVideoBbox 平行)。 */
+/** 单帧 polygon 判定 (非 track, 与 isVideoBbox 平行)。 */
 export function isVideoPolygon(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoPolygonGeometry } {
   return ann.geometry.type === "video_polygon";
 }
 
-/** v0.21.21 · 单帧 polyline 判定 (非 track)。 */
+/** 单帧 polyline 判定 (非 track)。 */
 export function isVideoPolyline(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoPolylineGeometry } {
   return ann.geometry.type === "video_polyline";
 }
 
-/** v0.21.22 · 单帧旋转矩形 (OBB) 判定 (非 track)。 */
+/** 单帧旋转矩形 (OBB) 判定 (非 track)。 */
 export function isVideoRotatedBbox(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoRotatedBboxGeometry } {
@@ -87,7 +87,7 @@ export function isVideoKeypoint(
   return ann.geometry.type === "video_keypoint";
 }
 
-/** v0.21.22 · 旋转矩形四角 (归一化)。cx,cy 中心, w,h 边长, angle 顺时针度。供渲染 <Line closed> / 外接盒。 */
+/** 旋转矩形四角 (归一化)。cx,cy 中心, w,h 边长, angle 顺时针度。供渲染 <Line closed> / 外接盒。 */
 export function rotatedBboxCorners(g: {
   cx: number;
   cy: number;
@@ -116,14 +116,14 @@ export function isVideoTrack(
   return ann.geometry.type === "video_track_bbox";
 }
 
-/** v0.21.20 · polygon track 判定 (与 isVideoTrack 平行)。 */
+/** polygon track 判定 (与 isVideoTrack 平行)。 */
 export function isVideoPolygonTrack(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoTrackPolygonGeometry } {
   return ann.geometry.type === "video_track_polygon";
 }
 
-/** v0.21.20 · polyline track 判定。 */
+/** polyline track 判定。 */
 export function isVideoPolylineTrack(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoTrackPolylineGeometry } {
@@ -143,7 +143,7 @@ export function isVideoMask(
 }
 
 /**
- * v0.21.26 · 视频几何「联合」判定 helper —— 消除管理层(选中卡 / 右键菜单 / 删除)各处
+ * 视频几何「联合」判定 helper —— 消除管理层(选中卡 / 右键菜单 / 删除)各处
  * 散落的 bbox-only 硬编码。渲染层早已全类型覆盖(videoFrameViews),这些 helper 让选中后的
  * 信息 / 操作也覆盖 polygon / polyline / 旋转框及其 track 变体。
  */
@@ -337,7 +337,7 @@ export function upsertKeyframe(
 }
 
 /**
- * v0.21.2x · polygon/polyline track 在某帧 upsert 一个 points 关键帧(镜像 bbox 的 upsertKeyframe)。
+ * polygon/polyline track 在某帧 upsert 一个 points 关键帧(镜像 bbox 的 upsertKeyframe)。
  *
  * 编辑轨迹几何(拖顶点 / 整体平移)时把当前帧落成 manual 关键帧:精确关键帧→替换其 points;
  * 插值帧→物化为新关键帧(与 bbox 拖插值帧生成关键帧同语义)。落新可见关键帧时清该帧 outside。
@@ -415,7 +415,7 @@ export function resolveTrackAtFrame(
   return resolved;
 }
 
-// ── v0.21.20 · polygon track 弧长参数化插值 (镜像后端 video_tracks.lerp_polygon) ──
+// ── polygon track 弧长参数化插值 (镜像后端 video_tracks.lerp_polygon) ──
 
 type Point = [number, number];
 export type ResolvedPolygonFrame = {
@@ -528,7 +528,7 @@ export function resolveVideoPolygonTrackAtFrame(
   return { points: interpolatePolygon(before, after, frameIndex), source: "interpolated" };
 }
 
-// ── v0.21.20 · polyline (开路径) track 插值 (镜像后端 lerp_polyline) ──
+// ── polyline (开路径) track 插值 (镜像后端 lerp_polyline) ──
 
 /** 把开路径折线按弧长重采样为 n 个等距顶点 (含首尾端点, 不闭合)。退化时安全回退。 */
 export function resampleOpenPolyline(points: Point[], n: number): Point[] {
@@ -756,7 +756,7 @@ export function shortTrackId(trackId: string) {
 }
 
 /**
- * v0.10.30 · D-2.1a 确定性派生 track_number, 不持久化。
+ * D-2.1a 确定性派生 track_number, 不持久化。
  *
  * 按「首关键帧 frame_index 升序、并列再按 track_id 字典序」给每条 video_track 派生
  * 1..N 的显示/导出编号。改采样 / 增删 track 时编号自然重排, 符合 D2。

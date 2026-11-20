@@ -81,7 +81,7 @@ describe("useMLCapabilities", () => {
     expect(result.current.prompts).toEqual([]);
   });
 
-  it("v0.14.9 · prefers active model prompts/params and defaults to first interactive model", async () => {
+  it("prefers active model prompts/params and defaults to first interactive model", async () => {
     mockSetup.mockResolvedValue({
       name: "multi-backend",
       // 顶层 supported_prompts 故意与 model 不同, 验证 activeModel 优先级.
@@ -115,7 +115,7 @@ describe("useMLCapabilities", () => {
     expect(result.current.paramsSchema?.properties?.mask_threshold).toBeTruthy();
   });
 
-  it("v0.14.9 · setActiveModelId switches prompts/params to the chosen model", async () => {
+  it("setActiveModelId switches prompts/params to the chosen model", async () => {
     mockSetup.mockResolvedValue({
       name: "multi-backend",
       models: [

@@ -1,13 +1,13 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 /**
- * v0.10.16 · DuckDB 离线分析面板（ROADMAP §1.6）。
+ * DuckDB 离线分析面板（ROADMAP §1.6）。
  *
  * super_admin only，4 个固定面板：团队日吞吐 / reject 率分类型 / 标注耗时分布 / 工时热力图。
  * 数据来源 = Celery beat 每日 02:30 UTC 同步的 DuckDB 文件；尚未首次同步时端点
  * 返回 503，前端展示「数据初始化中」提示。
  *
- * v0.12.7 · 吞吐 / reject 面板升级为 recharts；新增工时热力图（星期几 × 小时）。
+ * 吞吐 / reject 面板升级为 recharts；新增工时热力图（星期几 × 小时）。
  * Recharts / heatmap colors read shadcn runtime tokens.
  */
 
@@ -174,7 +174,7 @@ export function AnalyticsPage() {
         <div className={CARD_CLASS} data-testid="panel-reject-rate">
           <div className={TITLE_CLASS}>Reject 原因分布</div>
           <div className={HINT_CLASS}>
-            分母只算 reject_reason_type IS NOT NULL（v0.10.16 起标注）
+            分母仅包含已标注驳回原因类型的记录（reject_reason_type IS NOT NULL）。
           </div>
           {rejectQ.isError && <NotReady error={rejectQ.error} />}
           {!rejectQ.isError && rejectData.length === 0 && (

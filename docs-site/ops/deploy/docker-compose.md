@@ -2,7 +2,6 @@
 title: 生产部署（Docker Compose）
 audience: [ops]
 type: how-to
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-26
 ---
@@ -153,7 +152,7 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 | `MODEL_POOL_BUILD_TIMEOUT`         | `30`   | pool 满 + 并发 miss 时排队等显存腾挪的超时（秒），超时返回 503「显存繁忙，稍后重试」。                                                         |
 | `IDLE_UNLOAD_SECONDS`              | `600`  | 空闲 N 秒后自动卸载模型释放显存；`<=0` 关闭定时卸载（仍可手动 `POST /unload`）。                                                               |
 | `IDLE_CHECK_INTERVAL`              | `60`   | 上面空闲判断的轮询间隔（秒）。                                                                                                                 |
-| `VIDEO_MODEL_POOL_CAP`             | `1`    | v0.10.35 · sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                               |
+| `VIDEO_MODEL_POOL_CAP`             | `1`    | sam2_video tracker 的**独立**显存池上限，与图片池预算分离、互不驱逐。                                                                          |
 | `VIDEO_MODEL_POOL_BUILD_TIMEOUT`   | `60`   | video 池满 + 并发 miss 时排队等显存的超时（秒）。                                                                                              |
 | `VIDEO_TRACKER_MAX_WINDOW_FRAMES`  | `16`   | 单窗口最大帧数；提高前须按目标设备重新验证。                                                                                                   |
 | `VIDEO_TRACKER_MAX_CONTEXT_FRAMES` | `64`   | 同一 session 的源帧上下文上限；大于窗口时启用跨窗能力。                                                                                        |
@@ -652,7 +651,7 @@ URL 改动、探测失败或快照过期后都按 unknown 保守报告，不会�
 
 五个官方推理插件分别使用独立 overlay；`docker-compose.ml.yml` 保留截图 stub，可在不设置插件变量时使用。服务 profile 与核心 infra 无 depends_on，可单独启用或并存。
 
-官方实现和镜像由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供。启用对应 overlay 前配置 `GSAM2_IMAGE`、`SAM3_IMAGE`、`YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`，使用已审核的仓库、manifest digest 和镜像内生命周期源码摘要，而非 image ID。未启用的插件无需配置。Compose 和原生插件安装的所有权不同，不会自动接管彼此。
+官方插件的源码与镜像构建说明由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护；OCI 镜像需从获准渠道另行取得。启用对应 overlay 前配置 `GSAM2_IMAGE`、`SAM3_IMAGE`、`YOLO_IMAGE`、`ONNXTOOLS_IMAGE` 或 `RAPIDOCR_IMAGE` 及对应 `_IMAGE_DIGEST` 和 `_LIFECYCLE_SHA256`，使用已审核的仓库、manifest digest 和镜像内生命周期源码摘要，而非 image ID。未启用的插件无需配置。Compose 和原生插件安装的所有权不同，不会自动接管彼此。
 
 管理员按插件目录与资产 catalog 审核许可和文件身份后，预先准备模型。Grounded-SAM-2 的 `gsam2_checkpoints:/app/checkpoints` 包含所需 SAM、DINO 和 `bert-base-uncased/{config.json,tokenizer.json,tokenizer_config.json,vocab.txt,model.safetensors}`；SAM3 的 `sam3_checkpoints:/app/checkpoints` 包含 image/PVS 的 `sam3.pt` 和 multiplex 的 `sam3.1_multiplex.pt`。两者不在启动时下载；SAM3 的两个 gated 仓库须各自取得授权，持有文件或 token 不代表许可。缓存卷仍保留供现有部署迁移。ONNXTools 与 RapidOCR 使用各自已审核的只读宿主目录，YOLO 保留 checkpoint 卷与只读模型资产。
 

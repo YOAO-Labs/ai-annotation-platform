@@ -1,5 +1,5 @@
 /**
- * v0.18.16 · pipelineGraph 纯函数单测: 派生 / 布局 / 受限改父校验。
+ * pipelineGraph 纯函数单测: 派生 / 布局 / 受限改父校验。
  */
 import { describe, it, expect } from "vitest";
 
@@ -43,11 +43,11 @@ const attr = (keys?: string[], label?: string): PipelineStagePayload =>
     write: { target: "attributes", keys },
     label,
   }) as PipelineStagePayload;
-// v0.21.5 · 输入节点 entry (parentSid=null); 新模型 root 常驻 stagesGraph, 夹具须含它。
+// 输入节点 entry (parentSid=null); 新模型 root 常驻 stagesGraph, 夹具须含它。
 const R: StageEntry = { sid: ROOT_SID, parentSid: null };
 
 describe("派生", () => {
-  it("depthBySid: 输入节点 0, 链 a→b 深度 1/2 (v0.21.6 输入节点不计模型层)", () => {
+  it("depthBySid: 输入节点 0，模型链 a→b 深度 1/2", () => {
     const g: StageEntry[] = [R, { sid: "a", parentSid: ROOT_SID }, { sid: "b", parentSid: "a" }];
     expect(depthBySid(g)).toEqual({ root: 0, a: 1, b: 2 });
   });
@@ -202,7 +202,7 @@ describe("下游归类 classifyDownstream / deriveDownstreamShape", () => {
   });
 });
 
-describe("输入节点归类 sourceNodeShape (v0.21.5 · 源类型/执行单位由 source 元数据携带)", () => {
+describe("sourceNodeShape 从 source 元数据读取源类型和执行单位", () => {
   it("image 源 + detection → 图像 / 目标检测 / 检测框", () => {
     const s = sourceNodeShape({ kind: "dataset", data_type: "image" }, { task: "detect" });
     expect(s.role.label).toBe("目标检测");
@@ -439,7 +439,7 @@ describe("buildFlow 派生 + 分层布局", () => {
     expect(nodes.find((n) => n.id === "b")!.selected).toBe(false);
   });
 
-  it("v0.21.5 · 统一 node type=stage (输入/下游同型; 入 handle 由 parentSid 在组件内决定)", () => {
+  it("统一 node type=stage (输入/下游同型; 入 handle 由 parentSid 在组件内决定)", () => {
     const { nodes } = buildFlow(models, null);
     expect(nodes.find((n) => n.id === ROOT_SID)!.type).toBe("stage");
     expect(nodes.find((n) => n.id === "a")!.type).toBe("stage");

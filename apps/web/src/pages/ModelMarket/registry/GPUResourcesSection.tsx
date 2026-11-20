@@ -2,7 +2,7 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useFocusedListPagination } from "./useFocusedListPagination";
 /**
- * v0.23.4 P3 · registry "GPU 资源" tab (Super Admin only).
+ * registry "GPU 资源" tab (Super Admin only).
  *
  * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: columns collapse to 资源身份 /
  * 静态声明与预算 / 运行时 committed / 队列与租约 / 模式 / 最高诊断. The static

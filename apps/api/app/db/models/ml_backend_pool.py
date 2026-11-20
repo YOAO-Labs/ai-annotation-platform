@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 · ML Backend 服务池数据模型。
+"""ADR-0050 · ML Backend 服务池数据模型。
 
 在 ``ml_backend_registry`` (物理实例, ADR-0044) 之上叠加一层逻辑服务池:
 一个 pool 表示一组可互换的等价实例。项目绑定与路由 lineage 使用 pool id；
@@ -29,7 +29,7 @@ from app.db.base import Base
 
 
 class MLBackendServicePool(Base):
-    """v0.23.3 ADR-0050 · 逻辑服务池。
+    """ADR-0050 · 逻辑服务池。
 
     一行 = 一组可互换的等价 registry 实例。pool id 是**逻辑请求身份**
     (项目关系绑定与路由 lineage 引用它), registry id 是**物理执行身份**
@@ -101,7 +101,7 @@ class MLBackendServicePool(Base):
 
 
 class MLBackendPoolMember(Base):
-    """v0.23.3 ADR-0050 · 服务池成员关系。
+    """ADR-0050 · 服务池成员关系。
 
     一个 registry instance 同时最多属于一个 service pool (``registry_id``
     单列 unique, D2)。``traffic_state`` 控制 router 是否可选该成员:

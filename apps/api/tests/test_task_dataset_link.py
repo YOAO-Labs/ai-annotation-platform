@@ -1,4 +1,4 @@
-"""v0.13.0 · TaskDatasetItemLink 中间表 + service 测试（0.13.0-1）。"""
+"""TaskDatasetItemLink 中间表及其 service 测试。"""
 
 from __future__ import annotations
 

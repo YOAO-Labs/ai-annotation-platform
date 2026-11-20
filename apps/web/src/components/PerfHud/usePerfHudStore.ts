@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 /**
- * v0.9.11 · PerfHud 浮窗 visibility 全局 store.
+ * PerfHud 浮窗 visibility 全局 store.
  *
  * 触发方式:
  * - Ctrl+Shift+P (workbench hotkeys)

@@ -1,4 +1,4 @@
-// v0.20.22 · 提交在途几何 override 桥单测: 竞态桥、收敛、超时兜底、多条目独立。
+// 提交在途几何 override 桥单测: 竞态桥、收敛、超时兜底、多条目独立。
 import { renderHook, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

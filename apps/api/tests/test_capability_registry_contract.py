@@ -1,4 +1,4 @@
-"""v0.18.30 · capability-registry snapshot 契约测试: 必须与当前 registry 一致。
+"""capability-registry snapshot 契约测试: 必须与当前 registry 一致。
 
 前端 codegen (apps/web/scripts/gen-capability-vocab.mjs) 读此 snapshot 生成受控词表常量。
 改 capability_registry.py / schemas/ml_capabilities.py 后本地跑:

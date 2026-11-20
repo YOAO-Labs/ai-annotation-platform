@@ -1,4 +1,4 @@
-"""v0.12.0 · B4 dataset task-creation workflow coverage.
+"""Dataset task-creation workflow tests.
 
 Directly exercises initial task creation and request-time link branch selection:
 1. Creates N tasks with no batch_id, updates project.total_tasks, and is idempotent.

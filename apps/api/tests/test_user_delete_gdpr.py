@@ -1,4 +1,4 @@
-"""v0.6.6 · GDPR 脱敏：删除用户后，audit_logs 历史行 actor_email / actor_role 抹除。
+"""GDPR 脱敏：删除用户后，audit_logs 历史行 actor_email / actor_role 抹除。
 
 保留 actor_id（FK 仍指向软删用户；用户行硬删时 ON DELETE SET NULL 兜底）。
 """

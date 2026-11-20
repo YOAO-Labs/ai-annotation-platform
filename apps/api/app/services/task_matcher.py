@@ -1,4 +1,4 @@
-"""跨实例 task 匹配 (v0.10.15).
+"""跨实例任务匹配。
 
 ROADMAP §6 决策底线: 跨实例匹配走 display_id + file_path + schema_version 三元组,
 **不**用 task.id 数字 UUID. task 表当前 schema:
@@ -11,7 +11,7 @@ ROADMAP §6 决策底线: 跨实例匹配走 display_id + file_path + schema_ver
    匹配不到再退回历史的整串 file_path 等值匹配 (兼容).
 3. 都没给: 不匹配.
 
-相对目录匹配 (v0.10.27 导入对称):
+相对目录匹配（与导入路径规则一致）：
 - 库内 `task.file_path` 是完整 MinIO key, 带 dataset 名前缀 (如
   `{dataset}/animals/cat/001.jpg`); 外部文件 (COCO `image.file_name` 等) 通常是
   去前缀的相对路径 (如 `animals/cat/001.jpg`)。

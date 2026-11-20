@@ -1,4 +1,4 @@
-"""v0.12.3 · GET /dashboard/me/performance 单测（取经合集 §4.1 个人页）。"""
+"""GET /dashboard/me/performance 单测（取经合集 §4.1 个人页）。"""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ async def test_my_performance_zeros_when_no_data(httpx_client, annotator):
     assert len(data["trend_throughput"]) == 4
     assert len(data["team_trend_throughput"]) == 4
     assert data["duration_histogram"] == []
-    # v0.12.4 质量归因(A1):无数据时空 + None
+    # 没有样本时，质量归因返回空列表与 None。
     assert data["reject_reason_breakdown"] == []
     assert data["class_distribution"] == []
     assert data["first_pass_yield"] is None
@@ -138,7 +138,7 @@ async def test_my_performance_is_self_scoped(
 async def test_my_performance_quality_attribution(
     httpx_client, db_session, super_admin, annotator
 ):
-    """v0.12.4 · 类别覆盖 / reject 原因细分 / 首过率(A1)。"""
+    """验证类别覆盖、驳回原因分布和首过率。"""
     admin_user, _ = super_admin
     ann_user, ann_token = annotator
     proj = await _seed_project(db_session, admin_user.id)

@@ -1,6 +1,6 @@
 // 归一化 [0,1] 坐标系下按 (offX, offY) 平移一个标注几何。各几何类型逐一处理, 保持形状,
 // 只在贴边时截去多余位移 (与 bbox 平移语义一致)。
-// 原在 useClipboard.ts 内 (粘贴偏移用); v0.20.15 抽出供父子 Alt 拖动联动 (ImageStage) 复用同一套平移。
+// 粘贴偏移与 ImageStage 父子 Alt 拖动共用同一套平移逻辑。
 import type { Annotation, Geometry } from "@/types";
 
 /**

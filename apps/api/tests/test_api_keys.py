@@ -1,6 +1,6 @@
-"""v0.9.3 · /me/api-keys CRUD + ak_ token 鉴权测试。
+"""/me/api-keys CRUD + ak_ token 鉴权测试。
 
-v0.15.11 追加：过期、scope 强制、full-access、rotate、patch。
+覆盖过期时间、scope 强制、full-access、轮换和更新。
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ async def test_invalid_ak_token_rejected(httpx_client):
     assert res.status_code == 401
 
 
-# ── v0.15.11 · 过期 ────────────────────────────────────────────────────
+# ── 过期 ────────────────────────────────────────────────────
 
 
 async def _create_key(httpx_client, token, scopes=None, expires_in_days=None):
@@ -162,7 +162,7 @@ async def test_expired_key_rejected(httpx_client, super_admin, db_session):
     assert res.status_code == 401
 
 
-# ── v0.15.11 · scope 强制 + full-access ────────────────────────────────
+# ── scope 强制 + full-access ────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -209,7 +209,7 @@ async def test_jwt_not_scope_restricted(httpx_client, super_admin):
     assert res.status_code == 404  # 非 403
 
 
-# ── v0.15.11 · rotate / patch ──────────────────────────────────────────
+# ── rotate / patch ──────────────────────────────────────────
 
 
 @pytest.mark.asyncio

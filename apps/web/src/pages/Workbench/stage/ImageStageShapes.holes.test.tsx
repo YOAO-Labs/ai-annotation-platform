@@ -1,4 +1,4 @@
-// v0.23.5 WS-E · KonvaPolygon holes / multi_polygon 渲染集成测试 (ADR-0052 D5)。
+// KonvaPolygon holes / multi_polygon 渲染集成测试 (ADR-0052 D5)。
 //
 // 三层分工 (见 konvaMock.tsx 顶部注释):
 //   1. 路径构造纯函数 → evenOddFill.test.ts (已覆盖)

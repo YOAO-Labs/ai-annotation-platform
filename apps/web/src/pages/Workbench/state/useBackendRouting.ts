@@ -1,5 +1,5 @@
 /**
- * v0.14.18 · 多 ML Backend 能力路由 (交互线).
+ * 多 ML Backend 能力路由 (交互线).
  *
  * 一个项目注册多个 backend 时, 工作台 AI 从"单 active 后端驱动一切"改成"按角色 + 能力路由":
  * 交互工具 (point/interactive_box/exemplar) 各自解析到支持该 prompt 的交互后端, 批量线另走 batchBackendId。
@@ -16,7 +16,7 @@ import { mlBackendsApi, mlBackendSetupQueryKey, type MLBackendCapability } from 
 import { INTERACTIVE_ROUTE_PROMPT_IDS } from "@/api/generated/capabilityVocab.gen";
 
 /**
- * 交互 prompt 集合 (进画布交互工具线; text 归批量线不在此)。v0.18.30 · SSOT 来自后端
+ * 交互 prompt 集合（不含批量文本 prompt）。单一事实源来自后端
  * capability_registry 的 PROMPTS.interactive_route, 经 codegen 生成 (消除手抄漂移:
  * 后端新增 interactive prompt 前端自动认)。当前含 point/interactive_box/exemplar +
  * 预留 scribble/sketch/mask (无 backend 消费时 candidatesFor 为空, 工具仍灰, 无副作用)。
@@ -281,11 +281,11 @@ export interface BackendRoutingArgs {
   /** 项目默认后端 (ml_backend_id)。 */
   defaultBackendId: string | null;
   /**
-   * v0.18.31 · 服务端持久化的交互后端偏好 (按 project, 经 useInteractiveBackendPref 注入)。
+   * 服务端持久化的交互后端偏好 (按 project, 经 useInteractiveBackendPref 注入)。
    * 替代旧 localStorage `wb:preferred-interactive` (不跨设备 = BUG)。
    */
   savedInteractiveBackendId?: string | null;
-  /** v0.18.31 · 写回服务端偏好 (debounced); 用户切换交互后端时调用。 */
+  /** 写回服务端偏好 (debounced); 用户切换交互后端时调用。 */
   onSaveInteractiveBackend: (id: string | null) => void;
 }
 
@@ -375,7 +375,7 @@ export function useBackendRouting({
   }, [capSignature]);
 
   // preferred: 优先用服务端持久化偏好 (若仍是合法交互候选), 否则按默认规则。
-  // v0.18.31 · 偏好来源从 localStorage 迁到注入的 savedInteractiveBackendId (跨设备)。
+  // 偏好来源从 localStorage 迁到注入的 savedInteractiveBackendId (跨设备)。
   const [preferredOverride, setPreferredOverride] = useState<string | null>(null);
   useEffect(() => {
     setPreferredOverride(savedInteractiveBackendId ?? null);

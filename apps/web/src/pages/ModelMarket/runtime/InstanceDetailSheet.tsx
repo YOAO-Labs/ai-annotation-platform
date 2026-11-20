@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 · instance detail Sheet (plan §6.2 / §10).
+ * instance detail Sheet (plan §6.2 / §10).
  *
  * Opened from a member row's "详情" button. Pushes the full model residency
  * pool, cache stats, variant catalog, raw builder/borrower/generation/gate/

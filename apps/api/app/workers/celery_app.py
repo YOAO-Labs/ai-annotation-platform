@@ -41,11 +41,11 @@ celery_app = Celery(
         "app.workers.point_cloud_quality",
         "app.workers.mask_repair",
         "app.workers.mask_format_import",
-        # v0.10.16 · async_jobs 兜底信号 + DuckDB 分析同步
+        # async_jobs 兜底信号 + DuckDB 分析同步
         "app.workers.signals",
         "app.workers.analytics",
         "app.workers.async_jobs_cleanup",
-        # v0.10.27 · 导出异步化 + 过期产物清理
+        # 导出异步化 + 过期产物清理
         "app.workers.export",
         "app.workers.training_dataset",
         "app.workers.sample_evaluations",
@@ -55,7 +55,7 @@ celery_app = Celery(
         "app.workers.learning_policy",
         "app.workers.training_study",
         "app.workers.export_cleanup",
-        # v0.11.15 · 外部连接器数据集导入
+        # 外部连接器数据集导入
         "app.workers.storage_probe",
         "app.workers.storage_usage",
         "app.workers.managed_original_verification",
@@ -67,16 +67,16 @@ celery_app = Celery(
         "app.workers.dataset_quality",
         "app.workers.dataset_quality_review",
         "app.workers.dataset_source_sync",
-        # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
+        # 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",
-        # v0.10.25 · worker 心跳上报
+        # worker 心跳上报
         "app.workers.heartbeat",
-        # v0.10.25 · predictions 月分区维护（ADR-0006 Stage 2）
+        # predictions 月分区维护（ADR-0006）
         "app.workers.prediction_partition",
-        # v0.11.0 · ADR-0027 双写一致性对账（A 组安全网）
+        # ADR-0027 · 双写一致性对账
         "app.workers.feedback_reconcile",
-        # v0.21.7 · 单帧分支批量逐帧预标注 fan-out (段任务 + chord 收尾)
+        # 单帧分支批量逐帧预标注 fan-out (段任务 + chord 收尾)
         "app.workers.frame_preannotate",
     ],
 )
@@ -87,12 +87,9 @@ celery_app.conf.update(
     task_track_started=True,
     worker_max_memory_per_child=512_000,
     worker_direct=True,
-    # v0.10.25 · 默认队列从 Celery 内置 "celery" 改为 "default"。worker 订阅
-    # default,ml,media,gpu,cleanup,audit —— 不含 "celery", 故任何未在 task_routes 显式
-    # 路由的任务(beat 的 ensure_future_*_partitions / mark_inactive_offline
-    # / process_deactivation_requests / refresh_user_perf_mv 等)此前都落进无人消费的 "celery"
-    # 队列堆积、永不执行。收口到 default 让兜底任务真正跑起来。
-    # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
+    # 未显式路由的任务（如部分 beat 定时任务）进入 default。
+    # worker 不订阅 Celery 内置的 "celery" 队列。
+    # beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
         "maintain-original-cache": {
@@ -151,32 +148,32 @@ celery_app.conf.update(
             "task": "app.workers.cleanup.purge_unreferenced_raster_masks",
             "schedule": crontab(hour=3, minute=20),
         },
-        # v0.8.1 · 自助注销冷静期到期处理（每日 04:00 UTC）
+        # 自助注销冷静期到期处理（每日 04:00 UTC）
         "process-deactivation-requests": {
             "task": "app.workers.deactivation.process_deactivation_requests",
             "schedule": crontab(hour=4, minute=0),
         },
-        # v0.8.1 · 审计分区每月维护：25 日提前建未来分区
+        # 审计分区每月维护：25 日提前建未来分区
         "ensure-future-audit-partitions": {
             "task": "app.workers.audit_partition.ensure_future_audit_partitions",
             "schedule": crontab(day_of_month=25, hour=3, minute=0),
         },
-        # v0.10.25 · predictions 月分区维护（ADR-0006 Stage 2）：25 日 03:30 提前建未来分区
+        # predictions 月分区维护（ADR-0006）：25 日 03:30 提前创建未来分区。
         "ensure-future-prediction-partitions": {
             "task": "app.workers.prediction_partition.ensure_future_prediction_partitions",
             "schedule": crontab(day_of_month=25, hour=3, minute=30),
         },
-        # v0.11.0 · ADR-0027 双写一致性对账：每日 03:00 UTC（避开 03:30 分区维护）
+        # ADR-0027 · 双写一致性对账：每日 03:00 UTC（避开 03:30 分区维护）
         "reconcile-annotation-feedback": {
             "task": "app.workers.feedback_reconcile.reconcile_annotation_feedback",
             "schedule": crontab(hour=3, minute=0),
         },
-        # v0.8.1 · 审计冷数据归档：每月 2 日把保留期外分区归档至 MinIO 后 DROP
+        # 审计冷数据归档：每月 2 日把保留期外分区归档至 MinIO 后 DROP
         "archive-old-audit-partitions": {
             "task": "app.workers.audit_partition.archive_old_audit_partitions",
             "schedule": crontab(day_of_month=2, hour=3, minute=0),
         },
-        # v0.8.4 · 效率看板物化视图：每小时第 5 分钟 REFRESH MATERIALIZED VIEW CONCURRENTLY
+        # 效率看板物化视图：每小时第 5 分钟 REFRESH MATERIALIZED VIEW CONCURRENTLY
         "refresh-user-perf-mv": {
             "task": "app.workers.cleanup.refresh_user_perf_mv",
             "schedule": crontab(minute=5),
@@ -186,12 +183,12 @@ celery_app.conf.update(
             "task": "app.workers.cleanup.refresh_audit_bi_mv",
             "schedule": crontab(hour=0, minute=10),
         },
-        # v0.8.3 · 在线状态心跳：每 2 分钟扫描，把超 OFFLINE_THRESHOLD_MINUTES 未活跃的 online 用户置 offline
+        # 在线状态心跳：每 2 分钟扫描，把超 OFFLINE_THRESHOLD_MINUTES 未活跃的 online 用户置 offline
         "mark-inactive-offline": {
             "task": "app.workers.presence.mark_inactive_offline",
             "schedule": crontab(minute="*/2"),
         },
-        # v0.8.6 F2 · ML Backend 周期健康检查：每 60s 扫所有 backend 调 /health，串行 + 0-3s 抖动错峰
+        # ML Backend 周期健康检查：每 60s 扫所有 backend 调 /health，串行 + 0-3s 抖动错峰
         "check-ml-backends-health": {
             "task": "app.workers.ml_health.check_ml_backends_health",
             "schedule": crontab(minute="*"),
@@ -203,13 +200,13 @@ celery_app.conf.update(
             "schedule": crontab(minute="*"),
             "options": {"expires": 55},
         },
-        # v0.9.11 PerfHud · ML Backend 实时统计推送：每 1s 拉所有 active backend /health → publish 到
+        # ML Backend 实时统计推送：每 1s 拉所有 active backend /health → publish 到
         # ml-backend-stats:global. 仅在 WS 订阅者计数 > 0 时执行实拉, 0 订阅者时短路 skip 节省 GPU 成本.
         "publish-ml-backend-stats": {
             "task": "app.workers.ml_health.publish_ml_backend_stats",
             "schedule": timedelta(seconds=1),
         },
-        # v0.9.25 · 视频帧服务缓存 TTL housekeeping。
+        # 视频帧服务缓存 TTL housekeeping。
         "cleanup-video-frame-assets": {
             "task": "app.workers.media.cleanup_video_frame_assets",
             "schedule": crontab(hour=2, minute=30),
@@ -229,12 +226,12 @@ celery_app.conf.update(
             "task": "app.workers.image_pyramid.reconcile_image_media",
             "schedule": crontab(hour=2, minute=45),
         },
-        # v0.10.16 · DuckDB 离线分析视图同步（每日 02:30 UTC）
+        # DuckDB 离线分析视图同步（每日 02:30 UTC）
         "sync-to-duckdb": {
             "task": "app.workers.analytics.sync_to_duckdb",
             "schedule": crontab(hour=2, minute=30),
         },
-        # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        # async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
         "reconcile-managed-original-references": {
             "task": "app.workers.managed_original_reclaim.schedule_reference_reconciliation",
             "schedule": crontab(hour=3, minute=45),
@@ -259,7 +256,7 @@ celery_app.conf.update(
             "task": "app.workers.async_jobs_cleanup.purge_old_async_jobs",
             "schedule": crontab(hour=4, minute=15),
         },
-        # v0.10.27 · 导出产物缓存清理：每日 04:30 删 expires_at 过期的 export_artifacts 行
+        # 导出产物缓存清理：每日 04:30 删 expires_at 过期的 export_artifacts 行
         "purge-expired-export-artifacts": {
             "task": "app.workers.export_cleanup.purge_expired_export_artifacts",
             "schedule": crontab(hour=4, minute=30),
@@ -268,12 +265,10 @@ celery_app.conf.update(
             "task": "app.workers.dataset_import_delivery.relay_dataset_import_deliveries",
             "schedule": timedelta(seconds=10),
         },
-        # v0.11.18 · worker 心跳已从 beat 任务改为 worker bootstep（每个 worker 进程自身
-        # 定时写 Redis，见 heartbeat.py），不再由 beat 派发，故此处移除。
     },
 )
 
-# v0.11.18 · 注册心跳 bootstep：每个 worker 进程在自身内部定时器里周期写 celery:hb:{node}，
+# 注册心跳 bootstep：每个 worker 进程在自身内部定时器里周期写 celery:hb:{node}，
 # 不依赖 broker fanout 投递（Redis broker 的 Broadcast 队列分发不可靠），多 worker 各自上报。
 from app.workers.heartbeat import HeartbeatStep  # noqa: E402
 

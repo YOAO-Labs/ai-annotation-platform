@@ -1,5 +1,5 @@
 /**
- * v0.23.4 · pure parser for the defensive ML Backend residency payload.
+ * pure parser for the defensive ML Backend residency payload.
  *
  * Extracted from the legacy `RuntimeObservePanel.tsx` (P4) so the new
  * `InstanceDetailSheet` and any future diagnostic surface can consume the same

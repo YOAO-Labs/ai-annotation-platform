@@ -202,7 +202,7 @@ scene 模式项目在关联数据集时（经新建项目向导）会**自动**�
 
 ## 批次导出
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/projects/batch-export-dialog.png — 导出格式选择面板 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/projects/batch-export-dialog.png — 导出格式选择面板 [manual] -->
 
 项目管理员可以按批次导出当前批次内的任务标注。支持格式按项目数据类型如下：
 

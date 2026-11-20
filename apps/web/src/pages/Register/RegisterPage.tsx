@@ -70,7 +70,7 @@ function OpenRegisterForm() {
   const [pwd2, setPwd2] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  // v0.12.0 · 注册后需邮箱验证时切到「验证邮件已发送」态（不进站）
+  // 注册后需邮箱验证时切到「验证邮件已发送」态（不进站）
   const [verificationSentTo, setVerificationSentTo] = useState<string | null>(null);
   const captchaRequired = isCaptchaRequired();
 

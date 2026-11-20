@@ -1,6 +1,6 @@
 import { apiClient } from "./client";
 
-/** v0.10.36 · /video-tracker-jobs — 视频追踪任务聚合监控.
+/** /video-tracker-jobs — 视频追踪任务聚合监控.
  *
  * 后端返回任务执行态与候选审阅态。 */
 export type VideoTrackerJobStatus =

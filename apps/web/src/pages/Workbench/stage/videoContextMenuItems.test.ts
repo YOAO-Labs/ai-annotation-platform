@@ -1,5 +1,5 @@
 /**
- * v0.16.4 · 视频右键菜单 builder 纯函数测试(栈无关,SVG + Konva 共用)。
+ * 视频右键菜单 builder 纯函数测试(栈无关,SVG + Konva 共用)。
  */
 import { describe, expect, it, vi } from "vitest";
 import type {

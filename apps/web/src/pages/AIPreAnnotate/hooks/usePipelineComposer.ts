@@ -1,5 +1,5 @@
 /**
- * 编排搭建的共用状态机 hook (v0.21.0 收尾优化 · 方案 B refactor).
+ * 编排搭建的共用状态机 hook。
  *
  * 把 ProjectDetailPanel 与 GlobalPipelineLibraryPage 都要的 "受限 DAG + 键冲突判据"
  * 从两页里提出来. 只共用**结构层** — 阶段图 (stagesGraph) / 各卡 payload+caps 收集 /
@@ -25,7 +25,7 @@ import {
   type StageEntry,
 } from "../utils/pipelineGraph";
 
-// v0.21.6 · 终态初始图: 输入节点(纯数据源) + 一个首模型 stage(承接源模型配置)。
+// 终态初始图: 输入节点(纯数据源) + 一个首模型 stage(承接源模型配置)。
 const initialGraph = (): StageEntry[] => [
   { sid: ROOT_SID, parentSid: null },
   { sid: SOURCE_SID, parentSid: ROOT_SID },
@@ -89,7 +89,7 @@ export interface UsePipelineComposerReturn {
 export function usePipelineComposer(args: UsePipelineComposerArgs): UsePipelineComposerReturn {
   const { availableBackendCount, onWarn, onCascadeDelete } = args;
 
-  // v0.21.6 · 输入节点(纯数据源) + 首模型 stage 常驻; 默认选中首模型 stage(输入节点是被动数据源)。
+  // 输入节点(纯数据源) + 首模型 stage 常驻; 默认选中首模型 stage(输入节点是被动数据源)。
   const [stagesGraph, setStagesGraph] = useState<StageEntry[]>(initialGraph);
   const [selectedSid, setSelectedSid] = useState<string>(SOURCE_SID);
   const stagePayloadsRef = useRef<Record<string, PipelineStagePayload | null>>({});
@@ -153,7 +153,7 @@ export function usePipelineComposer(args: UsePipelineComposerArgs): UsePipelineC
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [stagesGraph, stageTick],
   );
-  // v0.21.6 · 输入节点(纯数据源)与源式 stage(父=输入节点, 走 cfg/PreannotateConfigForm) 的就绪
+  // 输入节点(纯数据源)与源式 stage(父=输入节点, 走 cfg/PreannotateConfigForm) 的就绪
   // 由调用方 cfg.configReady 门控, 不进复合器 —— 这里仅判 StageCard 配置的下游卡(父=模型 stage)。
   const allDownstreamReady = stagesGraph.every(
     (e, i) => e.parentSid == null || e.parentSid === ROOT_SID || downstreamPayloads[i] != null,

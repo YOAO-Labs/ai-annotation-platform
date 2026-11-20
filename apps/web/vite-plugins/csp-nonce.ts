@@ -3,7 +3,7 @@ import type { Plugin } from "vite";
 const PLACEHOLDER = "__CSP_NONCE__";
 
 /**
- * v0.9.11 · CSP nonce 占位符注入。
+ * CSP nonce 占位符注入。
  *
  * build 时给 index.html 中所有 `<script>` / `<style>` 标签加
  * `nonce="__CSP_NONCE__"`，并插入 `<meta name="csp-nonce" content="__CSP_NONCE__">`。

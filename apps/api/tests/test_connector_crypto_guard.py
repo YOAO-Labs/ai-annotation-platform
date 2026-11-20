@@ -1,4 +1,4 @@
-"""v0.11.14 · 连接器凭据加密 + 主机白名单/SSRF 校验单测（无 DB）。"""
+"""连接器凭据加密 + 主机白名单/SSRF 校验单测（无 DB）。"""
 
 from __future__ import annotations
 

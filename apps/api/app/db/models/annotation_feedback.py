@@ -1,8 +1,8 @@
-"""I18 · AnnotationFeedback 统一反馈表 (取经合集 §2.2 落地第一步).
+"""AnnotationFeedback 统一反馈表。
 
 设计取舍 (见 docs/adr/0027-annotation-feedback-unified-table.md):
-- 仅立新表 + 新 API; 旧 bug_reports / annotation_comments / tasks.reject_reason 保持不动.
-- 下一切片 (v0.10.20) 加 UNION ALL view 与双写; 再下一切片 (v0.10.21) 切单源.
+- 反馈统一读取；旧 bug_reports、annotation_comments 与 task 驳回记录由各自写路径维护，
+  有项目归属的旧记录由对应写路径在同一事务中镜像。
 - anchor_type ∈ {project, task, annotation, pixel, point_cloud} 统一锚点模型.
   pixel anchor 在 anchor_position 携带 {x, y, frame?} 像素相对坐标 (与 geometry JSONB 同语义).
 - kind ∈ {issue, comment, reject, bug}; reject 走专项 helper 写入 (不与 task.reject_reason 双写, 见 ADR).

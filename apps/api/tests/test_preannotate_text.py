@@ -1,4 +1,4 @@
-"""v0.9.5 · POST /projects/{id}/preannotate 文本批量预标触发端点。
+"""POST /projects/{id}/preannotate 文本批量预标触发端点。
 
 覆盖参数校验四条主路径：
 1. backend 不存在 → 404
@@ -59,7 +59,7 @@ async def _seed(
         state="connected",
     )
     proj.ml_backend_pool_id = pool.id
-    # v0.19.0 ADR-0044 · 预标校验项目「已启用」, 为该 backend 建启用关联
+    # ADR-0044 · 预标校验项目「已启用」, 为该 backend 建启用关联
     db.add(ProjectMLBackendPool(project_id=proj.id, pool_id=pool.id, enabled=True))
     await db.flush()
 
@@ -331,7 +331,7 @@ async def test_preannotate_happy_path_text_box_mode(
 async def test_preannotate_forwards_model_id_and_task_type(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    """v0.14.9 · 协议 v2: model_id / task_type 透传到 batch_predict.delay kwargs。"""
+    """协议 v2: model_id / task_type 透传到 batch_predict.delay kwargs。"""
     owner, token = super_admin
     proj, backend, batch = await _seed(db_session, owner.id)
     resp = await httpx_client.post(

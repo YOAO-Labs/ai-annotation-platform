@@ -1,4 +1,4 @@
-"""v0.7.2 · GET /annotations/{id}/history — 单个标注框的全生命周期时间线。
+"""GET /annotations/{id}/history — 单个标注框的全生命周期时间线。
 
 合并 3 类事件：
 1. audit_logs.target_type='annotation' AND target_id=:id（create/update/delete/comment_*）

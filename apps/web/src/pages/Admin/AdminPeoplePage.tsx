@@ -114,7 +114,7 @@ export function AdminPeoplePage() {
   const [exporting, setExporting] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
-  // v0.12.6 (A3) · 项目级范围:project_admin 仅见自有项目且必须选定一个项目。
+  // (A3) · 项目级范围:project_admin 仅见自有项目且必须选定一个项目。
   const { role: userRole } = usePermissions();
   const isProjectAdmin = userRole === "project_admin";
   const { data: projects } = useProjects();
@@ -252,7 +252,7 @@ export function AdminPeoplePage() {
               value={sort}
               onChange={(v: string) => patch({ sort: v as PeopleSort }, { replace: false })}
             />
-            {/* v0.12.6 (A3) · 项目级范围下拉 */}
+            {/* (A3) · 项目级范围下拉 */}
             <FilterGroup label="项目" compact>
               <FilterSelect
                 className="max-w-[200px]"
@@ -474,14 +474,14 @@ function PersonDrawer({
   const navigate = useNavigate();
   const { data, isLoading } = useAdminPersonDetail(userId, period, project);
 
-  // v0.12.6 (A3) · reject/类别维度下钻:仅项目模式可下钻(tasks 查询需 project_id)。
+  // (A3) · reject/类别维度下钻:仅项目模式可下钻(tasks 查询需 project_id)。
   // 选中一个维度值 → 内联展开该项目内本人匹配任务列表。
   const [drill, setDrill] = useState<{ type: "reject" | "class"; value: string } | null>(null);
   const toggleDrill = (type: "reject" | "class", value: string) => {
     setDrill((cur) => (cur && cur.type === type && cur.value === value ? null : { type, value }));
   };
 
-  // v0.12.5 · 项目维度下钻:跳到该项目 review 队列按本人 assignee 过滤(复用后端 assignee_id 过滤)。
+  // 项目维度下钻:跳到该项目 review 队列按本人 assignee 过滤(复用后端 assignee_id 过滤)。
   const drillToProject = (projectId: string) => {
     navigate(`/review?project=${projectId}&assignee=${userId}`);
     onClose();
@@ -731,7 +731,7 @@ function PersonDrawer({
   );
 }
 
-// v0.12.6 (A3) · 下钻任务列表:项目内本人按 reject 原因 / 类别过滤的任务(只读,展示 display_id + 状态)。
+// (A3) · 下钻任务列表:项目内本人按 reject 原因 / 类别过滤的任务(只读,展示 display_id + 状态)。
 function DrillTaskList({
   projectId,
   assigneeId,

@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · 工具维度类别 / 属性绑定 — 前端常量与映射.
+ * 工具维度类别 / 属性绑定 — 前端常量与映射.
  *
  * 与后端 ``app/schemas/_jsonb_types.py`` 中 ``ToolUnitId`` Literal 完全对齐.
  * 新增 unit 时两端同步;codegen 派生的 schema 仍是 dict<string, ToolBinding>,
@@ -134,7 +134,7 @@ export const TOOL_UNIT_GROUPS: ReadonlyArray<ToolUnitGroupSpec> = [
     icon: "cube",
     tools: ["lidar_box"],
     dataTypes: ["lidar"],
-    // v0.13.3 · 解禁: 点云项目可在向导配 3D 框类别 (3D 编辑交互另行实现)
+    // 解禁: 点云项目可在向导配 3D 框类别 (3D 编辑交互另行实现)
     available: true,
   },
   {

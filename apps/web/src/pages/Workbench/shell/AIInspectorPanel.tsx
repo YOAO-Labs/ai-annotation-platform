@@ -48,10 +48,10 @@ interface AIInspectorPanelProps {
   onResize: (w: number) => void;
   /** Increment B · 视频工作台不启用属性快捷键区域（属性数字键仅图片流支持）。 */
   isVideoTask?: boolean;
-  /** v0.20.19 · 属性区折叠态 (受控, 走 workbench.layout 持久); 缺省回落组件内会话态。 */
+  /** 属性区折叠态 (受控, 走 workbench.layout 持久); 缺省回落组件内会话态。 */
   attrCollapsed?: boolean;
   onToggleAttrCollapsed?: () => void;
-  /** v0.20.22 · AI 待审 / 人工两大分组的折叠态 (受控, 走 workbench.layout 持久)。
+  /** AI 待审 / 人工两大分组的折叠态 (受控, 走 workbench.layout 持久)。
    *  与 BoxesList 内部的 `collapsedGroups` (人工段内的子组/GroupCard 折叠) 命名区分:
    *  这里控制的是"两大分组头"整体折叠。缺省 = 展开。 */
   aiSectionCollapsed?: boolean;
@@ -75,14 +75,14 @@ interface AIInspectorPanelProps {
   dimmedAiIds?: Set<string>;
   imageWidth: number | null;
   imageHeight: number | null;
-  /** 项目级属性 schema（v0.5.4）。空时不渲染表单。 */
+  /** 项目级属性 schema。空时不渲染表单。 */
   attributeSchema?: AttributeSchema;
   /** 选中的 AnnotationResponse（含 attributes / class_name），用于属性表单数据源。 */
   selectedAnnotation?: AnnotationResponse | null;
   /** 属性表单提交回调（防抖后触发）。 */
   onUpdateAttributes?: (annotationId: string, next: Record<string, unknown>) => void;
   /**
-   * v0.10.20 · I12 多选批量编辑回调; 多选时 AttributeForm.onChange 改走此路径调用 useAnnotationBulkUpdate.
+   * 多选批量编辑回调; 多选时 AttributeForm.onChange 改走此路径调用 useAnnotationBulkUpdate.
    * 不传时多选只显示 batch banner, 但 onChange 仍按单条 PATCH 走 (退化兼容).
    */
   onBulkUpdateAttributes?: (ids: string[], patch: { attributes?: Record<string, unknown> }) => void;
@@ -96,26 +96,26 @@ interface AIInspectorPanelProps {
   onSelectVideoObject?: VideoSelectionCommand;
   onAcceptPrediction: (b: AiBox, attributeOverrides?: Record<string, unknown>) => void;
   onRejectPrediction?: (b: AiBox) => void;
-  /** v0.10.8 · I11 · polygon 候选行展示「精修」按钮 → 启动 Mask 编辑器。 */
+  /** polygon 候选行展示「精修」按钮 → 启动 Mask 编辑器。 */
   onRefinePrediction?: (b: AiBox) => void;
-  /** v0.10.9 · 已落库 user polygon 行展示「精修」按钮 → 启动 Mask 编辑器（update mutation）。 */
+  /** 已落库 user polygon 行展示「精修」按钮 → 启动 Mask 编辑器（update mutation）。 */
   onRefineUserPolygon?: (annotationId: string) => void;
   onEditRasterMask?: (annotationId: string) => void;
   onClearSelection: () => void;
   onDeleteUserBox: (id: string) => void;
   onChangeUserBoxClass?: (id: string) => void;
-  /** v0.10.5 M4-β · I15 切换 shape 状态位（lock/hidden）。 */
+  /** 切换 shape 状态位（lock/hidden）。 */
   onToggleUserBoxFlag?: (id: string, flag: "is_locked" | "is_hidden") => void;
-  /** v0.6.5 · 任务已锁定（review/completed），属性表单只读。 */
+  /** 任务已锁定（review/completed），属性表单只读。 */
   readOnly?: boolean;
   videoTrackPanel?: React.ReactNode | ((frameFilter: FrameFilter) => React.ReactNode);
-  /** v0.13.10 · 分离为同窗口浮窗，由 WorkbenchLayout 负责实际渲染分支。 */
+  /** 分离为同窗口浮窗，由 WorkbenchLayout 负责实际渲染分支。 */
   onDetach?: () => void;
   floating?: boolean;
-  /** v0.14.9 · active model 与项目配置的兼容性警告 (非阻断)；空时不渲染。 */
+  /** active model 与项目配置的兼容性警告 (非阻断)；空时不渲染。 */
   capabilityWarnings?: CapabilityWarning[];
   /**
-   * v0.20.2 · 「采纳后该属性将丢失」警告的一键补全回调: 把 model 自报字段补进项目所有启用工具单位。
+   * 「采纳后该属性将丢失」警告的一键补全回调: 把 model 自报字段补进项目所有启用工具单位。
    * 仅 warning.fillable 存在时渲染 CTA; 缺省 = 不渲染补全按钮。
    */
   onFillAttribute?: (field: AttributeField) => void;
@@ -135,7 +135,7 @@ interface PredictionSourceFilterState {
 }
 
 export function AIInspectorPanel({
-  // v0.11.5+ · width/onResize 仍在 props 接口里，但列宽拖拽 handle 已上移到
+  // width/onResize 仍在 props 接口里，但列宽拖拽 handle 已上移到
   // WorkbenchLayout 的 .rightSplit（全高），故此处不再渲染/解构它们。
   open,
   taskId,
@@ -191,8 +191,8 @@ export function AIInspectorPanel({
         ? new Set([selectedId])
         : new Set<string>();
   const multiCount = selSet.size > 1 ? selSet.size : 0;
-  // 底部属性区折叠态（v0.11.28 上下分栏：属性区固定在列表下方，可折叠让出列表空间）。
-  // v0.20.19 · 受控优先(走 workbench.layout 持久), 缺省回落组件内会话态(测试/独立使用)。
+  // 底部属性区固定在列表下方，可折叠让出列表空间。
+  // 受控优先(走 workbench.layout 持久), 缺省回落组件内会话态(测试/独立使用)。
   const [attrCollapsedLocal, setAttrCollapsedLocal] = useState(false);
   const attrCollapsed = attrCollapsedProp ?? attrCollapsedLocal;
   const toggleAttrCollapsed = onToggleAttrCollapsed ?? (() => setAttrCollapsedLocal((v) => !v));
@@ -210,7 +210,7 @@ export function AIInspectorPanel({
     !selectedAnnotation && selSet.size === 1
       ? (aiBoxes.find((b) => selSet.has(b.id)) ?? null)
       : null;
-  // v0.18.3 · 候选属性审阅 + 分步采纳: 预览改为可编辑, 改动存本地 state (按 box id 重置),
+  // 候选属性审阅 + 分步采纳: 预览改为可编辑, 改动存本地 state (按 box id 重置),
   // 采纳时经 onAcceptPrediction 的 attributeOverrides 把改后值原子落库 (而非一步全采纳原值)。
   const [editedAiBoxAttrs, setEditedAiBoxAttrs] = useState<Record<string, unknown> | null>(null);
   const editedBoxIdRef = useRef<string | null>(null);
@@ -404,7 +404,7 @@ export function AIInspectorPanel({
                 className={selectedAnnotation.class_name}
                 attributes={selectedAnnotation.attributes ?? {}}
                 attributesMeta={selectedAnnotation.attributes_meta}
-                // v0.10.20 · I12 多选批量: 有 onBulkUpdateAttributes 且选中 >1 时 fan-out, 否则单条 PATCH.
+                // 多选批量: 有 onBulkUpdateAttributes 且选中 >1 时 fan-out, 否则单条 PATCH.
                 onChange={(next) => {
                   if (multiCount > 1 && onBulkUpdateAttributes) {
                     onBulkUpdateAttributes(Array.from(selSet), { attributes: next });
@@ -423,7 +423,7 @@ export function AIInspectorPanel({
         </div>
       )}
 
-      {/* v0.18.0 · 候选属性预览; v0.18.3 · 可编辑 + 分步采纳: 审阅多阶段预标产出的属性, 改后再采纳。 */}
+      {/* 候选属性预览：审阅多阶段预标产出的属性，可编辑后分步采纳。 */}
       {aiBoxAttrs && selectedAiBox && attributeSchema && (
         <div className="flex max-h-[45%] flex-[0_0_auto] flex-col border-t border-border bg-card">
           <button
@@ -517,13 +517,13 @@ interface AIPredictionPopoverProps {
   onRetryRequest?: () => void;
   onCancelRequest?: () => void;
   onReviewCandidates?: () => void;
-  // v0.21.10 · 视频任务时面板做单帧检测 (方案 a); 留一句指引告诉找整段追踪的用户去哪跑。
+  // 视频任务时面板做单帧检测 (方案 a); 留一句指引告诉找整段追踪的用户去哪跑。
   isVideoTask?: boolean;
   confThreshold: number;
   aiTakeoverRate: number;
   onClose: () => void;
   onRunAi: () => void;
-  // v0.18.28 · 项目存了编排 (v0.18.27) 时多出「运行当前题（按项目编排）」入口。
+  // 项目保存编排后才显示「运行当前题（按项目编排）」。
   // popover 仍是执行器、非编排编辑器: 编排在 /ai-pre 定义, 这里只把它跑当前一图。
   hasProjectPipeline?: boolean;
   projectPipelineStageCount?: number;
@@ -535,7 +535,7 @@ interface AIPredictionPopoverProps {
   /** Count of loaded candidates that remain eligible for the current-task batch action. */
   batchEligibleCount?: number;
   onSetConfThreshold: (v: number) => void;
-  // v0.10.23 · 设计 B · 文本输入段下沉到 InteractiveToolBar; popover 不再承载 SAM 文本提示控件.
+  // 设计 B · 文本输入段下沉到 InteractiveToolBar; popover 不再承载 SAM 文本提示控件.
   taskAiCost?: number;
   taskAiAvgMs?: number | null;
   taskAiPredictionCount?: number;
@@ -1101,13 +1101,13 @@ type Row =
       totalCount: number;
       key: string;
       label: string;
-      /** v0.20.22 · header 带上分组身份 + 折叠态 + 点击回调, 存在 onToggle 时 header 渲染为可点 button。 */
+      /** header 带上分组身份 + 折叠态 + 点击回调, 存在 onToggle 时 header 渲染为可点 button。 */
       sectionKey?: "ai" | "manual";
       collapsed?: boolean;
       onToggle?: () => void;
     }
   | { kind: "videoTracks"; key: string }
-  /** v0.20.9 · 父子标注: depth=1 的行是子框, 在其父框行下方缩进渲染。 */
+  /** 父子标注: depth=1 的行是子框, 在其父框行下方缩进渲染。 */
   | { kind: "user"; box: Annotation; key: string; depth?: number };
 
 function FrameFilterTabs({
@@ -1209,19 +1209,19 @@ interface BoxesListProps {
   onSelectVideoObject?: VideoSelectionCommand;
   onAcceptPrediction: (b: AiBox, attributeOverrides?: Record<string, unknown>) => void;
   onRejectPrediction?: (b: AiBox) => void;
-  /** v0.10.8 · I11 · 仅 polygon 候选会展示「精修」按钮，由 WorkbenchShell 注入 handleRefinePrediction。 */
+  /** 仅 polygon 候选会展示「精修」按钮，由 WorkbenchShell 注入 handleRefinePrediction。 */
   onRefinePrediction?: (b: AiBox) => void;
-  /** v0.10.9 · 已落库 user polygon 行的「精修」按钮，update mutation 替换 geometry。 */
+  /** 已落库 user polygon 行的「精修」按钮，update mutation 替换 geometry。 */
   onRefineUserPolygon?: (annotationId: string) => void;
   onEditRasterMask?: (annotationId: string) => void;
   readOnly?: boolean;
   onDeleteUserBox: (id: string) => void;
   onChangeUserBoxClass?: (id: string) => void;
-  /** v0.10.5 M4-β · I15 切换 shape 状态位（lock/hidden）。 */
+  /** 切换 shape 状态位（lock/hidden）。 */
   onToggleUserBoxFlag?: (id: string, flag: "is_locked" | "is_hidden") => void;
   onSeekFrame?: (frameIndex: number) => void;
   videoTrackPanel?: React.ReactNode | ((frameFilter: FrameFilter) => React.ReactNode);
-  /** v0.20.22 · AI 待审 / 人工两大分组头折叠 (透传自 AIInspectorPanel;
+  /** AI 待审 / 人工两大分组头折叠 (透传自 AIInspectorPanel;
    *  与内部 `collapsedGroups` 子组折叠区分, 独立跨设备持久)。 */
   aiSectionCollapsed?: boolean;
   onToggleAiSection?: () => void;
@@ -1334,10 +1334,10 @@ function BoxesList({
       collapsed: manualSectionCollapsed,
       onToggle: onToggleManualSection,
     });
-    // v0.20.22 · 人工分组整体收起时跳过所有成员行 (含 GroupCard/子组), 头 + 计数仍显示。
+    // 人工分组整体收起时跳过所有成员行 (含 GroupCard/子组), 头 + 计数仍显示。
     if (!manualSectionCollapsed) {
-      // v0.20.9 · 父子标注: 建 parent → children 映射。子框从顶层迭代中剔除, 改在父框行下方
-      // 缩进渲染 (depth=1)。parent 缩进是唯一主结构 (v0.21.3 已移除 group 分桶 legacy)。
+      // 父子标注: 建 parent → children 映射。子框从顶层迭代中剔除, 改在父框行下方
+      // 子标注在父标注下方缩进渲染 (depth=1)。
       const userIdSet = new Set(filteredUserBoxes.map((b) => b.id));
       const childrenByParent = new Map<string, Annotation[]>();
       for (const b of filteredUserBoxes) {
@@ -1358,7 +1358,7 @@ function BoxesList({
           kids.forEach((c) => out.push({ kind: "user", box: c, key: `user-${c.id}`, depth: 1 }));
       };
 
-      // v0.21.3 · 标注编组已删除: 顶层框平铺 (parent 缩进保留)。
+      // 标注编组已删除: 顶层框平铺 (parent 缩进保留)。
       topLevelBoxes.forEach(emitBoxWithChildren);
     }
     if (resolvedVideoTrackPanel) out.push({ kind: "videoTracks", key: "video-track-panel" });
@@ -1517,7 +1517,7 @@ function BoxesList({
                 )}
                 {r.kind === "header" &&
                   (r.onToggle ? (
-                    // v0.20.22 · 分组头可点折叠 (AI 待审 / 人工)。计数常驻显示; 收起时下方成员行整体跳过。
+                    // 分组头可点折叠 (AI 待审 / 人工)。计数常驻显示; 收起时下方成员行整体跳过。
                     <button
                       type="button"
                       onClick={r.onToggle}

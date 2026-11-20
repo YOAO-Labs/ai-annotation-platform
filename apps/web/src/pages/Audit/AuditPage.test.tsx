@@ -1,5 +1,5 @@
 /**
- * v0.9.14 · AuditPage 单测 — 多维筛选 + 分页 + 导出 + 追溯清除主路径.
+ * AuditPage 单测 — 多维筛选 + 分页 + 导出 + 追溯清除主路径.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";

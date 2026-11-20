@@ -1,4 +1,4 @@
-"""v0.8.1 · 自助注销冷静期 + Celery beat 处理路径验证。"""
+"""自助注销冷静期 + Celery beat 处理路径验证。"""
 
 from __future__ import annotations
 

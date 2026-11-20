@@ -124,7 +124,8 @@ def smtp_policy(**values) -> MailDeliveryPolicy:
 
 @pytest.mark.asyncio
 async def test_executor_sends_link_with_stable_message_id_and_safe_summary():
-    data = FakeData(lease(purpose="email_verification"))
+    verification = lease(purpose="email_verification")
+    data = FakeData(verification)
     messages = []
     policies = []
 
@@ -160,6 +161,8 @@ async def test_executor_sends_link_with_stable_message_id_and_safe_summary():
         "https://labels.example.test/app/verify-email?token=" + TOKEN
         in messages[0].get_content()
     )
+    deadline = verification.expires_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+    assert deadline in messages[0].get_content()
     assert data.finished[0][1:] == ("delivered", "sent", None)
 
 

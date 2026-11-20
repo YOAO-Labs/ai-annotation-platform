@@ -1,5 +1,5 @@
 /**
- * Histogram —— 直方图(v0.17.2,module.css → Tailwind)。flex 容器 + 命令式动态高度/颜色。
+ * Histogram —— 直方图，由 flex 容器和命令式动态高度、颜色组成。
  * 柱色走命令式 style.background;默认使用 --sc-brand。
  */
 interface HistogramProps {

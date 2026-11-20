@@ -1,4 +1,4 @@
-"""v0.21.27 · U-pvs-1 · runner 透传 PVS 点/多目标种子 (画布点 → PVS track)。
+"""U-pvs-1 · runner 透传 PVS 点/多目标种子 (画布点 → PVS track)。
 
 PVS backend 已支持 `context.seeds[]` (含 points), 缺口在平台侧: runner 需从 job.prompt
 读出 seeds 并经 TrackerContext → adapter context 透传。关键契约:

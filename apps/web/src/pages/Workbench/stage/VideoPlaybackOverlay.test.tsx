@@ -544,7 +544,7 @@ describe("VideoPlaybackOverlay", () => {
     expect(onSeekByFrames).toHaveBeenNthCalledWith(2, -10);
   });
 
-  // v0.21.13 · 区间选择基建: 默认 purpose="loop" 时 Shift+拖仍提交循环区间 (零回归)。
+  // 区间选择基建: 默认 purpose="loop" 时 Shift+拖仍提交循环区间 (零回归)。
   it("commits a loop region on Shift+drag by default (range-select purpose loop)", () => {
     const onLoopRegionChange = vi.fn();
     const onRangeSelect = vi.fn();
@@ -561,7 +561,7 @@ describe("VideoPlaybackOverlay", () => {
     expect(onRangeSelect).not.toHaveBeenCalled();
   });
 
-  // v0.21.13 · 区间选择基建: purpose="chapter-draft" 时 Shift+拖走通用 onRangeSelect, 草稿带用章节样式。
+  // 区间选择基建: purpose="chapter-draft" 时 Shift+拖走通用 onRangeSelect, 草稿带用章节样式。
   it("routes a chapter-draft brush to onRangeSelect with the purpose tag", () => {
     const onLoopRegionChange = vi.fn();
     const onRangeSelect = vi.fn();
@@ -582,7 +582,7 @@ describe("VideoPlaybackOverlay", () => {
     expect(onLoopRegionChange).not.toHaveBeenCalled();
   });
 
-  // v0.21.14 · propagate-range 用途保留普通拖 seek, 仅 Shift+拖才圈选 (对话框开着仍能 scrub 预览)。
+  // propagate-range 用途保留普通拖 seek, 仅 Shift+拖才圈选 (对话框开着仍能 scrub 预览)。
   it("keeps plain-drag seek under propagate-range purpose; only Shift+drag brushes", () => {
     const onSeek = vi.fn();
     const onRangeSelect = vi.fn();
@@ -682,7 +682,7 @@ describe("VideoPlaybackOverlay", () => {
     expect(onSeek).toHaveBeenCalledWith(4);
   });
 
-  // v0.21.13 WS3 · 拖章节条右边界 → 松手 onChapterResize 落新起止帧 (拖动中本地预览)。
+  // 拖章节条右边界 → 松手 onChapterResize 落新起止帧 (拖动中本地预览)。
   it("resizes a chapter by dragging its end handle and commits on pointer up", () => {
     const onChapterResize = vi.fn();
     const { getByTestId } = renderOverlay({
@@ -709,7 +709,7 @@ describe("VideoPlaybackOverlay", () => {
     expect(queryByTestId("video-chapter-resize-end")).toBeNull();
   });
 
-  // v0.21.14 WS3 · AI 传播对话框打开时在时间轴受控高亮影响范围。
+  // AI 传播对话框打开时在时间轴受控高亮影响范围。
   it("renders the propagate range highlight when provided", () => {
     const { getByTestId, queryByTestId, rerender } = renderOverlay();
     expect(queryByTestId("video-propagate-range")).toBeNull();
@@ -885,7 +885,7 @@ describe("VideoPlaybackOverlay", () => {
     expect(getByTestId("timeline-tracker-review-scope")).toHaveTextContent("F2–F7");
   });
 
-  // v0.21.13 WS4 · 时间轴章节条 hover 上报 + 受控高亮 (与侧栏行双向联动)。
+  // 时间轴章节条 hover 上报 + 受控高亮 (与侧栏行双向联动)。
   it("reports chapter hover and reflects the controlled hovered chapter", () => {
     const onHoverChapter = vi.fn();
     const { getByTestId, rerender } = renderOverlay({

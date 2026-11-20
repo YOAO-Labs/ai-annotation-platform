@@ -1,5 +1,5 @@
 /**
- * v0.16.0 · react-konva DOM stand-in mock(画布栈统一地基 · 决策 C 的工程落地)。
+ * react-konva DOM stand-in mock(画布栈统一地基 · 决策 C 的工程落地)。
  *
  * ⚠️ 本 mock 只验证「交互 + props 透传」,不验证真实 canvas 渲染。
  *     真实渲染回归交给 Playwright(见 e2e/tests/workbench-image-konva-smoke.spec.ts)。
@@ -78,7 +78,7 @@ const PASSTHROUGH_PROPS = [
   "listening",
   "id",
   "visible",
-  // v0.23.5 WS-E · fillRule=evenodd 标记 KonvaPolygon 走 sceneFunc holes/multi 分支,
+  // fillRule=evenodd 标记 KonvaPolygon 走 sceneFunc holes/multi 分支,
   // sceneFunc 本身是函数无法 JSON 化, 但 fillRule 的存在性可断言分支是否启用。
   "fillRule",
 ] as const;

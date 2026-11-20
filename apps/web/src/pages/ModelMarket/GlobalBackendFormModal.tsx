@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.19.0 · ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
+ * ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
  *
  * 字段：name / url / 认证 / GPU 静态 claim / max_concurrency / extra_params + 测试连接，
  * 调用全局注册表端点：新建 = createRegistry，编辑 = updateRegistry。
@@ -516,6 +516,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
           </label>
           <select
             id="global-backend-auth-method"
+            aria-describedby="global-backend-auth-method-help"
             value={authMethod}
             onChange={(e) => {
               setAuthMethod(e.target.value as MLBackendAuthMethod);
@@ -526,24 +527,36 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
           >
             <option value="none">none（无认证）</option>
             {Object.entries(MANAGED_LABELS).map(([provider, label]) => (
-              <option key={provider} value={`managed:${provider}`}>
+              <option
+                key={provider}
+                value={`managed:${provider}`}
+                disabled={!managedUrls[provider] || hintsQ.isError}
+              >
                 系统托管（{label}）
               </option>
             ))}
             <option value="token">token（手动 Bearer Token）</option>
           </select>
+          <p id="global-backend-auth-method-help" className={HELP_CLASS}>
+            {hintsQ.isPending
+              ? "正在读取部署的可信地址…"
+              : hintsQ.isError
+                ? "无法读取部署的可信地址；暂不能选择新的系统托管方式。"
+                : "只有部署配置了可信地址的服务可选系统托管；其他实例按服务端配置选择手动 Token 或无认证。"}
+          </p>
           {managedProvider && (
             <div className="mt-2 rounded-md bg-muted p-2.5 text-xs text-muted-foreground">
               <p>
-                {backend?.auth_method?.startsWith("managed:")
-                  ? "已保存系统托管认证。"
-                  : "保存时自动初始化认证。"}
-                平台会生成或复用私有凭据，与指定内置服务验证后同步保存，无需复制 Token。
+                {backend?.auth_method === authMethod ? "已保存此认证方式。" : ""}
+                保存时，平台会生成或复用此服务的私有凭据，并向部署指定的地址验证。无需复制 Token。
               </p>
               <p className="mt-1">
                 部署指定的服务地址：
-                <span className="font-mono">{managedUrl || "未配置"}</span>。
-                认证在保存时验证；普通健康检查不代表认证已就绪。
+                <span className="font-mono">
+                  {managedUrl ||
+                    (hintsQ.isPending ? "读取中" : hintsQ.isError ? "读取失败" : "未配置")}
+                </span>
+                。普通健康检查不代表认证已就绪。
               </p>
               <p className="mt-1">
                 旧服务需先升级共享目录挂载；已手动配置服务端 Token 的实例请继续使用手动认证。
@@ -582,8 +595,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
                 className={INPUT_CLASS}
               />
               <div id="global-backend-auth-help" className={HELP_CLASS}>
-                用于远程或自行配置的服务，填写与服务端相同的 Token。 YOLO 模型回流要求至少 32
-                个字符，并与 YOLO_MANAGED_MODELS_TOKEN 一致。 内置服务可改选「系统托管」自动初始化。
+                填写与服务端相同的 Token。YOLO 模型回流要求至少 32 个字符，并与
+                YOLO_MANAGED_MODELS_TOKEN 一致。
                 {backend?.auth_method === "token" &&
                   "留空仅保留已保存的令牌；若原本未配置，仍需填写。"}
               </div>

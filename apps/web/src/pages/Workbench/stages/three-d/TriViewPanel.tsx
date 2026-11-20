@@ -1,5 +1,5 @@
 /**
- * v0.13.5 · 三正交视图面板 (主 3D 视图右栏)。B-1: 只读渲染基建; B-2: 拖边/角精修。
+ * 三正交视图面板 (主 3D 视图右栏)。B-1: 只读渲染基建; B-2: 拖边/角精修。
  *
  * 结构:纵向 3 行 (top/side/front),每行一个 2D overlay (TriOrthoView) + 标题。点云底图由
  * PointCloudScene 的唯一 renderer 直接画进主 canvas 对应区域；本组件只量出 client rect 并下发，
@@ -9,7 +9,7 @@
  * 长/移; 拖拽中 onEditPsr(psr,false) 走 draft 实时四方同步, 松手 onEditPsr(psr,true) 落 PATCH。
  *
  * 生命周期:挂载时注册三视图布局与状态，卸载时从 PointCloudScene 注销。
- * v0.17.6 · module.css → Tailwind。
+ * module.css → Tailwind。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -18,7 +18,7 @@ import type { PointCloudVisibleRegions } from "./PointCloudTriViewPass";
 import { TriOrthoView, type TriSelected } from "./TriOrthoView";
 import type { TriView, Psr } from "./geometry/triview";
 
-// v0.17.6 · Tailwind class constants (was ThreeDWorkbench.module.css).
+// Tailwind class constants (was ThreeDWorkbench.module.css).
 const TRI_PANEL = "relative flex-1 flex min-h-0 flex-col gap-0 bg-transparent p-0";
 const TRI_ROW = "relative flex-1 min-h-0 border border-border overflow-hidden";
 const TRI_CAPTION =

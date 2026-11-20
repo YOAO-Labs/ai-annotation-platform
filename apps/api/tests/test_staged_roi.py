@@ -1,6 +1,6 @@
-"""v0.18.1 · 多阶段预标注 ROI 裁剪 + 属性回写纯函数单测 (路径 B M1).
+"""多阶段预标注 ROI 裁剪与属性回写的纯函数测试。
 
-- crop_inputs_from_boxes: 按 bbox 百分比裁 crop, pad 外扩, 跳过非 bbox / 旋转框。
+- crop_inputs_from_boxes: 按轴对齐框或多边形外接框裁剪、应用 pad，跳过旋转框。
 - merge_classify_attributes: 下游分类结果 attributes 按 id 回写到对应父框 (union)。
 """
 
@@ -254,7 +254,7 @@ def test_merge_ignores_out_of_range_or_empty():
     assert "attributes" not in boxes[0] or not boxes[0].get("attributes")
 
 
-# ── v0.18.12 · geometry-prompt 投递 (box-seg 下游) ──
+# ── geometry-prompt 投递 (box-seg 下游) ──
 
 
 def test_geometry_prompts_normalize_and_index():
@@ -295,7 +295,7 @@ def test_geometry_prompts_skips_rotated_and_degenerate():
     assert batch.prompts[0]["parent_box_idx"] == 2
 
 
-# ── v0.18.15 · crop 坐标回映 + polygon 父框 ──
+# ── crop 坐标回映 + polygon 父框 ──
 
 
 def _poly(pts, cls="person"):

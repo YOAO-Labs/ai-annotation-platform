@@ -5,7 +5,7 @@ import { searchApi, type SearchResponse } from "@/api/search";
 const EMPTY: SearchResponse = { projects: [], tasks: [], datasets: [], members: [] };
 
 /**
- * v0.7.2 · ⌘K 全局搜索：客户端 200ms debounce + 5 min staleTime。
+ * ⌘K 全局搜索：客户端 200ms debounce + 5 min staleTime。
  */
 export function useGlobalSearch(input: string, limit = 5) {
   const [debounced, setDebounced] = useState(input);

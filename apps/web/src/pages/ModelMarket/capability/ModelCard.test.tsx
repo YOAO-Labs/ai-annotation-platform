@@ -1,4 +1,4 @@
-// v0.19.4 · ModelCard 能力徽标: batchable / device 语义徽标 + supported_inputs 可接受输入行。
+// ModelCard 能力徽标: batchable / device 语义徽标 + supported_inputs 可接受输入行。
 // 模型市场多 TAB UI 优化 · 阶段二（plan §4.1）：卡片首层摘要化——徽标与
 // 「输入 → 输出」摘要在首层；框架、完整输入、输出几何/属性、资源、变体收进
 // 「详情」展开区。涉及这些行的断言先展开详情。
@@ -36,7 +36,7 @@ async function renderCard(model: Partial<MLModelCapability>) {
   return { user, ...view };
 }
 
-describe("ModelCard 能力徽标 (v0.19.4)", () => {
+describe("ModelCard 能力徽标", () => {
   it("batchable=true + supported_inputs → 可批量 + 输入→输出摘要; 详情区含完整输入行", async () => {
     const { user } = await renderCard({
       resource_profile: { batchable: true, device: "gpu" },

@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · InviteUserModal 单测：open=false 不渲染 / 角色选项随 actor / 提交流 /
+ * InviteUserModal 单测：open=false 不渲染 / 角色选项随 actor / 提交流 /
  * 错误提示 / 邀请生成后切到结果视图 + 复制 + 继续邀请。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

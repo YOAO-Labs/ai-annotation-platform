@@ -1,7 +1,4 @@
-"""v0.10.29 · 视频帧逻辑采样: VideoSamplingConfig 校验 + 网格 helper 单测。
-
-契约地基 (Wave 1-A)。算法规格见 docs/plans/2026-05-21-v0.10.29-video-frame-sampling.md §1。
-"""
+"""视频采样配置校验和逻辑帧网格推导测试。"""
 
 from __future__ import annotations
 

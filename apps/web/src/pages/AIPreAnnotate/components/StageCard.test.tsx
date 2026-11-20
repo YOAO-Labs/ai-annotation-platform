@@ -1,5 +1,5 @@
 /**
- * v0.18.5 / v0.18.6 · StageCard 单测: 选择器化字段 + 运行态徽标。
+ * StageCard 单测: 选择器化字段 + 运行态徽标。
  *
  * 重依赖 (usePreannotateConfig 拉 setup/capabilities + PreannotateConfigForm) 全 mock,
  * 聚焦 StageCard 自身: 类别/属性键 chip 多选、能力门控 ⚠、运行态徽标 + 计数。
@@ -49,7 +49,7 @@ function renderCard(props: Partial<Record<string, unknown>> = {}) {
   );
 }
 
-describe("StageCard v0.18.5/6", () => {
+describe("StageCard 阶段配置与运行态", () => {
   beforeEach(() => {
     mockCfg.capabilitiesQ = { isLoading: false, data: { models: [] } };
     mockCfg.configReady = true;
@@ -180,7 +180,7 @@ describe("StageCard v0.18.5/6", () => {
     expect(lastPayload?.model_variants).toEqual({ sam_variant: "tiny" }); // dino 被过滤
   });
 
-  it("v0.18.15 · 分类阶段有「子物体命名」输入, 填了 → payload 带 label 前缀", () => {
+  it("分类阶段有「子物体命名」输入, 填了 → payload 带 label 前缀", () => {
     const onChange = vi.fn();
     renderCard({ onChange });
     const labelInput = screen.getByPlaceholderText("留空=不加前缀");
@@ -191,7 +191,7 @@ describe("StageCard v0.18.5/6", () => {
     expect(lastPayload?.write?.target).toBe("attributes");
   });
 
-  it("v0.18.15 · 选 detection 下游 → crop-detect 几何 payload (crop 投递 + 回映)", () => {
+  it("选 detection 下游 → crop-detect 几何 payload (crop 投递 + 回映)", () => {
     mockCfg.currentVariantSlice = { size: "s" };
     mockCfg.capabilitiesQ = {
       isLoading: false,
@@ -221,7 +221,7 @@ describe("StageCard v0.18.5/6", () => {
     expect(lastPayload?.model_variants).toEqual({ size: "s" });
   });
 
-  it("v0.20.x · 选 ocr-rec 下游 → 识别阶段: attributes payload (crop 投递) + 无 no-class 误报", () => {
+  it("选 ocr-rec 下游 → 识别阶段: attributes payload (crop 投递) + 无 no-class 误报", () => {
     // 跨 backend 编排: 上游 det 出框 → 下游 rapidocr rec 认字。rec 产 text/orientation/language。
     mockCfg.currentVariantSlice = { version: "v5", size: "mobile", lang: "universal" };
     // 整图 OCR 同胞 (e2e) 进 selectableModels, 供 StageCard 对齐变体轴 (effect 调 selectTaskModel)。
@@ -274,7 +274,7 @@ describe("StageCard v0.18.5/6", () => {
     });
   });
 
-  it("v0.20.x · 父框类别优先用 parentClassOptions(上游筛完类别), 自由文本可加任意名", () => {
+  it("父框类别优先用 parentClassOptions(上游筛完类别), 自由文本可加任意名", () => {
     const onChange = vi.fn();
     renderCard({ onChange, parentClassOptions: ["person", "car"] });
     // 选项来自上游筛完类别, 而非项目类别 (car/person 在, 项目的 banana 不在)

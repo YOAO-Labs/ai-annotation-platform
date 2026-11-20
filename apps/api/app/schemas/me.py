@@ -83,7 +83,7 @@ class SystemSettingsOut(BaseModel):
 
 
 class SystemSettingsUpdate(BaseModel):
-    """v0.8.1 · admin UI PATCH 入参，全部 Optional：未提供字段不变更。
+    """admin UI PATCH 入参，全部 Optional：未提供字段不变更。
     smtp_password 传空串视为清除；未提供则不动现有值。
     """
 

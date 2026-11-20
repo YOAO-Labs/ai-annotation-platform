@@ -49,7 +49,7 @@ export default withMermaid(
       (url) => /\.(tsx?|py|json|ya?ml|sh|toml|Dockerfile\w*)$/.test(url),
       (url) => /\/(apps|infra)\//.test(url),
       // ADR mirrors may point back to repo-local docs/plans files, which are not
-      // rendered as VitePress pages.（兼容 v0.21+ 引入的 plans/archive/ 子目录）
+      // rendered as VitePress pages, including archived plans.
       (url) =>
         /(^|\/)\.\.\/plans\/(archive\/)?\d{4}-/.test(url) ||
         /\/plans\/(archive\/)?\d{4}-/.test(url),

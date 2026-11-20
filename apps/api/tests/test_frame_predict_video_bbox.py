@@ -1,4 +1,4 @@
-"""v0.21.4 · 视频单题 AI: 图像 backend 检测结果 → 单帧 video_bbox 转换 (to_video_bbox_result)."""
+"""视频单题 AI: 图像 backend 检测结果 → 单帧 video_bbox 转换 (to_video_bbox_result)."""
 
 from __future__ import annotations
 

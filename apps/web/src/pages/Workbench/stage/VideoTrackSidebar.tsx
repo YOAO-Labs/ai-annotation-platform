@@ -65,7 +65,7 @@ interface VideoTrackSidebarProps {
     options: VideoTrackConversionOptions,
   ) => void;
   onComposeTracks?: (options: VideoTrackCompositionOptions) => void;
-  /** v0.21.16 WS3 · 上报轨迹多选态给 shell (浮卡多选批量卡消费)。仅 roster 实例传入。 */
+  /** 上报轨迹多选态给 shell (浮卡多选批量卡消费)。仅 roster 实例传入。 */
   onSelectionChange?: (selectedTracks: VideoTrackAnnotation[]) => void;
   reviewDisplayMode?: DiffMode;
   trackerJobsByAnnotation?: Record<
@@ -73,13 +73,13 @@ interface VideoTrackSidebarProps {
     import("@/hooks/useVideoTrackerJobs").VideoTrackerJobState
   >;
   onPropagateTrack?: (annotation: VideoManagedTrackAnnotation) => void;
-  /** v0.22.2 · M2 · 批量 AI 追踪: 把多选的 ≥2 条轨迹一次喂给追踪对话框 (单 job 多源)。 */
+  /** M2 · 批量 AI 追踪: 把多选的 ≥2 条轨迹一次喂给追踪对话框 (单 job 多源)。 */
   onBatchTrack?: (annotations: AnnotationResponse[]) => void;
   onCancelTrackerJob?: (jobId: string) => void;
-  // v0.10.30 · 1A 选色器透传 (session 级覆盖)。
+  // 1A 选色器透传 (session 级覆盖)。
   trackColorOverrides?: Record<string, string>;
   onSetTrackColor?: (trackId: string, colorToken: string | null) => void;
-  // v0.10.30 · 1B 属性 / propagate / semantic_label 透传。
+  // 1B 属性 / propagate / semantic_label 透传。
   attributeSchema?: AttributeSchema;
   onUpdateTrackAttributes?: (
     annotation: VideoTrackAnnotation,
@@ -97,7 +97,7 @@ interface VideoTrackSidebarProps {
     options: { direction: "forward" | "backward"; overwrite: boolean },
   ) => void;
   onUpdateSemanticLabel?: (annotation: VideoTrackAnnotation, semanticLabel: string) => void;
-  /** v0.10.35 · §A: 采样网格步长, 透传给 propagate 对话框 (>1 时 count 以网格格子为单位)。 */
+  /** §A: 采样网格步长, 透传给 propagate 对话框 (>1 时 count 以网格格子为单位)。 */
   samplingStep?: number;
   propagateOverwrite?: boolean | null;
   /** roster 视图「轨迹」分组头折叠态 (受控, 走 workbench.layout 服务端持久); card 视图忽略。 */
@@ -232,7 +232,7 @@ export function VideoTrackSidebar({
     () => videoTracks.filter((ann) => selectedTrackIds.has(ann.id)),
     [selectedTrackIds, videoTracks],
   );
-  // v0.21.16 WS3 · 把轨迹多选态上报给 shell (浮卡多选批量卡消费)。roster 实例是多选唯一 owner,
+  // 把轨迹多选态上报给 shell (浮卡多选批量卡消费)。roster 实例是多选唯一 owner,
   // 浮卡实例 (view="card") 不传此回调, 不参与上报, 保证单一数据源。
   useEffect(() => {
     onSelectionChange?.(selectedTracks);
@@ -244,7 +244,7 @@ export function VideoTrackSidebar({
     selectedTracks.length === 2 &&
     selectedTracks[0].class_name === selectedTracks[1].class_name &&
     !trackRangesOverlap(selectedTracks[0], selectedTracks[1]);
-  // v0.21.14 · 合并 / 跳连禁用时按当前选择态给出动态原因 (差在哪), 而非笼统「只支持…」。
+  // 合并 / 跳连禁用时按当前选择态给出动态原因 (差在哪), 而非笼统「只支持…」。
   const mergeDisabledReason = useMemo(() => {
     if (canMergeSelectedTracks) return null;
     if (selectedTracks.length !== 2)
@@ -452,7 +452,7 @@ export function VideoTrackSidebar({
     [onRenameTracks, selectedTracks],
   );
 
-  // v0.22.2 · M2 · 批量 AI 追踪: 把当前多选的 ≥2 条轨迹一次喂给追踪对话框。
+  // M2 · 批量 AI 追踪: 把当前多选的 ≥2 条轨迹一次喂给追踪对话框。
   const batchTrackSelectedTracks = useCallback(() => {
     if (selectedTracks.length <= 1 || !onBatchTrack) return;
     onBatchTrack(selectedTracks);

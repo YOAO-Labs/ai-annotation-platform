@@ -2,7 +2,6 @@
 title: 版本升级指南
 audience: [ops]
 type: how-to
-since: v0.9.0
 status: stable
 last_reviewed: 2026-10-28
 ---

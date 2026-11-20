@@ -252,7 +252,7 @@ async def require_active_task_actor(
     return current_user
 
 
-# v0.15.11 · full-access 通配 scope；含 "*" 的 api_key 视为全权，绕过 scope 校验。
+# full-access 通配 scope；含 "*" 的 api_key 视为全权，绕过 scope 校验。
 WILDCARD_SCOPE = "*"
 
 

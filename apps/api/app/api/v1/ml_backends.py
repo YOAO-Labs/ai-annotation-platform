@@ -100,7 +100,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 
-# v0.10.1 · /setup 代理结果的进程内 TTL 缓存. 工作台进入即拉, 避免 N 次 backend 探活.
+# /setup 代理结果的进程内 TTL 缓存. 工作台进入即拉, 避免 N 次 backend 探活.
 # key = backend_id (绑定改动 → 重绑后新 backend_id 自然 invalidate); 30s TTL 兜底.
 _SETUP_CACHE_TTL_SECONDS = 30.0
 _setup_cache: dict[uuid.UUID, tuple[float, dict]] = {}
@@ -186,16 +186,16 @@ async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     return task
 
 
-# v0.23.5 · WS-D · D2 · cap on uploaded frame bytes (predict-frame /
+# cap on uploaded frame bytes (predict-frame /
 # interactive-annotating-frame). Bounds memory regardless of a lying/missing
 # Content-Length header; 32 MiB comfortably fits a 4K JPEG / PNG with headroom.
 MAX_FRAME_UPLOAD_BYTES = 32 * 1024 * 1024
 MAX_INTERACTIVE_CONTEXT_BODY_BYTES = 1024 * 1024
-# v0.23.5 · WS-D · D2 · streaming read stride (1 MiB) — small enough to abort
+# streaming read stride (1 MiB) — small enough to abort
 # between chunks when the cap is exceeded, large enough to avoid per-call
 # overhead on legitimate multi-MiB frames.
 _FRAME_READ_CHUNK = 1024 * 1024
-# v0.23.5 · WS-D · D2 · image format / dimension cap mirroring ADR-0048 / 0052
+# image format / dimension cap mirroring ADR-0048 / 0052
 # (dims ≤ 4096, pixels ≤ 16_777_216). Frames bigger than this can blow up the
 # downstream inference memory budget and are rejected before hitting the backend.
 _ALLOWED_FRAME_IMAGE_FORMATS = {"JPEG", "PNG"}
@@ -209,7 +209,7 @@ async def _read_capped_frame(
     request: Request | None = None,
     max_bytes: int = MAX_FRAME_UPLOAD_BYTES,
 ) -> bytes:
-    """v0.23.5 · WS-D · D2 · read an uploaded frame under a hard byte + format cap.
+    """Read an uploaded frame under a hard byte and format cap.
 
     Two layers of defense against unbounded reads:
 
@@ -397,7 +397,7 @@ async def create_ml_backend(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    # v0.19.0 ADR-0044 · 「为项目添加 backend」= 按 url 复用/新建全局注册项 + 为本项目启用。
+    # ADR-0044 · 「为项目添加 backend」= 按 url 复用/新建全局注册项 + 为本项目启用。
     # 不再有 max_ml_backends_per_project 上限 (显存保护交全局行 extra_params.max_concurrency)。
     svc = MLBackendService(db)
     if has_reserved_plugin_metadata(data.extra_params):
@@ -466,7 +466,7 @@ async def list_available_ml_backends(
         require_project_capability(ProjectCapability.PROJECT_MANAGE.value)
     ),
 ):
-    """v0.19.0 ADR-0044 · 项目设置「启用勾选清单」: 列出全部全局 backend + 本项目启用态/覆盖。
+    """ADR-0044 · 项目设置「启用勾选清单」: 列出全部全局 backend + 本项目启用态/覆盖。
 
     与 GET "" (只返回已启用) 区分: 本端点含未启用项, 供项目管理员勾选启用。
     路由声明在 `/{backend_id}` 之前, 避免被当作 backend_id 捕获。
@@ -497,7 +497,7 @@ async def set_ml_backend_enablement(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.19.0 ADR-0044 · 切换本项目对某全局 backend 的启用 + 写项目级覆盖 (阈值/变体)。
+    """ADR-0044 · 切换本项目对某全局 backend 的启用 + 写项目级覆盖 (阈值/变体)。
 
     全局 backend 必须存在 (不在此创建全局项; 注册全局项走 admin 端点)。
     """
@@ -639,7 +639,7 @@ async def delete_ml_backend(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    # v0.19.0 ADR-0044 · 项目作用域的「删除」= 为本项目停用全局 backend (不删全局注册项;
+    # ADR-0044 · 项目作用域的「删除」= 为本项目停用全局 backend (不删全局注册项;
     # 删全局项是 superadmin 的 admin 端点, 见 PR3)。
     svc = MLBackendService(db)
     if not await svc.is_enabled(project_id, backend_id):
@@ -718,7 +718,7 @@ async def reload_ml_backend(
 ):
     """B-28+ · 触发 backend 重新加载模型. 已加载则 noop.
 
-    v0.10.26 · 可选 body {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);
+    可选 body {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);
     缺省回退 backend 默认变体.
 
     鉴权 super_admin only · /reload 会改写「全局 backend 常驻变体」(同 backend 被多项目共用),
@@ -782,7 +782,7 @@ async def warmup_ml_backend(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.14.14 协议 §4.4 · 转发 POST /warmup 到 backend.
+    """协议 §4.4 · 转发 POST /warmup 到 backend.
 
     body 原样转发 (各 backend schema 不同). backend 未声明 warmup_endpoint=True 时仍
     转发, 收到 404/405 由上游 502 反馈; 前端 ⚡ 按钮应已通过 health_meta.capabilities.
@@ -809,7 +809,7 @@ async def warmup_ml_backend(
         raise HTTPException(status_code=502, detail=f"模型服务预热失败: {exc}") from exc
     if result is None:
         raise HTTPException(status_code=404, detail="模型服务不存在")
-    # v0.14.17 · 预热会改变 backend 已加载的模型, 从而改变 /setup.models[].classes (yolo 加载后
+    # 预热会改变 backend 已加载的模型, 从而改变 /setup.models[].classes (yolo 加载后
     # 才暴露 model.names). 失效 /setup 缓存, 让随后的 /capabilities 立即拿到新类别表 (否则最坏等 30s TTL)。
     _setup_cache.pop(backend_id, None)
     await AuditService.log(
@@ -1131,7 +1131,7 @@ async def get_ml_backend_setup(
     db: AsyncSession = Depends(get_db),
     access: ProjectAccess = Depends(project_access_for_path),
 ):
-    """v0.10.1 · 代理 backend /setup, 返回 JSON Schema 自描述能力 (供前端 useMLCapabilities).
+    """代理 backend /setup, 返回 JSON Schema 自描述能力 (供前端 useMLCapabilities).
 
     30s TTL 进程内缓存; backend 升级/重启后最坏延迟 30s. 删除/更新 backend 时 invalidate.
     """
@@ -1154,7 +1154,7 @@ async def get_ml_backend_capabilities(
     db: AsyncSession = Depends(get_db),
     access: ProjectAccess = Depends(project_access_for_path),
 ):
-    """v0.14.9 · 能力声明协议 v2: 探 /setup (复用 setup 缓存链路) → 派生能力快照.
+    """能力声明协议 v2: 探 /setup (复用 setup 缓存链路) → 派生能力快照.
 
     返回含 models[] / infra / modalities + 扁平并集字段, 供前端多模型目录消费.
     权限同 /setup 端点 (managers + reviewer + annotator)。/setup 不可达时 502.
@@ -1180,7 +1180,7 @@ async def refresh_ml_backend_capabilities(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.14.9 · 强制刷新能力快照: 先 invalidate setup 缓存再重探 + 派生.
+    """强制刷新能力快照: 先 invalidate setup 缓存再重探 + 派生.
 
     权限同 /health (managers); 用于 backend 升级/换模型后主动拉新能力。
     """
@@ -1514,7 +1514,7 @@ async def predict_frame(
     input_session_factory=Depends(get_prediction_input_session_factory),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。
+    """对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。
 
     视频 task 的 ``file_path`` 是整段 mp4，图像 backend 不能直接读取单帧。
     因此前端把当前帧解成 JPEG 随 multipart 传入；服务端上传 import 桶换
@@ -1590,7 +1590,7 @@ async def predict_frame(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # v0.23.5 · WS-D · D2 · bounded frame read (Content-Length + streaming cap
+    # bounded frame read (Content-Length + streaming cap
     # + JPEG/PNG decode + dim/pixel limits) before any storage I/O.
     async with prediction_inputs(
         input_session_factory,
@@ -1726,7 +1726,7 @@ async def interactive_annotating_frame(
         frame_index=frame_index,
     )
 
-    # v0.23.5 · WS-D · D2 · bounded frame read (Content-Length + streaming cap
+    # bounded frame read (Content-Length + streaming cap
     # + JPEG/PNG decode + dim/pixel limits) before any storage I/O.
     async with prediction_inputs(
         input_session_factory,
@@ -1854,10 +1854,9 @@ async def interactive_annotating_frame(
         return response_body
 
 
-# ── v0.23.3 ADR-0050 §12.2 · 项目服务池绑定 API (pool-level) ──────────────────
+# ── ADR-0050 §12.2 · 项目服务池绑定 API (pool-level) ──────────────────
 # 与上面的 /{backend_id}/* (registry-level) 端点并存: 后者继续按 registry 实例操作
-# (lifecycle / smoke), 本组按 pool 操作 (项目启用 / 可用清单)。off/observe 下每池
-# 是 singleton, legacy_instance 指向唯一 registry, 行为与 registry-level 等价。
+# (lifecycle / smoke)，本组按服务池操作（项目启用 / 可用清单）。
 
 
 @router.get(
@@ -1871,7 +1870,7 @@ async def list_project_ml_backend_pools(
 ):
     """列出本项目可用的服务池 + 启用态 + 成员数 (ADR-0050 §12.2)。
 
-    v0.23.3: off/observe 下每池 singleton; 完整池管理 UI 留给 v0.23.4。
+    项目管理员用此清单查看项目可选的服务池及其启用状态。
     """
     svc = MLBackendService(db)
     rows = await svc.list_pools_available_for_project(project_id)

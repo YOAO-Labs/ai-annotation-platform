@@ -53,7 +53,7 @@ function jobFixture() {
         kind: "export",
         status: "completed",
         progress_pct: 100,
-        payload: { project_display_id: "P-COCO8", targets: ["coco", "aap_json"] },
+        payload: { project_display_id: "P-COCO8", targets: ["coco", "native_json"] },
         result: {
           download_url: "https://download.example.invalid/P-COCO8_export.zip",
           file_count: 18,

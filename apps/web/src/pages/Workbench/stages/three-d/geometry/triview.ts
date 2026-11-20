@@ -1,5 +1,5 @@
 /**
- * v0.13.5 · 三正交视图框精修的纯几何 (与 WebGL / renderer 无关, jsdom 可单测)。
+ * 三正交视图框精修的纯几何 (与 WebGL / renderer 无关, jsdom 可单测)。
  *
  * 三视图各对齐框 local 轴, 屏幕 (u, v) 映射两个 local 轴, 法线轴是第三个:
  *   - top   俯视 (看 -Z): u=X(length) v=Y(width)  方向线绕 Z → yaw   (rotation[2])
@@ -56,7 +56,7 @@ function toVec3(v: THREE.Vector3): Vec3 {
 }
 
 /**
- * v0.13.5 · 单视图正交相机的取景半宽/半高 (米): 框住 box(对应两 local 轴) + margin,
+ * 单视图正交相机的取景半宽/半高 (米): 框住 box(对应两 local 轴) + margin,
  * 并按视口 aspect (= 宽/高 像素比) 保持不变形 (取较紧的一维, 另一维按 aspect 撑开)。
  *
  * 供两处共用同一口径:
@@ -122,7 +122,7 @@ export function dragCorner(
 export type Handle = "e" | "w" | "n" | "s" | "ne" | "nw" | "se" | "sw";
 
 /**
- * v0.13.5 · 把一次屏幕 handle 拖拽映射到边/角拖拽 (UI 不写裸数学, 全收口于此)。
+ * 把一次屏幕 handle 拖拽映射到边/角拖拽 (UI 不写裸数学, 全收口于此)。
  * @param dU 指针沿屏幕 +u (= box-local +u 世界方向) 的位移, 米 (= 屏幕 dx_px / s)
  * @param dV 指针沿屏幕 +v (= box-local +v 世界方向) 的位移, 米 (= −屏幕 dy_px / s, 屏幕 y 朝下)
  *

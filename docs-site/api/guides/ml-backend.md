@@ -165,7 +165,7 @@ ML Backend 必须实现：
 
 ## 能力目录（capabilities）
 
-能力声明协议 v2（v0.14.9）下，平台把 backend `/setup` 派生成 model 粒度的能力目录，供模型市场与工作台多模型选择器消费：
+在能力声明协议 v2 中，平台把 backend `/setup` 派生成 model 粒度的能力目录，供模型市场与工作台多模型选择器消费：
 
 ```http
 GET  /api/v1/projects/:id/ml-backends/:bid/capabilities

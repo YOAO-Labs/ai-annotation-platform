@@ -20,7 +20,7 @@ interface GuideMarkdownViewProps {
 }
 
 /**
- * v0.10.13 · E1 · 渲染 annotation guide Markdown.
+ * 渲染 annotation guide Markdown.
  *
  * 与 MarkdownBlock 同样基于 react-markdown + remark-gfm, 额外:
  * - <img src="guide-asset:KEY"> 经 resolveAssetUrl 转签名 URL 渲染.

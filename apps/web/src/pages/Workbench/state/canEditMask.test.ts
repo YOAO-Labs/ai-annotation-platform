@@ -1,4 +1,4 @@
-// v0.23.5 · WS-C · canEditMask / canCommitMask 单测 (A4 锁定绕过的纯函数层)。
+// canEditMask / canCommitMask 单测 (A4 锁定绕过的纯函数层)。
 
 import { describe, expect, it } from "vitest";
 import { canCommitMask, canEditMask, maskEditBlockReason } from "./canEditMask";

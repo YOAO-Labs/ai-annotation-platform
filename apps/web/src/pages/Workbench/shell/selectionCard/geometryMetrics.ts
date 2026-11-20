@@ -1,7 +1,7 @@
 import type { Geometry, Keypoint } from "@/types";
 
 /**
- * v0.16.14 · 选中信息卡 · 单条几何指标。
+ * 选中信息卡 · 单条几何指标。
  * label 为短中文名(次要色),value 为主数据(主色),hint 为可选补充(更次要)。
  */
 export interface Metric {
@@ -230,7 +230,7 @@ function rasterMaskMetrics(mask: {
 }
 
 /**
- * v0.16.14 · 把选中几何展开为结构化指标数组,取代旧单行 geometrySummary 字符串。
+ * 把选中几何展开为结构化指标数组,取代旧单行 geometrySummary 字符串。
  * 纯函数,带单测(面积 / 周长 / 占图比)。无 imgW/imgH 时降级为相对值并省略需要像素的指标
  * (面积 px² / 周长 / 宽高比)。video_track_bbox / 3D 几何不在此列(各有专属面板),返回空数组。
  */
@@ -240,7 +240,7 @@ export function geometryMetrics(
   imgH: number | null,
 ): Metric[] {
   switch (geometry.type) {
-    // v0.21.26 · 视频单帧几何 (video_bbox/rotated/polygon/polyline) 与图片同形状几何载荷一致,
+    // 视频单帧几何 (video_bbox/rotated/polygon/polyline) 与图片同形状几何载荷一致,
     // 直接直落到对应图片 case 复用同一套指标 (case 间无中间语句, 满足 no-fallthrough)。
     case "bbox":
     case "video_bbox":

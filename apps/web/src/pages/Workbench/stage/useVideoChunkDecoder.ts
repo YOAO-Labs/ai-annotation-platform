@@ -21,7 +21,7 @@ import { VideoGopDecoderSession, type VideoGopSessionIdentity } from "./videoGop
  *
  * 连续播放仍由隐藏 `<video>` 提供;精确帧只在暂停 / 逐帧 / 稳定 seek 后使用。
  *
- * 缓存按字节预算淘汰(v0.23.14):单张 bitmap 按 codedWidth*codedHeight*4 估算占用,
+ * 缓存按字节预算淘汰：单张 bitmap 按 codedWidth*codedHeight*4 估算占用，
  * 预算由性能档位 `videoDecoderBitmapCacheBytes` 决定。decode 走有状态 GOP session
  * (`VideoGopDecoderSession`):同一 GOP 内向前逐帧只提交增量 chunks,identity 变化时
  * 重建 decoder;`decodePlanToBitmap` 保留为无状态回退参考实现。

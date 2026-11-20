@@ -568,7 +568,7 @@ describe("VideoTrackerPropagateDialog", () => {
       target: { value: "sam3_video_interactive" },
     });
     expect(screen.getByTestId("tracker-seed-toggle")).toBeTruthy();
-    // 切 sam2_video → 仍显示 (v0.21.27 阶段 A: grounded-sam2 也吃 seeds[] 多目标/点/框)。
+    // 切到 sam2_video 后仍显示：grounded-sam2 也支持多目标点/框 seeds[]。
     fireEvent.change(screen.getAllByRole("combobox")[1], {
       target: { value: "sam2_video" },
     });

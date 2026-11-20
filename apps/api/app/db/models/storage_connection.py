@@ -1,10 +1,10 @@
-"""v0.11.16 · 存储连接器（外部 S3 / SFTP）。
+"""存储连接器（外部 S3 / SFTP）。
 
 服务端主动拉取类导入的可复用连接配置。非密钥部分（endpoint/host/bucket/path 等）
 存 ``config`` JSONB；密钥（AK/SK、SSH 密码/私钥）经 Fernet 加密存 ``secret_enc``，
 绝不回吐明文。``scope`` 区分全局（超管）与个人归属（创建者可用）。
 
-实际拉取与白名单/SSRF 校验见 app/services/connector_guard.py 与 v0.11.15 的 SourceAdapter。
+实际拉取与白名单/SSRF 校验由 SourceAdapter 与 app/services/connector_guard.py 处理。
 """
 
 import enum

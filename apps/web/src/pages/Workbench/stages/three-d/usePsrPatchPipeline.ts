@@ -1,4 +1,4 @@
-// v0.16.x 第 3 批 · 从 ThreeDWorkbench 抽出的 PSR 数值字段防抖落库管线。
+// 第 3 批 · 从 ThreeDWorkbench 抽出的 PSR 数值字段防抖落库管线。
 // 改 PSR 数值面板 → parsePsrForm 校验 → 250ms 防抖 → PATCH 几何 + 入 history。
 // 这是 PSR 编辑里唯一单一职责、单消费者(handleField)且不碰共享 form/setForm 的部分:
 // 完整 usePsrEditor 因 form/setForm 被 gizmo handler / 一键操作 / 浮窗 commit / 渲染等

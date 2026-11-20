@@ -2,7 +2,6 @@
 title: 部署总览
 audience: [dev, ops]
 type: explanation
-since: v0.15.17
 status: stable
 last_reviewed: 2026-10-26
 ---

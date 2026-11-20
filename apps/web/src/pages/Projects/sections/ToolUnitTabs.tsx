@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · ProjectSettings ClassesSection / TemplateEditModal
+ * ProjectSettings ClassesSection / TemplateEditModal
  *  共享的 unit tab 切换条 + enabled chip 控件.
  */
 

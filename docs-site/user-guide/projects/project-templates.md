@@ -59,7 +59,7 @@ last_reviewed: 2026-10-24
 
 ## 应用模板创建项目
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/projects/template-apply-banner.png — 从模板创建 Wizard 顶部 banner [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/projects/template-apply-banner.png — 从模板创建 Wizard 顶部 banner [manual] -->
 
 在模板卡片点击「应用」→ 跳转到 CreateProjectWizard，顶部出现 banner「已用模板字段预填表单」。
 后续步骤与普通新建相同；任意字段可在某步覆盖（你的修改优先于模板配置）。

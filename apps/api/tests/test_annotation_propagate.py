@@ -1,4 +1,4 @@
-"""v0.14.1 · 跨帧 propagate 复制语义 + axis_convention + 权限/边界
+"""跨帧 propagate 复制语义 + axis_convention + 权限/边界
 
 覆盖判据(plan §1.4 判据 1 / §3.4):
 - box_3d 复制 geometry/class/attributes + 共享 track_id(源无则新分配并写回, ADR-0045)
@@ -139,14 +139,14 @@ async def test_propagate_box3d_copies_and_assigns_shared_group(db_session, super
     assert new.class_name == "car"
     assert new.attributes == {"occluded": True}
     assert new.task_id == tasks[1].id
-    # v0.21.2 · ADR-0045 · 跨帧共享 track_id 为唯一标识 (group_id 列已删)
+    # ADR-0045 · 跨帧共享 track_id 为唯一标识 (group_id 列已删)
     assert new.track_id is not None and new.track_id.startswith("trk_")
     assert src.track_id == new.track_id
 
 
 @pytest.mark.asyncio
 async def test_propagate_reuses_existing_track_id(db_session, super_admin):
-    # v0.21.2 · 源已有 track_id → 复用不重分配 (跨帧链身份延续的关键)。
+    # 源已有 track_id → 复用不重分配 (跨帧链身份延续的关键)。
     user, _ = super_admin
     project, _, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     src = await _add_annotation(
@@ -235,7 +235,7 @@ async def test_propagate_bbox_2d(db_session, super_admin):
     assert new.geometry == bbox
     # 2D 不写 convention_at_create
     assert "convention_at_create" not in new.geometry
-    # v0.21.2 · ADR-0045 · 跨帧标识走 track_id
+    # ADR-0045 · 跨帧标识走 track_id
     assert new.track_id is not None and new.track_id.startswith("trk_")
 
 
@@ -372,7 +372,7 @@ async def test_propagate_endpoint_201(db_session, httpx_client, super_admin):
     ann = body["annotation"]
     assert ann["task_id"] == str(tasks[1].id)
     assert ann["geometry"]["convention_at_create"] == "ros_rep103"
-    # v0.21.2 · ADR-0045 · 跨帧标识走 track_id
+    # ADR-0045 · 跨帧标识走 track_id
     assert ann["track_id"] is not None and ann["track_id"].startswith("trk_")
 
 
@@ -415,7 +415,7 @@ async def test_propagate_endpoint_annotation_task_mismatch_404(
     assert resp.status_code == 404
 
 
-# ── v0.15.1 · 运动补偿 / 批量 / 区间插值 ─────────────────────────────────
+# ── 运动补偿 / 批量 / 区间插值 ─────────────────────────────────
 
 
 async def _seed_poses(db, scene_id, frames: int, step: float = 2.0):
@@ -469,7 +469,7 @@ async def test_propagate_motion_compensation(db_session, super_admin):
 
 @pytest.mark.asyncio
 async def test_propagate_without_pose_keeps_v0141_bytes(db_session, super_admin):
-    """无 pose scene: 原样复制 + motion_compensated=False(v0.14.1 零回归)。"""
+    """没有 pose 时直接复制，motion_compensated=False。"""
     user, _ = super_admin
     project, _, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     src = await _add_annotation(
@@ -534,7 +534,7 @@ async def test_propagate_batch_all_box3d(db_session, super_admin):
     by_src = {src_id: ann for src_id, ann in results}
     assert by_src[a1.id].geometry["center"] == pytest.approx([8.0, 0.0, 0.0])
     assert by_src[a2.id].geometry["center"] == pytest.approx([18.0, 5.0, 0.0])
-    # v0.21.2 · 各自延续独立 track 链 (原 group 链)
+    # 各自延续独立 track 链 (原 group 链)
     t1, t2 = by_src[a1.id].track_id, by_src[a2.id].track_id
     assert t1 and t2 and t1 != t2
     assert all(ann.task_id == tasks[1].id for _, ann in results)

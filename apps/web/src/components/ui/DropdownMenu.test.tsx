@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · DropdownMenu 单测：trigger 触发开关、点击 item 触发 onSelect 并关闭、Escape 关闭。
+ * DropdownMenu 单测：trigger 触发开关、点击 item 触发 onSelect 并关闭、Escape 关闭。
  * PR #117 评审：Tab 关闭归还触发器、hover disabled 不接管焦点、content 模式不覆盖
  * autoFocus、items 动态插入后按 id 校准焦点。
  */
@@ -176,7 +176,7 @@ describe("<DropdownMenu />", () => {
     expect(screen.getByText("Two")).toBeInTheDocument();
   });
 
-  // v0.9.3 · content 模式
+  // content 模式
   it("content 模式：渲染自定义内容并支持 close 主动关闭", () => {
     function ContentWrapper() {
       return (

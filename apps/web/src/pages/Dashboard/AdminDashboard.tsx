@@ -45,7 +45,7 @@ export function AdminDashboard() {
   const pushToast = useToastStore((s) => s.push);
   const [searchParams, setSearchParams] = useSearchParams();
   const wizardOpen = searchParams.get("new") === "1";
-  // v0.10.11 · 从 ProjectGrid "复制项目" 跳来时携带 ?from=<id>; Wizard 据此预填.
+  // 从 ProjectGrid "复制项目" 跳来时携带 ?from=<id>; Wizard 据此预填.
   const wizardSourceProjectId = searchParams.get("from") || undefined;
   const [importOpen, setImportOpen] = useState(false);
 
@@ -206,7 +206,7 @@ export function AdminDashboard() {
           <Icon name="chevRight" size={14} className="text-muted-foreground" />
         </button>
       </div>
-      {/* v0.9.5 · AI 预标注队列卡片（仅在有 pre_annotated 批次时显示） */}
+      {/* AI 预标注队列卡片（仅在有 pre_annotated 批次时显示） */}
       {(stats.pre_annotated_batches ?? 0) > 0 && (
         <div className="mb-3 cursor-pointer [&>*]:border [&>*]:border-border [&>*]:bg-status-info-soft">
           <Card onClick={() => navigate("/ai-pre")}>
@@ -593,7 +593,7 @@ function RegistrationSourceBar({ point, peak }: { point: RegistrationDayPoint; p
   );
 }
 
-// v0.8.6 F4 · ML 后端状态 + 预测成本联合卡片
+// ML 后端状态 + 预测成本联合卡片
 function MLBackendsAndCostCard({
   backendsTotal,
   backendsConnected,

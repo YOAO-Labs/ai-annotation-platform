@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · 工作台读取 project.tool_bindings 派生当前激活工具的类别与属性 schema.
+ * 工作台读取 project.tool_bindings 派生当前激活工具的类别与属性 schema.
  *
  * 给定 project + activeToolId, 返回:
  *   - classes: string[]              当前 tool_unit 内类别名列表 (按 order)
@@ -7,7 +7,7 @@
  *   - attributeSchema: AttributeSchema  当前 tool_unit 的属性 schema
  *   - toolUnitId: ToolUnitId        派生出的工具单位 (供创建标注时 POST tool_unit_id)
  *
- * v0.10.22 · tool_bindings 是唯一真值 (全部项目已 backfill). 当前 unit 未配置类时,
+ * tool_bindings 是唯一真值 (全部项目已 backfill). 当前 unit 未配置类时,
  * 借 bbox / region 默认 unit 的类名展示; 都为空则返回空视图.
  */
 
@@ -22,7 +22,7 @@ export interface ToolBindingsView {
   classesConfig: ClassesConfig;
   attributeSchema: AttributeSchema;
   toolUnitId: ToolUnitId;
-  /** v0.10.28 · keypoint 单元的骨骼模板 (仅 toolUnitId === "keypoint" 时有意义)。 */
+  /** keypoint 单元的骨骼模板 (仅 toolUnitId === "keypoint" 时有意义)。 */
   keypointSchema: import("@/types").KeypointSchema | null;
   /**
    * 当前激活工具「自身的 unit」是否定义了类别 (借 bbox/region 兜底之前判断)。
@@ -35,7 +35,7 @@ export interface ToolBindingsView {
 export function useToolBindings(
   project: ProjectResponse | null | undefined,
   activeToolId: ToolId,
-  // v0.13.3-5 · 3D 点云台无对应 2D ToolId,直接指定工具单位(lidar_box_3d),绕过 toolUnitForTool。
+  // 3D 点云台无对应 2D ToolId,直接指定工具单位(lidar_box_3d),绕过 toolUnitForTool。
   overrideUnit?: ToolUnitId,
 ): ToolBindingsView {
   const toolUnitId = overrideUnit ?? toolUnitForTool(activeToolId);
@@ -47,7 +47,7 @@ export function useToolBindings(
     if (hasOwnClasses || overrideUnit) {
       return view;
     }
-    // v0.10.17 兜底: 当前 unit 未配置或类集合为空 (尤其是
+    // 兜底: 当前 unit 未配置或类集合为空 (尤其是
     // ai_interactive — 历史项目升级后曾因迁移漏配导致 AI 调色板清空).
     // 退到 bbox / region 默认 unit 借类名; toolUnitId 仍保持当前激活工具的 unit,
     // 让 POST 写入时仍按工具维度落 tool_unit_id, 仅 UI 借用类名展示.

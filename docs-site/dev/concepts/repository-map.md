@@ -451,11 +451,11 @@ include 另外包含 `signals`、`heartbeat`，后者是 worker bootstep，不�
 | seed / fixture / 恢复清理（14）   | `seed`、`seed_assets`、`seed_coco8`、`seed_large_images`、`seed_ocr`、`seed_pointcloud`、`seed_scale`、`seed_video`、`nuscenes_fixture`、`prepare_e2e_db`、`restore_screenshot_user_preferences`、`cleanup_screenshot_ocr_flow`、`screenshot_job_recovery_fixture`、`screenshot_review_reject_fixture` |
 | 诊断 / 契约 / 产物工具（6）       | `audit_project_roles`、`benchmark_image_pyramid`、`check_removed_service_modules`、`dump-openapi`、`freeze_gpu_ledger_lua`、`validate_gpu_arbitration`；诊断分类不保证只读，benchmark/资格工具可能创建夹具并执行负载                                                                                   |
 
-`entrypoint.sh` 的迁移/进程启动、权限维护 SQL、诊断 SQL 和根目录的部署/worktree 管理器是运行时装配，不混入上述业务命令。训练执行器是 `python -m training_executor.worker` 的独立 HTTP 拉取式进程，不是 Celery task；CPU preview 与训练子进程监督共享其既有运行边界。Python SDK 的 `aap` CLI/TUI 是 HTTP/WS 消费者，不是额外的数据库写入口；此台账不代表 SDK 能力覆盖验收。
+`entrypoint.sh` 的迁移/进程启动、权限维护 SQL、诊断 SQL 和根目录的部署/worktree 管理器是运行时装配，不混入上述业务命令。训练执行器是 `python -m training_executor.worker` 的独立 HTTP 拉取式进程，不是 Celery task。平台 API SDK 的 `yoao` CLI/TUI 消费 HTTP/WS，不是数据库写入口；管理员使用 `yoao plugins` 管理插件安装。
 
 ### 独立 ML 服务与契约真值
 
-SAM3 与 Grounded SAM2 是本仓独立 ML 应用；YOLO、RapidOCR 和 ONNXTools 在 [官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)独立发布。它们不是主 API 的 mounts，源码计数不代表设备资格。
+Grounded-SAM2、SAM3、YOLO、LibreYOLO、RapidOCR 与 ONNXTools 六个官方推理插件均由 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护，不是主 API 的挂载应用。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供编写自定义推理插件的 `yoao-plugin`，不持有官方模型实现。平台保留公共契约、安装审批和项目启用；源码存在不代表模型或设备已获准使用。
 
 素材探测是另一个独立运行单元：`apps/media-probe` 提供三个版本化探测操作以及 health，
 不计入 ML 服务或主 API 路由数。它的非 root 镜像和锁文件只包含探测依赖；

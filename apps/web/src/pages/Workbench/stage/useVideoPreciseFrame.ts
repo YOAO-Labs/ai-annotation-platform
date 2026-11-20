@@ -64,7 +64,7 @@ export interface VideoPreciseFrameDiagnostics {
   urlRefreshed: boolean;
 }
 
-/** 精确帧 pipeline 的分阶段性能与资源诊断(v0.23.14)。 */
+/** 精确帧 pipeline 的分阶段性能与资源诊断。 */
 export interface VideoPreciseFramePerformanceDiagnostics {
   manifestCacheHits: number;
   samplesCacheHits: number;
@@ -952,7 +952,7 @@ export function useVideoPreciseFrame({
             codec: null,
           };
     return {
-      // manifest / samples 命中与耗时由 v0.23.15 并入全局诊断。
+      // manifest / samples 命中数与耗时纳入全局诊断。
       manifestCacheHits: 0,
       samplesCacheHits: 0,
       chunkByteCacheHits,

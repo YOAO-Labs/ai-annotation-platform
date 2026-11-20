@@ -1,7 +1,7 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
 /**
- * 折线工具（v0.10.28）。开放、不闭合。
+ * 折线工具。开放、不闭合。
  * 交互：左键逐点落点累积顶点；Enter / 双击 → 结束 (≥2 点即可，不自动闭合)；
  *        Esc → 取消；Backspace → 撤销最后一点（由 Shell hotkey 派生）。
  *

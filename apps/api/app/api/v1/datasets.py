@@ -351,7 +351,7 @@ async def update_dataset(
 ):
     await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
-    # v0.13.11 · 用 model_fields_set 区分「字段未传」与「显式传 None」(后者清除
+    # 用 model_fields_set 区分「字段未传」与「显式传 None」(后者清除
     # metadata_["axis_convention"])。未传时不进 kwargs，让 service 走 _UNSET。
     update_kwargs: dict = {}
     if "axis_convention" in data.model_fields_set:
@@ -365,7 +365,7 @@ async def update_dataset(
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
     await db.commit()
-    # v0.13.11 · 在 commit 后 ds 各属性进入 expired 状态; get_with_project_count
+    # 在 commit 后 ds 各属性进入 expired 状态; get_with_project_count
     # 复用 identity map 中的同一对象, 直接访问 .updated_at 会触发 sync lazy reload
     # 在 async session 下抛 MissingGreenlet。显式 refresh 重读, 复刻 POST 的做法。
     await db.refresh(ds)
@@ -1222,7 +1222,7 @@ async def backfill_scenes_endpoint(
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    """v0.14.0 · 对 dataset 跑 scene layout backfill,补 scene + frame_index。
+    """对 dataset 跑 scene layout backfill,补 scene + frame_index。
 
     幂等:dataset 已有 scene → 直接返回(notes 提示)。
     dry_run:不写库,返回会创建 / 赋值的统计。
@@ -1363,7 +1363,7 @@ async def link_project(
     await recheck_directory_write(request, db, dataset_id, project_id=data.project_id)
     await db.commit()
 
-    # v0.12.0 · enqueue-after-commit：大 dataset 的建 task 走 Celery，必须在 commit
+    # enqueue-after-commit：大 dataset 的建 task 走 Celery，必须在 commit
     # 之后再 delay，否则 worker 可能先于 link / async_job 行可见而读不到。
     if link_result.async_job_id is not None:
         from app.workers.create_tasks import run_create_tasks

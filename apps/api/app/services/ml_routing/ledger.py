@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §9 / §B.4 · Redis routing ledger.
+"""ADR-0050 §9 / §B.4 · Redis routing ledger.
 
 Atomic route-lease lifecycle independent of the GPU arbitration ledger (ADR-0050 D7).
 Namespace ``ml-router:v1`` (zero overlap with ``gpu-arbiter:v1``).

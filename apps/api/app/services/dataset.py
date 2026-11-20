@@ -51,7 +51,7 @@ from app.services.task_creation_contract import (
     decode_creation_reply,
 )
 
-# v0.13.11 · 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
+# 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
 # metadata_["axis_convention"]，回退到默认 iso_8855)。
 _UNSET: object = object()
 log = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class IngestOutcome:
 
 @dataclass(frozen=True)
 class LinkProjectResult:
-    """v0.12.0 · link_project 返回结构：让 endpoint 拿到是否需要异步建 task。
+    """link_project 返回结构：让 endpoint 拿到是否需要异步建 task。
 
     async_job_id 非 None 时表示大 dataset 走 Celery 异步，endpoint 须在
     db.commit() 之后再 enqueue（确保 link 行对 worker 可见）；created_tasks
@@ -132,13 +132,13 @@ async def build_tasks_for_link(
     chunk_size: int = 5000,
     directory_authority=None,
 ) -> dict:
-    """v0.12.0 · 为 dataset link 分块建 task（worker / 同步快路径共用）。
+    """为 dataset link 分块建 task（worker / 同步快路径共用）。
 
     幂等：用 NOT EXISTS 过滤掉该 project 下已有 task 的 dataset_item，重复跑不双建。
     每块独立 commit（增量累加 project.total_tasks），传 job_id 时每块按 5% 粒度
     update_progress，供前端轮询看到进度。返回 {"created": N, "total": M}。
 
-    v0.13.1 · 点云项目（project.data_type == "lidar"）分流到 scene 感知建任务器：
+    点云项目（project.data_type == "lidar"）分流到 scene 感知建任务器：
     先写各相机标定，再按帧建 Task + 多文件 link（见 services/pointcloud_import.py）。
     """
     await validate_dataset_write(
@@ -423,7 +423,7 @@ class DatasetService:
             "is_temporal": is_temporal,
             "created_by": user_id,
         }
-        # v0.13.11 · 仅当显式给定时写 metadata，否则走 server_default '{}'。
+        # 仅当显式给定时写 metadata，否则走 server_default '{}'。
         if axis_convention is not None:
             kwargs["metadata_"] = {"axis_convention": axis_convention}
         ds = Dataset(**kwargs)
@@ -450,7 +450,7 @@ class DatasetService:
             ds.name = name
         if description is not None:
             ds.description = description
-        # v0.13.11 · sentinel 区分「未传」/「显式 None」/「具体值」。
+        # sentinel 区分「未传」/「显式 None」/「具体值」。
         # JSONB in-place mutation 不被 SQLAlchemy dirty-track，必须赋值整对象。
         if axis_convention is not _UNSET:
             meta = dict(ds.metadata_ or {})
@@ -1047,7 +1047,7 @@ class DatasetService:
     async def link_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID, *, directory_authority=None
     ) -> LinkProjectResult:
-        """v0.12.0 · 建 ProjectDataset link，并按 item 数决定同步 / 异步建 task。
+        """建 ProjectDataset link，并按 item 数决定同步 / 异步建 task。
 
         item 数 ≤ task_create_sync_threshold：同步分块建 task（沿用旧体验）。
         > 阈值：不在本请求里建 task，改为创建 CREATE_TASKS async_job 并由 endpoint
@@ -1096,7 +1096,7 @@ class DatasetService:
             )
         ).scalar() or 0
 
-        # v0.7.3：不再为新接入的 dataset 自建「默认包」batch。task 直接 batch_id=NULL，
+        # 不再为新接入的 dataset 自建「默认包」batch。task 直接 batch_id=NULL，
         # 走「未归类任务」语义；BatchesSection 顶部横带提示，用户主动 split 才入 batch。
         # Resolve this decision at link-request time.  A queued CREATE_TASKS
         # job already has its branch chosen and must not change when an admin
@@ -1316,7 +1316,7 @@ class DatasetService:
         if not pending:
             return 0
 
-        # v0.12.0：按 5000 分块 INSERT，避免一条巨 INSERT；本路径仍同步（上游
+        # 按 5000 分块 INSERT，避免一条巨 INSERT；本路径仍同步（上游
         # upload/zip/scan 语义不变）。
         chunk_size = 5000
         total_created = 0
@@ -1366,15 +1366,14 @@ class DatasetService:
     async def unlink_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID
     ) -> dict | None:
-        """v0.6.7 二修 B-10：hard-unlink ——级联删除该 dataset 在该 project 下的所有 task
+        """Hard-unlink：级联删除该数据集在此项目下的所有任务
         (含 annotations / comments / locks)，不再保留为孤儿。
 
         理由：用户期望「取消关联 = 撤销 link 的全部副作用」，soft-unlink 留下进度永远停在历史值。
         相关数据丢失（annotations / 子项）通过前端二次确认 + 数字提示让用户知情。
 
-        v0.7.3 fix：原实现只重算 batch 计数器，导致 link 自建的「默认包」/ 用户从该 dataset
-        task 切出去的 batch 在 task 全删后变成空壳挂在列表里。现在：删 task 前记下「即将失去 task 的
-        batch 集合」，重算后把 total_tasks==0 且非 B-DEFAULT 的批次也删掉。
+        先记录将失去任务的批次，再重算计数；
+        total_tasks==0 且非 B-DEFAULT 的受影响批次也会删除。
 
         返回：None 表示 link 不存在；否则
             {"deleted_tasks": N, "deleted_annotations": M, "deleted_batches": K,
@@ -1539,7 +1538,7 @@ class DatasetService:
 
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
 _VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm"}
-# v0.13.0 · 点云联合标注地基 (0.13.0-3): 放开点云扩展名 → file_type=point_cloud。
+# 点云扩展名映射为 file_type=point_cloud。
 _POINTCLOUD_EXTS = {"pcd", "bin", "las", "ply"}
 
 
@@ -1583,7 +1582,7 @@ def _dataset_dict(ds: Dataset) -> dict:
         "archived_at": ds.archived_at,
         "archived_by": ds.archived_by,
         "lifecycle_revision": ds.lifecycle_revision,
-        # v0.13.11 · 派生自 metadata_["axis_convention"], None = 视作 iso_8855。
+        # 派生自 metadata_["axis_convention"], None = 视作 iso_8855。
         "axis_convention": (ds.metadata_ or {}).get("axis_convention"),
         "created_at": ds.created_at,
         "updated_at": ds.updated_at,

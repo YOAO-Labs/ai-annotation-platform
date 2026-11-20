@@ -1,7 +1,7 @@
 import type { Viewport } from "../state/useViewportTransform";
 
 /**
- * v0.16.1 · 视频 Konva 栈坐标模型(决策 B:像素空间 + Konva transform)。
+ * 视频 Konva 栈坐标模型(决策 B:像素空间 + Konva transform)。
  *
  * 历史 SVG 栈曾用「归一化 [0,1] + SVG CTM + viewBoxHeight=1/aspect」两套 client↔svg
  * fallback(已随 SVG 栈删除)。本栈废弃 CTM 路径,改用图片侧同款范式:
@@ -10,7 +10,7 @@ import type { Viewport } from "../state/useViewportTransform";
  *   - Konva Stage 负责 scale/pan,client↔world 用与图片 `toImg()` 同构的逆变换。
  *
  * 纯函数,栈无关,便于单测。本版(底图-only)主要由 normToPixel 喂 Konva.Image 尺寸;
- * client↔norm 供 v0.16.2 标注层命中复用,在此一并立起并测往返一致。
+ * 标注层命中测试复用 client↔norm 转换；测试覆盖坐标往返一致性。
  */
 
 export type VideoPixelSize = { w: number; h: number };

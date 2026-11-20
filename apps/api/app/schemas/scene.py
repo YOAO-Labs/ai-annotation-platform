@@ -1,4 +1,4 @@
-"""v0.14.0 · Scene schemas
+"""Scene schemas
 
 跨 task 帧序列地基的 Pydantic 表示。Scene = 一段被切成多个 task 的时序录像。
 """

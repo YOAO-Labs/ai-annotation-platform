@@ -1,6 +1,6 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 · unregistered env container card (plan §6.2 / §A.4).
+ * unregistered env container card (plan §6.2 / §A.4).
  *
  * Env containers discovered via `/observe` with `registered === false` have no
  * routing state — no routable flag, weight or traffic distribution. This card

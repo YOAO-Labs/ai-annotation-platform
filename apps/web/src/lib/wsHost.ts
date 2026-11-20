@@ -1,5 +1,5 @@
 /**
- * v0.9.13 · WS host / URL helper.
+ * WS host / URL helper.
  *
  * 收口 4 处 hook 重复的 host 拼接逻辑 (useNotificationSocket / useGlobalPreannotationJobs /
  * usePreannotation / PerfHud/useMLBackendStats):

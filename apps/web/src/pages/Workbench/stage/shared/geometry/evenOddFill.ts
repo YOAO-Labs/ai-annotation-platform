@@ -1,10 +1,8 @@
-// v0.23.5 WS-E · KonvaPolygon holes / multi_polygon 渲染地基 (ADR-0052 D5 / D8)。
+// KonvaPolygon holes / multi_polygon 渲染地基 (ADR-0052 D5 / D8)。
 //
-// 历史背景:ImageStageShapes.KonvaPolygon 在 v0.5.x 起只画单个 <Line closed>。
-// transforms.geometryToShape 早在 v0.9.14 就透传 holes / multiPolygon 字段, 但注释
-// 明写 "暂不参与渲染 (v0.10.x 引入 sceneFunc + evenodd 时启用)"。本模块正是落地
-// 该升级:把「在 canvas 2D context 上构造若干闭合子路径, 再用 evenodd 填充」的路径
-// 构造逻辑抽成纯函数, 供 KonvaPolygon 的 <Line sceneFunc> 调用。
+// transforms.geometryToShape 透传 holes / multiPolygon。
+// 本模块用 canvas 2D 子路径和 evenodd 填充处理多环和镂空。
+// 路径构造是纯函数，供 KonvaPolygon 的 <Line sceneFunc> 调用。
 //
 // 设计原则:
 //   1. 纯函数, 只依赖一个 duck-typed 的 canvas-like context

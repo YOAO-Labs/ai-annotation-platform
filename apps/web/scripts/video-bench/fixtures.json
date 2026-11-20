@@ -56,7 +56,7 @@
     "dragFps": 30
   },
   "preciseFrame": {
-    "comment": "v0.23.15 §8 WebCodecs 精确帧性能资格矩阵。指标门(§8.3)与 Dedicated Worker 触发门(§9)在此声明;真实测量需有 VideoDecoder 的有头 Chrome / GPU runner,headless 软解仅记录环境与 capability。",
+    "comment": "WebCodecs 精确帧性能资格矩阵，包含指标门和 Dedicated Worker 触发门；真实测量需有 VideoDecoder 的有头 Chrome / GPU runner，headless 软解仅记录环境与 capability。",
     "resolutions": [
       {
         "id": "1080p-30",

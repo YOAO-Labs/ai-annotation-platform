@@ -14,7 +14,7 @@ export interface PasswordChangePayload {
   new_password: string;
 }
 
-// v0.8.4 · 工作台耗时事件批量上报（效率看板源数据）
+// 工作台耗时事件批量上报（效率看板源数据）
 export interface TaskEventIn {
   client_id?: string;
   task_id: string;
@@ -94,13 +94,12 @@ export const meApi = {
       form.append("file", file);
       xhr.send(form);
     }),
-  // v0.8.1 · 自助注销冷静期
+  // 自助注销冷静期
   requestDeactivation: (reason: string) =>
     apiClient.post<MeResponse>("/auth/me/deactivation-request", { reason }),
   cancelDeactivation: () => apiClient.delete<MeResponse>("/auth/me/deactivation-request"),
-  // v0.8.4
   submitTaskEvents: (events: TaskEventIn[], init?: RequestInit) =>
     apiClient.post<TaskEventBatchOut>("/auth/me/task-events:batch", { events }, init),
-  // v0.8.3 · 在线状态心跳：前端 30s 周期触发，刷新 last_seen_at + status='online'。
+  // 在线状态心跳：前端 30s 周期触发，刷新 last_seen_at + status='online'。
   heartbeat: () => apiClient.post<void>("/auth/me/heartbeat"),
 };

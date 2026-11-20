@@ -1,4 +1,4 @@
-// v0.10.18 · CreateProjectWizard 第 3 步: 属性 schema 按工具单位独立.
+// CreateProjectWizard 第 3 步: 属性 schema 按工具单位独立.
 // 从 CreateProjectWizard.tsx 抽出.
 
 import { AttributeSchemaEditor } from "@/pages/Projects/sections/AttributeSchemaEditor";

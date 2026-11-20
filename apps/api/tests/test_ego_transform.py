@@ -1,4 +1,4 @@
-"""v0.15.1 · ego_transform 几何纯函数测试。
+"""ego_transform 几何纯函数测试。
 
 覆盖:世界位置守恒(静止物补偿后 world 坐标不变)/ 插值中点 /
 slerp 朝向单位四元数 / 缺 pose 恒等降级。

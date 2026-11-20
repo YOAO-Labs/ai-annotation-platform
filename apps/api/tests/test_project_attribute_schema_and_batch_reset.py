@@ -107,7 +107,7 @@ async def test_create_project_with_attribute_schema(httpx_client, super_admin):
     headers = {"Authorization": f"Bearer {token}"}
 
     payload = {
-        "name": "v0.7.6 attr schema project",
+        "name": "attribute schema project",
         "type_label": "图像-检测",
         "type_key": "image-det",
         "classes": ["car"],
@@ -153,7 +153,7 @@ async def test_create_project_default_attribute_schema(httpx_client, super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
     payload = {
-        "name": "v0.7.6 default attr schema",
+        "name": "default attribute schema",
         "type_label": "图像-检测",
         "type_key": "image-det",
         "classes": [],
@@ -173,7 +173,7 @@ async def test_create_project_rejects_invalid_attribute_schema(
 
     # select 类型缺 options 应 422
     payload = {
-        "name": "v0.7.6 bad attr schema",
+        "name": "invalid attribute schema",
         "type_label": "图像-检测",
         "type_key": "image-det",
         "attribute_schema": {
@@ -376,7 +376,7 @@ async def test_persist_audit_entry_task_writes_row(test_engine):
             assert row.status_code == 200
             assert row.actor_role == "annotator"
     finally:
-        # cleanup — v0.7.8 audit_logs 不可变 trigger 需要豁免；只删本测试自己的行。
+        # 审计日志的不可变 trigger 需要事务内豁免；只删除本测试的行。
         async with maker() as cleanup:
             await cleanup.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
             await cleanup.execute(
@@ -507,14 +507,14 @@ async def test_annotations_page_invalid_cursor(
     assert res.status_code == 400
 
 
-# ── v0.9.12 · BUG B-15 · reset_to_draft 级联 prediction 清理 ────────────────
+# ── reset_to_draft 级联 prediction 清理 ────────────────
 
 
 @pytest.mark.asyncio
 async def test_reset_to_draft_cascades_predictions(
     httpx_client, db_session, super_admin, annotator
 ):
-    """v0.9.12 B-15: reset_to_draft 必须清光本 batch 关联的 predictions / failed_predictions /
+    """reset_to_draft 必须清光本 batch 关联的 predictions / failed_predictions /
     prediction_jobs / prediction_metas. 否则 /ai-pre 仍会渲染该 batch 已就绪卡片."""
     from app.db.models.async_job import AsyncJob
     from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -530,7 +530,7 @@ async def test_reset_to_draft_cascades_predictions(
         n_tasks=2,
         task_status="pending",
     )
-    # v0.19.0 ADR-0044 · backend 已上提为全局注册项 (无 project_id)。
+    # ADR-0044 · backend 已上提为全局注册项 (无 project_id)。
     backend = MLBackendRegistry(
         id=uuid.uuid4(),
         name="cascade-test",
@@ -565,7 +565,7 @@ async def test_reset_to_draft_cascades_predictions(
         PredictionMeta(id=uuid.uuid4(), prediction_id=pred.id, total_cost=0.001)
     )
     db_session.add(PredictionMeta(id=uuid.uuid4(), failed_prediction_id=fp.id))
-    # v0.10.49 · prediction_jobs 已收敛进 async_jobs（batch_id 进 payload）
+    # prediction_jobs 已收敛进 async_jobs（batch_id 进 payload）
     job = AsyncJob(
         id=uuid.uuid4(),
         kind="batch_predict",
@@ -649,7 +649,7 @@ async def test_reset_to_draft_cascades_predictions(
 async def test_check_auto_transitions_pre_annotated_to_annotating(
     db_session, super_admin, annotator
 ):
-    """v0.9.12 B-15 第二症状回归: pre_annotated batch 内 task 变 in_progress 时 batch 应转 annotating."""
+    """pre_annotated 批次内的任务变为 in_progress 时，批次应转为 annotating。"""
     from app.services.batch import BatchService
 
     owner, _ = super_admin

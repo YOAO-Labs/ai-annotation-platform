@@ -42,7 +42,7 @@ docs-site/dev/adr/
 docs-site/changelog/
 docs-site/roadmap/
 
-# v0.10.16 · DuckDB 离线分析视图文件（ROADMAP §1.6, Celery worker 写 / API 只读）
+# DuckDB 离线分析视图文件（ROADMAP §1.6, Celery worker 写 / API 只读）
 data/duckdb/
 apps/api/data/duckdb/
 

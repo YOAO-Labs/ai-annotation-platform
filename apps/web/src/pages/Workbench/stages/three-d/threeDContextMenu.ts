@@ -1,5 +1,5 @@
 /**
- * v0.15.20 · 3D 点云工作台画布右键菜单项构建。
+ * 3D 点云工作台画布右键菜单项构建。
  *
  * 两套上下文敏感菜单(对标 2D 的 imageStageContextMenu):
  * - 命中框(buildThreeDBoxContextMenuItems): 针对右键选中的 box_3d。

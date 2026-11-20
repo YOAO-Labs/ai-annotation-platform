@@ -51,7 +51,7 @@ export interface ScreenshotScene {
   mockState?: "happy" | "empty" | "error" | "loading" | "rate-limited";
 
   /**
-   * 截图模式（不填 = viewport 截图，等同 v0.8.7 行为）。
+   * 截图模式，默认截取 viewport。
    * - fullPage : fullPage:true
    * - locator  : locator.screenshot()，可加 padding 扩展边距
    * - clip     : page.screenshot({ clip: rect })

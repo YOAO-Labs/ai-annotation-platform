@@ -182,7 +182,7 @@ class MLBackendService:
             self._topology().create_registry(name, url, source=source, **kwargs)
         )
 
-    # ── v0.23.3 ADR-0050 §12.1 · Super Admin pool/member management ──────────
+    # ── ADR-0050 §12.1 · Super Admin pool/member management ──────────
     async def create_pool(
         self, name: str, *, legacy_instance_id: uuid.UUID | None = None
     ):
@@ -373,7 +373,7 @@ class MLBackendService:
             )
         )
 
-    # ── 项目启用关联 (v0.23.3 ADR-0050 · 经服务池层) ─────────────────────────
+    # ── 项目启用关联（ADR-0050，经服务池层）────────────────────────────────
     # Project associations use service-pool IDs; Registry adapters resolve their
     # physical IDs through the topology coordinator.
 

@@ -115,7 +115,7 @@ describe("unitBindingsToPayload", () => {
     expect(out.region).toBeUndefined();
   });
 
-  // v0.17.15 · alias_to 软关联往返
+  // alias_to 软关联往返
   it("链接的类序列化时省略自身 color/alias, 只带 alias_to", () => {
     const ref = { tool_unit_id: "bbox", class_name: "person" };
     const out = unitBindingsToPayload({

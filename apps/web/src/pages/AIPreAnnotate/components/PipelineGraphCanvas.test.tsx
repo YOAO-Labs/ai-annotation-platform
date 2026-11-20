@@ -1,5 +1,5 @@
 /**
- * v0.18.16 · PipelineGraphCanvas 轻组件测.
+ * PipelineGraphCanvas 轻组件测.
  *
  * react-flow 在 jsdom 需 ResizeObserver / 尺寸 stub。这里只验证节点把角色徽标 / 详情渲染出来、
  * 点击节点回调 onSelect —— 受限校验 / 布局的细节由 pipelineGraph.test.ts (纯函数) 覆盖。

@@ -408,7 +408,7 @@ export interface SeedTaskAnnotation {
   attributes?: Record<string, unknown> | null;
 }
 
-/** v0.8.7 F4 · 截图脚本只读窥探：返回首个 super_admin / 首个项目 / 首个任务。
+/** 截图脚本只读窥探：返回首个 super_admin / 首个项目 / 首个任务。
  *  字段允许 null（对应数据不存在时），调用方自行兜底。 */
 export interface SeedPeekData {
   admin_email: string | null;
@@ -928,7 +928,7 @@ export class SeedAPI {
     }
   }
 
-  /** v0.16.x · 造点云 E2E fixture(lidar 项目 + 2 帧 point_cloud task)。需先 reset()。 */
+  /** 造点云 E2E fixture(lidar 项目 + 2 帧 point_cloud task)。需先 reset()。 */
   /** Build the namespaced point-cloud fixture (reuses this namespace's users). */
   async seedLidar(namespace?: string): Promise<SeedLidarData> {
     const token = this.ownedNamespace(namespace);
@@ -1008,7 +1008,7 @@ export class SeedAPI {
     return result;
   }
 
-  /** v0.23.15 · 造确定性 H.264 WebCodecs fixture 任务 + 单 chunk(precise-frame E2E)。 */
+  /** 造确定性 H.264 WebCodecs fixture 任务 + 单 chunk(precise-frame E2E)。 */
   async videoWebCodecs(
     projectId: string,
     options?: {
@@ -1181,7 +1181,7 @@ export class SeedAPI {
     return (await res.json()) as SeedRasterPredictionData;
   }
 
-  /** v0.8.7 F4 · 只读窥探现有数据；不破坏 dev 数据。 */
+  /** 只读窥探现有数据；不破坏 dev 数据。 */
   async peek(): Promise<SeedPeekData> {
     const res = await this.request.get(`${API_BASE}/api/v1/__test/seed/peek`);
     if (!res.ok()) {
@@ -1259,7 +1259,7 @@ export class SeedAPI {
   }
 
   /**
-   * v0.10.10 · I11 e2e 辅助：直接 INSERT 一条 polygon prediction，绕过 ml-backend。
+   * 辅助：直接 INSERT 一条 polygon prediction，绕过 ml-backend。
    * 用于 mask 编辑器「AI prediction 精修」入口测试。
    */
   async injectPrediction(opts: {
@@ -1287,7 +1287,7 @@ export class SeedAPI {
   }
 
   /**
-   * v0.8.5 · E2E 辅助：直接置 task 状态，绕过 UI 链路。
+   * 辅助：直接置 task 状态，绕过 UI 链路。
    * 多角色串联 spec 用此跳过画框 / 提交流程，专注验证下游交接。
    */
   async advanceTask(opts: {

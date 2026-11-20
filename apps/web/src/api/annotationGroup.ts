@@ -1,7 +1,7 @@
 /**
  * 批量编辑 API client。
  *
- * v0.21.3 · 标注编组(group / ungroup)端点已下线,仅保留 bulk-update
+ * 标注编组(group / ungroup)端点已下线,仅保留 bulk-update
  * (选中多框一次改 class/属性/状态位)。ids 需属于同一 task(router 层强约束)。
  */
 import { apiClient } from "./client";

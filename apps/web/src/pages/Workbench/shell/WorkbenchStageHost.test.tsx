@@ -1,4 +1,4 @@
-// v0.10.18 · WorkbenchStageHost focused render tests.
+// WorkbenchStageHost focused render tests.
 // 验证按 stageKind 分发到唯一对应的舞台组件 (image / video / 3d).
 // 不验证舞台组件内部行为 — 那些有各自单测 (VideoStage / ImageWorkbench).
 

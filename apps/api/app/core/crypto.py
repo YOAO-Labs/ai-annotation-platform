@@ -1,4 +1,4 @@
-"""v0.11.14 · 连接器凭据对称加密（Fernet）。
+"""连接器凭据对称加密（Fernet）。
 
 存储连接器（外部 S3 / SFTP）的密钥落库前用 Fernet 加密为密文，
 读出时在 service 层内解密、用完即弃，绝不进任何 response schema。

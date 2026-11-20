@@ -41,7 +41,7 @@ export const ROLE_PAGE_ACCESS: Record<UserRole, PageKey[]> = {
     "admin-people",
     "my-performance",
   ],
-  // v0.25.x · employees can reach both work entry points; the server filters the
+  // employees can reach both work entry points; the server filters the
   // actual work by project membership.  No fabricated global current role.
   employee: ["dashboard", "annotate", "review", "datasets", "settings", "my-performance"],
   viewer: ["dashboard", "datasets", "settings"],

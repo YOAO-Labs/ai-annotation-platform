@@ -1,4 +1,4 @@
-"""v0.14.11 · capability_registry SSOT 单测.
+"""capability_registry SSOT 单测.
 
 校验:
 - 受控词表与 aap_inference.capabilities re-export 一致 (防回归);
@@ -92,7 +92,7 @@ def test_task_default_geometry_matches_re_export():
 
 
 def test_backend_vocab_mirror_matches_registry():
-    """vocab.py 自称是 capability_registry 的最小镜像; 锁死防漂移 (v0.14.17).
+    """确认 vocab.py 的最小词表与 capability_registry 一致。
 
     backend 进程不反向依赖 apps/api, 无法在 protocol_v2 包内断言; 由 apps/api 侧
     (唯一同时知道两边的地方) 用文件加载核对 5 张受控词表 + TASK_DEFAULT_GEOMETRY。

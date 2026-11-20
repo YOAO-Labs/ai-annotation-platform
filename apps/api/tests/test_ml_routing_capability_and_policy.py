@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §C.1 / §C.2 · capability fingerprint + SWRR golden tests.
+"""ADR-0050 §C.1 / §C.2 · capability fingerprint + SWRR golden tests.
 
 Pure-functional core of the routing domain (no Redis / DB). The Redis acquire Lua
 in ``ledger.py`` mirrors the SWRR algorithm here; both must stay in lockstep.

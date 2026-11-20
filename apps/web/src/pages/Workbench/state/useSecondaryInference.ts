@@ -1,5 +1,5 @@
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
-// v0.20.11 · 选中框单框二次推理 (Q1b) 前端 hook。
+// 选中框单框二次推理 (Q1b) 前端 hook。
 //
 // - useSecondaryCapabilities: 枚举本项目启用的 backend × model, 过滤出「能在 crop 上跑」
 //   的能力 (supported_inputs 含 crop、非交互), 派生 writeTarget (检测→geometry / 分类·OCR→attributes)。
@@ -110,7 +110,7 @@ export function useSecondaryCapabilities(projectId: string | undefined): {
 /**
  * 该 attributes-型能力会写、但项目 attribute_schema 缺承接位的字段 (转成可「一键补全」的
  * AttributeField)。用于 SecondaryInferenceBar 预警「跑了属性也看不见」并提供补全。
- * 转换逻辑与 useCapabilityValidation 的 v0.20.2 补全载荷同款。
+ * 转换逻辑与 useCapabilityValidation 的载荷补全一致。
  */
 export function missingAttributeFields(
   cap: SecondaryCapability,

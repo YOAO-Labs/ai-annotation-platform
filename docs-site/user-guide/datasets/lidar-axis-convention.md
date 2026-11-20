@@ -1,7 +1,6 @@
 ---
 audience: [admin, superadmin]
 type: how-to
-since: v0.13.11
 status: stable
 last_reviewed: 2026-06-10
 ---
@@ -40,7 +39,7 @@ last_reviewed: 2026-06-10
 
 ### 创建数据集时声明
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/lidar-axis-wizard-step2.png — 向导第 2 步选「3D 点云」后出现 AxisConventionPicker + 自动检测按钮 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/datasets/lidar-axis-wizard-step2.png — 向导第 2 步选「3D 点云」后出现 AxisConventionPicker + 自动检测按钮 [manual] -->
 
 创建点云数据集时,上传向导**第 2 步**（填写数据集名称与类型）选择数据类型为「3D 点云」后会显示「LiDAR 坐标系约定」下拉（`AxisConventionPicker`）。选定后会随 `POST /datasets` 的 `axis_convention` 字段一起落库:
 
@@ -127,11 +126,11 @@ WHERE name = 'scene-001';
 
 ### 历史标注
 
-v0.13.11 之前已经标注的 3D 框,**当时是按 ISO 假设画的**(几何代码一直锁死 ISO),所以它们存的 PSR 对应的就是"用户当时屏幕上看到的"。给数据集设定新 convention 后,旧框会被按新 convention 重投影显示——若你确认旧框已经匹配点云(说明数据集本来就是 ISO),保持 `axis_convention=iso_8855` 即可,旧框不动。若新 convention 把旧框带歪,需要重新审标或在数据集设置回 `iso_8855`。
+没有记录创建时坐标系的旧 3D 框按 ISO 约定绘制。更改数据集的 `axis_convention` 会影响它们的显示，不会改写已保存的几何。如果旧框在 ISO 下与点云吻合，保持 `iso_8855`；若必须切换约定，请复核框与点云的对齐情况。
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/lidar-axis-mismatch-banner.png — 3D 工作台顶部坐标系不一致 banner + 重投影按钮 [manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/datasets/lidar-axis-mismatch-banner.png — 3D 工作台顶部坐标系不一致 banner + 重投影按钮 [manual] -->
 
-v0.13.12 起,新建的 `box_3d` / `point_mask_3d` 几何会记录 `convention_at_create`。打开 3D 任务时,如果某个 3D 框的创建约定与当前数据集约定不同,工作台顶部会显示警告;选中单个框后可执行「按当前约定重投影选中框」。该动作只处理选中框,不做批量改写。
+新建的 `box_3d` / `point_mask_3d` 几何会记录 `convention_at_create`。打开 3D 任务时,如果某个 3D 框的创建约定与当前数据集约定不同,工作台顶部会显示警告;选中单个框后可执行「按当前约定重投影选中框」。该动作只处理选中框,不做批量改写。
 
 ## 相关
 

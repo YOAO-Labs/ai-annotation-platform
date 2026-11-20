@@ -9,7 +9,7 @@
 > Finalization: 实施前必须执行 [`backlog/README.md`](README.md) 的“转定稿门”并先批准数据真值 ADR
 >
 > Superseded scope: 相机 bbox 成员、sensor context、标定 revision、投影残差与 KITTI lineage
-> 已由 [`v0.24.15`](../archive/2026-08-26-v0.24.15-persistent-multicamera-members.md) 实施。
+> 已由 [多相机持久成员计划](../archive/2026-08-26-v0.24.15-persistent-multicamera-members.md) 实施。
 > 本草案只保留相机 polygon / mask 等尚未排期的后续研究边界。
 
 ## 1. 推荐结论

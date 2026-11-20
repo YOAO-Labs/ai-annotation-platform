@@ -1,4 +1,4 @@
-"""v0.10.16 · Webhook 事件信封占位 schema（ADR-0025）。
+"""Webhook 事件信封占位 schema（ADR-0025）。
 
 仅定义信封形状与事件名 Literal，**不**接入任何 publisher / outbox / delivery。
 未来 ROADMAP §2.1 Webhook epic 落地时直接复用，无需重写。
@@ -27,7 +27,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class EventEnvelope(BaseModel, Generic[T]):
-    """v0.10.16 · Webhook payload 顶层信封。
+    """Webhook payload 顶层信封。
 
     所有 webhook 事件都遵循此结构，便于客户端按 envelope 字段做版本判断
     与 delivery_id 幂等去重。data 字段的 schema 由 event 决定。

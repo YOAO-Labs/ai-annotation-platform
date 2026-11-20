@@ -1,5 +1,5 @@
 /**
- * Cloudflare Turnstile loader (v0.8.7).
+ * Cloudflare Turnstile loader.
  *
  * `VITE_TURNSTILE_SITE_KEY` 缺省时 noop —— 本地开发不阻断注册流。
  * 启用时动态注入官方 api.js（async defer），并暴露 render/reset 封装。
@@ -34,7 +34,7 @@ export function getTurnstileSiteKey(): string | null {
 }
 
 /**
- * v0.9.11 · 读取 index.html 中 `<meta name="csp-nonce">` 的 per-request nonce.
+ * 读取 index.html 中 `<meta name="csp-nonce">` 的 per-request nonce.
  * 用于动态 script 注入时显式带 `nonce` 属性, 满足 nonce-based CSP.
  * dev 模式下 meta content 仍是 placeholder (Nginx 才替换), 浏览器忽略不影响渲染.
  */
@@ -60,7 +60,7 @@ export function loadTurnstileScript(): Promise<void> {
     s.src = `${SCRIPT_SRC}?render=explicit`;
     s.async = true;
     s.defer = true;
-    // v0.9.11 · CSP nonce-based 收紧 — 动态注入 script 必须显式设 nonce 才能通过 script-src
+    // CSP nonce-based 收紧 — 动态注入 script 必须显式设 nonce 才能通过 script-src
     const nonce = getCspNonce();
     if (nonce) s.nonce = nonce;
     s.onload = () => resolve();

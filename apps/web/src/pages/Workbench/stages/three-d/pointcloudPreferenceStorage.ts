@@ -101,7 +101,7 @@ export function writePointcloudStickyToggle(
   storage.setItem(pointcloudStickyKey(userId, name), value ? "1" : "0");
 }
 
-/** v0.15.21 · 选中框 PSR 面板的 UI 记忆:展开态 + 整体拖动偏移(相对默认右上锚点)。 */
+/** 选中框 PSR 面板的 UI 记忆:展开态 + 整体拖动偏移(相对默认右上锚点)。 */
 export interface PsrPanelUiState {
   expanded: boolean;
   dx: number;

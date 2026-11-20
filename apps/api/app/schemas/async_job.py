@@ -1,4 +1,4 @@
-"""v0.10.16 · async_jobs API schema（ROADMAP §1.7）。"""
+"""async_jobs API schema（ROADMAP §1.7）。"""
 
 import uuid
 from datetime import datetime, timezone
@@ -22,7 +22,7 @@ class StorageJobProgressOut(BaseModel):
 
 
 class AsyncJobOut(BaseModel):
-    """v0.10.16 · 异步任务行 schema（前端铃铛 + 详情页消费）。"""
+    """异步任务行 schema（前端铃铛 + 详情页消费）。"""
 
     model_config = ConfigDict(from_attributes=True)
 

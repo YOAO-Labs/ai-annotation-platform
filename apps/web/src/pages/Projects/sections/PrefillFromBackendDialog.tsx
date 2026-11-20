@@ -1,5 +1,5 @@
 /**
- * v0.20.3 · 从 ML Backend 预填项目配置（类别 + 属性）
+ * 从 ML Backend 预填项目配置（类别 + 属性）
  *
  * backend /setup 自报 `classes`（yolo COCO 等）+ `output_attribute_schema`（二阶段属性，
  * 如 onnxtools 车型/颜色，含 select options）。本对话框列出「有类别或有属性可预填」的 model，
@@ -12,7 +12,7 @@
  * 用户「填不了类别」。项目级 /capabilities 的 classes 形状是 `[{index,name}]`，此处抽出 name。
  *
  * 纯受控：确认后回调 onPrefill({ classes, attributes })，由调用方（ClassesSection）决定合并。
- * 前身 v0.18.0 ImportAttributesFromBackendDialog 仅导属性；v0.20.3 补齐类别、对称化为「预填配置」。
+ * 预填配置同时支持从后端导入类别与属性。
  */
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -71,7 +71,7 @@ export interface PrefillPicked {
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** v0.20.x · 取本项目已接入 backend 的能力 (含 yolo COCO / onnxtools 车辆类别)。 */
+  /** 取本项目已接入 backend 的能力 (含 yolo COCO / onnxtools 车辆类别)。 */
   projectId: string;
   /** 用户确认预填的类别名 + 属性字段（已按勾选过滤）。 */
   onPrefill: (picked: PrefillPicked) => void;

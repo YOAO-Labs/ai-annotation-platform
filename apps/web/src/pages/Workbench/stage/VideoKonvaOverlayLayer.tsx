@@ -17,7 +17,7 @@ interface VideoKonvaOverlayLayerProps {
 }
 
 /**
- * v0.16.2 · 视频 overlay 层(Konva Layer "overlay",listening=false)。
+ * 视频 overlay 层(Konva Layer "overlay",listening=false)。
  *
  * 渲染 pending draft(虚线框)+ 标签(Konva Label/Tag/Text,抄图片 KonvaBox 标签)。
  * 标签置于框顶上方(对齐图片栈统一范式),字号 `labelFontSize/scale` 屏幕恒定;

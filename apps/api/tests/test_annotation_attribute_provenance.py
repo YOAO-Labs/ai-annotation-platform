@@ -1,4 +1,4 @@
-"""v0.20.10 · 属性级溯源 (per-key origin) service 层覆盖 (Q1a).
+"""属性级溯源 (per-key origin) service 层覆盖 (Q1a).
 
 - accept_prediction 从 PredictionMeta.extra.pipeline 提取 AI 富集键 → attributes_meta
   标 origin=ai + model_ref (含 label 前缀反推)

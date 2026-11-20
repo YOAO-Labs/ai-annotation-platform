@@ -54,7 +54,7 @@ psql -d annotation \
 collector 越权或高权限角色。
 普通应用角色不能是表 owner；数据库迁移继续使用独立 schema owner。
 
-## backfill_scenes (v0.14.0)
+## backfill_scenes
 
 对历史 dataset 补 `scene_id` + `frame_index`(跨 task 帧序列地基)。
 
@@ -97,11 +97,11 @@ uv run python -m scripts.prepare_original_catalog
 准备完成后，在独立进程中用各导入器的受限数据库及对象存储身份运行；不要向导入器传递
 owner 数据库 URL 或存储管理员密钥。缺少或失效的目标仍明确拒绝，不会由导入器自动修复。
 
-## import_nuscenes_scene (v0.14.2)
+## import_nuscenes_scene
 
 把 nuScenes-mini 的一个/多个 scene 转成本平台点云原生目录 + 入库(MinIO + DB)。
-**按 scene name 显式建多 scene**(每个 scene 一个顶层子目录),显式调用 v0.14.0 的
-scene service 建 scene + 赋 frame_index,不依赖目录启发式 single-scene inference。
+脚本按 scene name 显式创建 scene（每个 scene 一个顶层子目录），调用
+scene service 创建 scene 并分配 frame_index，不依赖目录启发式推断。
 不引入 nuscenes-devkit,只用 numpy + Pillow 自读 JSON。
 
 `seed.py` 会从 nuScenes 官方地址下载 Mini split 到
@@ -117,7 +117,7 @@ uv run python scripts/import_nuscenes_scene.py \
     --nuscenes-root /data/nuscenes-mini --scene-tokens scene-0061 \
     --dataset-name nu-scene-0061
 
-# 多 scene 共用 dataset(验证 v0.14.0 多 scene 隔离)
+# 多个 scene 共用一个 dataset
 uv run python scripts/import_nuscenes_scene.py \
     --nuscenes-root /data/nuscenes-mini \
     --scene-tokens scene-0061,scene-0103,scene-0553 --dataset-name nu-mini-multi

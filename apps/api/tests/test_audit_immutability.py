@@ -1,8 +1,8 @@
-"""v0.8.3 · 审计日志不可变 trigger 测试覆盖
+"""审计日志不可变 trigger 测试覆盖
 
-v0.7.8 落了 PG trigger `deny_audit_log_mutation` 阻断 audit_logs 的 UPDATE/DELETE，
+PG trigger `deny_audit_log_mutation` 阻断 audit_logs 的 UPDATE/DELETE；
 GDPR 数据清除路径用 `SET LOCAL "app.allow_audit_update" = 'true'` 在事务内豁免；
-v0.8.1 audit_logs 月分区，trigger 在父表上挂自动级联到子分区。
+audit_logs 按月分区，父表上的 trigger 自动级联到子分区。
 
 四条 case：
   ① UPDATE 无豁免 → 抛 RAISE

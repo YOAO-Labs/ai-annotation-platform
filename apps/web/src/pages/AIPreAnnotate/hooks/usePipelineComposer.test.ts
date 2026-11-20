@@ -1,5 +1,5 @@
 /**
- * v0.21.0 · usePipelineComposer hook 覆盖: 加子/改父/键冲突判据 (承接 pipelineGraph 纯函数覆盖).
+ * usePipelineComposer hook 覆盖: 加子/改父/键冲突判据 (承接 pipelineGraph 纯函数覆盖).
  * 只测状态机层, 不管 UI. 项目页与全局页共用同一份判据.
  */
 import { act, renderHook } from "@testing-library/react";
@@ -24,7 +24,7 @@ const geoPayload = (backendId: string, keys?: string[], label?: string): Pipelin
 });
 
 describe("usePipelineComposer", () => {
-  // v0.21.6 · 终态: 输入节点(纯数据源, ROOT_SID)[0] + 源模型 stage(SOURCE_SID)[1]; 下游挂 SOURCE_SID。
+  // 终态: 输入节点(纯数据源, ROOT_SID)[0] + 源模型 stage(SOURCE_SID)[1]; 下游挂 SOURCE_SID。
   it("初始状态: 输入节点 + 源模型 stage, 选中 SOURCE_SID, 无冲突", () => {
     const { result } = renderHook(() => usePipelineComposer({ availableBackendCount: 2 }));
     expect(result.current.stagesGraph).toHaveLength(2);

@@ -1,4 +1,4 @@
-// v0.15.3 · 字段注册表完整性:key 与 category 一致、默认值可解析、patch 构造正确。
+// 字段注册表完整性:key 与 category 一致、默认值可解析、patch 构造正确。
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
 import {

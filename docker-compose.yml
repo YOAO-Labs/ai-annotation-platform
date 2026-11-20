@@ -65,7 +65,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # v0.10.24 · dev SMTP 收件箱。后端 email.py 的 admin「发送测试邮件」按钮
+  # dev SMTP 收件箱。后端 email.py 的 admin「发送测试邮件」按钮
   # 把邮件投到这里; Web UI http://localhost:8025 直接看收到的邮件, 不外发真实邮件。
   # 配合 .env: SMTP_HOST=localhost SMTP_PORT=1025 SMTP_FROM=noreply@local.test
   # (API 跑 host 时连 localhost:1025; 若 API 也进 Docker 则填 SMTP_HOST=mailpit)。
@@ -131,7 +131,7 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
-    # v0.19.5 · 通用队列组 (非 GPU/CPU 预标)。ml/gpu 预标已拆到 celery-worker-gpu,
+    # 通用队列组 (非 GPU/CPU 预标)。ml/gpu 预标已拆到 celery-worker-gpu,
     # ml.cpu 拆到 celery-worker-cpu, 实现设备感知并发隔离。
     command: celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
     environment:
@@ -165,15 +165,15 @@ services:
       IMAGE_PYRAMID_GC_GRACE_HOURS: ${IMAGE_PYRAMID_GC_GRACE_HOURS:-24}
       GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
-      # v0.10.16 · DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
+      # DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
       - *jobs-publication-secret
-      # v0.10.16 · DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
+      # DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
       - ./data/duckdb:/var/lib/duckdb
-      # v0.11.16 · Paramiko RejectPolicy 需要预置信任的 SFTP host key；本地文件 gitignored。
+      # Paramiko RejectPolicy 需要预置信任的 SFTP host key；本地文件 gitignored。
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
-      # v0.10.25 · dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。
+      # dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。
       # deps 装在 /opt/venv (见 Dockerfile.api), 不在 /app 下, 挂 /app 不盖依赖;
       # 匿名卷屏蔽 host 的 apps/api/.venv 避免泄入容器。Celery 无 --reload, 改码后仍需 restart。
       - ./apps/api:/app
@@ -186,7 +186,7 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # v0.10.24 · worker 健康探针: inspect ping 自身节点 (-d 限定当前 worker, 不等其它副本)。
+    # worker 健康探针: inspect ping 自身节点 (-d 限定当前 worker, 不等其它副本)。
     # 必须用 CMD-SHELL — exec-form 无 shell, $$HOSTNAME 不展开会 ping 字面节点名导致永远 unhealthy。
     # start_period 留足 image 冷启 + broker 连接; SIGTERM 后给 30s warm shutdown 跑完在途任务。
     healthcheck:
@@ -315,7 +315,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # v0.19.5 · GPU 预标 worker. 消费 ml (设备=gpu/未自报的预标) + gpu (视频追踪) 队列, 低并发护显存。
+  # GPU 预标 worker. 消费 ml (设备=gpu/未自报的预标) + gpu (视频追踪) 队列, 低并发护显存。
   # 配置照抄 celery-worker, 仅改 -Q 与并发 (CELERY_GPU_CONCURRENCY, 默认 2)。
   celery-worker-gpu:
     build:
@@ -372,7 +372,7 @@ services:
       minio:
         condition: service_healthy
 
-  # v0.19.5 · CPU 预标 worker. 消费 ml.cpu (整条 pipeline 全部 device=cpu 的预标) 队列, 高并发。
+  # CPU 预标 worker. 消费 ml.cpu (整条 pipeline 全部 device=cpu 的预标) 队列, 高并发。
   # 配置照抄 celery-worker, 仅改 -Q 与并发 (CELERY_CPU_CONCURRENCY, 默认 4)。
   celery-worker-cpu:
     build:
@@ -418,7 +418,7 @@ services:
       minio:
         condition: service_healthy
 
-  # v0.10.27 · 导出专用 worker. 独立 export 队列资源隔离, 导出大任务不拖累预标/媒体处理。
+  # 导出专用 worker. 独立 export 队列资源隔离, 导出大任务不拖累预标/媒体处理。
   # 配置照抄 celery-worker, 仅改 -Q export --concurrency=2 与容器名。
   celery-worker-export:
     build:
@@ -441,19 +441,19 @@ services:
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
-      # v0.10.16 · DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
+      # DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
       - *jobs-publication-secret
       - *export-execution-secret
-      # v0.10.16 · DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
+      # DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
       - ./data/duckdb:/var/lib/duckdb
-      # v0.10.25 · dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。
+      # dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。
       # deps 装在 /opt/venv (见 Dockerfile.api), 不在 /app 下, 挂 /app 不盖依赖;
       # 匿名卷屏蔽 host 的 apps/api/.venv 避免泄入容器。Celery 无 --reload, 改码后仍需 restart。
       - ./apps/api:/app
       - /app/.venv
-    # v0.10.24 · worker 健康探针: inspect ping 自身节点 (-d 限定当前 worker, 不等其它副本)。
+    # worker 健康探针: inspect ping 自身节点 (-d 限定当前 worker, 不等其它副本)。
     # 必须用 CMD-SHELL — exec-form 无 shell, $$HOSTNAME 不展开会 ping 字面节点名导致永远 unhealthy。
     # start_period 留足 image 冷启 + broker 连接; SIGTERM 后给 30s warm shutdown 跑完在途任务。
     healthcheck:
@@ -472,7 +472,7 @@ services:
       minio:
         condition: service_healthy
 
-  # v0.9.11 · Celery beat 独立 service. worker 与 beat 解耦 (worker 可 scale 多副本,
+  # Celery beat 独立 service. worker 与 beat 解耦 (worker 可 scale 多副本,
   # beat 必须单实例避免 schedule 重复触发). 复用同一 image (Dockerfile.api).
   # PerfHud 1s 推送 + audit partition 月度任务 + ml health 60s 等都依赖此进程.
   celery-beat:
@@ -495,10 +495,10 @@ services:
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
     volumes:
-      # v0.10.25 · dev 源码热挂载 (同 celery-worker): 改 beat schedule 只需 restart 不必 rebuild。
+      # dev 源码热挂载 (同 celery-worker): 改 beat schedule 只需 restart 不必 rebuild。
       - ./apps/api:/app
       - /app/.venv
-    # v0.10.24 · beat 是调度进程不响应 inspect ping, 故无 healthcheck;
+    # beat 是调度进程不响应 inspect ping, 故无 healthcheck;
     # 仅给优雅关闭窗口让它落盘 /tmp/celerybeat-schedule 后退出。
     stop_grace_period: 30s
     depends_on:
@@ -509,7 +509,7 @@ services:
 
   # GPU plugins use separate opt-in docker-compose.ml-<provider>.yml overlays.
 
-  # v0.8.8 · 可观测性 stack（默认 profile=monitoring 不启动，避免 dev 多吃 ~200MB）
+  # 可观测性 stack（默认 profile=monitoring 不启动，避免 dev 多吃 ~200MB）
   # 启动方式：`docker compose --profile monitoring up -d prometheus grafana`
   # 注意：prometheus scrape 的 host.docker.internal 仅在 Docker Desktop（Mac/Win）
   # 与 Linux 4.20+ docker compose 自动解析；不通时把 prometheus.yml 中 target 改成
@@ -545,7 +545,7 @@ services:
     depends_on:
       - prometheus
 
-  # v0.11.21 · 告警通知。Prometheus firing 的告警在此分组/去重后经 SMTP 发邮件。
+  # 告警通知。Prometheus firing 的告警在此分组/去重后经 SMTP 发邮件。
   # dev 投递到 mailpit（见 infra/alertmanager/alertmanager.yml）；生产换真实 SMTP。
   alertmanager:
     image: prom/alertmanager:v0.27.0

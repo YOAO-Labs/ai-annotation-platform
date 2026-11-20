@@ -5,7 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreferences";
 
 /**
- * v0.20.17 · 单框二次推理的「参数 + 模型变体」用户级偏好。
+ * 单框二次推理的「参数 + 模型变体」用户级偏好。
  *
  * 与 useAiToolParamPrefs 同范式 (User.preferences.ai 子树, 后端深一层合并), 但按
  * `backendId:modelId` 分桶 (二次推理选具体 model, 比 backend 粒度更细, 避免同 backend 多 model
@@ -14,7 +14,7 @@ import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreference
  * 整份 map 一次加载 (Bar 在多个能力间切换, 需全量), 暴露 debounce save; 保存失败静默降级
  * (Bar 仍用组件内 state), 不阻断推理。
  *
- * v0.21.17 · 拉取收敛到共享 {@link useUserPreferences} query; 本地态作乐观覆盖, 写回 600ms
+ * 拉取收敛到共享 {@link useUserPreferences} query; 本地态作乐观覆盖, 写回 600ms
  * 节流 + 成功后 invalidate。
  */
 export type SecondaryPrefEntry = {

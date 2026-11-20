@@ -45,7 +45,7 @@ import type {
 } from "./videoStageTypes";
 
 /**
- * v0.16.3 · 视频 Konva 栈交互状态机(画框/移动/缩放/平移分流的 draw/move/resize 部分)。
+ * 视频 Konva 栈交互状态机(画框/移动/缩放/平移分流的 draw/move/resize 部分)。
  *
  * 镜像旧 SVG 栈 VideoStage 的 beginDraw/beginMove/beginResize/onPointerMove/finishDrag,
  * 但坐标源从 SVG CTM 换成 Konva 像素空间(videoKonvaCoordinates.clientToVideoNorm)。
@@ -57,7 +57,7 @@ import type {
 
 /** 画框/缩放的最小有效尺寸(归一化);与旧栈 finishDrag 的 0.003 阈值一致。 */
 export const VIDEO_MIN_BOX = 0.003;
-/** v0.21.23 · SAM 提示框的最小拖拽边长 (图幅比例)，与图片侧 ImageStage 同值。 */
+/** SAM 提示框的最小拖拽边长 (图幅比例)，与图片侧 ImageStage 同值。 */
 export const SAM_MIN_DRAG = 0.005;
 
 /** 交互式 SAM 提示工具 —— 不画几何, 松手派发 onSamPrompt 请求候选。 */
@@ -212,7 +212,7 @@ export type VideoDragCommit =
   | { type: "poly"; ann: AnnotationResponse; points: [number, number][] }
   | { type: "rotated"; ann: AnnotationResponse; geometry: VideoRotatedBboxGeometry }
   | { type: "keypoint"; ann: AnnotationResponse; points: Keypoint[] }
-  // v0.21.23 · 交互式 SAM 提示: 不建标注, 交给 onSamPrompt 请求候选 (采纳时才落库)。
+  // 交互式 SAM 提示: 不建标注, 交给 onSamPrompt 请求候选 (采纳时才落库)。
   // 坐标归一化 [0,1]; bbox 形如 [x1,y1,x2,y2] (与图片侧 onSamPrompt 同契约)。
   | { type: "samProbe"; mode: "point"; pt: [number, number]; alt: boolean }
   // bbox = interactive_box 提示; exemplar = 视觉示例框 (同为拖框, 但派发到 runExemplar)。
@@ -228,7 +228,7 @@ export interface ResolveDragCommitCtx {
   videoTool: VideoTool;
   selectedTrack: (AnnotationResponse & { geometry: VideoTrackGeometry }) | null;
   lockedTrackIds: Set<string>;
-  /** 当前帧号:用于「选中轨迹该帧已有关键帧时,同帧再画框判为新建而非覆盖」的分流(v0.21.12)。 */
+  /** 当前帧号:用于「选中轨迹该帧已有关键帧时,同帧再画框判为新建而非覆盖」的分流。 */
   frameIndex: number;
 }
 
@@ -241,7 +241,7 @@ export function resolveDragCommit(
   if (!drag || drag.kind === "pan") return { type: "none" };
   const { annotations, videoTool, selectedTrack, lockedTrackIds, frameIndex } = ctx;
 
-  // v0.21.23 · 交互式 SAM 提示 (复刻图片侧 ImageStage 的 samProbe 派发)。
+  // 交互式 SAM 提示 (复刻图片侧 ImageStage 的 samProbe 派发)。
   if (drag.kind === "samProbe") {
     if (drag.mode === "point") {
       return { type: "samProbe", mode: "point", pt: [drag.start.x, drag.start.y], alt: drag.alt };
@@ -260,7 +260,7 @@ export function resolveDragCommit(
     const geom = normalizeGeom(drag.start, finalPt);
     if (geom.w < VIDEO_MIN_BOX || geom.h < VIDEO_MIN_BOX) return { type: "none" };
     // track 工具且选中轨迹未锁:画框落到该轨迹关键帧(而非建独立框)——但仅当当前帧「尚无关键帧」时。
-    // v0.21.12 · 断吞框:同帧再画框(该帧已有关键帧)几乎总是「标第二个物体」,而非重做本帧关键帧。
+    // 断吞框:同帧再画框(该帧已有关键帧)几乎总是「标第二个物体」,而非重做本帧关键帧。
     // 此时跳过 track 分支、落到下方 draw 新建分支,避免 upsertKeyframe 静默替换第一个框。
     // 跨帧画框(该帧无关键帧)仍延展当前轨迹,保留插值这一轨迹标注的核心价值。
     if (
@@ -365,7 +365,7 @@ export interface UseVideoKonvaInteractionParams {
   /** 选中轨迹当前帧无框时的参考 ghost(可拖出关键帧),归一化 geom。 */
   ghost: VideoPickable | null;
   /**
-   * v0.21.12 · 跨网格帧续写参考框(非选中待续轨迹);点击 → 仅选中该轨迹(随后画框 / 拖其 ghost 续写),
+   * 跨网格帧续写参考框(非选中待续轨迹);点击 → 仅选中该轨迹(随后画框 / 拖其 ghost 续写),
    * 不直接落关键帧。优先级最低(实框 / 选中 ghost 覆盖时让位)。
    */
   carryOverGhosts: VideoPickable[];
@@ -376,7 +376,7 @@ export interface UseVideoKonvaInteractionParams {
   lockedTrackIds: Set<string>;
   creationEnabled: boolean;
   frameIndex: number;
-  /** v0.21.12 · 续写后自动前进(video.trackContinueAutoAdvance);续写完一条 → 选中下一条待续 carryOver。 */
+  /** 续写后自动前进(video.trackContinueAutoAdvance);续写完一条 → 选中下一条待续 carryOver。 */
   trackContinueAutoAdvance: boolean;
   onSelect: (id: string | null, opts?: { shift?: boolean }) => void;
   onCreate: (frameIndex: number, geom: VideoStageGeom) => void;
@@ -399,7 +399,7 @@ export interface UseVideoKonvaInteractionParams {
       | VideoTrackPolylineGeometry,
   ) => void;
   /**
-   * v0.21.23 · 交互式 SAM 提示松手回调 (smart-point / smart-box)。
+   * 交互式 SAM 提示松手回调 (smart-point / smart-box)。
    * 坐标归一化 [0,1]，与图片侧 onSamPrompt 同契约；由 shell 取当前帧图请求候选。
    */
   onSamPrompt?: (prompt: VideoSamPrompt) => void;
@@ -493,7 +493,7 @@ export function useVideoKonvaInteraction(
     (native: PointerEvent) => {
       const p = paramsRef.current;
       if (p.readOnly || p.isPlaybackActive) return;
-      // v0.21.23 · 交互式 SAM 工具不画几何, 起 samProbe 拖拽 (point 零位移 / bbox 拖框)。
+      // 交互式 SAM 工具不画几何, 起 samProbe 拖拽 (point 零位移 / bbox 拖框)。
       // 放在 creationEnabled 之前: 提示不创建标注, 其可用性已由工具栏三层门控裁决。
       if (isSamProbeTool(p.videoTool)) {
         const probePt = pointFromClient(native.clientX, native.clientY);
@@ -709,7 +709,7 @@ export function useVideoKonvaInteraction(
       const p = paramsRef.current;
       const pt = pointFromClient(native.clientX, native.clientY);
       if (!pt) return;
-      // v0.21.23 · AI 工具下不做命中拾取: 点在已有标注上也应发 SAM 提示 (对齐图片侧)。
+      // AI 工具下不做命中拾取: 点在已有标注上也应发 SAM 提示 (对齐图片侧)。
       if (isSamProbeTool(p.videoTool)) {
         beginDraw(native);
         return;
@@ -773,7 +773,7 @@ export function useVideoKonvaInteraction(
       // 「续写」判定:此前当前帧无关键帧(延展),而非移动/缩放已有帧。仅续写才触发自动前进。
       const wasContinue = !trackGeom.keyframes.some((kf) => kf.frame_index === p.frameIndex);
       p.onUpdate(action.ann, upsertKeyframe(trackGeom, p.frameIndex, action.geom));
-      // v0.21.12 · 续写后自动前进:选中下一条待续轨迹(carryOverGhosts 已排除当前选中,取首个)。
+      // 续写后自动前进:选中下一条待续轨迹(carryOverGhosts 已排除当前选中,取首个)。
       if (p.trackContinueAutoAdvance && wasContinue) {
         const next = p.carryOverGhosts.find((g) => g.id !== action.ann.id);
         if (next) p.onSelect(next.id);
@@ -804,7 +804,7 @@ export function useVideoKonvaInteraction(
       p.onUpdate(action.ann, { ...geometry, points: action.points });
       return;
     }
-    // v0.21.23 · 交互式 SAM 提示: 不建标注, 交给 shell 请求候选 (采纳时才落库)。
+    // 交互式 SAM 提示: 不建标注, 交给 shell 请求候选 (采纳时才落库)。
     if (action.type === "samProbe") {
       p.onSamPrompt?.(
         action.mode === "point"

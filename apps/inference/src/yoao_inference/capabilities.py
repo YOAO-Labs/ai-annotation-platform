@@ -7,7 +7,7 @@
 能力快照随 `services.ml_backend.check_health` 写入 `ml_backends.health_meta["capabilities"]`
 (HealthMeta schema `extra="allow"`, 无 alembic 迁移)。
 
-v0.14.9 · 能力声明协议 v2 (多模型目录 + infra):
+能力声明协议 v2 (多模型目录 + infra):
 - `/setup` 顶层新增 `infra` + `models[]`; 能力声明下沉到 model 粒度。
 - 一个 backend 暴露 N 个 model 条目, 每个自带 task / infra / 几何 / variants。
 - 向后兼容: 老 backend (无 `models[]`) 由顶层能力字段合成「隐式单 model」。
@@ -63,7 +63,7 @@ _LIDAR_GEOMETRY = {"lidar_box_3d", "point_mask_3d"}
 
 
 def _synthesize_supported_inputs(prompts: list[str]) -> list[str]:
-    """v0.18.15 · 老 backend 缺 supported_inputs 时, 按 supported_prompts 合成兼容默认。
+    """老 backend 缺 supported_inputs 时, 按 supported_prompts 合成兼容默认。
 
     受控词表: ``full_image | crop | bbox_prompt | point_prompt | mask_prompt |
     scribble_prompt | video``。
@@ -283,7 +283,7 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
 def _collect_warnings(models: list[dict]) -> list[dict]:
     """校验规范化后各 model 的受控值, 越界即记 warning (只诊断、不改写)。
 
-    v0.18.29 · 把「字段拼错 / 值越界致工具静默不亮」变成模型市场可见信号。只校验受控值
+    把「字段拼错 / 值越界致工具静默不亮」变成模型市场可见信号。只校验受控值
     (task / infra / supported_prompts / supported_inputs / supported_geometric_outputs); 派生缺省
     (task / infra == "unknown") 跳过 — 那是 backend 没声明、平台已兜底, 非越界。
 
@@ -383,7 +383,7 @@ def extract_capabilities(
 ) -> dict | None:
     """从 `/setup` 响应抽能力快照; setup 为空返回 None。
 
-    返回结构 (v0.14.9 协议 v2):
+    返回结构（协议 v2）：
     - `infra`: backend 默认基础设施 (pytorch / onnx / paddle / ...)。
     - `models`: 规范化后的 model 条目数组 (老 backend 合成单条)。
     - 扁平并集字段 (`is_interactive` / `supported_prompts` / `supported_trackers` /

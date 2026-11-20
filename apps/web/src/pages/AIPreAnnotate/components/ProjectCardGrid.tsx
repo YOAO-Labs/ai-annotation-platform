@@ -1,6 +1,6 @@
 import { listStyles } from "@/components/ui/listStyles";
 /**
- * v0.9.12 · BUG B-17 · /ai-pre 项目卡片网格 (主视图入口).
+ * BUG B-17 · /ai-pre 项目卡片网格 (主视图入口).
  *
  * 仅渲染接了 ml_backend 的项目;每张卡片展示 ml_backend 状态 + 批次数量 + 失败数.
  * 点击 → 进 ProjectDetailPanel.

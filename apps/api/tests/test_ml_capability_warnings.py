@@ -1,4 +1,4 @@
-"""v0.18.29 · 协议契约校验 (extract_capabilities.warnings) + prompt 受控词表 SSOT 单测.
+"""协议契约校验 (extract_capabilities.warnings) + prompt 受控词表 SSOT 单测.
 
 纯函数, 无 DB。覆盖: 越界 task/prompt/geometry 产 warning、合法 setup 零 warning、
 越界值仍原样规范化 (零回归)、缺省 unknown 不误报、PROMPTS 派生集合等价旧硬编码。

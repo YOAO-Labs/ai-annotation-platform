@@ -1,12 +1,12 @@
 /**
- * v0.23.4 · lifecycle action cluster for a pool member.
+ * lifecycle action cluster for a pool member.
  *
  * Draining and a fresh zero-work observation gate the unload request. The
  * server still decides whether the backend is safe to unload. This component
  * keeps a routable / busy / stale instance from offering that request.
  *
  * Mutations are wired through existing hooks (registry health/unload,
- * project-scoped warmup) plus the v0.23.3 pool-member drain/resume contract.
+ * project-scoped warmup) plus pool-member drain/resume.
  * All success paths invalidate topology + runtime-snapshot + observe so the
  * caller's three queries refresh together.
  */
@@ -45,7 +45,7 @@ export interface LifecycleActionsProps {
   compact?: boolean;
 }
 
-/** Whether the backend contract ships a force-unload endpoint (v0.23.3: no). */
+/** Whether the backend exposes a force-unload endpoint. */
 export const FORCE_UNLOAD_CONTRACT_AVAILABLE = false;
 
 function ledgerFreshFromTopology(topology: RuntimeTopologyViewModel | null): boolean {

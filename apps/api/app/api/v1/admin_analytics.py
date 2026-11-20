@@ -1,4 +1,4 @@
-"""v0.10.16 · DuckDB 离线分析面板（ROADMAP §1.6）。
+"""DuckDB 离线分析面板（ROADMAP §1.6）。
 
 仅 super_admin 可见。固定 panel enum，不接受任意 SQL。
 """
@@ -28,7 +28,7 @@ async def get_analytics_panel(
     days: int = Query(30, ge=1, le=365),
     _: Any = Depends(require_roles(UserRole.SUPER_ADMIN.value)),
 ) -> dict:
-    """v0.10.16 · 取一个面板的数据。
+    """取一个面板的数据。
 
     DuckDB 文件由 Celery beat (sync_to_duckdb) 每日更新；如果首次同步尚未跑过
     返回 503，让前端展示「数据初始化中」。

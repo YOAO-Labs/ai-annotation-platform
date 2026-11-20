@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_doc": "v0.10.10 · I8.2 · image-bench fixture matrix. 3 sizes × 3 densities = 9 scenarios.",
+  "_doc": "Image benchmark fixture matrix: 3 sizes × 3 densities = 9 scenarios.",
   "fixtures": [
     {
       "id": "image-2k",
@@ -36,7 +36,7 @@
     "select-all-iterate"
   ],
   "budgets": {
-    "_doc": "Soft budgets v0.10.10 — baseline 待 image:bench 首跑产出后回填。",
+    "_doc": "Soft performance budgets for the image benchmark.",
     "longTaskMaxMs": 200,
     "longTaskCountUpper": 5
   },

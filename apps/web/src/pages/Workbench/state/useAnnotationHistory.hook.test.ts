@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · useAnnotationHistory hook 集成单测：push / undo / redo / pushBatch /
+ * useAnnotationHistory hook 集成单测：push / undo / redo / pushBatch /
  * replaceAnnotationId / 切任务清栈。
  *
  * 已有 useAnnotationHistory.test.ts 测的是纯函数 applyLeaf；此处补 React hook

@@ -1,4 +1,4 @@
-// v0.16.14 · MetaFooter 单测:ID 短码 / z-order / 额外行;来源映射中文。
+// MetaFooter 单测:ID 短码 / z-order / 额外行;来源映射中文。
 
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";

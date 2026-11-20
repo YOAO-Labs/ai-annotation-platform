@@ -1,7 +1,7 @@
-"""v0.15.0 · 给已导入但缺 ego pose 的 nuScenes dataset 回填 scene_frame_poses。
+"""给已导入但缺 ego pose 的 nuScenes dataset 回填 scene_frame_poses。
 
-v0.15.0 之前由 import_nuscenes_scene.py 导入的 dataset(如本机
-DS-NU-nu-scene-0061 / DS-NU-nu-mini-multi)只有 scene + frame_index,
+一些通过 import_nuscenes_scene.py 导入的数据集（例如
+DS-NU-nu-scene-0061 / DS-NU-nu-mini-multi）只有 scene 和 frame_index，
 没有逐帧 ego pose。本脚本按 scene.source_metadata.scene_token 反查
 nuScenes 根目录的 ego_pose.json / sample_data.json,upsert 每帧位姿
 (幂等,可重跑;upsert 语义同 importer)。

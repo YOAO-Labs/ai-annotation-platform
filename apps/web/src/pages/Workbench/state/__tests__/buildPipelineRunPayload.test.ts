@@ -1,4 +1,4 @@
-// v0.18.28 · popover「运行当前题（按项目编排）」载荷构造的纯函数守护。
+// popover「运行当前题（按项目编排）」载荷构造的纯函数守护。
 import { describe, it, expect } from "vitest";
 import {
   buildPipelineRunPayload,

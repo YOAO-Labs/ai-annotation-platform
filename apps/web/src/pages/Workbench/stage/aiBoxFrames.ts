@@ -1,8 +1,8 @@
 // AI 候选 (预测) 的「帧作用域 + 去重」SSOT。
 // 被三处共用, 避免各写一份口径漂移:
-//  - 侧栏 AI 待审计数/列表按当前帧过滤 (v0.21.10 断点 C)
+//  - 侧栏 AI 待审计数和列表按当前帧过滤。
 //  - 画布 AI 层当前帧渲染 (video_bbox + video_track_bbox)
-//  - 时间轴预测密度轨 + 跳到下一/上一预测帧 (v0.21.9 WS1)
+//  - 时间轴预测密度轨及跳到下一/上一预测帧。
 import type {
   VideoTrackGeometry,
   VideoTrackMaskGeometry,
@@ -94,7 +94,7 @@ export function resolveAiBoxAtFrame(box: AiBox, frameIndex: number): AiBox | nul
 
 /**
  * 按 id 去重 (predictionsToBoxes 的 id = `pred-{predictionId}-{shapeIndex}`)。
- * offset 分页重取期相邻页 shape 可能重叠, 去重消除重复计数 (v0.21.10 断点 C)。
+ * offset 分页重取期间，相邻页可能包含相同 shape；去重避免重复计数。
  */
 export function dedupeAiBoxesById(boxes: readonly AiBox[]): AiBox[] {
   const seen = new Set<string>();

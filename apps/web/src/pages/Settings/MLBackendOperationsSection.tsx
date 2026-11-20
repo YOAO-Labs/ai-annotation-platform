@@ -190,7 +190,7 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
         <div>
           <h3 className="m-0 text-sm font-semibold">ML 服务认证与维护</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            管理内置推理服务的独立凭据与容器维护任务。
+            查看部署指定地址的认证状态，维护由本机 Compose 管理的服务容器。
           </p>
         </div>
         <Button
@@ -208,7 +208,9 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
       </div>
       <div className="space-y-4 p-4">
         <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
-          <p>五个内置服务各自使用系统生成的独立凭据，持久保存后可重复同步；页面不显示密钥。</p>
+          <p>
+            这里只列出部署配置的可信地址，不是已安装插件清单。每个地址使用独立凭据，页面不显示密钥。
+          </p>
           <p>
             外部服务仍可手动配置认证。认证方式 None 表示不发送认证信息，不代表使用系统托管凭据。
           </p>
@@ -223,12 +225,22 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-xs font-semibold">内置服务</h4>
-              <Button size="sm" disabled={busy} onClick={() => void initialize()}>
+              <h4 className="text-xs font-semibold">已配置的可信服务地址</h4>
+              <Button
+                size="sm"
+                disabled={busy || !auth.data.items.length}
+                onClick={() => void initialize()}
+              >
                 {initializing === "all" ? "正在初始化 / 同步…" : "初始化 / 同步全部"}
               </Button>
             </div>
             <div className="divide-y divide-border rounded-md border border-border">
+              {!auth.data.items.length && (
+                <p className="px-3 py-3 text-xs text-muted-foreground">
+                  当前部署未配置可信地址。如需使用系统托管认证，请由部署管理员配置
+                  ML_MANAGED_BACKEND_URLS。
+                </p>
+              )}
               {auth.data.items.map((item) => {
                 const provider = item.provider;
                 const service = operations.data?.services.find((row) => row.provider === provider);
@@ -360,8 +372,7 @@ function OperationsSection({ userId, sessionId }: { userId: string; sessionId: s
             </AlertDialogTitle>
             <AlertDialogDescription>
               目标部署：{confirmTarget?.expected_deployment ?? "未标识"}
-              。SAM
-              服务会构建镜像，官方插件会拉取并核验已审核的固定镜像；随后重新创建容器，期间推理会短暂停止。确认前请安排好正在使用该服务的任务。空闲跟踪会话缓存会丢失，已持久保存的模型和标注数据会保留。
+              。先拉取并核验部署指定的镜像，核验失败不会停止原容器。核验通过后等待原容器正常退出，再重建该服务容器，期间推理会短暂停止。空闲跟踪会话缓存会丢失，已持久保存的模型和标注数据会保留。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

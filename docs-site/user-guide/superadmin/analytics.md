@@ -1,7 +1,6 @@
 ---
 audience: [super_admin]
 type: reference
-since: v0.10.16
 status: stable
 last_reviewed: 2026-10-14
 ---

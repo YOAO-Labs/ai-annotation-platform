@@ -41,7 +41,7 @@ function applyTheme(resolved: Resolved) {
 }
 
 /**
- * 主题切换（v0.5.3 / v0.15.25 升级到服务端偏好）。
+ * 主题切换由服务端偏好持久化。
  * - **真值源分层**：登录后以服务端偏好 `user.preferences.ui.theme` 为准(跟随账号跨设备);
  *   登出 / 首屏 hydration 前回落 localStorage(本机缓存),都没有则 'system'。
  * - **首屏不闪**：localStorage 仍作 bootstrap 缓存(`initThemeFromStorage` 在 main.tsx 应用);

@@ -1,4 +1,4 @@
-// v0.23.5 · WS-C · 单一 mask 编辑准入闸门。
+// 单一 mask 编辑准入闸门。
 //
 // toolbar / hotkey / pointer / context-menu / commit 共用同一 `canEditMask` 判断, 关闭
 // readOnly / is_locked / track lock / segment lock / editor-state 多条绕过路径 (ADR-0052 D7)。

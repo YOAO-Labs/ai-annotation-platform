@@ -1,4 +1,4 @@
-"""v0.11.14 · 存储连接器 API：权限 / 白名单门禁 / 密钥脱敏。"""
+"""存储连接器 API：权限 / 白名单门禁 / 密钥脱敏。"""
 
 from __future__ import annotations
 

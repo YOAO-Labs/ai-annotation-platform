@@ -1,4 +1,4 @@
-// v0.14.14 · PoolStatus.loaded_keys 中 backend-specific key 字符串的解析 helpers.
+// PoolStatus.loaded_keys 中 backend-specific key 字符串的解析 helpers.
 // 协议层 loaded_keys[].key 是不透明字符串 (各 backend 自定义命名), 但 ModelMarket
 // 这层 admin UI 想按 sam/dino 拆维度展示, 所以认定 gsam2 image pool 的 key 形如
 // "sam=<sv>/dino=<dv>". 不是 gsam2 的 backend 走 key 原样展示.

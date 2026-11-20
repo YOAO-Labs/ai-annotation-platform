@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §C.2 · Redis routing ledger golden tests.
+"""ADR-0050 §C.2 · Redis routing ledger golden tests.
 
 Requires a live Redis (TEST_REDIS_URL or default settings.redis_url). Each test uses
 an isolated namespace + cleans before/after. These are the gold-standard tests for the

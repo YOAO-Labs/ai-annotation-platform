@@ -1,4 +1,4 @@
-"""v0.10.25 · predictions 月分区维护 Celery 任务（ADR-0006 Stage 2）
+"""predictions 月分区维护 Celery 任务（ADR-0006）。
 
 ensure_future_prediction_partitions: 每月 25 日 03:30 UTC，提前建好未来分区。
 """

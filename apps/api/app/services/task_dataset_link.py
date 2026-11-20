@@ -1,4 +1,4 @@
-"""v0.13.0 · 点云多文件关联 service。
+"""点云多文件关联 service。
 
 task 与 dataset_item 的多对一关联（中间表 task_dataset_item_links）。
 role 约定：`primary_lidar`（主点云）或 `camera_<name>`（如 camera_front）。

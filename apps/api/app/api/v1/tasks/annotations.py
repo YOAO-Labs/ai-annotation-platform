@@ -195,13 +195,13 @@ async def get_neighbor_annotations(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。
+    """中心 task 前后 k 帧的邻帧标注,一次性返回。
 
     替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」。
-    v0.21.2 · ADR-0045 · 跨帧链按 track_id(原 group_id)过滤。
+    ADR-0045 · 跨帧链按 track_id(原 group_id)过滤。
     非 scene / 历史未 backfill 的 task → 200 + frames=[](与 neighbors 端点一致,不报错)。
 
-    v0.15.26 · 可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态
+    可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态
     (`task_access.visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)
     仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。
     """
@@ -231,7 +231,7 @@ async def get_neighbor_annotations(
             frames=[],
         )
 
-    # v0.15.26 · 逐邻帧复核可见性,不可见的邻帧 task 不取其 annotation(下面 by_task 占位为空)。
+    # 逐邻帧复核可见性,不可见的邻帧 task 不取其 annotation(下面 by_task 占位为空)。
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     visible_ids = await task_access.visible_task_ids(
         db, project, current_user.id, list(frame_by_task.keys())
@@ -300,7 +300,7 @@ async def get_annotations_paged(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.7.6 · keyset 分页变体。单 task 1000+ 框场景下避免一次性大列表阻塞。
+    """keyset 分页变体。单 task 1000+ 框场景下避免一次性大列表阻塞。
 
     cursor 编码：base64(`{ts_isoformat}|{annotation_id}`)，与 audit_logs 端点一致。
     """
@@ -497,7 +497,7 @@ async def secondary_inference(
         geometry=annotation.geometry,
     )
 
-    # v0.20.9 一层父子约束: 选中框如果已经是子框 (parent 非空), geometry 型二次推理会
+    # 一层父子约束: 选中框如果已经是子框 (parent 非空), geometry 型二次推理会
     # 建"孙子"框 (子框的子框), 违反一层深度。前置到端点, 不再等 ML predict 跑完 10-30s
     # 才在 AnnotationService.create 里 400, 省一次 backend 调用。属性型无此问题, 放过。
     if data.write_target == "geometry" and annotation.parent_annotation_id is not None:
@@ -638,7 +638,7 @@ async def propagate_annotation_to_task(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    """v0.14.1 · 跨帧目标延续: 把源 annotation 复制到 target_task(同 project 同 scene)。
+    """跨帧目标延续: 把源 annotation 复制到 target_task(同 project 同 scene)。
 
     源 task 与目标 task 均需可见且可编辑；审核态调整沿用权限与证据冻结规则。
     复制 geometry/class/attributes + 共享 track_id 跨帧链; box_3d 的 convention_at_create
@@ -684,7 +684,7 @@ async def propagate_annotations_batch(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    """v0.15.1 · 多目标批量跨帧延续: 把源 task 的多个(或全部)box_3d 一次
+    """多目标批量跨帧延续: 把源 task 的多个(或全部)box_3d 一次
     运动补偿 propagate 到目标 task。整批一个事务,任一失败全部回滚。
     """
     source_task = await _load_task_or_404(db, task_id)
@@ -726,10 +726,10 @@ async def interpolate_annotations_range(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    """v0.15.1 · 关键帧区间插值: 路径 task = 区间起点帧,body.to_task_id =
+    """关键帧区间插值: 路径 task = 区间起点帧,body.to_task_id =
     终点帧;同 track_id 链两端各有一个 box_3d,中间帧自动生成插值框
     (source="interpolated")。中间帧已有同 track 标注 → 幂等跳过。
-    v0.21.2 · ADR-0045 · 按 track_id 标识跨帧链。
+    ADR-0045 · 按 track_id 标识跨帧链。
     """
     from_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, from_task, current_user.id, access=access)

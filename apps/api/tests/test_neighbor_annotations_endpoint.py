@@ -1,4 +1,4 @@
-"""v0.15.17 · GET /tasks/{id}/neighbor-annotations 批量端点测试
+"""GET /tasks/{id}/neighbor-annotations 批量端点测试
 
 覆盖判据(plan §1.4 判据 4):
 - 一次返回 ±k 帧的邻帧标注,按距中心远近排序
@@ -130,7 +130,7 @@ async def test_neighbor_annotations_scope_all(db_session, httpx_client, super_ad
 async def test_neighbor_annotations_scope_selected(
     db_session, httpx_client, super_admin
 ):
-    """track_id 给定 → 服务端只回该 track (v0.21.2 · ADR-0045)。"""
+    """指定 track_id 时，服务端只返回该轨迹（ADR-0045）。"""
     user, token = super_admin
     project, _, _, tasks = await _seed_scene_with_n_tasks(
         db_session, owner_id=user.id, n=5
@@ -240,7 +240,7 @@ async def test_neighbor_annotations_k_out_of_range_422(
 async def test_neighbor_annotations_filters_cross_batch(
     db_session, httpx_client, super_admin, annotator
 ):
-    """v0.15.26 · annotator 只看到自己 batch 内邻帧的框;落在他人 batch 的邻帧返回
+    """annotator 只看到自己 batch 内邻帧的框;落在他人 batch 的邻帧返回
     frame 占位但 annotations=[],不外泄其几何(与旧逐 task getAnnotations 链路同口径)。"""
     admin, _ = super_admin
     anno, anno_token = annotator

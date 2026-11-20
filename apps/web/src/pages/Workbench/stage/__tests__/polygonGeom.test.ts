@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · polygonGeom 几何工具单测。
+ * polygonGeom 几何工具单测。
  */
 import { describe, it, expect } from "vitest";
 import {

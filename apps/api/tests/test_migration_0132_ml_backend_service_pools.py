@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 · migration 0132 (ML Backend service pools) tests.
+"""ADR-0050 · migration 0132 (ML Backend service pools) tests.
 
 Validates the singleton-backfill, dual-id, JSONB-remap, and conditional-downgrade
 contracts frozen in ADR-0050 §5 / plan appendix §B / §C.3.

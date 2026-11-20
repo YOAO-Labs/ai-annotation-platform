@@ -42,10 +42,9 @@ dependencies = [
     "python-multipart>=0.0.12",
     "redis>=5.2.0",
     "boto3>=1.43.77",
-    # v0.11.14 · 存储连接器 SFTP/SSH 拉取（宿主机 & 同网段服务器）。
+    # 存储连接器 SFTP/SSH 拉取（宿主机 & 同网段服务器）。
     "paramiko>=3.4.0",
-    # v0.11.14 · 连接器凭据 Fernet 加密落库。cryptography 此前经 python-jose[cryptography]
-    # 间接引入，这里显式声明，避免 jose extra 调整时被动失锁。
+    # 直接依赖 cryptography，因为存储连接器用 Fernet 加密凭据。
     "cryptography>=43.0.0",
     "celery>=5.4.0",
     "httpx>=0.28.0",
@@ -62,7 +61,7 @@ dependencies = [
     "blurhash-python>=1.2.0",
     "slowapi>=0.1.9",
     "sentry-sdk[fastapi]>=2.18.0",
-    # v0.10.16 · DuckDB 离线分析视图（ROADMAP §1.6）。Celery worker 写、API 只读。
+    # DuckDB 离线分析视图：Celery worker 写、API 只读。
     "duckdb>=1.1.0,<2.0.0",
 ]
 

@@ -25,7 +25,7 @@ export interface VideoTrackBatchCardContentProps {
   allLocked: boolean;
   allHidden: boolean;
   onChangeClass: (className: string) => void;
-  /** v0.22.2 · M2 · 批量 AI 追踪: 对选中的 ≥2 条轨迹一次发起多源追踪 (单 job 各回填各自源)。
+  /** M2 · 批量 AI 追踪: 对选中的 ≥2 条轨迹一次发起多源追踪 (单 job 各回填各自源)。
    *  只读 (review/completed) 或未接线时省略 → 按钮灰置。 */
   onBatchTrack?: () => void;
   onToggleHidden: () => void;

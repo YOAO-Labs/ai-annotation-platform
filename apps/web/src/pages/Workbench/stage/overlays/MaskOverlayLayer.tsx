@@ -1,5 +1,5 @@
-// v0.10.8 M4-δ 收尾 · I11 · Mask 编辑器 Konva 渲染层。
-// v0.10.10：改为脏区增量 putImageData —— MaskBuffer.consumeDirty() 取脏矩形，
+// Mask 编辑器的 Konva 渲染层。
+// MaskBuffer.consumeDirty() 返回脏矩形，用于增量 putImageData，
 // toAlphaImageDataRect(rect) 只切片对应区域，避免大画布每笔全量拷贝（8K 图 ~256MB Uint8）。
 // 首次激活时强制走一次全图（rect = 全图），保证 canvas 与 buffer 初态一致。
 //

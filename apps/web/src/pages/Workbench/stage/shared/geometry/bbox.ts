@@ -1,5 +1,5 @@
 /**
- * v0.10.17 · Magic Box 用 bbox helper.
+ * Magic Box 用 bbox helper.
  *
  * 给定 SAM 返回的 polygon 顶点 (归一化坐标 [0..1]), 计算紧凑外接矩形
  * (axis-aligned bounding box).

@@ -82,7 +82,7 @@ export function useMyRecentReviews(limit = 20) {
   });
 }
 
-// v0.8.4 · 管理员人员看板
+// 管理员人员看板
 export function useAdminPeople(params: {
   role?: string;
   project?: string;
@@ -113,7 +113,7 @@ export function useAdminPersonDetail(
   });
 }
 
-// v0.8.6 F4 · 预测成本卡片
+// 预测成本卡片
 export function usePredictionCostStats(range: "7d" | "30d" = "30d") {
   return useQuery({
     queryKey: ["dashboard", "admin", "prediction-cost-stats", range],
@@ -121,7 +121,7 @@ export function usePredictionCostStats(range: "7d" | "30d" = "30d") {
   });
 }
 
-// v0.8.7 F5.3 · ReviewWorkbench mini 仪表（20s 自动 refetch）
+// ReviewWorkbench mini 仪表（20s 自动 refetch）
 export function useReviewerTodayMini() {
   const { userId } = useAccountScope();
   return useQuery({

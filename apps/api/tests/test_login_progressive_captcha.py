@@ -1,4 +1,4 @@
-"""v0.9.3 · 登录 progressive CAPTCHA。
+"""登录 progressive CAPTCHA。
 
 通过 monkeypatch login_failed_counter 的三个函数避开 redis 依赖。
 """

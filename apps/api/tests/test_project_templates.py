@@ -1,4 +1,4 @@
-"""v0.10.14 · E2 · ProjectTemplate 路由 / service 端到端测试.
+"""ProjectTemplate 路由 / service 端到端测试.
 
 覆盖:
 - 创建 / 列表 / 详情 / 更新 / 删除 主路径 (private / public / organization)

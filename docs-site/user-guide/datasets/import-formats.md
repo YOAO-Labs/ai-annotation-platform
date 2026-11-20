@@ -37,7 +37,7 @@ pc-scene-dev/calib/camera/front.json
 pc-scene-dev/calib/camera/left.json
 ```
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/pointcloud-dir-layout.png — 单 scene vs 多 scene 目录树并排对比(建议矢量示意图而非真截图);左:角色目录布局 lidar/camera/calib → 单 scene,右:顶层多场景名子目录 → 多 scene。[manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/datasets/pointcloud-dir-layout.png — 单 scene vs 多 scene 目录树并排对比(建议矢量示意图而非真截图);左:角色目录布局 lidar/camera/calib → 单 scene,右:顶层多场景名子目录 → 多 scene。[manual] -->
 
 ### 顶层多子目录 = 多 scene
 
@@ -96,9 +96,9 @@ scene 模式项目的开启与用法见 [项目管理 · scene 模式项目](/us
 
 ### A. 浏览器 ZIP 上传(向导)
 
-在数据集导入向导选 **3D 点云** 类型,上传一个 ZIP 包。**打包时必须保留 `lidar/ camera/ calib/` 三级子目录**(v0.14.2 起 ZIP 上传保留 ZIP 内子目录,不再拍平到 basename)。
+在数据集导入向导中选择 **3D 点云**，上传 ZIP 包。**打包时保留 `lidar/`、`camera/`、`calib/` 子目录**；导入时使用包内相对路径，不会把文件拍平。
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/datasets/import-wizard-3d-type.png — 导入向导「基本信息」步选「3D 点云」+ 勾「声明为时序数据集」;红框:数据类型选择、时序开关、axis_convention 选择器。[manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/datasets/import-wizard-3d-type.png — 导入向导「基本信息」步选「3D 点云」+ 勾「声明为时序数据集」;红框:数据类型选择、时序开关、axis_convention 选择器。[manual] -->
 
 - **默认一个 ZIP = 一个 scene**,除非顶层有多个非角色子目录(见上)。
 - 直接调用 ZIP API 时，可以发送 UUID `Idempotency-Key`。遇到网络结果不确定时，使用同一 key 和同一 ZIP 重试，服务会回放第一次完成的结果。更换 ZIP 字节后必须生成新 key。响应会回传 `Idempotency-Key` 请求头。
@@ -232,7 +232,7 @@ PYTHONPATH=. uv run python scripts/import_nuscenes_scene.py \
 
 该脚本是整体数据库重置：它绕过普通素材删除的引用检查，可能级联清理相机、场景或视频的辅助记录。需要保留项目引用与历史证据时，应使用常规删除接口并处理其 409 原因。
 
-> **逐帧 ego pose 回填(v0.15.0)**:脚本会顺带把每帧的车体位姿(nuScenes `ego_pose.json` 的 ego→global translation/rotation)与 LIDAR_TOP 时间戳落到 `scene_frame_poses` 表,作为跨帧自动化(运动补偿 / 插值)的数据地基。v0.15.0 之前导入的 nuScenes 数据集没有这些行,用回填脚本补:
+> **逐帧 ego pose 回填**：脚本将每帧的车体位姿（nuScenes `ego_pose.json` 的 ego→global translation/rotation）和 LIDAR_TOP 时间戳写入 `scene_frame_poses`，供运动补偿和插值使用。已导入的 nuScenes 数据集如果缺少这些记录，可以用以下脚本补齐：
 >
 > ```bash
 > cd apps/api
@@ -243,7 +243,7 @@ PYTHONPATH=. uv run python scripts/import_nuscenes_scene.py \
 >
 > `--dataset-id` 接受 UUID 或 `DS-NU-*` display_id;脚本按 scene 的 `source_metadata.scene_token` 反查同一份 nuScenes 元数据,幂等可重跑。非 nuScenes 来源(如 SUSTechPOINTS 示例)没有 ego pose 数据,跨帧自动化对这类 scene 自动降级,这是预期行为。
 
-> **坐标系**:v0.14.3 起脚本默认 `--frame ego`,逐点乘 `T_ego_from_lidar` 把 LIDAR_TOP 原始点落到 nuScenes ego(车体)系,并写 `axis_convention=iso_8855`;相机标定同步写为 `cam_from_ego`,投影仍与点云自洽。若需要保留 v0.14.2 的原始 LIDAR_TOP 传感器系点,可显式传 `--frame sensor`,此时脚本写 `axis_convention=apollo` 和 `cam_from_lidar`。
+> **坐标系**：脚本默认 `--frame ego`,逐点乘 `T_ego_from_lidar` 把 LIDAR_TOP 原始点落到 nuScenes ego(车体)系,并写 `axis_convention=iso_8855`;相机标定同步写为 `cam_from_ego`,投影仍与点云自洽。若需要保留原始 LIDAR_TOP 传感器系点,可显式传 `--frame sensor`,此时脚本写 `axis_convention=apollo` 和 `cam_from_lidar`。
 >
 > ⚠️ 同一个 dataset 不能混用 `--frame ego` 与 `--frame sensor`;脚本发现已存在 dataset 的 `axis_convention` 与本次模式不一致时会拒绝继续导入。多相机装置的 `sniff-axis-convention` 响应会透出 `per_camera` 和 `agreement`,可用于判断侧/后相机是否与正前相机有分歧。
 >

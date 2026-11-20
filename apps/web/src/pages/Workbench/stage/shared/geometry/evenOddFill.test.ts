@@ -1,4 +1,4 @@
-// v0.23.5 WS-E · evenOddFill 纯函数单测 (ADR-0052 D5)。
+// evenOddFill 纯函数单测 (ADR-0052 D5)。
 //
 // 路径构造逻辑被抽到纯函数 (不依赖 Konva / DOM), 这里用 vi.fn() 桩一个 canvas-like
 // context 直接断言 subpath 数与坐标换算, 不走 jsdom canvas 渲染。

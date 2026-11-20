@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · transforms 单测：bbox / polygon 几何转换 + AnnotationResponse / Prediction 映射。
+ * transforms 单测：bbox / polygon 几何转换 + AnnotationResponse / Prediction 映射。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -130,7 +130,7 @@ describe("annotationToBox", () => {
     expect(annotationToBox(ann).conf).toBe(1);
   });
 
-  // v0.11.27 · 遮挡为渲染派生：style_occluded 属性为 true 时 occluded=true。
+  // 遮挡为渲染派生：style_occluded 属性为 true 时 occluded=true。
   it("不传 occludedKeys → occluded 默认 false", () => {
     const ann = {
       id: "a3",
@@ -300,12 +300,12 @@ describe("predictionsToBoxes", () => {
 });
 
 /**
- * v0.9.8 · predictionsToBoxes 黄金样本 — 锁定后端 to_internal_shape 写入 DB 后
+ * predictionsToBoxes 黄金样本 — 锁定后端 to_internal_shape 写入 DB 后
  * 前端消费契约. 后端 PredictionService 负责 LabelStudio 标准 → 内部 shape 的
  * 转换 (apps/api/app/services/prediction.py to_internal_shape), 这里假设输入
  * 已是内部 shape, 覆盖空 / 多 / polygon / 缺字段 4 类边界.
  */
-describe("predictionsToBoxes 黄金样本 (v0.9.8 schema 边界)", () => {
+describe("predictionsToBoxes 黄金样本（schema 边界）", () => {
   it("空 result 数组 → 空 box 列表", () => {
     const preds = [{ id: "empty", result: [] }] as any;
     expect(predictionsToBoxes(preds)).toEqual([]);
@@ -401,13 +401,13 @@ describe("predictionsToBoxes 黄金样本 (v0.9.8 schema 边界)", () => {
 });
 
 /**
- * v0.9.14 · multi_polygon / hole 几何映射 — mask→polygon 协议升级后, 后端
+ * multi_polygon / hole 几何映射 — mask→polygon 协议升级后, 后端
  * to_internal_shape (apps/api/app/services/prediction.py) 在 mask 多连通或带 hole
  * 时分别输出 polygon+holes / multi_polygon 两类, 前端 transforms 必须正确解析.
  * 当前编辑路径只识别单环 polygon, 多连通时降级取主外环, 完整 polygons 透传到
- * multiPolygon 字段供 v0.10.x 镂空渲染升级.
+ * multiPolygon 字段，供多环渲染使用。
  */
-describe("v0.9.14 mask 多连通域 / 空洞", () => {
+describe("mask 多连通域 / 空洞", () => {
   it("polygon + holes → polygon 字段是外环, holes 字段透传", () => {
     const s = geometryToShape({
       type: "polygon",
@@ -548,7 +548,7 @@ describe("v0.9.14 mask 多连通域 / 空洞", () => {
   });
 });
 
-describe("v0.23.6 raster_mask", () => {
+describe("raster_mask", () => {
   it("同步转换不猜测外接框", () => {
     expect(
       geometryToShape({

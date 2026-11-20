@@ -1,5 +1,5 @@
 /**
- * v0.10.15 · PredictionImportWizard 单测.
+ * PredictionImportWizard 单测.
  * 覆盖: 格式切换, dry-run 预览 errors 渲染, 确认提交调 API, 文件未选时不能预览.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";

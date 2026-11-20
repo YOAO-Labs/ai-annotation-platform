@@ -1,5 +1,5 @@
 /**
- * v0.17.15 · ClassesSection — 同名类跨工具单位批量重命名开关。
+ * ClassesSection — 同名类跨工具单位批量重命名开关。
  *
  * 覆盖: 多 unit 同名类时开关出现 / 默认仅改当前 unit / 开启后走跨 unit 批量路径
  * (不传 tool_unit_id) / 单 unit 独占时开关不渲染。

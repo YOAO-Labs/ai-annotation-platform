@@ -13,7 +13,7 @@ interface SidebarDrawerProps {
 }
 
 /**
- * 窄屏 hamburger 抽屉（v0.5.5 phase 2）：
+ * 窄屏 hamburger 抽屉：
  * - 从左侧滑入；
  * - 遮罩点击 / Esc / 路由变化自动关闭；
  * - body 滚动锁定；

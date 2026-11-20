@@ -54,7 +54,7 @@ async def create_job(
     payload: dict | None = None,
     celery_task_id: str | None = None,
 ) -> AsyncJob:
-    """v0.10.16 · 创建 async_jobs 行。调用方负责 commit。
+    """创建 async_jobs 行。调用方负责 commit。
 
     The execution snapshot is not a creation field: the closed creation view
     omits it. Call ``bind_execution_snapshot`` after the pending row exists.
@@ -133,7 +133,7 @@ async def delete_terminal_jobs_before(
 async def mark_running(
     db: AsyncSession, job_id: uuid.UUID, *, celery_task_id: str | None = None
 ) -> None:
-    """v0.10.16 · pending → running，记录 started_at。幂等。"""
+    """pending → running，记录 started_at。幂等。"""
     job = await get_job(db, job_id)
     if job is not None:
         _manager(db).mark_running(job, celery_task_id=celery_task_id)
@@ -272,7 +272,7 @@ async def mark_cancelled(
 
 
 async def request_cancel(db: AsyncSession, job_id: uuid.UUID) -> None:
-    """v0.10.51 · 请求协作取消，调用方负责终态转换。"""
+    """请求协作取消，调用方负责终态转换。"""
     job = await get_job(db, job_id)
     if job is not None:
         _manager(db).request_cancel(job)
@@ -281,7 +281,7 @@ async def request_cancel(db: AsyncSession, job_id: uuid.UUID) -> None:
 async def find_by_celery_task_id(
     db: AsyncSession, celery_task_id: str
 ) -> AsyncJob | None:
-    """v0.10.16 · Celery signals 兜底用，通过 task_id 反查 async_job。"""
+    """Celery signals 兜底用，通过 task_id 反查 async_job。"""
     return await JobsLifecyclePostgresData(db).find_by_execution_id(celery_task_id)
 
 
@@ -295,7 +295,7 @@ async def track_job(
     payload: dict | None = None,
     celery_task_id: str | None = None,
 ) -> AsyncIterator[AsyncJob]:
-    """v0.10.16 · 上下文管理器：自动 create+running，退出时 complete/failed。
+    """上下文管理器：自动 create+running，退出时 complete/failed。
 
     适合短任务（无中间进度上报）。长任务用 create_job + 显式 update_progress。
     """

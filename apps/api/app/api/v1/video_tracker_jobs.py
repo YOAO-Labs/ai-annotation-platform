@@ -94,7 +94,7 @@ class VideoTrackerJobCounts(BaseModel):
     completed: int = 0
     failed: int = 0
     cancelled: int = 0
-    # v0.21.28 · 候选/接受流状态计数。
+    # 候选/接受流状态计数。
     pending_review: int = 0
     partially_reviewed: int = 0
     accepted: int = 0
@@ -136,7 +136,7 @@ class TrackerRetirementRedriveUnavailableResponse(BaseModel):
 
 
 class VideoTrackerJobPreview(BaseModel):
-    """v0.21.28 · 候选预览: job 暂存的逐帧结果, 供前端在接受前渲染候选叠加。"""
+    """候选预览: job 暂存的逐帧结果, 供前端在接受前渲染候选叠加。"""
 
     job_id: uuid.UUID
     status: TrackerJobStatus
@@ -547,7 +547,7 @@ async def accept_video_tracker_job(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.21.28 · 接受候选: 把 job 暂存结果落库 (主实例回填源轨迹 + 新轨迹建), status=ACCEPTED。"""
+    """接受候选: 把 job 暂存结果落库 (主实例回填源轨迹 + 新轨迹建), status=ACCEPTED。"""
     task, row, access = await _lock_visible_job_task_row(db, job_id, current_user)
     await _assert_can_cancel(db, task, row, current_user, access)
     if row.job_kind == "correction":
@@ -586,7 +586,7 @@ async def discard_video_tracker_job(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.21.28 · 丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。"""
+    """丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。"""
     task, row, access = await _lock_visible_job_task_row(db, job_id, current_user)
     await _assert_can_cancel(db, task, row, current_user, access)
     if row.job_kind == "correction":
@@ -728,7 +728,7 @@ async def get_video_tracker_job_preview(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.21.28 · 候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。"""
+    """候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。"""
     row = await get_tracker_job(db, job_id, current_user.id)
     task = await get_core_row(db, task_row, row.task_id)
     if task is None:

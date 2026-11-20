@@ -1,4 +1,4 @@
-"""v0.5.5 phase 2 · A.2：sanity 测试。
+"""A.2：sanity 测试。
 
 目的：守住「app 能启动 + 关键 schema 能校验通过」这条最低基线。
 后续在此基础上扩展：audit export filter / 用户角色矩阵 / 权限守卫等。
@@ -106,8 +106,8 @@ def test_project_iou_threshold_range():
         ProjectUpdate.model_validate({"iou_dedup_threshold": 1.0})
 
 
-def test_project_rendering_config_v0_10_10():
-    """v0.10.10 · I17.3 · ProjectUpdate 接受 rendering_config，校验字段范围与 extra=forbid。"""
+def test_project_rendering_config_validation():
+    """ProjectUpdate 接受 rendering_config，校验字段范围与 extra=forbid。"""
     from yoao_workspace.configuration_requests import ProjectUpdate
     from pydantic import ValidationError
 

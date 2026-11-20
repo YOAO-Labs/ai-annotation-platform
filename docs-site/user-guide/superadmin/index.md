@@ -2,7 +2,6 @@
 title: 超级管理员手册
 audience: [super_admin]
 type: reference
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-26
 ---

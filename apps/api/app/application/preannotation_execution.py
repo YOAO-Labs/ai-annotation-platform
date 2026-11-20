@@ -1389,7 +1389,7 @@ async def _execute_preannotation(
     failed_prediction_ids: list[str] = []
     gpu_arbiter_failures: list[dict] = []
     project_name: str | None = None
-    # v0.9.11 · 累加每条 prediction.meta.total_cost; job 完成时写 async_job.result.total_cost.
+    # 累加每条 prediction.meta.total_cost; job 完成时写 async_job.result.total_cost.
     # grounded-sam2-backend 当前不返回 cost (留 0.0), LLM-backed backend (sam3 / future) 自然到位.
     running_total_cost = 0.0
 
@@ -1847,7 +1847,7 @@ async def _execute_preannotation(
         manifest_backed = accepted_manifest is not None
         video_manifest_backed = accepted_video_manifest is not None
 
-        # v0.11.24 · 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
+        # 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
         skip_predicted = predict_mode == "skip_predicted"
         # base_conds 不含预标过滤, 供 total==0 时回数候选区分「批次本就空」vs「全已预标被跳过」。
         if requested_task_ids is not None:
@@ -1859,7 +1859,7 @@ async def _execute_preannotation(
             if not workbench_scope:
                 base_conds.append(task_core_row.status == "pending")
         elif batch_id:
-            # v0.9.5 · 指定 batch 时仅捞 batch 内 pending tasks
+            # 指定 batch 时仅捞 batch 内 pending tasks
             base_conds = [
                 task_core_row.batch_id == uuid.UUID(batch_id),
                 task_core_row.status == "pending",
@@ -2118,7 +2118,7 @@ async def _execute_preannotation(
         if controlled and any(task.file_type != "image" for task in tasks):
             raise ValueError("Controlled detection task is not an image")
 
-        # v0.11.24 · overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
+        # overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
         # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
         if execution_unit == "frame" and pipeline_stages and len(pipeline_stages) > 1:
             raise ValueError("frame preannotation supports one detection stage")
@@ -2161,14 +2161,14 @@ async def _execute_preannotation(
             )
             await db.flush()
 
-        # v0.10.49 · async_jobs 单一真值：建 batch_predict 行 (status=running)。
+        # async_jobs 单一真值：建 batch_predict 行 (status=running)。
         # domain 字段（batch_id / ml_backend / prompt / total_tasks）进 payload。
         batch = (
             await get_core_row(db, batch_core_row, uuid.UUID(batch_id))
             if batch_id
             else None
         )
-        # v0.14.18 · payload 记实际模型路由 (溯源 + 任务页展示用了哪个模型)。
+        # payload 记实际模型路由 (溯源 + 任务页展示用了哪个模型)。
         # output_mode is recorded only for the text-prompt path that consumes it (see build_predict_context);
         # geometry/YOLO paths do not read it, so recording it would imply an unused mask output.
         job_payload: dict = {
@@ -2555,7 +2555,7 @@ async def _execute_preannotation(
         if execution_unit != "frame":
             stages = execution_stages()
 
-        # v0.21.7 · 逐帧执行单位: 视频 task 逐帧跑图像 backend (二级 Celery fan-out chord)。
+        # 逐帧执行单位: 视频 task 逐帧跑图像 backend (二级 Celery fan-out chord)。
         # 首刀 = 源**单阶段**检测; 多阶段逐帧不在范围 (frame × depth 组合爆炸, 见 plan)。
         # 段任务 + finalize_frame_job 接管抽帧/predict/落库/进度/收尾, 此处只发起并返回。
         if execution_unit == "frame":
@@ -2703,7 +2703,7 @@ async def _execute_preannotation(
         stage_contexts = tuple(stage_contexts)
         stage_modes = tuple(stage_modes)
 
-        # v0.18.4 · 多阶段时构造 crop 上传器 (presigned 投递, 对所有下游后端通用)。
+        # 多阶段时构造 crop 上传器 (presigned 投递, 对所有下游后端通用)。
         # 单阶段无下游 crop, 不建 (省去对象存储往返)。
         crop_uploader = None
         if len(stages) > 1:
@@ -2721,7 +2721,7 @@ async def _execute_preannotation(
                 async_job_id,
             )
 
-        # v0.18.2 · 逐阶段统计累加器 (跨 task 汇总): {stage_idx: {detected/targeted/ok/failed}}。
+        # 逐阶段统计累加器 (跨 task 汇总): {stage_idx: {detected/targeted/ok/failed}}。
         pipeline_stage_totals: dict[int, dict] = {}
 
         def _accumulate_stage_stats(per_task: dict | None) -> None:
@@ -3671,7 +3671,7 @@ async def _execute_preannotation(
                     # or roll back together.
                     await video_owner.recheck_credentials()
                 for pred_result in results:
-                    # v0.9.11 · 单条 cost 累加到 job 级总费用
+                    # 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
                         cost = pred_result.meta.get("total_cost")
                         if cost is not None:
@@ -3787,7 +3787,7 @@ async def _execute_preannotation(
                 last_completed_ordinal = manifest_member.ordinal
             processed_count = success_count + failed_count + runtime_skipped_count
 
-            # v0.18.6 · 逐阶段累加快照随进度推送 (多阶段才有), 让前端运行中实时更新卡上徽标。
+            # 逐阶段累加快照随进度推送 (多阶段才有), 让前端运行中实时更新卡上徽标。
             # 按 5% 步长 (或末条) 节流, 避免每条都塞快照; 阶段数少, payload 增量可忽略。
             completed = processed_count if manifest_member is not None else i + 1
             pct = int((completed / total) * 100) if total > 0 else 0
@@ -3803,7 +3803,7 @@ async def _execute_preannotation(
                 ),
             )
 
-            # v0.10.16 · async_jobs 进度（每 5% 步长写一次，避免每条都 DB write）
+            # async_jobs 进度（每 5% 步长写一次，避免每条都 DB write）
             if total > 0:
                 if stage_step:
                     try:
@@ -3822,7 +3822,7 @@ async def _execute_preannotation(
         # 不推进 batch 状态、终态走 failed 分支。
         all_failed = success_count == 0 and failed_count > 0
 
-        # v0.9.5 · 跑完自动 active → pre_annotated（仅当指定 batch + 当前还在 active 时）
+        # 跑完自动 active → pre_annotated（仅当指定 batch + 当前还在 active 时）
         # issue #124 · 未分派人员的 draft 批次跑完保持 draft：不隐式推进生命周期、
         # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
         # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
@@ -3847,14 +3847,14 @@ async def _execute_preannotation(
             if advanced:
                 await db.commit()
 
-        # v0.10.49 · 结束时点 → 写 async_job final stats (result JSONB)
+        # 结束时点 → 写 async_job final stats (result JSONB)
         duration_ms = int((time.perf_counter() - started_perf) * 1000)
         result_stats = {
             "success_count": success_count,
             "failed_count": failed_count,
             "failed_prediction_ids": failed_prediction_ids,
             "duration_ms": duration_ms,
-            # v0.9.11 · total_cost 接通 PredictionMeta.total_cost 累加
+            # total_cost 接通 PredictionMeta.total_cost 累加
             "total_cost": f"{running_total_cost:.4f}",
         }
         if accepted_manifest is not None:
@@ -3870,8 +3870,8 @@ async def _execute_preannotation(
             result_stats["done_count"] = (
                 success_count + failed_count + runtime_skipped_count
             )
-        # v0.18.2 · 多阶段预标: 逐阶段统计 (检出框数 / 各下游富集成功失败), 供前端逐阶段徽标。
-        # v0.18.6 · 与运行中实时快照共用同一阶段统计形态。
+        # 多阶段预标: 逐阶段统计 (检出框数 / 各下游富集成功失败), 供前端逐阶段徽标。
+        # 与运行中实时快照共用同一阶段统计形态。
         if pipeline_stage_totals:
             result_stats["pipeline_stages"] = stage_totals_snapshot(
                 pipeline_stage_totals

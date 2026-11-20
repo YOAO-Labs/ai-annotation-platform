@@ -1,4 +1,4 @@
-"""v0.23.4 ADR-0050 §3 · typed read models for the model-market UI.
+"""ADR-0050 §3 · typed read models for the model-market UI.
 
 These Pydantic schemas replace the untyped ``dict`` returns of
 ``build_topology`` / ``build_runtime_snapshot`` so that:
@@ -101,10 +101,8 @@ class RuntimeMemberSnapshot(BaseModel):
 
     Metrics-driven fields (``last_selected_at`` / ``selection_count_window``
     / ``rejection_count_window`` / ``p95_ms`` / ``error_rate``) are ``None``
-    by default: plan §4.2 forbids wiring shared route counters, and v0.23.3's
-    Prometheus module is declared but unwired. The frontend renders these as
-    "暂无路由指标" per §6.2; the fields exist in the schema so v0.23.4 does
-    not have to refactor the contract again when metrics arrive.
+    when routing metrics are unavailable. The model market displays
+    "暂无路由指标" for these values rather than reporting zero activity.
     """
 
     registry_id: UUID
@@ -119,7 +117,7 @@ class RuntimeMemberSnapshot(BaseModel):
     route_inflight: int | None = None
     circuit_open: bool | None = None
     gpu_resource_id: str | None = None
-    # Metrics-driven — always None in v0.23.4 (plan §4.2 / Appendix A.2).
+    # These fields are unset when routing metrics are unavailable.
     last_selected_at: datetime | None = None
     selection_count_window: int | None = None
     rejection_count_window: int | None = None

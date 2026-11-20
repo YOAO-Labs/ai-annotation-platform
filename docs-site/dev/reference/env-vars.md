@@ -2,9 +2,8 @@
 title: 环境变量参考
 audience: [dev, ops]
 type: reference
-since: v0.9.0
 status: stable
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-19
 ---
 
 # 环境变量参考
@@ -363,7 +362,7 @@ last_reviewed: 2026-11-18
 | `MASK_FORMAT_MAX_COMPRESSION_RATIO` | `100` | — |
 | `TASK_CREATE_SYNC_THRESHOLD` | `2000` | dataset link 建 task 同步阈值：dataset item 数 ≤ 阈值走同步快路径， &gt; 阈值改入 Celery 异步建 task（带进度），避免大 dataset link 在 HTTP 单事务里超时 + 长事务锁。 |
 
-## 是否允许开放注册
+## 是否允许开放注册；可在系统设置中热更新。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -377,7 +376,7 @@ last_reviewed: 2026-11-18
 |---|---|---|
 | `REQUIRE_EMAIL_VERIFICATION` | `—` | 留空  — 按环境派生：production 默认开、development/staging 默认关 true  — 注册后须点邮件链接验证才能登录（验证前不可登录；邀请注册恒视为已验证） false — 注册即可登录（与历史行为一致） |
 
-## Cloudflare Turnstile CAPTCHA
+## Cloudflare Turnstile CAPTCHA（防分布式刷号）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -391,7 +390,7 @@ last_reviewed: 2026-11-18
 |---|---|---|
 | `AUDIT_RETENTION_MONTHS` | `12` | Celery beat 每月 2 日扫描超期分区，归档为 jsonl.gz 上传 MinIO `audit-archive/{YYYY}/{MM}.jsonl.gz`， 然后 DROP 该分区。默认 12 个月。 |
 
-## 错误监控 (Sentry, )
+## 错误监控（Sentry）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -400,13 +399,13 @@ last_reviewed: 2026-11-18
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | 性能追踪采样率，0.0 ~ 1.0（0.1 = 采样 10% 的请求） |
 | `VITE_SENTRY_DSN` | `—` | 前端 Sentry DSN（Vite 构建时注入）；留空则禁用前端错误上报 |
 
-## 前端 Turnstile sitekey；留空时注册页不渲染 widget。
+## 前端 Turnstile sitekey（与 TURNSTILE_SITE_KEY 一致）；留空时注册页不渲染 widget。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `VITE_TURNSTILE_SITE_KEY` | `—` | — |
 
-## SMTP 邮件
+## SMTP 邮件：管理员可以发送测试邮件；开发环境使用 Mailpit。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -480,7 +479,7 @@ last_reviewed: 2026-11-18
 | `ONNXTOOLS_GPU_DEVICE_ID` | `0` | — |
 | `RAPIDOCR_GPU_DEVICE_ID` | `0` | — |
 
-## DuckDB 离线分析视图
+## DuckDB 离线分析视图（ROADMAP §1.6）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|

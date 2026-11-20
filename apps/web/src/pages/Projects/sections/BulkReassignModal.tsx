@@ -25,7 +25,7 @@ function cn(...classes: Array<string | false | null | undefined>) {
 }
 
 /**
- * v0.7.3 · 批量改派 modal。
+ * 批量改派 modal。
  * 标注员 / 审核员各一栏：保留不变 / 清空 / 选某成员，三种语义。
  */
 export function BulkReassignModal({ projectId, count, onClose, onSubmit, pending }: Props) {

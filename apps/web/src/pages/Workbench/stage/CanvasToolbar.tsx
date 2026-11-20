@@ -1,4 +1,4 @@
-// v0.6.4 · 画布批注工具浮条。
+// 画布批注工具浮条。
 //
 // 浮在 ImageStage container 右上角，绝对定位。仅当 canvasDraft.active 时渲染。
 // 颜色 swatch + 撤销 / 清空 / 取消 / 完成。

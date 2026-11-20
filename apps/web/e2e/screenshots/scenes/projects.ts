@@ -57,7 +57,7 @@ export const PROJECT_SCENES: ScreenshotScene[] = [
     mockState: "error",
     target: "docs-site/user-guide/images/projects/error-state.png",
   },
-  // ── Tier A 扩展（v0.15.26）：项目设置 / 数据管理 / 模板库 / 预测导入导出 ──
+  // ── 项目设置 / 数据管理 / 模板库 / 预测导入导出 ──
   {
     name: "projects/tool-units-panel",
     role: "admin",

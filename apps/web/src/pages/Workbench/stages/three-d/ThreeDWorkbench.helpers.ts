@@ -1,4 +1,4 @@
-// v0.16.11 · 从 ThreeDWorkbench.tsx 抽出的模块级纯常量/类型/纯函数(无 React、无组件闭包)。
+// 从 ThreeDWorkbench.tsx 抽出的模块级纯常量/类型/纯函数(无 React、无组件闭包)。
 // 逐字搬运,行为零变化;主组件 import 回这些符号使用。tsc 完整守护。
 import { acquireCameraImageAddress } from "./pointCloudAssetCache";
 import { originalOwnerKey } from "@/api/originals";
@@ -10,11 +10,11 @@ import { cameraAnchor, type Anchor } from "./geometry/cameraAnchor";
 import type { CameraSample } from "./geometry/colorize";
 import type { LidarAxisConvention } from "./geometry/axisConvention";
 import { LIDAR_BOX_3D_TOOL_UNIT } from "./geometry/box3dAttributes";
-// v0.13.3 · 新框默认尺寸(米,长宽高;约一辆轿车),放置后用面板/gizmo 精修。
+// 新框默认尺寸(米,长宽高;约一辆轿车),放置后用面板/gizmo 精修。
 export const DEFAULT_BOX_SIZE: [number, number, number] = [4.0, 1.8, 1.6];
-// v0.15.23 · align 模式下邻帧点已预变换到当前帧 ego 系,渲染走 identity(共享单例,免重复分配)。
+// align 模式下邻帧点已预变换到当前帧 ego 系,渲染走 identity(共享单例,免重复分配)。
 export const IDENTITY_MATRIX = new THREE.Matrix4();
-// v0.15.24 · 种框空簇 fallback:沿中央射线的估计深度(米)。图上可见但无 lidar 返回时按此放默认框。
+// 种框空簇 fallback:沿中央射线的估计深度(米)。图上可见但无 lidar 返回时按此放默认框。
 export const SEED_FALLBACK_RANGE_M = 12;
 export const CAMERA_AUTO_COLLAPSE_WIDTH = 1366;
 export const CAMERA_STACK_VISIBLE = 2;
@@ -30,7 +30,7 @@ export const THREE_D_LAYOUT_PRESETS: ReadonlyArray<{
   { id: "point-segmentation", label: "点级分割", description: "隐藏三视图和相机面板" },
 ];
 
-// v0.13.9 · 框选预览矩形位置/尺寸经 CSS custom property 注入(逐帧动态值)。
+// 框选预览矩形位置/尺寸经 CSS custom property 注入(逐帧动态值)。
 export type BoxSelectRectVars = CSSProperties & {
   "--rect-l": string;
   "--rect-t": string;
@@ -131,8 +131,8 @@ export async function loadCameraSample(
   });
 }
 
-// v0.13.3 · PSR 数值面板字段(中心 cx/cy/cz、尺寸 l/w/h、朝向 yaw/pitch/roll)。
-// v0.13.5 · 朝向补齐三轴: yaw=rotation[2](绕Z)、pitch=rotation[1](绕Y)、roll=rotation[0](绕X),
+// PSR 数值面板字段(中心 cx/cy/cz、尺寸 l/w/h、朝向 yaw/pitch/roll)。
+// 朝向补齐三轴: yaw=rotation[2](绕Z)、pitch=rotation[1](绕Y)、roll=rotation[0](绕X),
 //   与三视图方向线(Top/Side/Front)一致, 避免数值编辑抹掉 pitch/roll。
 export type PsrField = "cx" | "cy" | "cz" | "l" | "w" | "h" | "yaw" | "pitch" | "roll";
 export const PSR_FIELDS: PsrField[] = ["cx", "cy", "cz", "l", "w", "h", "yaw", "pitch", "roll"];
@@ -167,7 +167,7 @@ export function psrToForm(b: {
   };
 }
 
-// v0.16.x 拆分(第 2 批)· PSR 数值面板纯逻辑,从 ThreeDWorkbench 的 schedulePatch / handleFieldBlur 提炼。
+// 拆分(第 2 批)· PSR 数值面板纯逻辑,从 ThreeDWorkbench 的 schedulePatch / handleFieldBlur 提炼。
 
 // 单字段是否非法(空 / 非有限数 / 尺寸字段 ≤ 0)。失焦时据此从选中框当前值恢复。
 export function isPsrFieldBad(field: PsrField, value: string): boolean {
@@ -206,7 +206,7 @@ export function psrFormToGeometry(
   );
 }
 
-// v0.13.7 · 取 front 相机光轴的水平「前方」(归一化 [x,y]),供 resetView 跟随车头朝向。
+// 取 front 相机光轴的水平「前方」(归一化 [x,y]),供 resetView 跟随车头朝向。
 // front = anchor 推为 top 的相机;无标定 / 退化 → null(回退默认 +Y)。
 export function frontCameraForward(
   cams: { calibration?: SensorCalibration | null; role: string; name: string }[],
@@ -220,7 +220,7 @@ export function frontCameraForward(
   return n < 1e-3 ? null : [x / n, y / n];
 }
 
-// v0.13.7 · 朝向 → 悬浮定位容器 Tailwind 类(贴主视图对应边缘)。V0.17.6: module.css → Tailwind。
+// 按朝向把悬浮定位容器贴到主视图对应边缘。
 export const ANCHOR_CLASS: Record<Anchor, string> = {
   top: "top-3 left-0 right-0 justify-center flex-row",
   bottom: "bottom-3 left-0 right-0 justify-center flex-row",

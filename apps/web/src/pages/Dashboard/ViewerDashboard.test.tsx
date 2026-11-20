@@ -1,5 +1,5 @@
 /**
- * v0.8.5 · ViewerDashboard 单测：KPI 卡片 / 项目列表 / 过滤切换 / 搜索 / 空态。
+ * ViewerDashboard 单测：KPI 卡片 / 项目列表 / 过滤切换 / 搜索 / 空态。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";

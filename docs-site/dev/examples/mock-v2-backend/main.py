@@ -255,7 +255,7 @@ _AXIS_ALLOWED = {
 def _resolve_variants(variants: dict) -> dict:
     """校验 model_variants 并演示 422 / 503 两种标准错误形态。
 
-    生产 backend 用 aap_protocol_v2.VariantNotSupportedError / ModelUnavailableError,
+    生产服务可使用 yoao_protocol_v2 的 VariantNotSupportedError / ModelUnavailableError，
     HTTP 形态与这里手写的完全一致。
     """
     resolved = {**_YOLO_DEFAULT_VARIANTS, **variants}

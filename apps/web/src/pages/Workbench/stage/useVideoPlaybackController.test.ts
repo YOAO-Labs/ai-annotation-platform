@@ -1,5 +1,5 @@
 // 视频播放控制器单测(子 hook 全 mock):聚焦确定性 state ——
-// 播放浮层 show/2s 自动隐藏(v0.16.x 回归修复)、loopRegion 规范化/清除、书签开合、派生 maxFrame。
+// 播放浮层 show/2s 自动隐藏、loopRegion 规范化/清除、书签开合、派生 maxFrame。
 // Source/draw admission uses explicit child-hook receipts; actual pixels remain a browser gate.
 import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";

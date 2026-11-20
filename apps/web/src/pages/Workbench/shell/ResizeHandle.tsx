@@ -4,7 +4,7 @@ interface ResizeHandleProps {
   /** "right" = handle 贴在容器右沿，往右拖增大宽度（左侧栏用）。
    *  "left"  = handle 贴在容器左沿，往左拖增大宽度（右侧栏用）。
    *  "top" = handle 贴在容器顶沿，往上拖增大高度（下方面板用）。
-   *  "bottom" = handle 贴在容器底沿，往下拖增大高度（上下分段用，v0.11.1）。 */
+   *   "bottom" = handle 贴在容器底沿，往下拖增大高度（上下分段用）。 */
   side: "left" | "right" | "top" | "bottom";
   /** 当前尺寸（受控）：水平方向是宽度，垂直方向（side="bottom"）是高度。 */
   width: number;

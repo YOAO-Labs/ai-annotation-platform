@@ -33,9 +33,9 @@ def _period_window(period: str) -> tuple[datetime, datetime]:
 
 
 async def _reject_reason_breakdown(db, uid, start, project_id=None) -> list[dict]:
-    """v0.12.4 · 本人被驳回任务按 reject_reason_type 分布(A1)。
+    """本人被驳回任务按 reject_reason_type 分布(A1)。
 
-    v0.12.6 (A3)：project_id 给定时按该项目切分。
+    project_id 给定时按该项目切分。
     """
     proj = [task_row.project_id == project_id] if project_id else []
     rows = (
@@ -65,9 +65,9 @@ async def _reject_reason_breakdown(db, uid, start, project_id=None) -> list[dict
 async def _class_distribution(
     db, uid, start, limit: int = 10, project_id=None
 ) -> list[dict]:
-    """v0.12.4 · 本人标注按 class_name 的 top-N 占比(A1 类别覆盖)。
+    """本人标注按 class_name 的 top-N 占比(A1 类别覆盖)。
 
-    v0.12.6 (A3)：project_id 给定时按该项目切分。
+    project_id 给定时按该项目切分。
     """
     proj = [annotation_row.project_id == project_id] if project_id else []
     rows = (
@@ -107,9 +107,9 @@ async def _class_distribution(
 
 
 async def _first_pass_yield(db, uid, start, project_id=None) -> float | None:
-    """v0.12.4 · 首过率 = 一次通过(无 reopen)/ 提交总数(A1)。无样本→None。
+    """首过率 = 一次通过(无 reopen)/ 提交总数(A1)。无样本→None。
 
-    v0.12.6 (A3)：project_id 给定时按该项目切分。
+    project_id 给定时按该项目切分。
     """
     proj = [task_row.project_id == project_id] if project_id else []
     row = (

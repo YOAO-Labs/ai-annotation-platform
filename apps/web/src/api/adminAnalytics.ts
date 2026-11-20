@@ -1,4 +1,4 @@
-// v0.10.16 · /admin/analytics 面板 API client (ROADMAP §1.6)
+// /admin/analytics 面板 API client (ROADMAP §1.6)
 
 import { apiClient } from "./client";
 

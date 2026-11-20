@@ -1,8 +1,8 @@
 /**
- * v0.14.1 · 邻帧框叠加: 拉 prev/next task 的邻帧 annotations。
- * v0.15.17 · 改走批量端点 GET /tasks/{id}/neighbor-annotations(一条请求),
+ * 邻帧框叠加: 拉 prev/next task 的邻帧 annotations。
+ * 改走批量端点 GET /tasks/{id}/neighbor-annotations(一条请求),
  *   替代旧版「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track 过滤」。
- * v0.21.2 · ADR-0045 · 跨帧链按 track_id(原 group_id)服务端过滤。
+ * ADR-0045 · 跨帧链按 track_id(原 group_id)服务端过滤。
  *
  * - scope=selected(trackId 非 null)→ 服务端只回该 track;trackId 为 null 时调用方传
  *   enabled=false 短路(不发请求)。

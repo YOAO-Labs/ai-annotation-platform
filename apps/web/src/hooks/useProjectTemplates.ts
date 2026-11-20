@@ -1,4 +1,4 @@
-// v0.10.14 · E2 · React Query hooks for project templates.
+// React Query hooks for project templates.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

@@ -1,4 +1,4 @@
-"""v0.10.43 · 多几何导出写入器纯函数单测（无 DB）。
+"""多几何导出写入器纯函数单测（无 DB）。
 
 覆盖 COCO segmentation/keypoints/外接框 + YOLO det/obb/seg 行生成。
 """

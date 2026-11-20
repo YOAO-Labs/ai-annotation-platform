@@ -73,7 +73,7 @@ def _batch_to_out(batch, briefs: dict | None = None) -> BatchOut:
     out = BatchOut.model_validate(batch)
     out.progress_pct = pct
     if briefs is not None:
-        # v0.7.2：单值语义 — 直接按 annotator_id / reviewer_id 拿 brief
+        # 单值语义 — 直接按 annotator_id / reviewer_id 拿 brief
         if batch.annotator_id is not None:
             out.annotator = briefs.get(str(batch.annotator_id))
         if batch.reviewer_id is not None:
@@ -98,7 +98,7 @@ async def _refresh_batch(db: AsyncSession, batch):
 
 
 async def _briefs_for_batches(db, project_id, batches) -> dict:
-    """v0.7.2：一次 IN 查询解析所有批次的 annotator_id + reviewer_id → UserBrief。"""
+    """一次 IN 查询解析所有批次的 annotator_id + reviewer_id → UserBrief。"""
     all_ids = set()
     for b in batches:
         if b.annotator_id is not None:
@@ -129,7 +129,7 @@ async def get_unclassified_task_count(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
 ):
-    """v0.7.3：项目下未归类（batch_id IS NULL）任务数。
+    """项目下未归类（batch_id IS NULL）任务数。
     给 BatchesSection 顶部横带「未归类 N 条 · 去分包」用。
     """
     from sqlalchemy import select as sa_sel, func as sa_func
@@ -284,7 +284,7 @@ async def delete_batch(
     if not batch or batch.project_id != project_id:
         raise HTTPException(status_code=404, detail="Batch not found")
     affected = batch.total_tasks
-    # v0.11.25：含进行中成果/已预标时 svc.delete 会抛 409 requires_force；force=true 走强制清理删除
+    # 含进行中成果/已预标时 svc.delete 会抛 409 requires_force；force=true 走强制清理删除
     await svc.delete(batch_id, force=force, actor_id=current_user.id)
     await AuditService.log(
         db,
@@ -320,7 +320,7 @@ async def transition_batch(
     if not batch or batch.project_id != project_id:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # v0.7.0：按 (from, to) 校验角色（403 携带可读 detail）
+    # 按 (from, to) 校验角色（403 携带可读 detail）
     assert_can_transition(
         current_user,
         project,
@@ -329,7 +329,7 @@ async def transition_batch(
         project_role=access.project_role,
     )
 
-    # v0.7.3：逆向迁移强制 reason（schema 层面 reason 是可选，这里按方向决定是否必填）
+    # 逆向迁移强制 reason（schema 层面 reason 是可选，这里按方向决定是否必填）
     is_reverse = (batch.status, data.target_status) in REVERSE_TRANSITIONS
     if is_reverse and not data.reason:
         raise HTTPException(
@@ -353,7 +353,7 @@ async def transition_batch(
         detail=audit_detail,
     )
 
-    # v0.7.3：逆向迁移按方向分发通知
+    # 逆向迁移按方向分发通知
     notif_recipients: list[uuid.UUID] = []
     notif_type: str | None = None
     if (old_status, batch.status) == (BatchStatus.ARCHIVED, BatchStatus.ACTIVE):
@@ -472,7 +472,7 @@ async def distribute_batches_in_project(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.7.2：项目级 batch 分派 — 把项目下未分派/全部 batch 圆周分配给所选 annotator/reviewer。
+    """项目级 batch 分派 — 把项目下未分派/全部 batch 圆周分配给所选 annotator/reviewer。
     每 batch 落到 1 个 annotator + 1 个 reviewer；同步回填该 batch 下所有 task 的 assignee_id/reviewer_id。
     """
     svc = BatchService(db)
@@ -585,7 +585,7 @@ async def reject_batch(
     if not batch or batch.project_id != project_id:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # v0.7.0：复用 transition 鉴权矩阵（reviewing → rejected 的角色门）
+    # 复用 transition 鉴权矩阵（reviewing → rejected 的角色门）
     assert_can_transition(
         current_user,
         project,
@@ -611,7 +611,7 @@ async def reject_batch(
         detail={"affected_tasks": affected, "feedback": data.feedback},
     )
 
-    # v0.7.2 · 单值语义：只通知该批次的标注员（reviewer 是 actor 本人无需通知）
+    # 单值语义：只通知该批次的标注员（reviewer 是 actor 本人无需通知）
     pending_notifications = []
     if batch.annotator_id is not None:
         notif_svc = NotificationService(db)
@@ -637,7 +637,7 @@ async def reject_batch(
     return _batch_to_out(batch, briefs)
 
 
-# ── v0.7.6 · Reset → draft 终极重置 ───────────────────────────────────────
+# ── Reset → draft 终极重置 ───────────────────────────────────────
 
 
 @router.post("/{batch_id}/reset", response_model=BatchOut)
@@ -650,7 +650,7 @@ async def reset_batch_to_draft(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.7.6 · owner 兜底：把任意状态批次回退到 draft。
+    """owner 兜底：把任意状态批次回退到 draft。
 
     - task 全部回 pending（保留 annotation 记录与 is_active）
     - 删除 task_locks 释放标注员锁
@@ -689,7 +689,7 @@ async def reset_batch_to_draft(
     return _batch_to_out(batch, briefs)
 
 
-# ── v0.9.15 · ADR-0008 Admin Lock/Unlock ─────────────────────────────────
+# ── ADR-0008 · Admin Lock/Unlock ─────────────────────────────────
 
 
 @router.post("/{batch_id}/admin-lock", response_model=BatchOut)
@@ -808,7 +808,7 @@ async def admin_unlock_batch(
     return _batch_to_out(batch, briefs)
 
 
-# ── v0.7.3 · 多选批量操作 ─────────────────────────────────────────────────
+# ── 多选批量操作 ─────────────────────────────────────────────────
 
 
 def _bulk_audit_detail(payload: dict, summary: dict) -> dict:
@@ -862,7 +862,7 @@ async def bulk_delete_batches(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
-    # v0.11.25：force=false 时含进行中成果/已预标的批次进 failed(reason=requires_force)
+    # force=false 时含进行中成果/已预标的批次进 failed(reason=requires_force)
     summary = await svc.bulk_delete(
         project_id, data.batch_ids, force=force, actor_id=current_user.id
     )
@@ -1051,7 +1051,7 @@ async def list_batch_audit_logs(
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
 ):
-    """v0.7.3：批次操作历史抽屉数据源。
+    """批次操作历史抽屉数据源。
     返回该批次相关的 audit_log，按时间倒序，包含：
     - 直接 target=batch 的事件（创建/状态迁移/驳回/删除）
     - bulk 类操作中提及到该批次的项目级事件（detail_json.batch_ids 包含此 id）
@@ -1187,8 +1187,8 @@ async def export_batch(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
 ):
-    # v0.10.27 · 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
-    # v0.10.43 · 多目标（方案 B）。VOC 仅可单选，走同步 blob；不删避免破坏 API 契约。
+    # 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
+    # 多目标（方案 B）。VOC 仅可单选，走同步 blob；不删避免破坏 API 契约。
     from app.services.audit import AuditService, AuditAction, export_detail
     from app.services.exporting.packaging import clean_export_targets
 

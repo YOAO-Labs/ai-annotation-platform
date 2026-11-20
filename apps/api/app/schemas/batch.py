@@ -15,7 +15,7 @@ class BatchCreate(BaseModel):
     dataset_id: UUID | None = None
     priority: int = Field(50, ge=0, le=100)
     deadline: date | None = None
-    # v0.7.2 · 单值分派
+    # 单值分派
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 
@@ -25,7 +25,7 @@ class BatchUpdate(BaseModel):
     description: str | None = None
     priority: int | None = Field(None, ge=0, le=100)
     deadline: date | None = None
-    # v0.7.2 · 单值分派
+    # 单值分派
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 
@@ -41,10 +41,10 @@ class BatchOut(BaseModel):
     priority: int = 50
     deadline: date | None = None
     assigned_user_ids: list[UUID] = []
-    # v0.7.2 · 单值分派字段（一 batch 一标注员 + 一审核员）
+    # 单值分派字段（一 batch 一标注员 + 一审核员）
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
-    # v0.7.2 · 责任人可视化 brief（avatar / name / role）
+    # 责任人可视化 brief（avatar / name / role）
     annotator: UserBrief | None = None
     reviewer: UserBrief | None = None
     total_tasks: int = 0
@@ -59,7 +59,7 @@ class BatchOut(BaseModel):
     review_feedback: str | None = None
     reviewed_at: datetime | None = None
     reviewed_by: UUID | None = None
-    # v0.9.15 · ADR-0008 admin-lock
+    # ADR-0008 · admin-lock
     admin_locked: bool = False
     admin_lock_reason: str | None = None
     admin_locked_at: datetime | None = None
@@ -71,7 +71,7 @@ class BatchOut(BaseModel):
 
 class BatchTransition(BaseModel):
     target_status: str
-    # v0.7.3：逆向迁移（archived→active / approved→reviewing / rejected→reviewing）必填，1-500 字
+    # 逆向迁移（archived→active / approved→reviewing / rejected→reviewing）必填，1-500 字
     reason: str | None = Field(None, min_length=1, max_length=500)
 
 
@@ -90,13 +90,13 @@ class BatchSubmitResult(BaseModel):
 
 
 class BatchReset(BaseModel):
-    """v0.7.6 · 终极重置到 draft。reason 至少 10 字以避免误操作；写入 audit.detail.reason。"""
+    """终极重置到 draft。reason 至少 10 字以避免误操作；写入 audit.detail.reason。"""
 
     reason: str = Field(..., min_length=10, max_length=500)
 
 
 class ProjectDistributeBatches(BaseModel):
-    """v0.7.2 · 项目级 batch 分派：在所选 annotator / reviewer 间圆周分派 batch。
+    """项目级 batch 分派：在所选 annotator / reviewer 间圆周分派 batch。
     每个 batch 落到 1 个 annotator + 1 个 reviewer。
     """
 
@@ -118,7 +118,7 @@ class BatchDistributeResult(BaseModel):
     reviewer_per_batch: dict[str, str | None] = {}
 
 
-# v0.7.3 · 多选批量操作
+# 多选批量操作
 class BulkBatchIds(BaseModel):
     batch_ids: list[UUID] = Field(..., min_length=1, max_length=200)
 
@@ -141,12 +141,12 @@ class BulkBatchActionResponse(BaseModel):
     failed: list[BulkBatchActionItem] = []
 
 
-# v0.9.15 · ADR-0008 admin-lock
+# ADR-0008 · admin-lock
 class AdminLockRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=500)
 
 
-# v0.9.15 · Bulk approve/reject
+# Bulk approve/reject
 class BulkBatchApprove(BaseModel):
     batch_ids: list[UUID] = Field(..., min_length=1, max_length=200)
 
@@ -165,14 +165,14 @@ class BatchSplitRequest(BaseModel):
     item_ids: list[UUID] | None = None
     # random 策略
     n_batches: int | None = Field(None, ge=1, le=100)
-    # v0.11.22 · 顺序切分（不打乱）：False 时按 task 创建顺序切分，便于把未归类任务按导入顺序分包。
+    # 顺序切分（不打乱）：False 时按 task 创建顺序切分，便于把未归类任务按导入顺序分包。
     # n_batches=1 + shuffle=False 即「把全部未归类任务顺序注入一个新批次」。
     shuffle: bool = True
     # 公共字段
     name_prefix: str = "Batch"
     priority: int = Field(50, ge=0, le=100)
     deadline: date | None = None
-    # v0.7.2 · 切批默认分派（每个新切的 batch 都落到同一对人；后续可用项目级 distribute 重新分派）
+    # 切批默认分派（每个新切的 batch 都落到同一对人；后续可用项目级 distribute 重新分派）
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 

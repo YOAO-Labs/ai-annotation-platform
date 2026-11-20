@@ -50,7 +50,7 @@ class Dataset(Base):
     lifecycle_revision: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
-    # v0.13.11 · 数据集级 jsonb 扩展点 (结构化视图见 schemas._jsonb_types.DatasetMetadata)。
+    # 数据集级 jsonb 扩展点 (结构化视图见 schemas._jsonb_types.DatasetMetadata)。
     # 当前已知 key: axis_convention (lidar 坐标系约定，前端加载时做 ISO 8855 归一化)。
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default="{}", nullable=False, default=dict
@@ -64,7 +64,7 @@ class Dataset(Base):
 
 
 class Scene(Base):
-    """v0.14.0 · 跨 task 帧序列的"录像"抽象。
+    """跨 task 帧序列的"录像"抽象。
 
     一个 scene 代表一段"被切成多个 task 的时序录像"——3D 点云逐帧 /
     2D 抽帧图像序列 / 多段 mp4 拼接长录像三种形态共用。
@@ -168,7 +168,7 @@ class DatasetItem(Base):
     media_source_drifted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
-    # v0.14.0 · 跨 task 帧序基地;FK 到 scenes,SET NULL 容忍历史数据 / scene 删除
+    # 跨 task 帧序基地;FK 到 scenes,SET NULL 容忍历史数据 / scene 删除
     scene_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("scenes.id", ondelete="SET NULL"),

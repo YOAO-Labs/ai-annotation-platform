@@ -1,4 +1,4 @@
-"""v0.12.7 · /admin/analytics/activity_heatmap 端点测试.
+"""/admin/analytics/activity_heatmap 端点测试.
 
 路由挂在 prefix=/admin/analytics（见 router.py）。
 测试环境通常没有 DuckDB 文件，端点会 503；不依赖真实 DuckDB 数据，保持轻量健壮：

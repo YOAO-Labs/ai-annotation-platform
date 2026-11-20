@@ -6,8 +6,8 @@ export type DirtyField = keyof AnnotationUpdatePayload;
 /**
  * Per-annotation dirty-field tracker.
  *
- * - v0.9.41 I16：仅基础设施骨架（markDirty / getDirtyFields / clear / subscribe）。
- * - v0.10.6 M4-γ：首次消费 → AttributeForm 在 mutable 字段批改时累积 dirty bits，
+ * - dirty bits 通过 markDirty / getDirtyFields / clear / subscribe 管理。
+ * - AttributeForm 在批改 mutable 字段时累积 dirty bits，
  *   blur 或 pointerup 调用 {@link flush} 合并一次 PATCH（避免逐字段请求风暴）。
  *
  * API:

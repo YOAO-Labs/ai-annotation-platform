@@ -319,7 +319,7 @@ describe("AdminPeoplePage", () => {
     expect(screen.getByText("成员绩效")).toBeInTheDocument();
   });
 
-  it("v0.12.5 · 点击「导出 CSV」调用 exportPeople（带当前筛选）", async () => {
+  it("点击「导出 CSV」调用 exportPeople（带当前筛选）", async () => {
     mockUseAdminPeople.mockReturnValue({
       data: { items: [basePerson], total: 1, period: "7d" },
       isLoading: false,
@@ -333,7 +333,7 @@ describe("AdminPeoplePage", () => {
     );
   });
 
-  it("v0.12.5 · 点击项目分布行 → 下钻到 review 队列（带 project + assignee）", async () => {
+  it("点击项目分布行 → 下钻到 review 队列（带 project + assignee）", async () => {
     mockUseAdminPeople.mockReturnValue({
       data: { items: [basePerson], total: 1, period: "7d" },
       isLoading: false,
@@ -346,7 +346,7 @@ describe("AdminPeoplePage", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/review?project=p1&assignee=u1");
   });
 
-  it("v0.12.6 · super_admin 项目下拉含「全部项目」+ 项目选项", () => {
+  it("super_admin 项目下拉含「全部项目」+ 项目选项", () => {
     mockUseAdminPeople.mockReturnValue({
       data: { items: [], total: 0, period: "7d" },
       isLoading: false,
@@ -358,7 +358,7 @@ describe("AdminPeoplePage", () => {
     expect(screen.getByText("下拉项目")).toBeInTheDocument();
   });
 
-  it("v0.12.6 · 项目模式下点 reject 原因行 → 下钻调 tasksApi（带 project+assignee+reason）", async () => {
+  it("项目模式下点 reject 原因行 → 下钻调 tasksApi（带 project+assignee+reason）", async () => {
     const detailWithReject = {
       ...baseDetail,
       reject_reason_breakdown: [{ reason_type: "missing", count: 3, pct: 100 }],

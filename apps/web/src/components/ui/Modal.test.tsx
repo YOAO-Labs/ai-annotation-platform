@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · Modal 单测：open 切换、Escape 关闭、点击 overlay 关闭、点击内部不关闭。
+ * Modal 单测：open 切换、Escape 关闭、点击 overlay 关闭、点击内部不关闭。
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -55,7 +55,7 @@ describe("<Modal />", () => {
     );
     expect(screen.getByText("visible")).toBeInTheDocument();
     expect(screen.getByText("测试 modal")).toBeInTheDocument();
-    // v0.17.2：迁到 Radix Dialog —— role=dialog + data-state=open + aria-labelledby(关联 title)。
+    // 迁到 Radix Dialog —— role=dialog + data-state=open + aria-labelledby(关联 title)。
     // Radix 不显式设 aria-modal(靠 FocusScope 实现模态),故改断言其 open 态与可访问名关联。
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("data-state", "open");

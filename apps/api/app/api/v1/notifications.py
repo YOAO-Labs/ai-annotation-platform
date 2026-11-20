@@ -1,4 +1,4 @@
-"""v0.6.9 · 通知中心 REST。
+"""通知中心 REST。
 
 - GET /notifications        list（unread_only / limit / offset）
 - GET /notifications/unread-count  TopBar 角标
@@ -181,7 +181,7 @@ async def get_preferences(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。
+    """返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。
 
     toast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。
     """
@@ -199,7 +199,7 @@ async def update_preference(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """Upsert 单条偏好；v0.7.0 起 in_app/toast 至少提供一个。
+    """Upsert 单条偏好；in_app 和 toast 至少提供一个。
 
     只合并请求中出现的键（JSONB ``channels || patch``），保留未提供的
     in_app/toast/email 及其它字段；并发标签页写不同键互不覆盖。

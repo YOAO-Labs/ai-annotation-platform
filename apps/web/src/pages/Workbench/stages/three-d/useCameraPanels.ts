@@ -1,4 +1,4 @@
-// v0.16.x 第 2 批 · 从 ThreeDWorkbench 抽出的悬浮相机面板布局 hook:
+// 第 2 批 · 从 ThreeDWorkbench 抽出的悬浮相机面板布局 hook:
 // 相机面板位置/折叠态落库(按 role 分桶,经 onWorkbenchLayoutChange 回写 user config)、
 // 窄屏自动折叠(ResizeObserver)。相机位置只读取当前账号偏好。
 // viewportWrapRef 由壳层共用(还驱动 toolbar 高度 / triFloatBounds 两个 effect),故作参数传入。
@@ -22,7 +22,7 @@ export function useCameraPanels({
 }: UseCameraPanelsParams) {
   const [autoCollapseCameras, setAutoCollapseCameras] = useState(false);
 
-  // v0.15.x · 相机面板位置/折叠态落库:多面板可连续拖动,故用 ref 取最新整份 Record,
+  // 相机面板位置/折叠态落库:多面板可连续拖动,故用 ref 取最新整份 Record,
   // 避免相邻回调读到 props 旧值互相覆盖。复位则删该 role 键。
   const cameraPanelsRef = useRef(cameraPanels);
   cameraPanelsRef.current = cameraPanels;

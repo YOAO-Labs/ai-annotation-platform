@@ -1,5 +1,5 @@
 /**
- * v0.10.16 · ReviewerDashboard 单测：加载态 / 空 pending / handleApprove /
+ * ReviewerDashboard 单测：加载态 / 空 pending / handleApprove /
  * handleReject（两步 decisionDialog 选 reason_type + 可选补充说明）/ recentReviews 渲染。
  * plan 1789527942 · T2：原 RejectReasonModal 已迁移 choiceDialog + inputDialog，
  * 这里渲染真实 <DecisionDialogHost /> 驱动完整两步流。

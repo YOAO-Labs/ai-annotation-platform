@@ -1,5 +1,5 @@
 /**
- * v0.23.5 · WS-C · E2E · 锁定对象经 mask 工具不可修改 (A4)。
+ * 锁定对象经 mask 工具不可修改 (A4)。
  *
  * 验收 §3「锁定对象经所有 UI / 快捷键路径不可修改」:
  *  - 选中一个 is_locked=true 的 annotation 后按 M 进 mask 工具;
@@ -20,7 +20,7 @@ import { test, expect } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
-test.describe("mask lock bypass (v0.23.5 A4)", () => {
+test.describe("mask lock bypass", () => {
   test("锁定 annotation 经 mask 工具不可修改", async ({ page, seed }) => {
     const data = await seed.owned();
     await seed.advanceTask({

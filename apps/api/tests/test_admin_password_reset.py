@@ -1,4 +1,4 @@
-"""v0.8.1 · POST /users/{id}/admin-reset-password 角色等级 / 复用密码 / 审计 detail 验证。"""
+"""POST /users/{id}/admin-reset-password 角色等级 / 复用密码 / 审计 detail 验证。"""
 
 from __future__ import annotations
 

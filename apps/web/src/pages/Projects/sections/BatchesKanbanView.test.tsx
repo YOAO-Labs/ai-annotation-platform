@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · BatchesKanbanView 单测：核心是验证拖拽迁移合法性 dryrun。
+ * BatchesKanbanView 单测：核心是验证拖拽迁移合法性 dryrun。
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";

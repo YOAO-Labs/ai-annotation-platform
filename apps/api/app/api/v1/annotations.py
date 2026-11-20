@@ -90,7 +90,7 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 
-# v0.23.5 · WS-D · D3 · per-task cap on unclaimed raster-mask uploads.
+# per-task cap on unclaimed raster-mask uploads.
 # The upload endpoint returns an anonymous reference (not yet linked to an
 # annotation), so the per-annotation ``is_locked`` guard doesn't apply at
 # upload time. Ownership rows bound anonymous objects until an annotation
@@ -234,7 +234,7 @@ async def get_annotation_mask_content(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
-    """v0.23.6 · 获取图片掩码内容 (RasterMaskGeometry)。
+    """获取图片掩码内容 (RasterMaskGeometry)。
 
     支持图片 RasterMaskGeometry 与视频单帧 VideoMaskGeometry 的静态内容服务。
     返回标准 COCO RLE 格式，带 ETag 支持条件请求。
@@ -329,7 +329,7 @@ async def upload_task_mask_content(
         and task.assignee_id != user.id
     ):
         raise HTTPException(status_code=403, detail="Task belongs to another annotator")
-    # v0.23.5 · WS-D · D3 · per-task mask-object quota. The upload returns an
+    # per-task mask-object quota. The upload returns an
     # anonymous reference (not yet linked to an annotation), so the per-annotation
     # ``is_locked`` guard doesn't apply at upload time; the quota bounds how many
     # orphan-able objects a single task can produce before the caller must link
@@ -502,8 +502,8 @@ async def bulk_update_annotations(
         ) from exc
 
 
-# v0.21.3 · 标注编组(Ctrl+G)持久化已删除:group/ungroup 端点下线,批量编辑退化为
-# 前端临时多选(bulk-update 保留)。跨帧同一对象走 track_id(ADR-0045),不再用 group_id。
+# 工作台的临时多选使用 bulk-update，不持久化组。
+# 跨帧对象通过 track_id 标识（ADR-0045）。
 
 
 @router.post(

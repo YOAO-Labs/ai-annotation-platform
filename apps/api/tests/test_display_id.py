@@ -1,4 +1,4 @@
-"""v0.6.4 · display_id 序列化生成器测试
+"""display_id 序列化生成器测试
 
 验证：
 - 顺序生成（单 session）
@@ -28,7 +28,7 @@ async def test_prefix_mapping_complete() -> None:
         "projects": "P",
         "batches": "BT",
         "project_templates": "PT",
-        # v0.14.0 · 跨 task 帧序列地基(scene)
+        # 跨 task 帧序列地基(scene)
         "scenes": "SCN",
     }
 

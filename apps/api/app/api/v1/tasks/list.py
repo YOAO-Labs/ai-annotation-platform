@@ -164,7 +164,7 @@ async def list_tasks(
         filtered = filtered.where(task_row.dataset_item_id.in_(item_ids))
     count_q = select(func.count()).select_from(filtered.order_by(None).subquery())
 
-    # v0.6.8 B-15：首屏与游标分支统一排序，并都产出 next_cursor，修前端 useInfiniteQuery
+    # 首屏和游标分支使用同一排序和 next_cursor，避免翻页重复或漏项。
     # 因首屏拿不到 next_cursor 而判定 hasNextPage=false 卡在 100 条的 BUG。
     # 排序主键改为 sequence_order(点云 scene 按帧时序分包时,同 scene 的 task 是同一刻批量
     # 创建的、created_at 全相同,旧的 (created_at, id) 排序退化为按随机 UUID id 乱序)。
@@ -189,7 +189,7 @@ async def list_tasks(
     if not cursor and offset:
         q = q.offset(offset)
     tasks = list((await db.execute(q)).scalars().all())
-    # v0.11.30 · 仅首页(无 cursor 且 offset=0)做精确全表 COUNT；后续页(cursor 翻页)
+    # 仅首页(无 cursor 且 offset=0)做精确全表 COUNT；后续页(cursor 翻页)
     # 返回 None，前端复用首页值，避免无限滚动逐页重复全表 COUNT(大表 O(N) 放大)。
     is_first_page = cursor is None and offset == 0
     total = ((await db.execute(count_q)).scalar() or 0) if is_first_page else None
@@ -198,7 +198,7 @@ async def list_tasks(
     pyramids = await _attach_image_pyramids_batch(
         db, tasks, dims, actor_id=user.id
     )
-    # v0.7.2 · 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
+    # 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
     }
@@ -319,7 +319,7 @@ async def get_task_neighbors(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.14.0 · 返回 task 在所属 scene 内的前后 k 个邻居 task。
+    """返回 task 在所属 scene 内的前后 k 个邻居 task。
 
     历史未 backfill / 无 scene_id 的 task → 200 + 空 prev/next(与首末帧一致)。
     scene_id 非空但 frame_index NULL(异常)→ 409。

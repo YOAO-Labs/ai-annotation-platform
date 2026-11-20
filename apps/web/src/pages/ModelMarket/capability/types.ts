@@ -10,10 +10,10 @@ export interface FlatModel {
   backendName: string;
   projectId: string; // env_only="", registered=主 project_id (仅供 capabilities API)
   projectName: string; // 单 project 名 (向后兼容); 多 project 时取首个
-  // v0.14.12 · 来源: env_only = docker-compose 自带 / observe-only;
+  // 来源: env_only = docker-compose 自带 / observe-only;
   //            registered = 已注册到具体项目 (projectName 即注册项目).
   source: "env_only" | "registered";
-  // v0.14.12 · 同 URL 跨多项目注册时, 这里聚合所有注册项目名. env-only 留空。
+  // 同 URL 跨多项目注册时, 这里聚合所有注册项目名. env-only 留空。
   registeredProjects: string[];
   // backend 默认 infra / modalities, model 缺省时回落.
   backendInfra?: string;
@@ -21,14 +21,14 @@ export interface FlatModel {
   healthMeta?: MLBackendItem["health_meta"];
   warmupEndpoint?: boolean;
   stale: boolean;
-  // v0.18.29 · 该 model 命中的受控词表校验诊断 (越界 task/prompt/geometry); 缺/空 = 合法。
+  // 该 model 命中的受控词表校验诊断 (越界 task/prompt/geometry); 缺/空 = 合法。
   warnings?: CapabilityWarning[];
 }
 
 export type CatalogViewMode = "cards" | "list";
 export type CatalogGroupBy = "none" | "backend" | "task" | "infra";
 
-// v0.14.12 · 列表行结构. 一行 = 一个物理权重 (一份 .pt 文件).
+// 列表行结构. 一行 = 一个物理权重 (一份 .pt 文件).
 // 两条渲染策略:
 //   ① variants_shared_across_tasks=true (gsam2): 同 backend 内多 task 共用同 axis_key 的权重,
 //      按 (backend, axis_key, axis_value) 聚合, task 列汇总所有用到此权重的 task;

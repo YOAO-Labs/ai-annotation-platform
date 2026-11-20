@@ -116,7 +116,7 @@ export type VideoDragState =
       origin: [number, number][];
       current: [number, number][];
     }
-  // v0.21.23 · 交互式 SAM 提示 (smart-point / smart-box)。point 是零位移「拖拽」,
+  // 交互式 SAM 提示 (smart-point / smart-box)。point 是零位移「拖拽」,
   // bbox 拖出提示框; 松手派发到 onSamPrompt, 不直接建标注。坐标归一化 [0,1]。
   | {
       kind: "samProbe";
@@ -129,7 +129,7 @@ export type VideoDragState =
   | null;
 
 /**
- * v0.21.23 · 交互式 SAM 提示 (画布 → shell)。坐标归一化 [0,1]。
+ * 交互式 SAM 提示 (画布 → shell)。坐标归一化 [0,1]。
  * `alt` = 负点 / 负框 (Alt 按住 或 工具条切到负极性)。
  */
 export type VideoSamPrompt =
@@ -148,7 +148,7 @@ export type VideoTrackCompositionOptions = {
   annotationIds: string[];
   frameIndex?: number;
   deleteSources?: boolean;
-  // v0.10.30 · 2.5 join 的 gap 填充模式 (interpolate / outside)。
+  // join 的 gap 填充模式 (interpolate / outside)。
   gapMode?: "interpolate" | "outside";
 };
 

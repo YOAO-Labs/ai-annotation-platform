@@ -1,4 +1,4 @@
-# v0.11.21 · ML backend 告警规则。Prometheus 周期 evaluate，满足 for: 时长后 firing，
+# ML backend 告警规则。Prometheus 周期 evaluate，满足 for: 时长后 firing，
 # 推给 alertmanager（见 prometheus.yml alerting 段）。
 #
 # 误报防护：MLBackendDown 只覆盖 job="ml-backends" 的 target，而该 job 由 http_sd 从

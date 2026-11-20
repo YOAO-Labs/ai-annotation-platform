@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { CanvasDrawingPreview } from "./CanvasDrawingEditor";
 
-describe("CanvasDrawingPreview · v0.10.21 I4 笔画 timeline", () => {
+describe("CanvasDrawingPreview · 笔画 timeline", () => {
   it("旧 shape 缺 started_at/ended_at → 不渲染 timeline bar", () => {
     render(
       <CanvasDrawingPreview

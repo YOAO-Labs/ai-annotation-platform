@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · AttributeSchemaEditor
+ * AttributeSchemaEditor
  *
  * 从项目设置属性编辑抽出的纯受控组件：负责字段增删改 + 校验。
  * 由 ClassesSection（类别与属性合并页）和 CreateProjectWizard（向导 step）共用。
@@ -37,7 +37,7 @@ interface Props {
   /** 删除前确认；返回 false 时取消删除。 */
   onConfirmDelete?: (field: AttributeField) => boolean | Promise<boolean>;
   /**
-   * v0.20.1 · 推荐属性字段（已含完整 key/type/options，来自在线 backend 自报 schema，
+   * 推荐属性字段（已含完整 key/type/options，来自在线 backend 自报 schema，
    * 调用方已排除项目已有 key）。手工建字段时一键填入，让 key 天然对齐协议（如 OCR 的
    * language/orientation），避免取成 lang/语言 等导致落点校验漏判。空 = 不显示推荐区。
    */

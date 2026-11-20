@@ -1,5 +1,5 @@
 /**
- * v0.14.18 · useBackendRouting 纯路由逻辑单测.
+ * useBackendRouting 纯路由逻辑单测.
  * 覆盖: capIndex 构建 (多 model / 单 model / 文本能力 / tracker) · resolveInteractive 三情形 ·
  * 兜底链 (preferred → 项目默认 → 注册序) · reachable 降级 · pickDefaultPreferred。
  */
@@ -32,7 +32,7 @@ vi.mock("@/api/ml-backends", () => ({
 }));
 
 // gsam2 协议 2.1: 4 个 task model, 仅 interactive_seg 交互 (point/interactive_box); detection/seg 带 text。
-// tracker 的 "bbox" 是视频追踪种子 (非图像交互 prompt), v0.18.17 后不计入交互 prompt 集。
+// tracker 的 "bbox" 是视频追踪种子，不属于图像交互 prompt。
 const GSAM2: MLBackendCapability = {
   name: "grounded-sam2",
   supported_prompts: ["point", "interactive_box", "text"],

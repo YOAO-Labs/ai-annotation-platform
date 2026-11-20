@@ -51,7 +51,7 @@ export interface ImageWorkbenchProps {
   selectedIds: string[];
   fadedAiIds: Set<string>;
   nudgeMap: Map<string, Geom>;
-  /** v0.20.22 · 提交在途几何 override, 见 usePendingGeom (防松手闪回原尺寸)。 */
+  /** 提交在途几何 override, 见 usePendingGeom (防松手闪回原尺寸)。 */
   pendingGeomMap: Map<string, Geometry>;
   userBoxes: Annotation[];
   aiBoxes: AiBox[];
@@ -74,9 +74,9 @@ export interface ImageWorkbenchProps {
   onToggleSecondaryBar?: () => void;
   clipboardActions?: ImageContextMenuClipboardActions | null;
   onCommitDrawing: (geo: Geom) => void;
-  /** v0.10.28 · 旋转框: 拖出矩形 → 提交 angle=0 的 rotated_bbox。 */
+  /** 旋转框: 拖出矩形 → 提交 angle=0 的 rotated_bbox。 */
   onCommitRotatedBbox: (geo: Geom) => void;
-  /** v0.10.28 · 旋转框: 旋转手柄落定 → 更新 angle。 */
+  /** 旋转框: 旋转手柄落定 → 更新 angle。 */
   onCommitRotateBbox: (id: string, before: RotatedBboxGeometry, after: RotatedBboxGeometry) => void;
   onSamPrompt: (
     prompt:
@@ -94,16 +94,16 @@ export interface ImageWorkbenchProps {
   samMaskRecords: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate: (candidateId: string) => void;
   samActiveIdx: number;
-  /** v0.18.18 · §5.5 当前点会话已落的正/负点, 透传画布 overlay。 */
+  /** §5.5 当前点会话已落的正/负点, 透传画布 overlay。 */
   samSessionPoints: { pt: [number, number]; polarity: 1 | 0 }[];
   samSessionScribbles: {
     points: [number, number][];
     polarity: 1 | 0;
     width: number;
   }[];
-  /** v0.18.19 · exemplar refine 会话已落的正/负框, 透传画布 overlay。 */
+  /** exemplar refine 会话已落的正/负框, 透传画布 overlay。 */
   samSessionExemplars: { bbox: [number, number, number, number]; polarity: 1 | 0 }[];
-  /** v0.10.2 · 派生自 tool, 非 AI 工具时为 null. */
+  /** 派生自 tool, 非 AI 工具时为 null. */
   samSubTool: SamSubTool | null;
   samPolarity: SamPolarity;
   onCommitMove: (
@@ -145,13 +145,13 @@ export interface ImageWorkbenchProps {
   onDoneCanvasDraft: () => void;
   stageGeom: StageGeometry;
   overlays?: ReactNode;
-  /** v0.10.8 · I11 · Mask 编辑器状态；传给 ImageStage 用于 Konva overlay 与 paintAt。 */
+  /** Mask 编辑器状态；传给 ImageStage 用于 Konva overlay 与 paintAt。 */
   maskEditor?: UseMaskEditorReturn;
-  /** v0.10.9 · SAM 候选「精修」入口（画布浮按钮 + R 键）。 */
+  /** SAM 候选「精修」入口（画布浮按钮 + R 键）。 */
   onRefineSamCandidate?: (idx: number) => void;
-  /** v0.10.10 · I17.3 · 项目级 rendering_config 覆盖；透传给 ImageStage 内的 useWorkbenchConfig。 */
+  /** 项目级 rendering_config 覆盖；透传给 ImageStage 内的 useWorkbenchConfig。 */
   projectRenderingConfig?: import("@/api/projects").ProjectRenderingConfig | null;
-  /** v0.10.20 · I18 · pixel-anchored issue feedback 数据源 (Shell 通过 useFeedbacks 提供). */
+  /** pixel-anchored issue feedback 数据源 (Shell 通过 useFeedbacks 提供). */
   issuePixelFeedbacks?: import("@/api/feedbacks").AnnotationFeedback[];
   highlightIssueId?: string | null;
   onIssuePinClick?: (id: string) => void;
@@ -280,7 +280,7 @@ export function ImageWorkbench({
         : null,
     [editingRasterMaskId, rasterMaskRecords],
   );
-  // v0.21.11 · 图片焦点联动: 选中对象(键盘两级循环 / 点选)若出视口或过小则平移居中 + 适度放大。
+  // 图片焦点联动: 选中对象(键盘两级循环 / 点选)若出视口或过小则平移居中 + 适度放大。
   // 与视频同构, 由 common.focusSelectionEnabled gate; 默认关。用 ref 读最新盒集/几何,
   // effect 只在 selectedId 变化时跑(避免盒集逐次变身份触发重排)。
   const { config: focusConfig } = useWorkbenchConfig();

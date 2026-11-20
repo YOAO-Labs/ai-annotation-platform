@@ -21,6 +21,8 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services.exporting import packaging
+from app.services.exporting.lidar_frozen import _detached_item
+from app.services.exporting.lidar_inputs import row_value
 from app.services.exporting.lidar_media_paths import logical_sources
 from app.services.exporting.lidar_pcd import inspect_pcd
 
@@ -70,7 +72,11 @@ def world(tmp_path, monkeypatch):
         },
     )
     dataset_id, task_id = uuid.uuid4(), uuid.uuid4()
-    primary = DatasetItem(
+
+    def frozen_item(**columns):
+        return _detached_item(row_value(DatasetItem(**columns)))
+
+    primary = frozen_item(
         id=uuid.uuid4(),
         dataset_id=dataset_id,
         file_name="0001.pcd",
@@ -95,7 +101,7 @@ def world(tmp_path, monkeypatch):
     linked, cameras = {}, {}
     for role in ("camera_front", "camera_back"):
         name = role.removeprefix("camera_")
-        item = DatasetItem(
+        item = frozen_item(
             id=uuid.uuid4(),
             dataset_id=dataset_id,
             file_name=f"{name}.jpg",
@@ -308,6 +314,7 @@ async def test_real_zip_uses_only_frozen_saved_receipts_deadline_and_exact_origi
                     )
                 clouds = json.loads(result.read(prefix + "pointclouds_manifest.json"))
                 cloud = clouds["pointclouds"][0]
+                assert cloud["rel_path"] == "scene-a/lidar/0001.pcd"
                 assert (
                     cloud["sha256"]
                     == hashlib.sha256(world.data["primary_lidar"]).hexdigest()
@@ -393,24 +400,31 @@ async def test_task_original_pointmask_without_item_uses_task_basename_and_actua
 async def test_omitted_context_preserves_legacy_manifest_and_transport_path(
     world, monkeypatch
 ):
-    world.primary.metadata_["point_count"] = 4
+    world.primary.metadata["point_count"] = 4
+    checked = set()
     signed = []
 
-    async def project(model, identifier):
-        assert model is Project and identifier == world.project.id
+    async def project(db, *, project_id):
+        assert db is world.db and project_id == world.project.id
         return world.project
 
     async def members(statement):
         return SimpleNamespace(scalars=lambda: [])
 
+    async def unowned(_statement, params):
+        checked.add(params["key"])
+        return False
+
     async def links(service, tasks):
         return {world.task.id: world.linked}
 
     def signature(key, **kwargs):
+        assert key in checked
         signed.append(key)
         return "legacy://" + key
 
-    world.db.get, world.db.execute = project, members
+    world.db.execute, world.db.scalar = members, unowned
+    monkeypatch.setattr(packaging, "get_workspace_project", project)
     monkeypatch.setattr(
         packaging,
         "ExportService",
@@ -471,7 +485,7 @@ async def test_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
         }
     scene_id = uuid.uuid4()
     world.primary.scene_id, world.primary.frame_index = scene_id, 0
-    world.primary.metadata_["nuscenes_export"] = {
+    world.primary.metadata["nuscenes_export"] = {
         "source_file_size": 60,
         "sample": {"token": "original-sample"},
     }
@@ -493,8 +507,8 @@ async def test_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
         ego_rotation=[1, 0, 0, 0],
     )
     for role, (_, item) in world.linked.items():
-        item.metadata_["nuscenes_export"] = {
-            **(item.metadata_.get("nuscenes_export") or {}),
+        item.metadata["nuscenes_export"] = {
+            **(item.metadata.get("nuscenes_export") or {}),
             "sample_data": {"filename": f"samples/{role}.bin"},
             "calibrated_sensor": {},
             "sensor": {"modality": "lidar" if role == "primary_lidar" else "camera"},
@@ -547,7 +561,7 @@ def snapshot(world, targets):
             {
                 "id": str(item.id),
                 "file_path": item.file_path,
-                "metadata_": deepcopy(item.metadata_),
+                "metadata_": deepcopy(item.metadata),
             }
             for _, item in world.linked.values()
         ],

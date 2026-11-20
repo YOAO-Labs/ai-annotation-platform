@@ -1,6 +1,6 @@
-"""v0.10.29 · 长视频 sparse timetable + chunk warmup look-ahead 纯函数单测 (Wave3-F)。
+"""长视频 sparse timetable 和 chunk warmup look-ahead 测试。
 
-覆盖计划 §1.2 (sparse pts_ms 解析 / 锚点网格 / 锚点行筛选) 与 §1.6 (warmup look-ahead 选择)。
+覆盖 sparse pts_ms 解析、锚点帧网格、锚点行筛选和 warmup 窗口选择。
 都是纯函数, 不依赖 DB / Celery。
 """
 

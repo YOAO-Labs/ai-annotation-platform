@@ -1,4 +1,4 @@
-// 标注工作台离线队列（v0.5.4 Phase 1，v0.5.5 phase 2 加多 tab 同步）。
+// 标注工作台离线队列，支持多 tab 同步。
 // idb-keyval 持久化；网络抖动 / 后端 5xx 时由 WorkbenchShell 调用 enqueue。
 // 恢复在线后由 useOnlineStatus 触发 drain。
 
@@ -289,7 +289,7 @@ export async function removeDurablyById(id: string, scope?: QueueScopeInput): Pr
   );
 }
 
-/** v0.6.3 P0：离线 create 成功拿到 realId 后，把队列中后续 update/delete op 的 annotationId 同步替换。
+/** 离线 create 成功拿到 realId 后，把队列中后续 update/delete op 的 annotationId 同步替换。
  *  否则那些 op 仍带 tmpId 上送，server 必 404。调用方：WorkbenchShell.executeOp 的 create 分支。 */
 export async function replaceAnnotationId(
   oldId: string,

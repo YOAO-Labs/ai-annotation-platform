@@ -1,5 +1,5 @@
 /**
- * v0.16.2 · 视频标注 Konva 层渲染测试(konva-mock)。
+ * 视频标注 Konva 层渲染测试(konva-mock)。
  *
  * 断言几何(像素空间 = 归一化 × size)、线宽 /scale 屏幕恒定、dash、选中/插值/遮挡态切换、
  * 标签 Konva Label/Text、issue pin 按帧显隐。真实 canvas 渲染交给 Playwright(决策 C)。
@@ -90,7 +90,7 @@ describe("VideoKonvaTrackShape", () => {
     );
   });
 
-  it("v0.21.20 · points 存在 → 画 <Line closed> 而非 <Rect>, 像素空间顶点", () => {
+  it("points 存在 → 画 <Line closed> 而非 <Rect>, 像素空间顶点", () => {
     render(
       <VideoKonvaTrackShape
         geom={{ x: 0.1, y: 0.2, w: 0.3, h: 0.4 }}
@@ -114,7 +114,7 @@ describe("VideoKonvaTrackShape", () => {
     expect(line.getAttribute("data-closed")).toBe("true");
   });
 
-  it("v0.21.20 · open (polyline) → <Line closed=false>, 无填充, 2 点即可", () => {
+  it("open (polyline) → <Line closed=false>, 无填充, 2 点即可", () => {
     render(
       <VideoKonvaTrackShape
         geom={{ x: 0.1, y: 0.2, w: 0.3, h: 0 }}
@@ -138,7 +138,7 @@ describe("VideoKonvaTrackShape", () => {
     expect(line.hasAttribute("data-fill")).toBe(false);
   });
 
-  it("v0.21.20 · points < 3 → 回退 <Rect>", () => {
+  it("points < 3 → 回退 <Rect>", () => {
     render(
       <VideoKonvaTrackShape
         geom={{ x: 0.1, y: 0.2, w: 0.3, h: 0.4 }}

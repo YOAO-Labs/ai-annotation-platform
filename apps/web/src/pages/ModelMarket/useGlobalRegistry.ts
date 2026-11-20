@@ -1,5 +1,5 @@
 /**
- * v0.19.0 · ADR-0044 · superadmin 全局 ML backend 注册表 mutation hooks。
+ * ADR-0044 · superadmin 全局 ML backend 注册表 mutation hooks。
  *
  * 全局 backend (project_id=null) 走 /admin/ml-integrations/registry，与项目作用域的
  * useMLBackends（/projects/{id}/ml-backends）解耦。成功后同时失效全局列表 (all) 与
@@ -19,7 +19,7 @@ import {
 /**
  * Invalidate every query that reflects registry / pool state.
  *
- * v0.23.4 P3: extended to also drop `topology` + `runtime-snapshot` so pool /
+ * extended to also drop `topology` + `runtime-snapshot` so pool /
  * member mutations (drain / resume / edit / remove) refresh the new role-aware
  * registry views, not just the legacy `/all` list. Plan §9.3 requires precise
  * invalidation — no global `invalidateQueries({})`.
@@ -29,7 +29,7 @@ export function invalidateRegistryQueries(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "overview"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "gpu-resources"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "observe"] });
-  // v0.23.4 · registry views are driven by topology + runtime snapshot.
+  // registry views are driven by topology + runtime snapshot.
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "topology"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "runtime-snapshot"] });
 }
@@ -76,7 +76,7 @@ export function useRegistryUnload() {
   });
 }
 
-// ── v0.23.4 P3 · service-pool / member mutations (ADR-0050) ────────────────
+// ── service-pool / member mutations (ADR-0050) ────────────────
 // Plan §8 + §10: drain / resume / unload gate at the member scope; pool edits
 // and member add/remove use the same invalidation envelope as registry CRUD.
 

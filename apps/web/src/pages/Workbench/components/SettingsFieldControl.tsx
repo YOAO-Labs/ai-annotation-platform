@@ -225,7 +225,7 @@ export function SettingsFieldControl({
   );
 }
 
-/** v0.16.7 · 标签内容按类型分段:顶部段切换(单帧/轨迹/AI),下方该段字段 Switch 列;类别名恒显标必选。 */
+/** 标签内容按类型分段:顶部段切换(单帧/轨迹/AI),下方该段字段 Switch 列;类别名恒显标必选。 */
 function LabelContentByTypeControl({
   value,
   segments,
@@ -296,7 +296,7 @@ function LabelContentByTypeControl({
   );
 }
 
-/** v0.15.27 · 多选 chips:点击切换;受 min 约束时已是最后一项的取消被拒绝(保序提交)。 */
+/** 多选 chips:点击切换;受 min 约束时已是最后一项的取消被拒绝(保序提交)。 */
 function MultiselectControl({
   value,
   options,

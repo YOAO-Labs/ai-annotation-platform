@@ -1,9 +1,9 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
 /**
- * v0.10.2 · 拆自旧 SamTool / sub-tool="bbox".
+ * 拆自旧 SamTool / sub-tool="bbox".
  * 拖框作为 SAM 单框单 mask prompt; 小拖动 (< 0.5%) ImageStage 自然忽略.
- * v0.18.17 · requiredPrompt = "interactive_box" (旧 "bbox" 退役, 统一双 backend 命名).
+ * requiredPrompt = "interactive_box" (旧 "bbox" 退役, 统一双 backend 命名).
  */
 export const SmartBoxTool: CanvasTool = {
   id: "smart-box",

@@ -2,14 +2,12 @@
 
 > Status: In progress（Phase 1–6 completed，Phase 7 plan finalized）· 2026-07-22
 >
-> 起始版本：v0.23.5
->
 > 当前基线：Mask QC、审阅、批量修复和图像 / 视频格式闭环已完成。部署级 `RASTER_MASK_CREATE_ENABLED` 默认开启并保留为紧急总闸；项目级 `raster_mask_native_editing_enabled` 已正式默认开启并允许项目 opt-out。
 >
 > 相关决策：[ADR-0022 Mask 编辑器 v1](../adr/archive/0022-mask-editor-tool-architecture.md) ·
 > [ADR-0048 视频栅格 Mask 内容寻址 RLE](../adr/archive/0048-video-raster-mask-content-addressed-rle.md) ·
 > [ADR-0053 原生 Mask AI 候选生命周期与视频纠错](../adr/archive/0053-native-mask-ai-candidate-lifecycle-and-video-correction.md) ·
-> [v0.22.0 真·栅格 Mask Track](archive/2026-07-12-v0.22.0-raster-mask-track-davis.md)
+> [视频栅格 Mask 轨迹](archive/2026-07-12-v0.22.0-raster-mask-track-davis.md)
 
 ## 1. Epic 结论
 
@@ -35,23 +33,23 @@ ADR-0022 的过渡决策，会丢失 hole、多连通区域和原始像素边界
 媒体差异：图片单态；视频 keyframe + nearest hold + outside / occluded
 ```
 
-## 2. 版本路线
+## 2. 实施顺序
 
-| 版本                                                                               | 主题                     | 必须交付的结果                                                                       | 依赖     |
-| ---------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------ | -------- |
-| [v0.23.5](archive/2026-07-21-v0.23.5-mask-reliability-security-foundation.md)      | 可靠性与安全地基         | 防丢稿、异步隔离、锁与 Delete 语义、安全解压、accept 并发、polygon hole / multi 止血 | v0.23.4  |
-| [v0.23.6](archive/2026-07-21-v0.23.6-shared-rle-image-mask-schema.md)              | 共享 RLE 与图片 geometry | ADR-0052、`raster_mask`、静态内容 API、AAP / COCO 后端闭环                           | v0.23.5  |
-| [v0.23.7](archive/2026-07-21-v0.23.7-image-mask-workbench-native-editing.md)       | 图片原生 Mask 工作台     | 对象级安全渲染、alpha picking、项目 opt-in、创建 / 重载 / 再编辑、单对象双向显式转换 | v0.23.6  |
-| [v0.23.8](archive/2026-07-21-v0.23.8-mask-ai-interaction-video-correction.md)      | AI 原生 Mask 与视频修正  | 单帧 SAM 原生 RLE、mask-as-prompt、scribble、局部视频纠错再传播                      | v0.23.7  |
-| [v0.23.9](archive/2026-07-21-v0.23.9-mask-advanced-editing-instance-operations.md) | 高级编辑与实例操作       | 套索增减、连通域、填洞、形态学、非重叠绘制、批量 / 视频 / 派生几何转换               | v0.23.8  |
-| [v0.23.10](archive/2026-07-21-v0.23.10-mask-performance-large-canvas.md)           | 性能与大画布             | 字节预算缓存、AABB 裁剪、Worker、tile editor、5K / 8K 可用性                         | v0.23.9  |
-| [v0.23.11](archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)    | 质检、审阅与格式生态     | Mask QC、跨帧稳定性、局部接受、Label Studio / PNG / MOTS 等格式                      | v0.23.10 |
-| [待排期](2026-07-21-semantic-panoptic-mask-workflows.md)                           | 语义 / 全景分割          | class-map、instance + semantic 合成、冲突策略、16-bit 输出与专用工作流               | v0.23.11 |
+| 实施计划                                                                                      | 必须交付的结果                                                                       | 依赖                     |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------ |
+| [可靠性与安全地基](archive/2026-07-21-v0.23.5-mask-reliability-security-foundation.md)        | 防丢稿、异步隔离、锁与 Delete 语义、安全解压、accept 并发、polygon hole / multi 止血 | 已有视频 Mask 轨迹       |
+| [共享 RLE 与图片 geometry](archive/2026-07-21-v0.23.6-shared-rle-image-mask-schema.md)        | ADR-0052、`raster_mask`、静态内容 API、AAP / COCO 后端闭环                           | 可靠性与安全地基         |
+| [图片原生 Mask 工作台](archive/2026-07-21-v0.23.7-image-mask-workbench-native-editing.md)     | 对象级安全渲染、alpha picking、项目 opt-in、创建 / 重载 / 再编辑、单对象双向显式转换 | 共享 RLE 与图片 geometry |
+| [AI 原生 Mask 与视频修正](archive/2026-07-21-v0.23.8-mask-ai-interaction-video-correction.md) | 单帧 SAM 原生 RLE、mask-as-prompt、scribble、局部视频纠错再传播                      | 图片原生 Mask 工作台     |
+| [高级编辑与实例操作](archive/2026-07-21-v0.23.9-mask-advanced-editing-instance-operations.md) | 套索增减、连通域、填洞、形态学、非重叠绘制、批量 / 视频 / 派生几何转换               | AI 原生 Mask 与视频修正  |
+| [性能与大画布](archive/2026-07-21-v0.23.10-mask-performance-large-canvas.md)                  | 字节预算缓存、AABB 裁剪、Worker、tile editor、5K / 8K 可用性                         | 高级编辑与实例操作       |
+| [质检、审阅与格式生态](archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)   | Mask QC、跨帧稳定性、局部接受、Label Studio / PNG / MOTS 等格式                      | 性能与大画布             |
+| [语义 / 全景分割（待排期）](2026-07-21-semantic-panoptic-mask-workflows.md)                   | class-map、instance + semantic 合成、冲突策略、16-bit 输出与专用工作流               | 质检、审阅与格式生态     |
 
-顺延规则：任何版本未满足退出门，后续版本保持 blocked。不能在后续 UI 中临时补写前置数据合同，也不能为了赶版本绕过
+顺延规则：任何阶段未满足退出门，后续阶段保持 blocked。不能在后续 UI 中临时补写前置数据合同，也不能为了赶进度绕过
 鉴权、乐观锁、对象校验或无损 round-trip。
 
-## 3. 跨版本不变量
+## 3. 跨阶段不变量
 
 ### 3.1 数据真值
 

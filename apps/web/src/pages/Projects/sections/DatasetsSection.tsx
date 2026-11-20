@@ -157,7 +157,7 @@ function LinkDatasetModal({
   onLinked: (name: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  // v0.12.0 · 大 dataset 异步建 task 时返回的 job id，非空则在弹窗内显示进度条
+  // 大 dataset 异步建 task 时返回的 job id，非空则在弹窗内显示进度条
   const [linkJobId, setLinkJobId] = useState<string | null>(null);
   // useLinkProject 是按 datasetId 维度的 hook；这里临时绕开 — 直接调 mutation
   // 但现有 useLinkProject 只能 useMutation 化为 datasetId-bound 实例。

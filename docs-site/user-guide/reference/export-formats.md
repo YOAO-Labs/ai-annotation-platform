@@ -1,7 +1,6 @@
 ---
 audience: [project_admin, super_admin]
 type: reference
-since: v0.1.0
 status: stable
 last_reviewed: 2026-10-24
 ---
@@ -10,7 +9,7 @@ last_reviewed: 2026-10-24
 
 ![导出格式选择](../images/export/format-select.png)
 
-<!-- TODO(0.8.1) IMAGE_CHECKLIST: 导出对话框，COCO / YOLO / 原生 JSON 选项 + 当前选中状态 + 导出范围（项目 / 批次）。 -->
+<!-- TODO IMAGE_CHECKLIST: 导出对话框，COCO / YOLO / 原生 JSON 选项 + 当前选中状态 + 导出范围（项目 / 批次）。 -->
 
 项目 Dashboard 的「导出」入口会打开居中的导出弹窗。导出目标可多选，一次导出产出**一个**压缩包：勾选单个目标时落包根，勾选多个目标时各目标落各自的 `{target}/` 子目录。
 
@@ -127,7 +126,7 @@ ZIP 同时包含 `media_manifest.json`、`fetch_media.py`、`export_report.json`
 | ----------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `classes.txt`           | 总是                                                                       | 类别清单（每行一个类名，行号即类别索引）                                             |
 | `attribute_schema.json` | **仅 `include_attributes=True`**（导出弹窗「包含属性数据」勾选，默认勾选） | 属性 schema；取消勾选则**不产出**此文件                                              |
-| `data.yaml`             | YOLO 目标及单独 COCO／AAP／Mask 包                                         | YOLO 训练入口，`path` / `train` / `val` / `nc` / `names` 已配好                      |
+| `data.yaml`             | YOLO 目标及单独的 COCO、原生 JSON 或 Mask 包                               | YOLO 训练入口，`path` / `train` / `val` / `nc` / `names` 已配好                      |
 | `images_manifest.json`  | 总是                                                                       | 每张图的逻辑路径、真实 SHA／大小；托管条目另含独立副本 URL 和固定 `expires_at`       |
 | `fetch_images.py`       | 总是                                                                       | 纯 Python stdlib，校验嵌入／已有图片并下载托管副本，保持 `images/` 与 `labels/` 对应 |
 
@@ -156,7 +155,7 @@ COCO 单文件可同时承载多种几何：
 - `bbox`：矩形框（也作为 polygon / keypoint 标注的外接框）。
 - `segmentation`：polygon / multi_polygon 标注的多边形顶点（像素坐标；孔洞/多连通域的完整还原留作后续）。
 - `keypoints` + `num_keypoints`：keypoint 标注的 `[x,y,v,…]`（v=0 未标注 / 1 遮挡 / 2 可见）。骨架拓扑写在对应 `categories[].keypoints`（节点名）+ `categories[].skeleton`（连线，COCO 1-indexed），直接来自项目 keypoint 工具单位的 `keypoint_schema`。
-- `attributes.__track_id`：跨帧同一对象的 `track_id`（启用 `include_attributes` 时）。<!-- since v0.21.2 · ADR-0045：原 `__group_id`（Ctrl+G 组号），编组下线后统一到 track_id -->
+- `attributes.__track_id`：跨帧同一对象的 `track_id`（启用 `include_attributes` 时）。
 
 > `rotated_bbox` / `polyline` 无 COCO 原生表示，不进 COCO（rotated 走 `YOLO 旋转框`，polyline 走 原生 JSON）；被跳过的条数记在 `info.skipped_annotations`。
 
@@ -214,7 +213,7 @@ YOLO 不同变体的标注行格式互不相同，因此导出拆成三个可独
 labels/tasks/<task UUID>/<安全文件名去扩展名>.txt
 ```
 
-例如任务 A 的 `001.jpg` 对应 `labels/tasks/<A>/001.txt` 和 `images/tasks/<A>/001.jpg`。不同任务即使同名也互不覆盖；COCO 文件名、AAP 匹配字段和 Mask 清单使用同一逻辑图片路径，不暴露物理对象键。引用图片保留前述数据集／样本／Task 层级。
+例如任务 A 的 `001.jpg` 对应 `labels/tasks/<A>/001.txt` 和 `images/tasks/<A>/001.jpg`。不同任务即使同名也互不覆盖；COCO 文件名、原生 JSON 匹配字段和 Mask 清单使用同一逻辑图片路径，不暴露物理对象键。引用图片保留前述数据集／样本／Task 层级。
 
 启用 `include_attributes` 时，每个 label 旁会附一个同名的 `.attrs.json`（如 `001.attrs.json`）。
 
@@ -239,7 +238,7 @@ names:
 
 ### 图像 YOLO ZIP 包目录树
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/export/yolo-dir-tree.png — 解压后 YOLO 单目标导出包目录树（terminal 截图）；标注红框：labels/ 镜像层级。[manual] -->
+<!-- TODO IMAGE_CHECKLIST: images/export/yolo-dir-tree.png — 解压后 YOLO 单目标导出包目录树（terminal 截图）；标注红框：labels/ 镜像层级。[manual] -->
 
 **单目标**（只勾一个 YOLO 变体）落包根，托管图片和标签使用平行 Task 层级：
 
@@ -278,7 +277,7 @@ names:
     └── annotations.json
 ```
 
-> 单目标且只选 COCO / 原生 JSON（无 YOLO）时，包根仍补一份 `data.yaml`（兼容旧布局），COCO/AAP 的标注落包根 `annotations.json`。
+> 只选 COCO 或只选原生 JSON 时，标注写入包根的 `annotations.json`；为兼容原有布局，包根仍附带 `data.yaml`。
 
 ## 原生 JSON {#aap-json-1-5-无损}
 
@@ -453,7 +452,7 @@ KITTI 3D 的 `calib/<frame>.txt` 只写真实 `P2`、`R0_rect` 与 `Tr_velo_to_c
 
 `video-track` 项目导出统一走异步 zip 管线，可选 **Video JSON / YOLO 逐帧检测 / YOLO 逐帧分割 / COCO 逐帧分割 / DAVIS Mask / YouTube-VOS / MOTS / 原生 JSON / MOT / KITTI**。导出包含标注主体 + `manifest.json` + `fetch_videos.py`；需要图像序列的目标另带 `fetch_frames.py`，按每个输出目录自己的起始编号、位数与扩展名抽帧。
 
-项目和批次导出在排队时固定本次任务、标注、采样设置、分段和质检关联。已登记的数据集视频与独立 TaskOriginal 视频沿保存位置完整核验，再实际解码计帧；旧 JSON 帧数、播放转码或最大标注帧不作为源长度。探测得到的 fps、实际帧数、尺寸与原件 SHA-256／大小组成 `metadata_receipt`，随 manifest、Video JSON 和 AAP 视频来源保存。输入、权限或内容在执行期间变化时整包失败，需要重新导出。
+项目和批次导出在排队时固定本次任务、标注、采样设置、分段和质检关联。已登记的数据集视频与独立 TaskOriginal 视频沿保存位置完整核验，再实际解码计帧；旧 JSON 帧数、播放转码或最大标注帧不作为源长度。探测得到的 fps、实际帧数、尺寸与原件 SHA-256／大小组成 `metadata_receipt`，随 manifest、Video JSON 和原生 JSON 的视频来源保存。输入、权限或内容在执行期间变化时整包失败，需要重新导出。
 
 原视频逐字节复制为独立交付文件，下载链接指向副本。副本与 ZIP 共用首次登记起七天截止，重试或命中缓存不延长。解压后先运行 `python fetch_videos.py`：脚本校验已有文件和下载字节的完整 SHA-256／大小，错误文件仅在新副本校验成功后原子替换。站内相对链接需加 `--base-url https://平台地址`；过期返回退出码2，需重新导出。然后运行 `python fetch_frames.py`，使用本地 FFmpeg 从已核验视频抽帧；此脚本按 manifest 中每种格式的 `frame_outputs` 工作。
 

@@ -19,7 +19,7 @@ export interface VideoAttributesEditorProps {
 }
 
 /**
- * v0.10.30 · 2.3 视频轨迹属性编辑器。
+ * 视频轨迹属性编辑器。
  *
  * 仅暴露 schema 中 `mutable=true` 的属性, 区分两层:
  * - 「track 默认值」写入 annotation.attributes (整条轨迹生效);

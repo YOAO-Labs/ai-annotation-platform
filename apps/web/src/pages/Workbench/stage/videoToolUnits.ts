@@ -33,7 +33,7 @@ export const VIDEO_TOOL_TARGET: Partial<
   "polygon-track": { unit: "region", variant: "track" },
   polyline: { unit: "polyline", variant: "box" },
   "polyline-track": { unit: "polyline", variant: "track" },
-  // v0.21.23 · 交互式 SAM 工具按**产出几何**归属单位 (对齐图片侧 TOOL_TO_UNIT):
+  // 交互式 SAM 工具按**产出几何**归属单位 (对齐图片侧 TOOL_TO_UNIT):
   // smart-point / smart-box 的候选采纳后落单帧 video_polygon → region 单位、box 变体。
   // **新增 AI 工具必须在此登记**, 否则 videoToolEnabled 的「未知工具 → true」(见下)
   // 会静默放行、绕过全部 tool_bindings 门控, 且 videoToolUnit 返回 null 会污染类选择器。

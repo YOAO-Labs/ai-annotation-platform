@@ -1,5 +1,5 @@
 /**
- * v0.9.2 · useInteractiveAI hook 单测.
+ * useInteractiveAI hook 单测.
  * 覆盖 point / bbox / text 三种 prompt 路由 + backend 失败 toast + mlBackendId 缺失守卫
  * + 80ms 防抖合并连续点击。
  */
@@ -124,7 +124,7 @@ describe("useInteractiveAI", () => {
     expect(key.length).toBeGreaterThanOrEqual(16);
   });
 
-  it("runBbox 路由到 ctx.type='interactive_box' (v0.18.17 · 旧 bbox 改名)", async () => {
+  it("runBbox 路由到 ctx.type='interactive_box'", async () => {
     interactiveAnnotateMock.mockResolvedValue(POLY_RESPONSE);
     const { result } = renderHook(() => useInteractiveAI(ARGS));
     act(() => result.current.runBbox([0.1, 0.1, 0.4, 0.4]));
@@ -141,7 +141,7 @@ describe("useInteractiveAI", () => {
     expect(result.current.candidates[0].source).toBe("bbox");
   });
 
-  it("runPoint 累加全量点 (v0.18.17 · 防抖窗口内多次点击累加成一个会话, 重发全量)", async () => {
+  it("runPoint 在防抖窗口累加点击并重发全量点", async () => {
     interactiveAnnotateMock.mockResolvedValue(POLY_RESPONSE);
     vi.useFakeTimers();
     try {
@@ -380,7 +380,7 @@ describe("useInteractiveAI", () => {
     expect(result.current.candidates).toHaveLength(0);
   });
 
-  it("v0.18.26 · 出候选 → 弹候选数提示 (与无候选对齐)", async () => {
+  it("出候选 → 弹候选数提示 (与无候选对齐)", async () => {
     interactiveAnnotateMock.mockResolvedValue({
       result: [
         {
@@ -746,7 +746,7 @@ describe("useInteractiveAI", () => {
     expect(result.current.activeIdx).toBe(2);
   });
 
-  // v0.10.23 · 会话级模型变体切换三态通知
+  // 会话级模型变体切换三态通知
   it("切换变体后首次预测 → 切换中 + 成功 toast", async () => {
     interactiveAnnotateMock.mockResolvedValue(POLY_RESPONSE);
     const { result } = renderHook(() => useInteractiveAI(ARGS));
@@ -913,7 +913,7 @@ describe("useInteractiveAI", () => {
     secondResolve?.(POLY_RESPONSE);
   });
 
-  // v0.18.19 · exemplar refine 会话 (多正负框 + text 组合 + 阈值重过滤)
+  // exemplar refine 会话 (多正负框 + text 组合 + 阈值重过滤)
   describe("exemplar refine 会话", () => {
     it("框与原生 Mask 混合候选消费矩形后仍保留 Mask 的签名索引", async () => {
       const response = nativeResponse();
@@ -1161,7 +1161,7 @@ describe("useInteractiveAI", () => {
   });
 });
 
-// v0.21.23 · transport 注入 + cacheScope（视频当前帧交互式 SAM 复用本 hook）
+// transport 注入 + cacheScope（视频当前帧交互式 SAM 复用本 hook）
 describe("useInteractiveAI · transport 注入与 cacheScope", () => {
   beforeEach(() => {
     interactiveAnnotateMock.mockReset();

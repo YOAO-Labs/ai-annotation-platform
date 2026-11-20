@@ -1,9 +1,9 @@
 /**
- * v0.23.4 · compact traffic distribution segment bar.
+ * compact traffic distribution segment bar.
  *
- * Plan §6.2: when real selection counts are null (v0.23.4 — metrics not wired,
- * plan §4.2), the entire column shows "暂无路由指标". When counts exist, render
- * a compact semantic segment bar + numeric; no chart library introduced.
+ * When real selection counts are unavailable, the entire column shows
+ * "暂无路由指标". When counts exist, render a compact segment bar and
+ * the numeric counts.
  */
 import type { ReactNode } from "react";
 
@@ -39,7 +39,7 @@ export function TrafficDistributionBar({
     total !== null && segments.length > 0 && segments.some((s) => s.count !== null);
   if (!hasMetrics) {
     return (
-      <span className="text-xs text-muted-foreground" title="v0.23.4 未接入路由计数器">
+      <span className="text-xs text-muted-foreground" title="暂无路由计数">
         {NO_METRICS_LABEL}
       </span>
     );

@@ -1,5 +1,5 @@
 /**
- * v0.7.6 · AttributeSchemaEditor 单测
+ * AttributeSchemaEditor 单测
  *
  * 1. validateAttributeFields 纯函数：空 key / 重复 key / select 缺 options
  * 2. 组件 render：fields 数组渲染对应字段；onChange 在 add/remove 时触发

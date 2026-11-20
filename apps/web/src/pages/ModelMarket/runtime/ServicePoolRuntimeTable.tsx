@@ -2,7 +2,7 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
 /**
- * v0.23.4 · service-pool runtime overview.
+ * service-pool runtime overview.
  *
  * 模型市场多 TAB UI 优化 · 阶段三 (plan §4.2)：池卡是两行轻量字段带——
  * 第一行身份（展开按钮 + 名称 + 短 ID/策略 + 健康、路由、新鲜度分开显示），

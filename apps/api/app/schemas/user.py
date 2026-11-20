@@ -68,17 +68,17 @@ class UserOut(BaseModel):
     disabled_at: datetime | None = None
     disabled_by: UUID | None = None
     disabled_reason: str | None = None
-    # v0.12.0 · 邮箱验证时间戳；None = 未验证。仅开放注册 + 验证开关打开时作登录 gate。
+    # 邮箱验证时间戳；None = 未验证。仅开放注册 + 验证开关打开时作登录 gate。
     email_verified_at: datetime | None = None
     last_login_at: datetime | None = None
-    # v0.8.3 · 心跳机制：最近一次活跃时间（登录 / POST /me/heartbeat / 关键操作）
+    # 心跳机制：最近一次活跃时间（登录 / POST /me/heartbeat / 关键操作）
     last_seen_at: datetime | None = None
-    # v0.8.1 · 非空 = 管理员刚重置密码，前端登录后跳「强制改密」页
+    # 非空 = 管理员刚重置密码，前端登录后跳「强制改密」页
     password_admin_reset_at: datetime | None = None
-    # v0.8.1 · 自助注销冷静期信息（已申请时返回 scheduled_at）；未申请均为 None
+    # 自助注销冷静期信息（已申请时返回 scheduled_at）；未申请均为 None
     deactivation_requested_at: datetime | None = None
     deactivation_scheduled_at: datetime | None = None
-    # v0.9.41 · 标注偏好（workbench 渲染配置等）。空对象 = 用客户端默认。
+    # 标注偏好（workbench 渲染配置等）。空对象 = 用客户端默认。
     preferences: dict = Field(default_factory=dict)
     # 头像引用（preset:<slug> / upload:<token>）；None = 首字母回退。
     avatar_ref: str | None = None
@@ -188,7 +188,7 @@ class ReactivateRequest(BaseModel):
 
 
 class UserBrief(BaseModel):
-    """v0.7.2 · 责任人可视化用：列表 / 卡片侧 inline 渲染头像 + 名字 + 角色。"""
+    """责任人可视化用：列表 / 卡片侧 inline 渲染头像 + 名字 + 角色。"""
 
     id: UUID
     name: str
@@ -210,6 +210,6 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
-    # v0.9.3 · progressive CAPTCHA：同 IP 失败 ≥ 阈值后必填；前端从 401 响应头
+    # progressive CAPTCHA：同 IP 失败 ≥ 阈值后必填；前端从 401 响应头
     # X-Login-Failed-Count 拿到当前 count，达阈值时渲染 <Captcha>。
     captcha_token: str | None = None

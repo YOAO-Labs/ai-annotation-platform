@@ -108,7 +108,7 @@ describe("video annotation actions helpers", () => {
     expect(line.class_name).toBe("__unknown");
   });
 
-  it("v0.21.21 · builds single-frame video_polygon/polyline create payload from drawn points", () => {
+  it("builds single-frame video_polygon/polyline create payload from drawn points", () => {
     const pts: [number, number][] = [
       [0.1, 0.1],
       [0.5, 0.1],

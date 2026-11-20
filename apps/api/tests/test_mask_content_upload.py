@@ -1,4 +1,4 @@
-"""v0.23.5 · WS-D · D3 · mask-content upload quota + async store.
+"""Mask-content upload quota and async storage tests.
 
 ``upload_task_mask_content`` returns an anonymous content-addressed reference
 (not yet linked to an annotation), so the per-annotation ``is_locked`` guard

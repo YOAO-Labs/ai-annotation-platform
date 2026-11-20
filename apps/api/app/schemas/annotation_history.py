@@ -1,4 +1,4 @@
-"""v0.7.2 · 标注框编辑/审核历史时间线 schema。"""
+"""标注框编辑/审核历史时间线 schema。"""
 
 from __future__ import annotations
 

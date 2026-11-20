@@ -1314,9 +1314,10 @@ function ModelsContent({
                 <ol className="mt-2 list-decimal space-y-2 pl-5">
                   <li>
                     超级管理员：进入「模型市场 → 注册管理 → 实例」，在现有 YOLO
-                    服务的操作菜单点击「编辑」，本机第一方 YOLO 选择「系统托管」并保存，
-                    平台会自动初始化并验证凭据。旧服务需先升级共享目录挂载；远程或已自行配置
-                    YOLO_MANAGED_MODELS_TOKEN 的服务继续使用手动 Token（至少 32 个字符）。
+                    服务的操作菜单点击「编辑」。若实例使用部署指定的 YOLO
+                    可信地址，选择「系统托管」并保存，
+                    平台会初始化并验证凭据。旧服务需先升级镜像并挂载凭据目录；自行配置了
+                    YOLO_MANAGED_MODELS_TOKEN 的服务使用手动 Token（至少 32 个字符）。
                     已有实例无需重复注册。
                   </li>
                   <li>

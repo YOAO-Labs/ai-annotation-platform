@@ -1,4 +1,4 @@
-"""v0.10.31 · Phase 4 视频导出纯函数底座（计划 §共享底座 / 4.3 / 4.4）。
+"""视频导出的几何解析与格式转换纯函数。
 
 把「采样网格映射 + MOT/KITTI 文本生成」收成无 DB 纯函数，DB 加载与 zip 组装留给
 ``export_packaging.build_export_zip`` 的视频分支。
@@ -13,7 +13,7 @@
 - MOT：outside 帧省略；occluded 仍输出（conf=1）；frame 网格序号 **1-based**。
 - KITTI：outside 帧省略；occluded 列 ∈{0,1}；frame 网格序号 **0-based**；3D 字段占位 -1。
 
-v0.21.20 · polygon/polyline track（关键帧存 ``points``）导出到 bbox-only 格式
+polygon/polyline track（关键帧存 ``points``）导出到 bbox-only 格式
 （MOT/KITTI/YOLO-det）时，逐帧降级为顶点外接框（``points_to_bbox_norm``），而非
 空框（全 0）。真·segmentation 导出（COCO-seg/YOLO-seg）另行落地。
 """
@@ -29,14 +29,9 @@ from app.services.video_tracks import resolve_track_at_frame
 logger = logging.getLogger("app.services.exporting.video")
 
 # 视频导出的几何白名单（唯一真源，export.py / export_packaging.py 共用）。
-#
-# 此前导出链路只认 ``video_track_bbox`` / ``video_bbox``，其余几何在打包层与 video_json
-# 的类型判别处被**静默丢弃**——连带使 v0.21.20 为 points track 写的外接框降级
-# （``points_to_bbox_norm`` / ``_frame_bbox``）在端到端链路上成了死代码，只被纯函数单测
-# 覆盖。放宽后 polygon / polyline 的单帧与轨迹几何都能进入导出：bbox-only 格式
-# （MOT / KITTI / YOLO-frames-det）降级为顶点外接框，保真格式（video_json / native_json）
-# 保留 ``points``。真·segmentation 格式（保留多边形的 YOLO-seg 等）另行落地。
-#
+# polygon / polyline 的单帧几何与轨迹都参与导出。
+# MOT、KITTI 和 YOLO-frames-det 只支持 bbox，使用顶点外接框；
+# video_json 和 native_json 保留 ``points``。
 VIDEO_TRACK_GEOMETRY_TYPES = frozenset(
     {
         "video_track_bbox",
@@ -98,7 +93,7 @@ def _bbox_px(bbox: dict, img_w: int, img_h: int) -> tuple[float, float, float, f
 def points_to_bbox_norm(points: list) -> dict:
     """归一化 polygon/polyline 顶点 → 归一化外接 bbox ``{x,y,w,h}``。
 
-    v0.21.20 · polygon/polyline track 关键帧存 ``points`` 而非 ``bbox``；导出到
+    polygon/polyline track 关键帧存 ``points`` 而非 ``bbox``；导出到
     bbox-only 格式（MOT/KITTI/YOLO-det）时降级为顶点外接框，而非空框（全 0）。
     """
     xs = [float(p[0]) for p in points if len(p) >= 2]

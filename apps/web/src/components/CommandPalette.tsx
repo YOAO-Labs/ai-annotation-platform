@@ -26,7 +26,7 @@ const KIND_LABEL: Record<FlatItem["kind"], string> = {
 };
 
 /**
- * v0.7.2 · ⌘K 全局搜索 Palette。
+ * ⌘K 全局搜索 Palette。
  * - 由 TopBar 的 SearchInput / 全局 keydown 触发
  * - ↑↓ 切换 / ↵ 跳转 / Esc 关闭
  */

@@ -4,7 +4,7 @@
   left: 50%;
   bottom: 12px;
   z-index: 4;
-  /* v0.21.16 · 竖排三段: 时间轴独占整宽一行 (不再与控件挤一行被压短) → 控件行 → 概览/status。
+  /* 竖排三段: 时间轴独占整宽一行 (不再与控件挤一行被压短) → 控件行 → 概览/status。
      原 grid `auto 1fr` 把控件列宽从轨道里扣掉, 长视频精细定位时轨道太短。 */
   display: flex;
   flex-direction: column;
@@ -86,7 +86,7 @@
   pointer-events: auto;
 }
 
-/* v0.21.16 · overlay 内控件恒为暗底白字 (画布叠加层, 与主题无关)。CSS module 无 @layer,
+/* overlay 内控件恒为暗底白字 (画布叠加层, 与主题无关)。CSS module 无 @layer,
    胜过 Tailwind `@layer utilities` 的 variant 底色, 故无需 !important 桥接。 */
 .controlButton {
   border-color: rgba(255, 255, 255, 0.18);
@@ -104,7 +104,7 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* v0.21.9 · 跳预测帧按钮组: 与帧导航同形 (单 chevron), 仅以 violet 图标色区分 AI 预测语言,
+/* 跳预测帧按钮组: 与帧导航同形 (单 chevron), 仅以 violet 图标色区分 AI 预测语言,
    对齐右侧栏 roster / AI 面板的 violet。左侧细分隔线把「跳预测帧」与「逐帧导航」分组, 避免两组
    同形 chevron 读成误重复。 */
 .predictedGroup {
@@ -227,7 +227,7 @@
     inset -3px 0 0 color-mix(in oklch, var(--sc-brand) 82%, white);
 }
 
-/* v0.21.16 · 尺子刻度: 整宽帧号标签行, 贴在轨道上方 (与轨道同 2px 内缩对齐)。 */
+/* 尺子刻度: 整宽帧号标签行, 贴在轨道上方 (与轨道同 2px 内缩对齐)。 */
 .ruler {
   position: relative;
   height: 11px;
@@ -274,7 +274,7 @@
 
 .timelineLayer {
   position: absolute;
-  /* v0.11.26 · 左右内缩须等于 range thumb 半宽, 标记 (网格刻度/关键帧/密度) 才与 playhead 实际行程
+  /* 左右内缩须等于 range thumb 半宽, 标记 (网格刻度/关键帧/密度) 才与 playhead 实际行程
      对齐。playhead 从 16px 圆点改为 3px 竖条后, 半宽 ≈1.5px; 原 6px (按旧 16px 圆点定) 会把所有
      标记整体内缩 ~4.5px, 越靠两端越明显偏移。 */
   inset: 0 2px;
@@ -322,7 +322,7 @@
     inset -1px 0 0 var(--sc-brand);
 }
 
-/* v0.21.14 WS3 · AI 传播范围高亮 (对话框打开时): 贯穿轨道的 violet 半透明填充 + 高亮边界,
+/* AI 传播范围高亮 (对话框打开时): 贯穿轨道的 violet 半透明填充 + 高亮边界,
    与 loop (cyan) / 章节 (条状) 区分, 让「将影响哪段帧」在时间轴一目了然。 */
 .propagateRegion {
   top: 0;
@@ -335,7 +335,7 @@
     inset 0 2px 0 color-mix(in oklch, oklch(0.62 0.21 293) 70%, transparent);
 }
 
-/* v0.11.26 · loop 区间从 4px 细条改为贯穿轨道高度的半透明填充块 + 高亮左右边界,
+/* loop 区间从 4px 细条改为贯穿轨道高度的半透明填充块 + 高亮左右边界,
    playhead 变细后与普通轨道区分更明显。边界用 inset box-shadow 画 (不受盒模型 border 撑宽影响)。 */
 .loopRegion {
   top: 0;
@@ -355,7 +355,7 @@
     inset -2px 0 0 rgba(34, 211, 238, 0.55);
 }
 
-/* v0.21.13 · 章节草稿刷选带: 与 loop (cyan) 区分, 用章节主色 (violet-ish) 的半透明填充 + 虚线边界,
+/* 章节草稿刷选带: 与 loop (cyan) 区分, 用章节主色 (violet-ish) 的半透明填充 + 虚线边界,
    松手后交给章节表单预填。position 走上方共享选择器。 */
 .chapterDraftRegion {
   top: 0;
@@ -365,7 +365,7 @@
   background: color-mix(in oklch, oklch(0.62 0.18 252) 22%, transparent);
 }
 
-/* v0.21.13 · 传播范围草稿刷选带 (v0.21.14 WS3 使用): AI violet, 与 loop / chapter 均区分。 */
+/* 传播范围草稿刷选带使用 AI violet，与 loop 和 chapter 区分。 */
 .propagateDraftRegion {
   top: 0;
   bottom: 0;
@@ -400,14 +400,14 @@
   pointer-events: auto;
 }
 
-/* v0.21.13 WS4 · 时间轴章节条 ↔ 侧栏行双向 hover: 命中时抬高 + 白边描亮, 与侧栏行高亮呼应。 */
+/* 时间轴章节条 ↔ 侧栏行双向 hover: 命中时抬高 + 白边描亮, 与侧栏行高亮呼应。 */
 .chapterMarkerHovered {
   border-color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
   filter: brightness(1.15);
 }
 
-/* v0.21.13 WS3 · 章节条 resize 把手。display:contents 让内部绝对定位元素仍相对 chaptersTrack 定位。 */
+/* 章节条 resize 把手。display:contents 让内部绝对定位元素仍相对 chaptersTrack 定位。 */
 .chapterEntry {
   display: contents;
 }
@@ -463,7 +463,7 @@
   pointer-events: auto;
 }
 
-/* v0.11.7 · pixel-anchored issue 帧标记 (warning 色上指三角)。 */
+/* pixel-anchored issue 帧标记 (warning 色上指三角)。 */
 .issueMarker {
   position: absolute;
   bottom: -1px;
@@ -484,7 +484,7 @@
   pointer-events: auto;
 }
 
-/* v0.10.29 · 采样网格刻度轨道 + off-grid 当前帧标记。 */
+/* 采样网格刻度轨道 + off-grid 当前帧标记。 */
 .gridTrack {
   position: absolute;
   inset: 0;
@@ -526,12 +526,12 @@
   width: var(--timeline-width);
   height: var(--density-height);
   border-radius: 2px;
-  /* v0.11.26 · 每个 bin 按各轨迹关键帧占比, 自底向上堆叠成彩色渐变 (--density-gradient, 由 JS 注入),
+  /* 每个 bin 按各轨迹关键帧占比, 自底向上堆叠成彩色渐变 (--density-gradient, 由 JS 注入),
      无轨迹归属 (legacy bbox) 的差额用 accent 兜底。半透明保持密度条不过抢眼。 */
   background: var(--density-gradient, color-mix(in oklch, var(--sc-brand) 68%, transparent));
 }
 
-/* v0.21.9 · AI 预测密度轨: 独立 lane (baseline 抬高到人工密度条上方), violet 单色, 与人工密度条不同层。 */
+/* AI 预测密度轨: 独立 lane (baseline 抬高到人工密度条上方), violet 单色, 与人工密度条不同层。 */
 .predictionTrack {
   position: absolute;
   inset: 5px 0 24px;
@@ -553,7 +553,7 @@
   inset: 0;
 }
 
-/* v0.11.26 · 选中轨迹的关键帧线悬浮在进度条 (灰色 track, 垂直居中 ~14px) 上方,
+/* 选中轨迹的关键帧线悬浮在进度条 (灰色 track, 垂直居中 ~14px) 上方,
    位于 lane 顶部 ~3px; 线加粗到 3px 并跟随轨迹色, 与圆点同处一条悬浮线。 */
 .interpolatedSegment {
   top: 3px;
@@ -586,7 +586,7 @@
   background: rgba(148, 163, 184, 0.5);
 }
 
-/* v0.11.26 · 关键帧圆点悬浮在进度条上方 (lane 顶部, 圆心对齐 3px 处的连线),
+/* 关键帧圆点悬浮在进度条上方 (lane 顶部, 圆心对齐 3px 处的连线),
    跟随轨迹色 (--track-keyframe-color, 未注入时退回 accent)。白边 + 黑环保证任意色上有对比,
    外发光 (同色) 营造科技感。 */
 .trackKeyframe {
@@ -675,7 +675,7 @@
   color: rgba(255, 255, 255, 0.58);
 }
 
-/* v0.21.16 · 底部段: 概览导航条 (仅缩放时) 叠在 status 之上, 整宽竖排。 */
+/* 底部段: 概览导航条 (仅缩放时) 叠在 status 之上, 整宽竖排。 */
 .bottomRow {
   display: flex;
   flex-direction: column;
@@ -691,12 +691,12 @@
   white-space: nowrap;
 }
 
-/* v0.21.16 · 缩放窗口读数: 与其它 status 项区分, 略提亮。 */
+/* 缩放窗口读数: 与其它 status 项区分, 略提亮。 */
 .windowReadout {
   color: rgba(255, 255, 255, 0.95);
 }
 
-/* v0.21.16 · 缩放控件组 (−/+/复位): 与逐帧导航用细分隔线分组。 */
+/* 缩放控件组 (−/+/复位): 与逐帧导航用细分隔线分组。 */
 .zoomGroup {
   display: flex;
   gap: 6px;
@@ -705,7 +705,7 @@
   border-left: 1px solid rgba(255, 255, 255, 0.16);
 }
 
-/* v0.21.16 · 概览导航条: 代表整段 [0,maxFrame] 的细条; 窗口方块 = 当前可见 [from,to]。 */
+/* 概览导航条: 代表整段 [0,maxFrame] 的细条; 窗口方块 = 当前可见 [from,to]。 */
 .navigator {
   position: relative;
   height: 16px;
@@ -783,7 +783,7 @@
 }
 
 /* ============================================================
-   v0.21.16 · 展开态：专业剪辑器式分行时间线面板
+   展开态：专业剪辑器式分行时间线面板
    ============================================================ */
 .overlayExpanded {
   --expanded-timeline-side: 28px;

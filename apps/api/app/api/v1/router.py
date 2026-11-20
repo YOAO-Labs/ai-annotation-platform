@@ -103,13 +103,13 @@ api_router.include_router(
     prefix="/admin/ml-integrations",
     tags=["admin-ml-integrations"],
 )
-# v0.9.6 · /admin/preannotate-queue (注意: 端点路径已含 /admin/preannotate-queue, 这里 prefix 留空)
+# /admin/preannotate-queue (注意: 端点路径已含 /admin/preannotate-queue, 这里 prefix 留空)
 api_router.include_router(
     admin_preannotate.router,
     prefix="",
     tags=["admin-preannotate"],
 )
-# v0.9.7 · /admin/projects/:id/alias-frequency
+# /admin/projects/:id/alias-frequency
 api_router.include_router(
     admin_alias_freq.router,
     prefix="",
@@ -138,11 +138,11 @@ api_router.include_router(training_recipes.router, tags=["training-recipes"])
 api_router.include_router(project_performance.router, tags=["project-performance"])
 api_router.include_router(task_views.router, tags=["task-views"])
 api_router.include_router(data_manager.router, tags=["data-manager"])
-# v0.10.13 · E1 · 项目标注指引图片资源端点 (与 datasets items upload 独立, 不污染 dataset_items 表)
+# 项目标注指引图片资源端点 (与 datasets items upload 独立, 不污染 dataset_items 表)
 api_router.include_router(
     guide_assets.router, prefix="/projects", tags=["guide-assets"]
 )
-# v0.10.14 · E2 · 项目模板库
+# 项目模板库
 api_router.include_router(
     project_templates.router, prefix="/project-templates", tags=["project-templates"]
 )
@@ -166,7 +166,7 @@ api_router.include_router(
     prefix="/projects/{project_id}/ml-backends",
     tags=["ml-backends"],
 )
-# v0.14.11 · 协议级能力目录 (与 backend 注册解耦)
+# 协议级能力目录 (与 backend 注册解耦)
 api_router.include_router(
     ml_capabilities.router,
     prefix="/ml-capabilities",
@@ -206,25 +206,25 @@ api_router.include_router(annotation_feedbacks.router, tags=["annotation-feedbac
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(bug_reports.router, tags=["bug-reports"])
 api_router.include_router(notifications.router, tags=["notifications"])
-# v0.8.6 F6 · 失败预测管理 + 重试
+# 失败预测管理 + 重试
 api_router.include_router(predictions.router, tags=["predictions"])
-# v0.10.16 · 统一异步任务表
+# 统一异步任务表
 api_router.include_router(async_jobs.router, tags=["async-jobs"])
 api_router.include_router(mask_qc.router, tags=["mask-qc"])
 api_router.include_router(point_cloud_quality.router, tags=["point-cloud-quality"])
 api_router.include_router(mask_formats.router, tags=["mask-formats"])
-# v0.10.16 · DuckDB 离线分析面板（super_admin only）
+# DuckDB 离线分析面板（super_admin only）
 api_router.include_router(
     admin_analytics.router, prefix="/admin/analytics", tags=["admin-analytics"]
 )
-# v0.10.58 · super_admin 系统健康聚合面板
+# super_admin 系统健康聚合面板
 api_router.include_router(
     admin_system_health.router,
     prefix="/admin/system-health",
     tags=["admin-system-health"],
 )
 
-# v0.11.19 · 内部服务发现 router (/internal/metrics-targets, Prometheus http_sd)。
+# 内部服务发现 router (/internal/metrics-targets, Prometheus http_sd)。
 # include_in_schema=False, 不进 OpenAPI 公开 schema; 所有环境暴露 (监控用)。
 api_router.include_router(internal.router, prefix="/internal", tags=["internal"])
 

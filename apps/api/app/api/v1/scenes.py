@@ -1,4 +1,4 @@
-"""v0.14.0 · Scenes API
+"""Scenes API
 
 跨 task 帧序列地基的 CRUD 端点。本期不挂"创建 scene"——scene 由两种方式产生:
 1. 导入 hook 自动创建(pointcloud_import / upload-zip 末尾跑 owner scene backfill)
@@ -89,7 +89,7 @@ async def get_scene_trajectory(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """v0.15.0 · scene 的有序逐帧 ego 轨迹(frame_index 升序)。
+    """scene 的有序逐帧 ego 轨迹(frame_index 升序)。
 
     无位姿 scene(历史数据 / 非 nuScenes 来源)→ 200 + poses=[],
     消费方按"无轨迹"降级,不报错。

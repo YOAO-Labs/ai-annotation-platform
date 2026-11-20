@@ -1,7 +1,7 @@
 """SecurityHeadersMiddleware CSP 收紧验证.
 
-API 响应路径 script-src 已去 'unsafe-inline' (HTML 路径走 Nginx sub_filter 注入 nonce).
-v0.10.12 起 style-src 也去 'unsafe-inline'.
+API 的 CSP 不在 script-src 或 style-src 中允许 'unsafe-inline'。
+HTML 路径由 Nginx 注入 nonce。
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """GET /v1/ml-capabilities/instances 端点测试.
 
-v0.19.0 ADR-0044 · 数据源统一为全局注册表 ml_backend_registry (无 project 作用域,
+ADR-0044 · 数据源统一为全局注册表 ml_backend_registry (无 project 作用域,
 url unique)。env 配的 backend 启动钩子已 upsert 成 source='env' 行, 不再有 env-only
 临时探测分支; instance.source 取注册行的 source ('manual' | 'env')。
 
@@ -126,7 +126,7 @@ async def test_instances_returns_env_and_manual_registry_rows(
 async def test_instances_keeps_error_state_backend_for_disabled_selection(
     httpx_client, auth_headers, db_session
 ):
-    """v0.21.0 · 全局编排选择器需要展示 state=error backend, 但前端禁用选择动作。"""
+    """全局编排选择器需要展示 state=error backend, 但前端禁用选择动作。"""
     backend_id = uuid.uuid4()
     db_session.add(
         MLBackendRegistry(
@@ -400,7 +400,7 @@ async def test_instances_warmup_endpoint_false_when_missing(
     assert data["instances"][0]["warmup_endpoint"] is False
 
 
-# ---------- v0.19.2 WS0 · supported_inputs + resource_profile 透传 ----------
+# ---------- supported_inputs + resource_profile 透传 ----------
 
 
 @pytest.mark.asyncio
@@ -563,7 +563,7 @@ async def test_instances_skips_malformed_backend_without_500(
     assert names == {"good"}
 
 
-# ---------- v0.20.3 · classes 透传 (供前端「从 backend 预填配置」导入类别) ----------
+# ---------- classes 透传 (供前端「从 backend 预填配置」导入类别) ----------
 
 
 @pytest.mark.asyncio

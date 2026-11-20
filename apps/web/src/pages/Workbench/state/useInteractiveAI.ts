@@ -13,12 +13,12 @@ import { createSamCache, makeSamCacheKey, SAM_CACHE_TTL_MS } from "./useSamCache
 import { validateCocoRle, type CocoRle } from "../stage/shared/geometry/maskRle";
 
 /**
- * v0.9.2 · 工作台 SAM 交互式 hook。
+ * 工作台 SAM 交互式 hook。
  *
  * 各 prompt 全部走 `POST /projects/{pid}/ml-backends/{bid}/interactive-annotating`：
  *   point           : ctx { type:"point", points:[[x,y],...], labels:[1|0,...], multimask_output }
- *                     (v0.18.17 · 正/负点累加, 每次重发全量点; 首点 multimask 出候选)
- *   interactive_box : ctx { type:"interactive_box", bbox:[x1,y1,x2,y2] } (v0.18.17 · 旧 "bbox" 改名)
+ *                     (累加正/负点，每次重发全量点；首点 multimask 出候选)
+ *     interactive_box : ctx { type:"interactive_box", bbox:[x1,y1,x2,y2] }
  *   exemplar        : ctx { type:"exemplar", bbox:[x1,y1,x2,y2] } (SAM 3 PCS 全图相似)
  * 后端返回 `result[]`，每条形如：
  *   { type:"polygonlabels", value:{ points:[[x,y]...], polygonlabels:[label] }, score }
@@ -26,9 +26,9 @@ import { validateCocoRle, type CocoRle } from "../stage/shared/geometry/maskRle"
  * 候选以「待确认紫虚线」叠加到 Konva canvas，由 `<PendingPolygonsOverlay>` 消费。
  *
  * 防抖：runPoint 80ms（轻击 / 多点同图场景）；runBbox 不防抖（一次完整动作）。
- * 文本召回 (type=text) 自 v0.14.18 起归批量 AI 面板，不再走本 hook 的交互浮层。
+ * 文本召回 (type=text) 归批量 AI 面板，不走本 hook 的交互浮层。
  */
-/** v0.9.4 phase 2 · text 模式输出形态. point/bbox 模式恒为 "mask"(协议默认). */
+/** text 模式输出形态. point/bbox 模式恒为 "mask"(协议默认). */
 export type TextOutputMode = "box" | "mask" | "both";
 
 interface PendingCandidateBase {
@@ -96,7 +96,7 @@ export type PendingCandidate =
   | PendingMaskCandidate;
 
 /**
- * v0.21.23 · 交互式推理的**投递方式**。默认走图片链路（只传 task_id，服务端按 task URL 取图）。
+ * 交互式推理的**投递方式**。默认走图片链路（只传 task_id，服务端按 task URL 取图）。
  *
  * 视频当前帧要传入 transport：视频 task 的 file_path 是整段 mp4，服务端取不到帧，需前端把
  * 当前帧解成 JPEG 走 multipart（见 `interactiveAnnotateFrame`）。抽成注入点是为了让整套
@@ -118,7 +118,7 @@ export interface UseInteractiveAIArgs {
   /** 省略 = 图片链路（interactive-annotating，服务端自取图）。 */
   transport?: InteractiveTransport;
   /**
-   * v0.21.23 · 候选缓存 / 点会话的额外作用域（视频传当前 frameIndex）。
+   * 候选缓存 / 点会话的额外作用域（视频传当前 frameIndex）。
    * 进 cacheKey 防跨帧串候选；变化时连同点会话与 mask_input 回灌一起失效——
    * low-res logits 绑定具体图像，切帧后回传给下一帧是错的。
    */
@@ -137,7 +137,7 @@ export interface UseInteractiveAIReturn {
   canAcceptCandidates: boolean;
   retryLast: () => void;
   /**
-   * v0.18.18 · §5.5 当前点交互会话已落的正/负点 (归一化坐标 + 极性), 供画布 overlay 渲染。
+   * §5.5 当前点交互会话已落的正/负点 (归一化坐标 + 极性), 供画布 overlay 渲染。
    * 提交 / 取消 / 切 prompt / 切 task·backend 时清空。空数组 = 无进行中的多点精修会话。
    */
   sessionPoints: { pt: [number, number]; polarity: 1 | 0 }[];
@@ -148,17 +148,17 @@ export interface UseInteractiveAIReturn {
     width: number;
   }[];
   /**
-   * v0.18.19 · PCS exemplar refine 会话已落的正/负框 (归一化 xyxy + 极性), 供画布 overlay 渲染。
+   * PCS exemplar refine 会话已落的正/负框 (归一化 xyxy + 极性), 供画布 overlay 渲染。
    * 正框=扩召回 / 负框=排误检; 每次操作重发全量。Esc / 切 prompt / 切 task·backend 时清空。
    */
   sessionExemplars: { bbox: [number, number, number, number]; polarity: 1 | 0 }[];
-  /** v0.18.19 · exemplar 会话叠加的 text 概念 (PCS text + 几何组合); 改动即重跑当前会话。 */
+  /** exemplar 会话叠加的 text 概念 (PCS text + 几何组合); 改动即重跑当前会话。 */
   exemplarText: string;
   setExemplarText: (text: string) => void;
-  /** v0.18.19 · exemplar 会话 per-request 阈值; null=用 backend 默认。拖动即重过滤当前会话。 */
+  /** exemplar 会话 per-request 阈值; null=用 backend 默认。拖动即重过滤当前会话。 */
   exemplarThreshold: number | null;
   setExemplarThreshold: (thr: number | null) => void;
-  /** v0.10.2 · 各 run* 接受可选 extraParams; 由 InteractiveToolBar 注入 (box_threshold 等). */
+  /** 各 run* 接受可选 extraParams; 由 InteractiveToolBar 注入 (box_threshold 等). */
   runPoint: (pt: [number, number], polarity: 1 | 0, extraParams?: Record<string, unknown>) => void;
   runBbox: (bbox: [number, number, number, number], extraParams?: Record<string, unknown>) => void;
   runScribble: (
@@ -168,7 +168,7 @@ export interface UseInteractiveAIReturn {
     extraParams?: Record<string, unknown>,
   ) => void;
   /**
-   * v0.18.19 · SAM 3 exemplar refine 会话: 拖框累加到正/负框集 (polarity 1=正 / 0=负), 每次
+   * SAM 3 exemplar refine 会话: 拖框累加到正/负框集 (polarity 1=正 / 0=负), 每次
    * 重发全量 exemplars[] + text + 阈值 + output。与 bbox 同手势, context.type="exemplar"。
    */
   runExemplar: (
@@ -177,7 +177,7 @@ export interface UseInteractiveAIReturn {
     outputMode?: TextOutputMode,
     extraParams?: Record<string, unknown>,
   ) => void;
-  /** v0.18.19 · 不加新框, 用当前会话 (含最新 text/阈值/output) 重跑; outputMode 变更时由 shell 调。 */
+  /** 不加新框, 用当前会话 (含最新 text/阈值/output) 重跑; outputMode 变更时由 shell 调。 */
   rerunExemplar: (outputMode?: TextOutputMode, extraParams?: Record<string, unknown>) => void;
   cycle: (dir: 1 | -1) => void;
   /** 画布 alpha picking 直接选中某个候选。 */
@@ -187,7 +187,7 @@ export interface UseInteractiveAIReturn {
   /** 清空所有候选（Esc） */
   cancel: () => void;
   /**
-   * v0.10.4 I6.2 · 异步触发 backend embed 预热 (image encoder + 缓存)。
+   * 异步触发 backend embed 预热 (image encoder + 缓存)。
    * 每个 (taskId, mlBackendId) 仅触发一次；结果丢弃但写入 cache，下次真实点击命中。
    * 用 dummy point @ image center；后端不支持 point (sam3-only exemplar) 时静默忽略错误。
    */
@@ -195,7 +195,7 @@ export interface UseInteractiveAIReturn {
 }
 
 const DEBOUNCE_MS = 80;
-// v0.18.x · exemplar 阈值滑块/文本框连续变更的防抖窗口 (拖一次滑块约 20 个 tick → 仅末位
+// exemplar 阈值滑块/文本框连续变更的防抖窗口 (拖一次滑块约 20 个 tick → 仅末位
 // 生效一次 dispatch), 比 point 的 80ms 长, 因 exemplar 单次后端推理更重 (见 issue 0002)。
 const EXEMPLAR_DEBOUNCE_MS = 220;
 
@@ -232,20 +232,20 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
   } | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // v0.18.x · exemplar text/阈值连发的独立防抖 timer (与 point 的 debounceRef 互不干扰)。
+  // exemplar text/阈值连发的独立防抖 timer (与 point 的 debounceRef 互不干扰)。
   const exemplarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflightRef = useRef(0);
-  // v0.18.x · 当前 in-flight 交互请求的 AbortController: 新请求发起前 abort 掉上一个, 避免被
+  // 当前 in-flight 交互请求的 AbortController: 新请求发起前 abort 掉上一个, 避免被
   // 取代的旧请求仍在后端跑到完成 (GPU 洪泛, 见 issue 0002)。
   const abortRef = useRef<AbortController | null>(null);
   const activeCacheKeyRef = useRef<string | null>(null);
   const candidateExpiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // v0.18.17 · 点交互会话: 累加同一对象的正/负点, 每次重发全量点 (无状态后端). 单点首击
+  // 点交互会话: 累加同一对象的正/负点, 每次重发全量点 (无状态后端). 单点首击
   // multimask 出候选; ≥2 点转单 mask 精修. 会话在 提交(consume point 候选) / Esc(cancel) /
   // 切 task·backend / 切 prompt 模式(bbox/text/exemplar) 时重置。
   const pointSessionRef = useRef<{ pt: [number, number]; polarity: 1 | 0 }[]>([]);
-  // v0.18.18 · §5.5 会话点位可视化: pointSessionRef 是同步真源 (runPoint 立即读它拼全量点),
+  // §5.5 会话点位可视化: pointSessionRef 是同步真源 (runPoint 立即读它拼全量点),
   // 这里镜像出可订阅 state 驱动画布 overlay 渲染已落的正/负点。
   const [sessionPoints, setSessionPoints] = useState<{ pt: [number, number]; polarity: 1 | 0 }[]>(
     [],
@@ -295,7 +295,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     [clearPointSession, clearScribbleSession],
   );
 
-  // v0.18.19 · exemplar refine 会话: 累加同一概念的正/负框, 每次重发全量 (无状态后端). 拖正框
+  // exemplar refine 会话: 累加同一概念的正/负框, 每次重发全量 (无状态后端). 拖正框
   // 扩召回 / 拖负框去误检 / 拖阈值实时增减 / 叠 text 概念。会话在 Esc(cancel) / 切 task·backend /
   // 切到其它 prompt 模式 (point/bbox/text) 时重置。lastExemplarArgsRef 存上次 dispatch 的
   // outputMode + extra, 供「不加新框」的 text/阈值/output 变更重跑复用。
@@ -324,7 +324,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     setExemplarThresholdState(null);
   }, []);
 
-  // v0.10.23 · 会话级模型变体切换反馈。变体切换是惰性的：用户在 AI 面板下拉选了新变体后,
+  // 会话级模型变体切换反馈。变体切换是惰性的：用户在 AI 面板下拉选了新变体后,
   // 直到下一次预测才把它发给 backend (首次冷启 1-3s+)。lastAppliedVariantRef 记「上次成功
   // 应用的变体签名」, 切换后首次预测期间弹「切换中…→ 成功/失败」三态通知; 同变体后续预测不弹。
   // 切 backend → 清空 (新 backend 的变体语义独立)。
@@ -333,7 +333,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     lastAppliedVariantRef.current = null;
   }, [mlBackendId]);
 
-  // v0.10.4 I6.1 · 按 (taskId, mlBackendId, ctx) 缓存候选；切 backend 时全清。
+  // 按 (taskId, mlBackendId, ctx) 缓存候选；切 backend 时全清。
   const cache = useMemo(() => createSamCache(), []);
   useEffect(() => {
     cache.clearAll();
@@ -406,7 +406,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
   const dispatch = useCallback(
     async (context: Record<string, unknown>, source: PendingCandidate["source"]) => {
       if (!projectId || !taskId || !mlBackendId) return;
-      // v0.18.x · 新请求发起即 abort 上一个仍在跑的交互请求, 并自增 inflight 让旧请求结果失效
+      // 新请求发起即 abort 上一个仍在跑的交互请求, 并自增 inflight 让旧请求结果失效
       // (含 cache-hit 路径, 防止旧 in-flight 完成后覆盖刚命中的缓存; 见 issue 0002)。
       abortRef.current?.abort();
       const myInflight = ++inflightRef.current;
@@ -424,7 +424,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
         maskInputVariantSigRef.current = null;
       }
       const ctxKind = (requestContext.type as string | undefined) ?? source;
-      // v0.18.18 · mask_input 是上一轮 logits 的不透明回灌, 不进缓存键 (同一点序的 mask_input
+      // mask_input 是上一轮 logits 的不透明回灌, 不进缓存键 (同一点序的 mask_input
       // 是确定的, 排除它避免巨串塞键 / 误判 miss)。
       const { mask_input: _maskInput, ...ctxForKey } = requestContext;
       const cacheKey = makeSamCacheKey({
@@ -449,7 +449,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
       }
       // 请求在途和网络失败时保留上一个已签名候选，便于继续修改或重试。
       // 新请求成功后由 activateCandidates 原子替换；成功空结果才退役旧候选。
-      // v0.10.23 · 本次请求携带的变体是否与上次成功应用的不同 → 切换后首次预测, 弹三态通知。
+      // 本次请求携带的变体是否与上次成功应用的不同 → 切换后首次预测, 弹三态通知。
       const isVariantSwitch = variantSig !== null && variantSig !== lastAppliedVariantRef.current;
       if (isVariantSwitch) {
         pushToast({ msg: `正在切换到 ${variantLabel(requestContext)} 模型…` });
@@ -473,7 +473,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
         setError(null);
         lastFailedRequestRef.current = null;
         setCanRetry(false);
-        // v0.18.18 · 存本轮回灌 token: 单 mask 精修阶段非空, 多候选 / 框 / text / exemplar 为 null
+        // 存本轮回灌 token: 单 mask 精修阶段非空, 多候选 / 框 / text / exemplar 为 null
         // (后端按 multimask 自动决定), 下次 ≥2 点点击经 context.mask_input 回传。
         maskInputRef.current = resp.mask_input_next ?? null;
         maskInputVariantSigRef.current = resp.mask_input_next ? variantSig : null;
@@ -502,7 +502,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
             kind: "warning",
           });
         } else {
-          // v0.18.26 · 出候选也给提示, 与「无候选」行为对齐: 右上角告知本轮候选数。
+          // 出候选也给提示, 与「无候选」行为对齐: 右上角告知本轮候选数。
           // 候选是画布上的待确认浮层 (紫虚线), 不在右栏; point 多候选为同一对象的备选 mask。
           pushToast({
             msg: `${next.length} 个候选`,
@@ -571,20 +571,20 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
   const runPoint = useCallback(
     (pt: [number, number], polarity: 1 | 0, extraParams?: Record<string, unknown>) => {
       if (!guard()) return;
-      // v0.18.19 · 切到点模式 → 重置 exemplar 会话 (互斥)。
+      // 切到点模式 → 重置 exemplar 会话 (互斥)。
       resetExemplarSession();
       enterRefinementFamily("point");
-      // v0.18.17 · 累加到当前点会话, 每次重发全量点 (正/负点精修同一对象).
+      // 累加到当前点会话, 每次重发全量点 (正/负点精修同一对象).
       pointSessionRef.current = [...pointSessionRef.current, { pt, polarity }];
       const session = pointSessionRef.current;
-      // v0.18.18 · §5.5 镜像到可订阅 state, 驱动画布会话点 overlay。
+      // §5.5 镜像到可订阅 state, 驱动画布会话点 overlay。
       setSessionPoints(session);
       const points = session.map((s) => s.pt);
       const labels = session.map((s) => s.polarity);
       // 单点首击 multimask 出 3 候选 (top-1 + Tab 切换); 累加 ≥2 点转单 mask 精修.
       const hasMaskPrompt = isRecord(requestContextDefaultsRef.current.mask_prompt_source);
       const multimask = session.length === 1 && !hasMaskPrompt;
-      // v0.18.18 · §5.4 仅多点精修阶段 (≥2 点) 回灌上一轮 low-res logits; 首点候选阶段不回灌
+      // §5.4 仅多点精修阶段 (≥2 点) 回灌上一轮 low-res logits; 首点候选阶段不回灌
       // (多候选 index 歧义)。首个非候选点 (第 2 点) 时 maskInputRef 通常还空 (首点是 multimask),
       // 回灌自然从第 3 点起生效, 与协议约定一致。
       const refeed = !multimask && maskInputRef.current ? maskInputRef.current : undefined;
@@ -665,7 +665,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     [dispatch, enterRefinementFamily, guard, pushToast, resetExemplarSession],
   );
 
-  // v0.18.19 · 用当前会话 (全量正/负框 + text + 阈值) 重发一次 exemplar 请求 (无状态后端).
+  // 用当前会话 (全量正/负框 + text + 阈值) 重发一次 exemplar 请求 (无状态后端).
   // outputMode / extra 取自 lastExemplarArgsRef (上次 run/rerun 写入); text/阈值取自 ref 实时值。
   const dispatchExemplar = useCallback(() => {
     const session = exemplarSessionRef.current;
@@ -690,7 +690,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     );
   }, [dispatch]);
 
-  // v0.18.x · text/阈值连续变更走防抖: 拖一次滑块约 20 个 tick 只在末位触发一次 dispatch
+  // text/阈值连续变更走防抖: 拖一次滑块约 20 个 tick 只在末位触发一次 dispatch
   // (见 issue 0002)。runExemplar (拖新框) / rerunExemplar (切 output) 是单次明确动作, 即时 dispatch。
   const dispatchExemplarDebounced = useCallback(() => {
     if (exemplarDebounceRef.current) clearTimeout(exemplarDebounceRef.current);
@@ -707,7 +707,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
       extraParams?: Record<string, unknown>,
     ) => {
       if (!guard()) return;
-      // v0.18.19 · 切到 exemplar 模式 → 重置点会话; 拖框累加到正/负框集, 每次重发全量。
+      // 切到 exemplar 模式 → 重置点会话; 拖框累加到正/负框集, 每次重发全量。
       resetRefinementSession();
       exemplarSessionRef.current = [...exemplarSessionRef.current, { bbox, polarity }];
       setSessionExemplars(exemplarSessionRef.current);
@@ -770,7 +770,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
 
   const consume = useCallback(
     (idx: number) => {
-      // v0.18.17 · point / interactive_box 的多候选是「同一对象的备选 mask」, 接受一个即
+      // point / interactive_box 的多候选是「同一对象的备选 mask」, 接受一个即
       // 清空全部 + 重置点会话 (开始下一个对象); text / exemplar 是「多实例」, 仅移除被接受的那条.
       const c = candidates[idx];
       const activeCacheKey = activeCacheKeyRef.current;
@@ -813,7 +813,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
       clearTimeout(exemplarDebounceRef.current);
       exemplarDebounceRef.current = null;
     }
-    // v0.18.x · abort 在跑的请求 + 自增 inflight, 取消会话后无结果再回来覆盖 (见 issue 0002)。
+    // abort 在跑的请求 + 自增 inflight, 取消会话后无结果再回来覆盖 (见 issue 0002)。
     // abort 后旧请求的 finally 因 inflight 已变不会复位 isRunning, 这里显式收尾。
     abortRef.current?.abort();
     inflightRef.current++;
@@ -823,7 +823,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     setIsRunning(false);
   }, [resetRefinementSession, resetExemplarSession, cache, retireCandidates]);
 
-  // v0.10.4 I6.2 · 预热去重：同 (taskId, mlBackendId) 只发一次。
+  // 预热去重：同 (taskId, mlBackendId) 只发一次。
   const warmedRef = useRef<string | null>(null);
   const warmup = useCallback(() => {
     if (!projectId || !taskId || !mlBackendId) return;
@@ -832,7 +832,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
     warmedRef.current = key;
     // 静默发一个图中心 point，结果丢；只是为了让后端 image encoder 加载 + cache。
     // 绕过 dispatch 的 setCandidates / inflightRef，失败完全静默。
-    // v0.21.23 · 走 transport：视频侧必须带当前帧图，直连图片端点会把整段 mp4 喂给 SAM。
+    // 走 transport：视频侧必须带当前帧图，直连图片端点会把整段 mp4 喂给 SAM。
     const ctx = { type: "point", points: [[0.5, 0.5]], labels: [1] };
     transportRef
       .current({
@@ -850,7 +850,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
   }, [projectId, taskId, mlBackendId]);
 
   // 切 project / task / backend / 帧 → 重置预热记忆, 并 cancel 掉整个会话。
-  // v0.21.23 · cacheScope (视频 frameIndex) 也纳入同一重置入口。这里必须走 cancel 而不是只
+  // cacheScope (视频 frameIndex) 也纳入同一重置入口。这里必须走 cancel 而不是只
   // reset 会话: 候选是**当前帧**的分割结果, 留着它跨帧会被采纳到新帧上 (提示发生在 F20、
   // 采纳落到 F28, 于是标注在当前帧不可见)。cancel 一并 abort 在飞请求, 避免旧帧的响应回来
   // 覆盖新帧候选。此外 mask_input 的 low-res logits 绑定具体图像, 跨帧回传必错。
@@ -890,7 +890,7 @@ export function useInteractiveAI(args: UseInteractiveAIArgs): UseInteractiveAIRe
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * v0.10.23 · 从 context 抽出变体字段 (sam_variant/dino_variant) 拼一个稳定签名,
+ * 从 context 抽出变体字段 (sam_variant/dino_variant) 拼一个稳定签名,
  * 用于判定「是否切换了变体」。无任何变体字段时返回 null (该 backend 不暴露变体,
  * 或用户从未选过 → 不弹切换通知)。
  */
@@ -902,7 +902,7 @@ function variantSignature(context: Record<string, unknown>): string | null {
   return parts.length > 0 ? parts.join("|") : null;
 }
 
-/** v0.10.23 · 通知文案: 「SAM tiny/DINO base」; 其它轴显示 axis=value。 */
+/** 通知文案: 「SAM tiny/DINO base」; 其它轴显示 axis=value。 */
 function variantLabel(context: Record<string, unknown>): string {
   const variants = readModelVariants(context);
   const sam = variants.sam_variant ?? null;
@@ -988,7 +988,7 @@ interface BackendResult {
     // 后端 _rings_to_polygon_label 在「多连通区域」时改用 polygons[] 承载各外环 (单环时才用 points)。
     polygons?: { points: [number, number][]; holes?: [number, number][][] }[];
     polygonlabels?: string[];
-    // rectanglelabels 字段 (v0.9.4 phase 2)
+    // rectanglelabels 字段
     x?: number;
     y?: number;
     width?: number;

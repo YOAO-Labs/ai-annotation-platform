@@ -40,7 +40,7 @@ function aiLabelText(b: AiBox, content: AnnotationVisualConfig["labelContent"]["
 }
 
 /**
- * v0.21.4 · 视频 AI 候选可视 + 可选层(Konva Layer "ai")。
+ * 视频 AI 候选可视 + 可选层(Konva Layer "ai")。
  *
  * 渲染当前帧的 AI 候选框(虚线 + 类色 + 淡填充), 点击选中(cancelBubble 阻止冒泡到
  * Stage 级 picking, 否则会被空击逻辑立刻取消选)。采纳/驳回按钮由 SelectionOverlay

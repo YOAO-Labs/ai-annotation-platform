@@ -1,5 +1,5 @@
 /**
- * v0.9.7 · AIPreAnnotate 共享样式常量.
+ * AIPreAnnotate 共享样式常量.
  *
  * 把原 AIPreAnnotatePage.tsx 散落的 inline style 抽出来集中管理, 让子组件
  * 共用同一份字号/间距/颜色规范, 避免硬编码漂移.

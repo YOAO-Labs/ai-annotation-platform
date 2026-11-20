@@ -1,13 +1,13 @@
-"""v0.19.3 WS1 · 预标注编排「能力判据」纯函数 (跨保存路径 + 派发路径共用)。
+"""预标注编排「能力判据」纯函数 (跨保存路径 + 派发路径共用)。
 
-把 v0.19.2 散在 trigger_preannotation 里的两条能力判据 (batchable / 分类阶段产 class)
-抽成纯函数: 吃已解析的 model_caps dict (即 _stage_model 的返回, 含 resource_profile /
-output_attribute_types), 不碰 backend 实体、不做 I/O, 返回 violation 列表。
+判据包括能否批量执行、分类阶段能否产出 class；
+输入是已解析的 model_caps dict（如 _stage_model 的返回，含 resource_profile /
+output_attribute_types），返回违例列表，不访问 backend 或执行 I/O。
 
 - 派发路径 (trigger_preannotation): 任一 violation → 422 硬挡。
 - 保存路径 (PATCH /projects/{id}): violation → 响应 capability_warnings 软提示, 不挡。
 
-判据 SSOT 在此, 与前端 stageWarning 由共享 fixture 双端断言防漂移 (v0.19.3 WS3)。
+共享 fixture 约束此处与前端 stageWarning 的判定一致。
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ def check_parent_geometry_roi(
 
 
 def resolve_preannotate_queue(devices, *, gpu_queue: str, cpu_queue: str) -> str:
-    """v0.19.5 · 按整条 pipeline 各阶段 resource_profile.device 决定 Celery 队列。
+    """按整条 pipeline 各阶段 resource_profile.device 决定 Celery 队列。
 
     保守策略: 仅当**所有阶段都显式 device=cpu** 时才进 cpu_queue; 任一阶段 device=gpu /
     未自报 (None → 视作 gpu) → 进 gpu_queue。这样老 backend / 混合 device pipeline 都落 gpu_queue,

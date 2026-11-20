@@ -29,7 +29,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type_label: Mapped[str] = mapped_column(String(50), nullable=False)
     type_key: Mapped[str] = mapped_column(String(30), nullable=False)
-    # v0.10.28 · 媒体维度数据类型 (image / video / lidar); type_key 继续编码
+    # 媒体维度数据类型 (image / video / lidar); type_key 继续编码
     # 媒体+任务子类型 (video-track vs video-mm 等), data_type 只到媒体粒度,
     # 用于展示/筛选/媒体维度分流. backfill 见 alembic 0082.
     data_type: Mapped[str] = mapped_column(
@@ -40,29 +40,27 @@ class Project(Base):
     )
     status: Mapped[str] = mapped_column(String(30), default="in_progress")
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # v0.23.3 ADR-0050 · 项目主服务池 (原 ml_backend_id, 迁移为 ml_backend_pool_id)。
-    # 项目不再直接绑定物理 registry 实例, 而是绑定一个服务池; router (P3) 在池内
-    # active 成员间选择。off mode 下 singleton pool 的 legacy_instance_id 解析回
-    # 原 registry 实例, 行为与 v0.23.2 完全一致。DB FK 由 alembic 0132 加
-    # (ON DELETE SET NULL); ORM 仍是 plain UUID 与原约定一致。
+    # ADR-0050 · 项目主服务池。
+    # 项目绑定服务池而非物理实例，路由在池内 active 成员间选择。
+    # off 模式下，singleton 池通过 legacy_instance_id 解析到唯一实例。
+    # Alembic 0132 添加了数据库外键（ON DELETE SET NULL）；
+    # ORM 将此列映射为普通 UUID。
     ml_backend_pool_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    # v0.14.13 · 项目级 variant 偏好. v0.23.3 改为按 pool_id 分桶 (原 backend_id,
-    # 经 alembic 0132 singleton backfill 重 key)。
+    # 项目级 variant 偏好按 pool_id 分桶（Alembic 0132 重写历史 backend_id 键）。
     # 形状: { "<pool_uuid>": { "<axis_key>": "<axis_value>", ... }, ... }
     # 优先级链: 本字段 > backend.default_variants > backend env 默认.
     # 前端 VariantSelector 用户切换变体时 PATCH 写回; 项目跨设备 / 协作时保留偏好.
     default_variants: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # v0.18.27 · 项目级「已保存的编排」(方案 A, 一项目一条); 形状 = pipeline_stages 数组
-    # (v0.23.3: stage 内 ml_backend_pool_id 存 str, 原 ml_backend_id 经迁移重 key)。
+    # 项目唯一的已保存编排，形状为 pipeline_stages 数组。
+    # stage 的 ml_backend_pool_id 存为字符串（旧 ml_backend_id 键由迁移改写）。
     # NULL = 未配编排 → popover 不出「运行项目编排」入口。
     preannotate_pipeline: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     label_config: Mapped[dict] = mapped_column(JSONB, default=dict)
-    # v0.10.17 · 工具维度类别 / 属性绑定 (ROADMAP §A 新建向导通用化).
+    # 按工具绑定类别和属性。
     # 形状: { tool_unit_id: { enabled, classes: [...], attribute_schema: {...} } }
-    # v0.10.22 · 旧扁平 classes / classes_config / attribute_schema 列已删除,
-    # tool_bindings 是唯一存储真值; 扁平视图由响应 schema / 导出读时派生.
+    # tool_bindings 是唯一存储源；扁平视图由响应 schema 或导出在读取时派生。
     tool_bindings: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
@@ -72,7 +70,7 @@ class Project(Base):
     iou_dedup_threshold: Mapped[float] = mapped_column(
         Float, nullable=False, server_default="0.7", default=0.7
     )
-    # v0.9.2 · GroundingDINO 阈值项目级 override（默认对齐 backend env 0.35 / 0.25）
+    # GroundingDINO 阈值项目级 override（默认对齐 backend env 0.35 / 0.25）
     box_threshold: Mapped[float] = mapped_column(
         Float, nullable=False, server_default="0.35", default=0.35
     )
@@ -95,13 +93,13 @@ class Project(Base):
     point_cloud_quality_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # v0.10.10 · I17.3 · 项目级渲染配置覆盖；空 dict = 全部沿用用户级 preferences
+    # 项目级渲染配置覆盖；空 dict = 全部沿用用户级 preferences
     rendering_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # v0.10.13 · E1 · CVAT-style 项目级 Markdown 标注指引；None = 未配置
+    # CVAT-style 项目级 Markdown 标注指引；None = 未配置
     annotation_guide: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # v0.10.13 · E1 · 已上传的指引图片资源元数据列表
+    # 已上传的指引图片资源元数据列表
     # entry: {key, original_name, content_type, size, uploaded_at}
     guide_assets: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]", default=list
@@ -118,12 +116,12 @@ class Project(Base):
     in_progress_tasks: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0", default=0
     )
-    # v0.10.25 · batch 聚合物化列 {total, assigned, in_review}; 由
+    # batch 聚合物化列 {total, assigned, in_review}; 由
     # batch._sync_project_counters 写时维护, 取代 list_projects 的实时 GROUP BY.
     batch_summary: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # v0.10.29 · 视频帧逻辑采样配置 (项目级). {} = 不采样 (step=1); 或
+    # 视频帧逻辑采样配置 (项目级). {} = 不采样 (step=1); 或
     #   { "mode": "fps",  "target_fps": 10 }
     #   { "mode": "step", "frame_step": 5 }
     # frame_index 永远存源视频帧号 (决策 D2), 采样只是导航/打点视图层.
@@ -133,7 +131,7 @@ class Project(Base):
     video_collaboration: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # v0.14.1 · scene 连续标注调度: 打开后 get_next_task 优先返回"用户上一次提交
+    # scene 连续标注调度: 打开后 get_next_task 优先返回"用户上一次提交
     # task 的同 scene 下一帧"(默认 OFF, 既有项目零回归); window 为连续 session 估计窗口.
     scene_mode: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false", default=False

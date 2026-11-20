@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import type { DropdownItem } from "./DropdownMenu";
 
 /**
- * v0.17.2:module.css → Tailwind。坐标定位/翻转/键盘/a11y 逻辑不动;坐标锚点沿用 --context-menu-x/y
+ * module.css → Tailwind。坐标定位/翻转/键盘/a11y 逻辑不动;坐标锚点沿用 --context-menu-x/y
  * CSS 变量(经 Tailwind 任意值消费)。item 是 portal 内原生 <button>,加 appearance-none 防 UA 漏样。
  */
 

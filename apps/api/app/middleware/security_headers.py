@@ -1,12 +1,12 @@
 """Production security headers middleware.
 
-v0.8.8 · 仅在 environment=="production" 时由 main.py 注册。
+仅在 environment=="production" 时由 main.py 注册。
 注册顺序应在 CORSMiddleware 之前（先注册→后执行→最外层最后写头），
 确保 CORS preflight / 业务响应都被覆盖。
 
-v0.9.11 · CSP script-src nonce 收紧（仅 HTML 路径走 Nginx 注入 nonce, API 响应不含 HTML
+CSP script-src nonce 收紧（仅 HTML 路径走 Nginx 注入 nonce, API 响应不含 HTML
 所以 script-src 直接收紧到 'self' + Turnstile 即可, 无需 nonce）.
-v0.10.12 · CSP style-src 收紧：前端 TSX inline style 清零后, API 响应路径
+CSP style-src 收紧：前端 TSX inline style 清零后, API 响应路径
 style-src 也收紧为 'self'；HTML 出站路径由 Nginx 追加 style/script nonce.
   - HTML 出站 CSP (含 nonce) 由 infra/docker/nginx.conf 的 sub_filter + add_header 处理
   - API 响应 CSP 由本中间件处理: script-src / style-src 均已去 'unsafe-inline'

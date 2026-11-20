@@ -47,8 +47,8 @@ from app.db.models.prediction import (
 from app.db.models.task import Task
 from app.db.models.task_lock import AnnotationDraft
 
-# v0.16.x 拆分：传播纯逻辑簇已抽到 annotation_propagation.py，此处 import 回来给
-# 端点/类方法自用，并保持 `from app.services.annotation import ...` 旧入口经 re-export 不变。
+# 传播纯逻辑由 annotation_propagation.py 持有；此处为端点和类方法引入，
+# 并保留 `from app.services.annotation import ...` 的既有入口。
 from app.services.annotation_propagation import (
     _PropagateContext as _PropagateContext,
     _clean_bbox_geometry as _clean_bbox_geometry,
@@ -336,7 +336,7 @@ class AnnotationService:
     async def _validate_class_name(
         self, project_id: uuid.UUID | None, tool_unit_id: str, class_name: str
     ) -> None:
-        """v0.10.17 · 软校验: 若 project.tool_bindings 中该 unit 给出了 classes 集合,
+        """软校验: 若 project.tool_bindings 中该 unit 给出了 classes 集合,
         class_name 必须在内. 集合为空 (未配置 / 历史项目) 时放行兼容旧数据.
         create / accept_prediction / accept_all 共用同一段以避免分支漏校验.
 
@@ -372,7 +372,7 @@ class AnnotationService:
         parent_annotation_id: uuid.UUID,
         video_segment_id: uuid.UUID | None = None,
     ) -> None:
-        """v0.20.9 · 父子标注仅一层深度约束（应用层校验，不下沉 DB 约束，留后手支持多层）。
+        """父子标注仅一层深度约束（应用层校验，不下沉 DB 约束，留后手支持多层）。
 
         父框必须: 存在且 active、与子框同一 task（父子限帧内）、自身无 parent
         （即父不能再有父 → 只允许一层嵌套）。任一不满足返回 400。
@@ -600,17 +600,17 @@ class AnnotationService:
         - shape_index=i:    仅采纳第 i 个 shape (用于画布单点"采纳"按钮, 避免一键采纳波及同 prediction 下其它框).
           每条 annotation 在 attributes 里写入 _shape_index, 让前端能按 (predictionId, shapeIndex) 双键判定.
 
-        返回值 (v0.20.22 契约):
+        返回值：
         - 找不到 prediction、交互式采纳溯源快照或 shape_index 越界 → None
           (路由层转 404)。
         - 成功 → 本次新建的 annotation 列表 (单 shape 场景返回 `[ann]`)。
-          原实现只返回循环最后一条, 上游 route 忽略返回值、另跑 `list_by_task` 回整题全量,
-          导致前端把整题当作"刚新建"逐条 PATCH 合并 AI 候选属性 → 污染人工标注 (改动 1 根因)。
+          调用方可据此只合并本次新建标注的 AI 候选属性，
+          避免覆盖同一任务中已有的人工作业。
         """
         user_id = write_scope.actor_id
         if user_id is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        # v0.10.25 · predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
+        # predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
         prediction = (
             await self.db.execute(
                 select(prediction_row).where(prediction_row.id == prediction_id)
@@ -890,7 +890,7 @@ class AnnotationService:
             video_acceptance_receipt=video_acceptance_receipt,
         )
 
-        # v0.20.10 · 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
+        # 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
         # 映射。pipeline 是 stage 级 (非 per-key), 但 enriched key = f"{label}_{k}" if label else k
         # (与 application/preannotation_execution.py:_run_task_pipeline 一致), 故能精确反推每个键出自哪个 stage 的 backend/model。
         # PredictionMeta 与 prediction 1:1 (prediction_id unique)。confidence 不在 extra 里, 不编造。
@@ -912,16 +912,16 @@ class AnnotationService:
                 for k in st.get("write_keys") or []:
                     ai_key_model[f"{prefix}{k}"] = model_ref
 
-        # v0.9.7 fix · prediction.result 是 LabelStudio 标准, 转内部 schema 后入 annotation
+        # 把 LabelStudio 格式的 prediction.result 转为内部 schema 后再采纳。
 
         # B-11 · DINO 写入的 class_name 是项目类别的英文 alias; 采纳时反查
         # 对应 tool_unit 的 classes 把 alias 映射回原类别名 (中文 / 业务名).
-        # v0.10.17 · 强隔离: 只查 prediction.tool_unit_id 对应 unit 的 classes,
+        # 强隔离: 只查 prediction.tool_unit_id 对应 unit 的 classes,
         # 不再跨 unit 走派生 classes_config (不同 unit 同名类可有不同 alias).
         project = await get_workspace_project(self.db, project_id=prediction.project_id)
         prediction_unit = getattr(prediction, "tool_unit_id", None) or "bbox"
         alias_to_name: dict[str, str] = {}
-        # v0.18.0 · select/multiselect 属性的合法取值集合, 采纳时软校验 (不阻断, 仅 warning).
+        # select/multiselect 属性的合法取值集合, 采纳时软校验 (不阻断, 仅 warning).
         attr_select_options: dict[str, set[str]] = {}
         if project is not None:
             binding = (project.tool_bindings or {}).get(prediction_unit) or {}
@@ -950,7 +950,7 @@ class AnnotationService:
         anns: list[Annotation] = []
         for idx, shape in indexed:
             raw_class = shape.get("class_name", "") or ""
-            # v0.14.17 · 采纳时选类: override_class_name 非空时直接用它 (人工指定项目标签),
+            # 采纳时选类: override_class_name 非空时直接用它 (人工指定项目标签),
             # 跳过 alias 反查 — 用于"预测类名既不在标签集、又无 alias 命中"时让人当场选类落库,
             # 不再 422 拒死。仍走下面同一段软校验。平台不做自动映射 (NG6)。
             mapped_class = (
@@ -960,12 +960,12 @@ class AnnotationService:
                 if controlled_binding
                 else alias_to_name.get(raw_class.strip().lower(), raw_class)
             )
-            # v0.10.17 · 走与 create 同一段 class_name 软校验, 避免 accept_prediction 写入
+            # 走与 create 同一段 class_name 软校验, 避免 accept_prediction 写入
             # 不在 unit allowed 集合内的"幽灵类别"导致 UI 看不见 DB 仍有的记录.
             await self._validate_class_name(
                 prediction.project_id, prediction_unit, mapped_class
             )
-            # v0.14.9 · 协议 v2 OCR / doc_layout: 把 prediction shape 的富属性 (text /
+            # 协议 v2 OCR / doc_layout: 把 prediction shape 的富属性 (text /
             # language / orientation) 透传到 annotation.attributes。tool_binding 的
             # attribute_schema 未定义对应 key 时仍原样保留 (不静默丢、不硬校验), 让 OCR
             # 文本随采纳进人工标注。_shape_index 始终保留供前端双键判定。
@@ -973,7 +973,7 @@ class AnnotationService:
             shape_attributes = shape.get("attributes")
             if isinstance(shape_attributes, dict):
                 attributes.update(shape_attributes)
-            # v0.18.3 · 采纳前在工作台审阅候选属性时改过的值按键覆盖 (edit-before-accept 原子落库)。
+            # 采纳前在工作台审阅候选属性时改过的值按键覆盖 (edit-before-accept 原子落库)。
             # 内部键 (_shape_index 等) 不允许被 override 干扰, 下面权威重写。
             if isinstance(attribute_overrides, dict):
                 attributes.update(
@@ -986,7 +986,7 @@ class AnnotationService:
             # 权威 _shape_index 放在最后, 防止 backend 在 shape attributes 里同名覆盖
             # 导致前端按 (predictionId, shapeIndex) 双键命中错位。
             attributes["_shape_index"] = idx
-            # v0.18.0 · 软校验 select/multiselect 属性值: 不在 options 内仍保留入库, 仅记 warning
+            # 软校验 select/multiselect 属性值: 不在 options 内仍保留入库, 仅记 warning
             # (避免模型抖动产出越界值时整框采纳失败; 硬校验留给人工提交). _shape_index 等内部键跳过.
             for _akey, _aval in attributes.items():
                 _allowed = attr_select_options.get(_akey)
@@ -1005,7 +1005,7 @@ class AnnotationService:
                         _akey,
                         _bad,
                     )
-            # v0.20.10 · per-key 溯源: pipeline 富集键标 origin=ai + model_ref; 采纳前
+            # per-key 溯源: pipeline 富集键标 origin=ai + model_ref; 采纳前
             # 被人工改过的键 (attribute_overrides) 视为 human 认领, 不标 ai。内部键跳过。
             overridden = (
                 {k for k in attribute_overrides if not k.startswith("_")}
@@ -1363,9 +1363,9 @@ class AnnotationService:
         task_ids: list[uuid.UUID],
         track_id: str | None = None,
     ) -> list[Annotation]:
-        """v0.15.17 · 一次性拉多个 task 的 active 标注(邻帧框叠加批量端点用)。
+        """一次性拉多个 task 的 active 标注(邻帧框叠加批量端点用)。
 
-        v0.21.2 · ADR-0045 · track_id 非空 → 服务端只回该 track(scope=selected);
+        ADR-0045 · track_id 非空 → 服务端只回该 track(scope=selected);
         省略 → 回全部(scope=all)。空 task_ids 直接回 []。
         """
         if not task_ids:
@@ -1391,7 +1391,7 @@ class AnnotationService:
         include_cancelled: bool = False,
         video_segment_id: uuid.UUID | None = None,
     ) -> tuple[list[Annotation], tuple[datetime, uuid.UUID] | None]:
-        """v0.7.6 · keyset 分页：created_at DESC, id DESC。next_cursor=None 时已末页。
+        """keyset 分页：created_at DESC, id DESC。next_cursor=None 时已末页。
 
         cursor 元组语义：取「严格小于」该 (ts, id) 的下一页。
         排序键参考 alembic 0031 的 ix_annotations_task_created_id 复合索引。
@@ -1686,7 +1686,7 @@ class AnnotationService:
                 self.db, task, geometry
             )
         if class_name is not None:
-            # v0.14.17 · 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
+            # 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
             # 堵住"采纳后 PATCH 改成项目标签集外的任意非法值"的数据质量缺口.
             await self._validate_class_name(
                 annotation.project_id, annotation.tool_unit_id, class_name
@@ -1743,12 +1743,12 @@ class AnnotationService:
         if confidence is not None:
             values["confidence"] = confidence
         if attributes is not None:
-            # v0.20.10 · 先据旧值算 meta 同步（人工改动即认领），再替换 attributes。
+            # 先据旧值算 meta 同步（人工改动即认领），再替换 attributes。
             values["attributes_meta"] = _sync_attributes_meta(
                 annotation.attributes, annotation.attributes_meta, attributes
             )
             values["attributes"] = attributes
-        # v0.10.5 M4-β · shape 状态位字段级 PATCH（I15）
+        # 字段级 PATCH 更新 shape 状态位。
         if z_order is not None:
             values["z_order"] = z_order
         if is_locked is not None:

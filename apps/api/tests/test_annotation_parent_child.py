@@ -1,4 +1,4 @@
-"""v0.20.9 · 父子标注 service 层覆盖 (Q2).
+"""父子标注 service 层覆盖 (Q2).
 
 - create 带 parent_annotation_id: 正常建子框
 - 一层深度约束: 给已有 parent 的框再当 parent → 400

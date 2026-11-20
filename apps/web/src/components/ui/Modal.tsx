@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useElementStyle } from "./useElementStyle";
 
 /**
- * Modal —— Radix Dialog 适配层(v0.17.2)。
+ * Modal —— Radix Dialog 适配层。
  * 保留 `{open,onClose,title?,width?,children}` API(43 处调用零改动);焦点陷阱 / Esc / 滚动锁 /
  * aria-modal 由 Radix 兜底(去掉旧手写 useEffect)。沿用旧布局:可选 header(title + 关闭,带下边框)
  * + 可滚动 body;无 title 则无 header/关闭按钮(与旧一致),补 sr-only Title 满足 Radix a11y。

@@ -1,5 +1,5 @@
 // Alt 拖动父子联动: handleCommitMove 的 batch 命令内容 / 顺序单测。
-// 守护 v0.20.15 的两条不变量:
+// 守护父子 Alt 拖动的两条不变量：
 //   1. 单次 pushBatch 承担父+子, 一次撤销回到全部原位置。
 //   2. Leaf 顺序 = [父, 子1, 子2, ...], undo/redo 按此顺序回放。
 // 前端 render 时的 userBoxes 冻结问题 (Med#6) 在 ImageStage 侧构造 childMoves, 本层

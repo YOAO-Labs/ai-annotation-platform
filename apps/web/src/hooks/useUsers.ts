@@ -69,7 +69,7 @@ export function useReactivateUser() {
   });
 }
 
-// v0.8.3 · UsersPage「本周活跃」/「在线」聚合卡（基于 last_seen_at）
+// UsersPage「本周活跃」/「在线」聚合卡（基于 last_seen_at）
 export function useUsersStats(params?: {
   role?: string;
   project_id?: string;

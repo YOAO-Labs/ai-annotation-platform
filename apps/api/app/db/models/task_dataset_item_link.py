@@ -14,7 +14,7 @@ from app.db.base import Base
 
 
 class TaskDatasetItemLink(Base):
-    """v0.13.0 · 点云数据地基 — task 与 dataset_item 的多文件关联中间表。
+    """点云数据地基 — task 与 dataset_item 的多文件关联中间表。
 
     一个点云任务可关联一份主点云 (role=primary_lidar) 与多路相机图像
     (role=camera_<name>，如 camera_front)。同一 task 同一 role 唯一。

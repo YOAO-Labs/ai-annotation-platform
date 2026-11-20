@@ -16,7 +16,7 @@ interface Props {
   initial?: CommentCanvasDrawing | null;
   /** 背景图（可选）：reviewer 在原图缩略上绘制更直观；未提供则白底。 */
   backgroundUrl?: string | null;
-  /** v0.6.4：图像真实尺寸（像素）。给定后画布外层比例按 imageWidth:imageHeight 渲染，
+  /** 图像真实尺寸（像素）。给定后画布外层比例按 imageWidth:imageHeight 渲染，
    *  避免在 16:9 / 4:3 / 1:1 图上画的批注与 reviewer 看到的比例不一致。
    *  未给定时回退到 600×400 默认比例（兼容旧调用）。*/
   imageWidth?: number | null;
@@ -70,7 +70,7 @@ export function CanvasDrawingEditor({
   // 不能用闭包里的 `drawing` 做 move 守卫——pointerdown 的 setDrawing 尚未 flush 时，
   // 紧跟的快速 pointermove 会命中旧闭包 (drawing===null) 被丢弃，导致笔画开头缺失/跟不上手。
   const drawingActiveRef = useRef(false);
-  const strokeStartedAtRef = useRef<number | null>(null); // v0.10.21 I4 · 当前 stroke 起点 ms epoch
+  const strokeStartedAtRef = useRef<number | null>(null); // 当前笔画起点 (Unix epoch ms)
   const svgRef = useRef<SVGSVGElement | null>(null);
   const canvasRef = useElementStyle<HTMLDivElement>(
     useMemo<CSSProperties>(
@@ -308,13 +308,13 @@ interface PreviewProps {
   drawing: CommentCanvasDrawing;
   width?: number;
   backgroundUrl?: string | null;
-  /** v0.6.4：图像真实尺寸；给定后高度按真实比例缩放。fallback 600×400。*/
+  /** 图像真实尺寸；给定后高度按真实比例缩放。fallback 600×400。*/
   imageWidth?: number | null;
   imageHeight?: number | null;
 }
 
 /** 只读小缩略：annotator 端在评论卡片里展示 reviewer 的画布批注。
- *  v0.10.21 · 若所有 shape 都带 started_at/ended_at, 下方渲染迷你 timeline bar:
+ *  若所有 shape 都带 started_at/ended_at, 下方渲染迷你 timeline bar:
  *  每段颜色 = stroke 颜色, 宽度 ∝ 持续时长; hover 段 → 仅该 stroke 高亮(其他 dim). */
 export function CanvasDrawingPreview({
   drawing,

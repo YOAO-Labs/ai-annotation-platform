@@ -1,4 +1,4 @@
-"""v0.15.0 · Scene frame pose schemas
+"""Scene frame pose schemas
 
 逐帧 ego pose(ego→global)的 Pydantic 表示;trajectory API / manifest 透出共用。
 """

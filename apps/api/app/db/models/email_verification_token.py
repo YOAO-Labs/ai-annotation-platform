@@ -7,7 +7,7 @@ from app.db.base import Base
 
 
 class EmailVerificationToken(Base):
-    """v0.12.0 · 开放注册邮箱验证一次性 token（结构与 password_reset_tokens 对齐）。"""
+    """开放注册邮箱验证一次性 token（结构与 password_reset_tokens 对齐）。"""
 
     __tablename__ = "email_verification_tokens"
 

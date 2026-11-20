@@ -195,7 +195,7 @@ def _payload_int(payload: dict, key: str) -> int | None:
 def derive_tool_unit_from_ls_type(
     typ: str | None, value: dict[str, Any] | None = None
 ) -> str:
-    """v0.10.17 · LabelStudio result.type → tool_unit_id.
+    """LabelStudio result.type → tool_unit_id.
 
     polygonlabels / brushlabels / multi_polygon → region; polylinelabels →
     polyline; keypointlabels → keypoint; rectanglelabels 默认 bbox, 带 rotation
@@ -217,7 +217,7 @@ def derive_tool_unit_from_ls_type(
 
 
 def derive_tool_unit_from_result(result: list[dict] | None) -> str:
-    """v0.10.17 · 从 prediction.result 数组首条 shape.type 派生 tool_unit_id."""
+    """从 prediction.result 数组首条 shape.type 派生 tool_unit_id."""
     if not result:
         return "bbox"
     first = result[0] if isinstance(result[0], dict) else {}
@@ -313,7 +313,7 @@ def _normalize_keypoints(points: Any) -> list[dict[str, float | int]]:
 
 
 def _track_to_internal_shape(s: dict, confidence: float, attributes: dict) -> dict:
-    """v0.21.1 · 检测式视频追踪 result item → 内部 `VideoTrackGeometry` 形态.
+    """检测式视频追踪 result item → 内部 `VideoTrackGeometry` 形态.
 
     输入 (backend 聚合轨迹, worker ingestion 已把 int track_id 映射成 `trk_<uuid>`)::
 
@@ -362,25 +362,24 @@ def _track_to_internal_shape(s: dict, confidence: float, attributes: dict) -> di
 
 
 def to_internal_shape(s: dict) -> dict:
-    """v0.9.7 fix · LabelStudio 标准 result shape → 内部前端 schema.
+    """将 LabelStudio result shape 转成内部前端 schema。
 
     Worker 把 ML backend 返回的 LabelStudio 标准 ``{type, value, score}`` 原样
     存入 ``predictions.result``; 前端 ``predictionsToBoxes``
     (apps/web/.../transforms.ts) 期望 ``{type, class_name, geometry, confidence}``.
-    历史 v0.9.4 phase 1 后端真正接通 SAM/DINO 时引入这个 schema gap, 一直未发现
-    (因为前端工作台未真实跑过预标 → 渲染候选). 本 adapter 在 read 路径补这层转换;
-    DB 维持 LabelStudio 标准 (与导出 / CVAT 等通用工具兼容).
+    此适配器在读取时转换；数据库保留 LabelStudio 标准，
+    以便与导出和 CVAT 等工具兼容。
 
     兼容旧格式: 已有 ``geometry`` 字段时 pass-through, 不做二次转换.
-    v0.10.17 · 返回字典含 ``tool_unit_id``, 由 LS type 派生.
-    v0.14.9 · 协议 v2: 返回字典含 ``attributes`` (从 shape 顶层 ``s["attributes"]`` 提取),
+    返回字典含从 LS type 派生的 ``tool_unit_id``。
+    协议 v2: 返回字典含 ``attributes`` (从 shape 顶层 ``s["attributes"]`` 提取),
     供 OCR / doc_layout 富属性 (text / language / orientation) 透传到 annotation.attributes;
     非 OCR shape 为 ``{}``。
     """
     if not isinstance(s, dict):
         return {}
     if "geometry" in s:
-        # 老路径已经是内部 schema; v0.10.17 在缺 tool_unit_id 时按 type 反推**就地**回填,
+        # 已是内部 schema 时，仅在缺少 tool_unit_id 时按 type 就地补齐，
         # 保留原 dict identity (`is raw`) 以保兼容历史调用方依赖.
         if "tool_unit_id" not in s:
             s["tool_unit_id"] = _tool_unit_from_internal_geometry(
@@ -395,13 +394,13 @@ def to_internal_shape(s: dict) -> dict:
         raw_score = s.get("confidence")
     confidence = float(raw_score) if raw_score is not None else 0.0
 
-    # v0.14.9 · 协议 v2 OCR / doc_layout: backend 在 shape 顶层写
+    # 协议 v2 OCR / doc_layout: backend 在 shape 顶层写
     # `attributes: {text, language?, orientation?, ...}` (与几何 value 同级)。
     # 这里原样提取, 供 accept 路径透传到 annotation.attributes; 无则 {}。
     raw_attributes = s.get("attributes")
     attributes = dict(raw_attributes) if isinstance(raw_attributes, dict) else {}
 
-    # v0.21.1 · 检测式视频追踪 result item: 与扁平单几何不同, 是**嵌套聚合轨迹**
+    # 检测式视频追踪 result item: 与扁平单几何不同, 是**嵌套聚合轨迹**
     # `{type, track_id, class_name, keyframes:[{frame_index, bbox:{x,y,w,h}, ...}]}`。
     # class_name 在顶层 (非 value.{type}); 坐标已归一 0-1 (backend 直返, 见协议约定),
     # **不走 _percent_scale 自动探测** —— 小目标 bbox 各分量可能全 <1, 探测会误判为百分比。
@@ -454,13 +453,13 @@ def to_internal_shape(s: dict) -> dict:
                 "h": h,
             }
     elif typ == "polygonlabels":
-        # v0.9.14 · 三种 LS shape 兼容:
+        # 三种 LS shape 兼容:
         #   ① 旧: {points: [[x,y]...]}                      → polygon (无 hole)
         #   ② 新单连通带 hole: {points, holes: [[[x,y]...]]} → polygon (带 hole)
         #   ③ 新多连通: {polygons: [{points, holes?}, ...]}  → multi_polygon
         # ② / ③ 用于表达带 hole 或多连通的 mask。
-        # 老路径 (无 holes / polygons) 输出字面与 v0.9.13 之前完全一致, 不写 holes 字段
-        # 给老 fixture / 老 DB JSONB 持续兼容; PolygonGeometry.holes 默认 [] 由 Pydantic 补.
+        # 缺少 holes / polygons 的形状不输出 holes，
+        # 以兼容既有 fixture 与 DB JSONB；Pydantic 的 PolygonGeometry 默认补 []。
         polygons_raw = val.get("polygons")
         if polygons_raw:
             scale_values: list[float] = []
@@ -512,15 +511,15 @@ def to_internal_shape(s: dict) -> dict:
         "class_name": class_name,
         "geometry": geometry,
         "confidence": confidence,
-        # v0.10.17 · 与 prediction.tool_unit_id 派生同源.
+        # 与 prediction.tool_unit_id 派生同源.
         "tool_unit_id": derive_tool_unit_from_ls_type(typ, val),
-        # v0.14.9 · OCR / doc_layout 富属性 (text / language / orientation 等); 非 OCR 为 {}。
+        # OCR / doc_layout 富属性 (text / language / orientation 等); 非 OCR 为 {}。
         "attributes": attributes,
     }
 
 
 def to_video_bbox_result(raw_result: list[dict], frame_index: int) -> list[dict]:
-    """v0.21.4 / v0.21.7 · 图像 backend 检测结果 (LS 标准 shape) → 单帧 ``video_bbox`` 内部几何。
+    """将图像模型的 LabelStudio 检测结果转成单帧 ``video_bbox`` 几何。
 
     复用 ``to_internal_shape`` 把 ``rectanglelabels`` 归一到 0-1 的 bbox (内含 ``_percent_scale``
     自动兼容 backend 的 0-1 / 0-100 两种口径, 与图像检测候选完全同源), 再套一层 ``frame_index``
@@ -531,8 +530,8 @@ def to_video_bbox_result(raw_result: list[dict], frame_index: int) -> list[dict]
     ``class_name`` / ``confidence`` 放在 result item 顶层 (accept 从顶层读 ``type`` 决定
     annotation_type, 见 ``services/annotation.py``)。
 
-    v0.21.4 单帧工作台 (ml_backends.predict-frame) 与 v0.21.7 逐帧批量 fan-out (workers 段任务)
-    共用这一个 reshaper —— 故从 API 模块提升到 services 层, 两侧同源。
+    工作台单帧推理 (ml_backends.predict-frame) 与 worker 批量逐帧推理
+    共用此转换。
     """
     out: list[dict] = []
     for raw in raw_result:
@@ -563,7 +562,7 @@ def to_video_bbox_result(raw_result: list[dict], frame_index: int) -> list[dict]
 
 
 def _remap_track_ids(result: list[dict]) -> list[dict]:
-    """v0.21.1 · 检测式追踪 result item 的原生 int ``track_id`` → ``trk_<uuid>`` (ingestion
+    """检测式追踪 result item 的原生 int ``track_id`` → ``trk_<uuid>`` (ingestion
     一次性映射)。
 
     必须在 **worker 存 ``prediction.result`` 之前**做, 而非读路径 ``to_internal_shape`` ——

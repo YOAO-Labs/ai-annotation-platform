@@ -1,5 +1,5 @@
 /* 画布叠加层:像素/z-index 编排保留 CSS,色彩走 --sc-*(门禁白名单) */
-/* v0.10.12 · CSP style-src 收紧续推 — ResizeHandles.tsx inline style 迁移. */
+/* CSP style-src 收紧续推 — ResizeHandles.tsx inline style 迁移. */
 
 .handle {
   position: absolute;

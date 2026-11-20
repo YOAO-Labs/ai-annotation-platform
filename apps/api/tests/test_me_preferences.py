@@ -1,8 +1,8 @@
-"""v0.15.3 · workbench 偏好四子树。
+"""workbench 偏好四子树。
 
 覆盖三块：
 1. PATCH /auth/me/preferences 子树合并（只动提交字段，其余回默认值）
-2. legacy 平铺键提升器（旧 tab 兼容,v0.16 移除）：旧键提升 / 新旧同现以新为准 / 未知键仍 422
+2. 兼容旧 tab 的平铺键：提升到子树 / 新旧同现以新为准 / 未知键返回 422
 3. 0103 迁移 SQL：旧平铺 JSONB → 子树形态、幂等、down 还原（直接对测试库执行迁移模块
    暴露的 UP_BATCH_SQL / DOWN_BATCH_SQL，验证的就是迁移真实跑的那份 SQL）
 """
@@ -78,7 +78,7 @@ async def test_patch_image_subtree_only_touches_submitted_field(
     assert wb["common"]["longTaskSampleRate"] == 0.05
     assert wb["common"]["confirmDelete"] == "never"
     assert wb["common"]["recentClassesLimit"] == 5
-    # v0.15.27 · 标注视觉默认值(= 统一后基准)
+    # 标注视觉默认值(= 统一后基准)
     assert wb["common"]["labelFontSize"] == 12
     assert wb["common"]["labelVisibility"] == "always"
     assert wb["common"]["labelContent"] == {
@@ -120,7 +120,7 @@ async def test_annotation_comment_badges_default_true_and_persist_false(
 
 
 async def test_patch_ai_subtree_deep_merges_params_and_model(httpx_client, annotator):
-    """v0.18.25 · ai 子树深一层合并: params_by_backend / model_by_backend 由不同前端 hook
+    """ai 子树深一层合并: params_by_backend / model_by_backend 由不同前端 hook
     各自只提交自己那半子键, 互不冲掉 (区别于 workbench 的整子树替换)。"""
     _, token = annotator
     bid = "11111111-1111-1111-1111-111111111111"
@@ -163,9 +163,9 @@ async def test_patch_ai_subtree_deep_merges_params_and_model(httpx_client, annot
 async def test_patch_workbench_layout_deep_merges_new_collapse_flags(
     httpx_client, annotator
 ):
-    """workbench.layout 深合并: 四个新的分组折叠字段 (aiSectionCollapsed /
+    """workbench.layout 深合并: 四个分组折叠字段 (aiSectionCollapsed /
     manualSectionCollapsed / discussionCollapsed / attrPanelCollapsed) 由不同 writer
-    单键 PATCH, 互不冲掉。守护 v0.20.19 已修的 ui.* / ai.* 同源 bug 不在 workbench.layout 复发。"""
+    分别以单键 PATCH 写入，不覆盖其他字段。"""
     _, token = annotator
 
     # 1) 先展开状态改一次 attrPanelCollapsed。
@@ -339,7 +339,7 @@ async def test_patch_ai_secondary_by_model_deep_merges_per_backend_bucket(
 async def test_patch_ui_subtree_deep_merges_theme_and_secondary_bar(
     httpx_client, annotator
 ):
-    """v0.20.19 · ui 子树深一层合并: theme (useTheme) 与 secondary_bar_hidden
+    """ui 子树深一层合并: theme (useTheme) 与 secondary_bar_hidden
     (二次推理面板显隐) 由不同 writer 各自只提交自己那半键, 互不冲掉。"""
     _, token = annotator
 
@@ -408,7 +408,7 @@ async def test_patch_ui_changelog_seen_version_roundtrip(httpx_client, annotator
 
 
 async def test_patch_ai_interactive_backend_independent(httpx_client, annotator):
-    """v0.18.31 · 第三个 ai 子键 interactive_backend_by_project (交互后端选择, 按 project)
+    """第三个 ai 子键 interactive_backend_by_project (交互后端选择, 按 project)
     与 params/model 独立深合并, 三键互不覆盖。"""
     _, token = annotator
     bid = "22222222-2222-2222-2222-222222222222"
@@ -509,7 +509,7 @@ async def test_patch_unknown_keys_still_422(httpx_client, annotator):
     assert resp.status_code == 422
 
 
-# ── 3. v0.15.4 图片子树 + common 首批 ────────────────────────────────
+# ── 3. 图片子树 + common 首批 ────────────────────────────────
 
 
 async def test_patch_image_workbench_settings_fields(httpx_client, annotator):
@@ -547,7 +547,7 @@ async def test_patch_image_workbench_settings_fields(httpx_client, annotator):
     assert wb["image"]["zoomStepFactor"] == 1.15
     assert wb["image"]["fadedOpacity"] == 0.5
     assert wb["image"]["maskOverlayOpacity"] == 0.6
-    # v0.15.27 · 标注视觉字段(common 共享)
+    # 标注视觉字段(common 共享)
     assert wb["common"]["labelVisibility"] == "selected"
     assert wb["common"]["labelFontSize"] == 16
     assert wb["common"]["strokeWidth"] == 2.5
@@ -579,7 +579,7 @@ async def test_patch_image_workbench_range_and_enum_violations_422(
         {"image": {"fadedOpacity": 0.9}},
         {"image": {"maskOverlayOpacity": 0.1}},
         {"image": {"maskOverlayOpacity": 0.9}},
-        # v0.15.27 · 标注视觉字段范围 / 枚举越界
+        # 标注视觉字段范围 / 枚举越界
         {"common": {"labelFontSize": 7}},
         {"common": {"labelFontSize": 25}},
         {"common": {"labelVisibility": "hover"}},
@@ -598,7 +598,7 @@ async def test_patch_image_workbench_range_and_enum_violations_422(
         assert resp.status_code == 422, bad_subtree
 
 
-# ── 4. v0.15.5 视频子树 ───────────────────────────────────────────────
+# ── 4. 视频子树 ───────────────────────────────────────────────
 
 
 async def test_patch_video_subtree_fields(httpx_client, annotator):
@@ -647,7 +647,7 @@ async def test_patch_video_range_and_enum_violations_422(httpx_client, annotator
         assert resp.status_code == 422, bad_video
 
 
-# ── 5. v0.15.6 点云子树 + common.crossFrameOverlayK ──────────────────
+# ── 5. 点云子树 + common.crossFrameOverlayK ──────────────────
 
 
 async def test_patch_pointcloud_subtree_fields(httpx_client, annotator):
@@ -741,7 +741,7 @@ async def test_patch_pointcloud_range_and_enum_violations_422(httpx_client, anno
         assert resp.status_code == 422, bad_subtree
 
 
-# ── 5b. v0.15.25 UI 主题子树 ─────────────────────────────────────────
+# ── 5b. UI 主题子树 ─────────────────────────────────────────
 
 
 async def test_patch_ui_theme_persists_and_isolated_from_workbench(
@@ -941,7 +941,7 @@ async def test_migration_0103_skips_rows_without_flat_keys(db_session):
     }
 
 
-# ── 7. v0.16-pre · 运行期剥离已移除的 layout 像素键（leftWidth/rightWidth）─────
+# ── 7. 运行期剥离已移除的 layout 像素键（leftWidth/rightWidth）─────
 #   边栏宽度迁到 common 百分比后，WorkbenchLayoutPreferences(extra="forbid") 删了这两个
 #   旧键；存量残留时 GET/PATCH 必须先剥离再校验，否则 422（0105 迁移未跑 / 灰度 / 回滚场景）。
 
@@ -1008,7 +1008,7 @@ async def test_patch_workbench_layout_with_removed_keys_not_422(
     assert layout["rightOpen"] is True
 
 
-# ── 8. v0.16-pre · 0105 边栏像素↔百分比迁移（纯函数转换 + round-trip）─────────────
+# ── 8. 0105 边栏像素↔百分比迁移（纯函数转换 + round-trip）─────────────
 
 
 def _load_migration_0105():
@@ -1100,11 +1100,11 @@ def test_migration_0105_upgrade_idempotent():
     assert mod._upgrade_prefs(once) is None
 
 
-# ── 9. v0.15.27 · 标注视觉字段 + 0106 showBoxLabels→labelVisibility 迁移 ──────
+# ── 9. 标注视觉字段 + 0106 showBoxLabels→labelVisibility 迁移 ──────
 
 
 def test_label_content_migrates_legacy_flat_list():
-    """v0.16.7 · 旧扁平 labelContent list 迁移为按标注类型分段对象。"""
+    """旧扁平 labelContent list 迁移为按标注类型分段对象。"""
 
     def parse(value):
         return UserPreferences.model_validate(
@@ -1125,7 +1125,7 @@ def test_label_content_migrates_legacy_flat_list():
 
 
 def test_label_content_object_dedups_and_rejects_unknown_token():
-    """v0.16.7 · 新对象格式：各段去重保序；缺省段补默认；非法 token 触发校验错误。"""
+    """新对象格式：各段去重保序；缺省段补默认；非法 token 触发校验错误。"""
     import pytest
     from pydantic import ValidationError
 
@@ -2305,7 +2305,7 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
             await cleanup.commit()
 
 
-# ── v0.24 · workbench.shortcuts：定向写入 / 无关 PATCH 保留 / opaque 兜底 ──
+# ── workbench.shortcuts：定向写入 / 无关 PATCH 保留 / opaque 兜底 ──
 
 
 @pytest.fixture

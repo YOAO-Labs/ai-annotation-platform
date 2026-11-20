@@ -1,4 +1,4 @@
-"""v0.18.27 · 项目级「已保存的编排」(Project.preannotate_pipeline, 方案 A)。
+"""项目级「已保存的编排」(Project.preannotate_pipeline, 方案 A)。
 
 PATCH /projects/{id} 读写 preannotate_pipeline:
 - 单 / 多阶段 → persist + GET 原样返回。
@@ -37,7 +37,7 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
     )
     db.add(proj)
     await db.flush()
-    # v0.19.0 ADR-0044 · 全局注册项 + 项目启用关联 (编排阶段引用 registry id)。
+    # ADR-0044 · 全局注册项 + 项目启用关联 (编排阶段引用 registry id)。
     detect, detect_pool = await create_registry_with_pool(
         db,
         name="detect",
@@ -251,7 +251,7 @@ async def test_patch_rejects_bad_uuid(httpx_client, super_admin, db_session):
     assert resp.status_code == 422, resp.text
 
 
-# ---------- v0.19.3 WS1 · 保存路径能力软提示 (不挡, 与 dispatch 422 同判据) ----------
+# ---------- 保存路径能力软提示 (不挡, 与 dispatch 422 同判据) ----------
 
 
 async def _set_caps(db: AsyncSession, backend, models: list[dict]):

@@ -158,7 +158,7 @@ const FRAME_MODES: { value: VideoFrameMode; label: string; description: string }
   { value: "all_frames", label: "所有帧", description: "按相邻有效关键帧线性插值展开。" },
 ];
 
-/** 导出 Modal（v0.10.43 多目标多选）。受控开关，供独立触发器或 ⋮ 菜单复用。 */
+/** 导出 Modal，支持多目标多选。受控开关，供独立触发器或 ⋮ 菜单复用。 */
 export function ExportModal({
   open,
   onClose,
@@ -267,7 +267,7 @@ function ExportForm({
   const [lossyConfirmed, setLossyConfirmed] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
-  // 帧模式仅对 Video JSON 有意义（MOT/KITTI 走采样网格，AAP 透传源帧）。
+  // 帧模式仅对 Video JSON 有意义（MOT/KITTI 走采样网格，原生 JSON 保留源帧）。
   const showFrameMode = isVideoProject && targets.includes("video_json");
 
   useEffect(() => {
@@ -894,7 +894,7 @@ function ExportForm({
         <div className="text-xs leading-snug text-muted-foreground">
           {includeAttributes
             ? "导出包将包含每个标注的 attributes 字段。"
-            : "兼容旧版（v0.4.9 之前）格式，不含属性。"}
+            : "不包含属性，兼容旧格式。"}
         </div>
         <div className="text-xs leading-snug text-muted-foreground">
           仅对 COCO / YOLO / Video JSON / LiDAR 标准格式生效；原生 JSON 始终包含，MOT 无此字段。

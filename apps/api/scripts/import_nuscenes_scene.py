@@ -1,4 +1,4 @@
-"""v0.14.2 · nuScenes-mini → 本平台原生目录结构 + 入库(MinIO + DB)一次性转换脚本。
+"""nuScenes-mini → 本平台原生目录结构 + 入库(MinIO + DB)一次性转换脚本。
 
 把 nuScenes 数据集的一个或多个 scene 转成本平台点云原生目录结构。Dataset/Item 写入
 由 `AssetsOperatorGateway` 通过原生能力持有，Scene / frame 与 pose 写入由各自 service
@@ -19,7 +19,7 @@
         --dataset-name nu-scene-0061 \
         --frame ego
 
-    # 多 scene 共用 dataset(验证 v0.14.0 多 scene 隔离)
+    # 多个 scene 共用一个 dataset
     PYTHONPATH=. uv run python scripts/import_nuscenes_scene.py \
         --nuscenes-root /data/nuscenes-mini \
         --scene-tokens scene-0061,scene-0103,scene-0553 \
@@ -33,8 +33,8 @@
     <storage_root>/<scene_name>/camera/<CHANNEL>/<scene_name>_<idx 6位>.jpg  file_type=image
     <storage_root>/<scene_name>/calib/camera/<CHANNEL>.json                 file_type=other
 
-标定:本版用 **每个 scene 第 1 帧** 的标定对全 scene 通用(metadata 记
-timestamp_delta_us 备查;前端不消费;逐帧真补偿留 v0.15+)。
+标定：每个 scene 使用第 1 帧的标定。metadata 记录 timestamp_delta_us，
+供检查相机与点云时间差，不用于逐帧补偿。
 
 幂等:dataset 按派生 display_id 复用(短名为 DS-NU-<name>,超长名加 hash 截断到
 DB display_id 长度限制内);scene 按 (dataset_id, name) 已存在则跳过该 scene;
@@ -49,8 +49,8 @@ DB display_id 长度限制内);scene 按 (dataset_id, name) 已存在则跳过�
   4. curl /scenes?dataset_id=<id> 返回 N 个 scene(= 传入的 scene 数)。
   5. curl /tasks/<某 scene 末帧 task>/neighbors:next 为空,不串到下一个 scene 首帧。
   6. curl -X POST /datasets/<id>/sniff-axis-convention 命中 iso_8855。
-     若显式 --frame sensor,则保留 v0.14.2 raw LIDAR_TOP/apollo 行为。
-  7. (若已有 v0.14.1)工作台 Shift+→ 翻到 scene 末帧后不跳到下一 scene。
+     若显式使用 --frame sensor，则保留 LIDAR_TOP 原始坐标，axis_convention 为 apollo。
+  7. 工作台用 Shift+→ 翻到 scene 末帧后，不跳到下一个 scene。
 ====================================================================================
 """
 
@@ -1054,7 +1054,7 @@ async def import_nuscenes(
         cam_frame_index: dict[uuid.UUID, int] = {}  # cam item.id -> frame_index
         calib_item_ids: list[uuid.UUID] = []  # scene-level(frame_index=NULL)
         new_raw_binds: list[tuple[uuid.UUID, object]] = []
-        frame_poses: list[FramePose] = []  # v0.15.0 · 逐帧 ego pose(LIDAR_TOP 时钟)
+        frame_poses: list[FramePose] = []  # 逐帧 ego pose（LIDAR_TOP 时钟）
         calib_written = False
 
         for frame_idx, sample in enumerate(samples):
@@ -1081,7 +1081,7 @@ async def import_nuscenes(
 
             cs_lidar = cs_by_token[lidar_sd["calibrated_sensor_token"]]
             ego_lidar = ego_by_token[lidar_sd["ego_pose_token"]]
-            # v0.15.0 · 逐帧 ego pose(ego→global)+ LIDAR_TOP 时间戳,落 scene_frame_poses
+            # 逐帧 ego pose(ego→global)+ LIDAR_TOP 时间戳,落 scene_frame_poses
             frame_poses.append(
                 FramePose(
                     frame_index=frame_idx,
@@ -1323,7 +1323,7 @@ async def import_nuscenes(
         for item_id, owner in new_raw_binds:
             await assets.bind_auxiliary_item(item_id, owner)
         await assets.bind_auxiliary_scene(scene.id, map_owner)
-        # v0.15.0 · 逐帧 ego pose 落库(幂等 upsert);已存在同名 scene 走上方
+        # 逐帧 ego pose 落库(幂等 upsert);已存在同名 scene 走上方
         # skip 分支不会到这里,补历史 scene 用 scripts/backfill_frame_poses.py
         await spatial.upsert_poses(
             UpsertPosesRequest(

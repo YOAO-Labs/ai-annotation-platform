@@ -82,12 +82,12 @@ const sectionsForRole = (isSuperAdmin: boolean): { label: string; items: NavItem
     items: [
       { key: "datasets", path: "/datasets", icon: "layers", label: "数据集" },
       { key: "storage", path: "/storage", icon: "db", label: "存储管理" },
-      // v0.10.14 · E2 · 项目模板库
+      // 项目模板库
       { key: "project-templates", path: "/project-templates", icon: "book", label: "项目模板" },
       { key: "users", path: "/users", icon: "userRoundCog", label: "用户与权限" },
       { key: "audit", path: "/audit", icon: "shield", label: "审计日志" },
-      // v0.12.3 · 标注员绩效 + 离线分析（此前仅 Dashboard 卡片 / 直达 URL 可达，补 Sidebar 入口）
-      // v0.12.6 (A3) · 标注员绩效对 project_admin 开放（项目级范围），由 canAccessPage 过滤；离线分析仍超管专属。
+      // 标注员绩效和离线分析的快捷入口。
+      // (A3) · 标注员绩效对 project_admin 开放（项目级范围），由 canAccessPage 过滤；离线分析仍超管专属。
       {
         key: "admin-people" as PageKey,
         path: "/admin/people",
@@ -117,7 +117,7 @@ const sectionsForRole = (isSuperAdmin: boolean): { label: string; items: NavItem
       ...(isSuperAdmin
         ? [{ key: "bugs" as PageKey, path: "/bugs", icon: "bug" as IconName, label: "BUG反馈" }]
         : []),
-      // v0.12.3 · 我的绩效（所有角色自助自视）
+      // 我的绩效（所有角色自助自视）
       { key: "my-performance", path: "/me/performance", icon: "gauge", label: "我的绩效" },
       { key: "settings", path: "/settings", icon: "settings", label: "设置" },
     ],
@@ -135,7 +135,7 @@ export function Sidebar({ reviewCount, drawer = false }: SidebarProps) {
   const canSeeFailed = hasAnyPermission("ml-backend.manage");
   const failedQuery = useFailedPredictions(1, 1, false, canSeeFailed);
   const failedTotal = failedQuery.data?.total ?? 0;
-  // v0.9.5 · pre_annotated 批次徽章（仅 super_admin 能拉 /dashboard/admin）
+  // pre_annotated 批次徽章（仅 super_admin 能拉 /dashboard/admin）
   // B-19：非超管角色禁用此查询，避免 dashboard 加载时弹出"需要角色权限"toast。
   const adminStatsQ = useAdminStats(role === "super_admin");
   const preAnnotatedTotal = adminStatsQ.data?.pre_annotated_batches ?? 0;

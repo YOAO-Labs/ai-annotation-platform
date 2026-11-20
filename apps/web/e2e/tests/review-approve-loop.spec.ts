@@ -1,5 +1,5 @@
 /**
- * v0.8.8 · review 通过路径 E2E：reviewer approve 真实 UI 流。
+ * review 通过路径 E2E：reviewer approve 真实 UI 流。
  *
  * - annotator 提交（advance_task → submitted/review）
  * - reviewer 进 /projects/:id/review?task={id} → 点通过按钮

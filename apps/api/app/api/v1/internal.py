@@ -1,4 +1,4 @@
-"""v0.11.19 · 内部服务发现路由 (不进 OpenAPI 公开 schema)。
+"""内部服务发现路由 (不进 OpenAPI 公开 schema)。
 
 提供 Prometheus `http_sd_config` 期望的 JSON 格式, 从 `ml_backends` 表动态
 生成 ML backend 的 scrape target 列表, 让新注册的 backend 自动接入监控。
@@ -59,7 +59,7 @@ async def metrics_targets(
 ) -> list[dict]:
     """返回 Prometheus http_sd 格式的 ML backend scrape target 列表。
 
-    v0.19.0 ADR-0044 · backend 已全局去重 (registry url unique), 仍按 host:port 兜底去重。
+    ADR-0044 · backend 已全局去重 (registry url unique), 仍按 host:port 兜底去重。
     """
     _check_token(authorization)
 

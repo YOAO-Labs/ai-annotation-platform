@@ -1,5 +1,5 @@
 /**
- * v0.20.x · ClassWhitelistRow: 静态类别表 chip 勾选 + 文本输入按类名快速勾选 (index 制)。
+ * ClassWhitelistRow: 静态类别表 chip 勾选 + 文本输入按类名快速勾选 (index 制)。
  */
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";

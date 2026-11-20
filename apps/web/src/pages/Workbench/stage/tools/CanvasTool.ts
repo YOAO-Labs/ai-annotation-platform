@@ -1,4 +1,4 @@
-// v0.6.4 P1 · CanvasTool（C 键）：reviewer/annotator 在原图上画批注（红圈/箭头），
+// CanvasTool（C 键）：reviewer/annotator 在原图上画批注（红圈/箭头），
 // 序列化为归一化 [0,1] 坐标，与 ImageStage 的 vp 共享坐标系，缩放/平移自动跟随。
 //
 // 注意：实际的 stroke 状态由 useWorkbenchState.canvasDraft 持有；本 tool 只

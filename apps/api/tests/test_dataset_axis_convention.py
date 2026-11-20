@@ -1,4 +1,4 @@
-"""v0.13.11 · Dataset.metadata_["axis_convention"] 读写覆盖。
+"""Dataset.metadata_["axis_convention"] 读写覆盖。
 
 覆盖:
   1. POST /datasets 不传 axis_convention → 返回 None, DB metadata = {}
@@ -8,7 +8,6 @@
   5. PUT /datasets/{id} 传无效字符串 → 422
 
 ADR: docs/adr/0034-lidar-axis-convention.md
-Plan: docs/plans/2026-06-05-v0.13.11-lidar-axis-convention.md
 """
 
 from __future__ import annotations

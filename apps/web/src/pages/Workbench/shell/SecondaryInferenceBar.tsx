@@ -35,9 +35,9 @@ interface Props {
   taskId: string;
   annotation: AnnotationResponse;
   readOnly?: boolean;
-  /** v0.20.12 · 项目已有属性键: 判定 attributes-型能力的输出键是否有承接位 (无则产物看不见)。 */
+  /** 项目已有属性键: 判定 attributes-型能力的输出键是否有承接位 (无则产物看不见)。 */
   existingAttributeKeys?: Set<string>;
-  /** v0.20.12 · 一次把缺失属性字段补进项目 (复用工作台属性补全)。 */
+  /** 一次把缺失属性字段补进项目 (复用工作台属性补全)。 */
   presentationHidden?: boolean;
   onEnsureAttributeFields?: (fields: AttributeField[]) => void;
 }
@@ -114,14 +114,14 @@ export function SecondaryInferenceBar({
   const pendingRef = useRef(new Set<string>());
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // v0.20.13 · 每能力的推理参数 (阈值等); paramsOpen = 当前是否展开选中能力的参数面板。
+  // 每能力的推理参数 (阈值等); paramsOpen = 当前是否展开选中能力的参数面板。
   const [paramsByKey, setParamsByKey] = useState<Record<string, Record<string, unknown>>>({});
-  // v0.20.17 · 每能力已选的模型变体档位 (series/size 等); 与 default_variants 合并成实际下发档位。
+  // 每能力已选的模型变体档位 (series/size 等); 与 default_variants 合并成实际下发档位。
   const [variantByKey, setVariantByKey] = useState<Record<string, Record<string, unknown>>>({});
-  // v0.20.18 · 开集文本模型的查询文本 (按能力); 每次运行的临时查询, 不持久化。
+  // 开集文本模型的查询文本 (按能力); 每次运行的临时查询, 不持久化。
   const [promptByKey, setPromptByKey] = useState<Record<string, string>>({});
   const [paramsOpen, setParamsOpen] = useState(false);
-  // v0.20.17 · 用户级偏好 (按 backendId:modelId): 参数 + 变体跨框/跨设备记住。
+  // 用户级偏好 (按 backendId:modelId): 参数 + 变体跨框/跨设备记住。
   const { byModel, loaded: prefsLoaded, save: savePref } = useSecondaryParamPrefs();
 
   // 偏好载入后, 把存过的 params/variants 灌进组件 state (仅未触碰的键, 不覆盖当前编辑)。
@@ -160,7 +160,7 @@ export function SecondaryInferenceBar({
   const busy = pending.has(ownerKey);
   const missing = missingAttributeFields(selected, existing);
   const canParams = hasConfigurableParams(selected.model);
-  // v0.20.18 · 开集文本模型: 需用户输入检测/分割目标文本; 空文本禁运行 (跑了也检不出)。
+  // 开集文本模型: 需用户输入检测/分割目标文本; 空文本禁运行 (跑了也检不出)。
   const wantsText = needsTextPrompt(selected);
   const promptMissing = wantsText && !(promptByKey[selKey] ?? "").trim();
 

@@ -1,7 +1,6 @@
 /**
- * v0.9.14 · BatchesSection 最小烟雾测试 — 依赖太多 (10+ hook), 仅测加载态 / 空批次 /
- * 创建按钮可见性. 完整交互（创建 / bulk / 逆向迁移 / 看板）推到 v0.9.15 与 admin-locked
- * UI 测试合并写.
+ * BatchesSection 冒烟测试，覆盖加载态、空批次和
+ * 创建按钮可见性。此处不覆盖创建、批量操作、逆向迁移和看板。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";

@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 import type { PredictionResponse, AnnotationResponse } from "@/types";
 
-/** v0.10.15 · 外部预测导入端点响应 (与后端 ImportResult 对齐). */
+/** 外部预测导入端点响应 (与后端 ImportResult 对齐). */
 export interface PredictionImportError {
   task_match: Record<string, unknown>;
   reason: string;
@@ -76,10 +76,10 @@ export const predictionsApi = {
     const qp = new URLSearchParams();
     if (shapeIndex !== undefined) qp.set("shape_index", String(shapeIndex));
     if (videoSegmentId) qp.set("video_segment_id", videoSegmentId);
-    // v0.14.17 · 采纳时选类: 预测类名不在项目标签集 (会 422) 时, 带上人选的项目标签重试.
+    // 采纳时选类: 预测类名不在项目标签集 (会 422) 时, 带上人选的项目标签重试.
     if (overrideClassName) qp.set("override_class_name", overrideClassName);
     const qs = qp.toString();
-    // v0.18.3 · 采纳前在工作台审阅候选属性时改过的值, 经 body.attribute_overrides 原子落库.
+    // 采纳前在工作台审阅候选属性时改过的值, 经 body.attribute_overrides 原子落库.
     const body =
       attributeOverrides && Object.keys(attributeOverrides).length > 0
         ? { attribute_overrides: attributeOverrides }
@@ -103,7 +103,7 @@ export const predictionsApi = {
   },
 
   /**
-   * v0.10.15 · 外部模型预测导入 (AAP JSON v1.0 / COCO / YOLO zip).
+   * 导入外部模型预测：原生 JSON、COCO 或 YOLO ZIP。
    * - 走 multipart/form-data, 不用 apiClient (其默认 Content-Type=application/json).
    * - dryRun=true: 仅校验不入库; 用于 Wizard 第 2 步预览.
    * - overwriteExisting=true: 替换 task 已有 source='external_import' 的 predictions.

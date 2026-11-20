@@ -1,7 +1,7 @@
-"""v0.23.3 ADR-0050 §5.4 / §C.4 · dual-ID recording on Prediction / FailedPrediction.
+"""ADR-0050 §5.4 / §C.4 · dual-ID recording on Prediction / FailedPrediction.
 
 Verifies the first-party call-path wiring records the requested pool id alongside the
-selected instance id. In off/observe mode the actual instance is unchanged (= v0.23.2);
+selected instance id. Off and observe dispatch to the legacy instance;
 the pool id is derived from the instance's singleton pool via MLBackendService.
 """
 
@@ -24,7 +24,7 @@ from tests.factory import create_project, create_task
 
 
 def _tiny_jpeg() -> bytes:
-    """v0.23.5 WS-D D2 requires PIL-decodable frames on /predict-frame."""
+    """Build a JPEG acceptable to the /predict-frame decoder."""
     buf = io.BytesIO()
     Image.new("RGB", (16, 16), (10, 20, 30)).save(buf, format="JPEG")
     return buf.getvalue()

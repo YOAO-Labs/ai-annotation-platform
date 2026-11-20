@@ -69,7 +69,7 @@ describe("VideoChapterSidebar frame_step / source display", () => {
   });
 });
 
-describe("VideoChapterSidebar timeline draft (v0.21.13 WS2)", () => {
+describe("VideoChapterSidebar timeline draft", () => {
   it("shows the arming hint when timeline draft is armed", () => {
     chaptersRef.current = [];
     const { getByTestId } = render(

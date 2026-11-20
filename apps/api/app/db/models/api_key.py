@@ -7,7 +7,7 @@ from app.db.base import Base
 
 
 class ApiKey(Base):
-    """v0.9.3 · 程序化访问凭据。
+    """程序化访问凭据。
 
     token 形如 ``ak_<32 随机 base64url>``，仅在创建瞬间返回明文；入库存 bcrypt(plaintext)。
     ``key_prefix`` = 前 12 字符（含 ``ak_``），用于列表展示与定位匹配行。
@@ -28,9 +28,9 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(String(60), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    # v0.15.11 · scopes 在路由层经 require_scopes 强制；含 "*" 即 full-access 全权
+    # scopes 在路由层经 require_scopes 强制；含 "*" 即 full-access 全权
     scopes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
-    # v0.15.11 · NULL=永不过期；非 NULL 且 < now() 时 resolve_token 拒绝
+    # NULL=永不过期；非 NULL 且 < now() 时 resolve_token 拒绝
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

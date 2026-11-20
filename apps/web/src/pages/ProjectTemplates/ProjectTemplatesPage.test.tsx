@@ -1,5 +1,5 @@
 /**
- * v0.10.14 · E2 · ProjectTemplatesPage 单测.
+ * ProjectTemplatesPage 单测.
  *
  * 覆盖:
  * - 加载 / 空态

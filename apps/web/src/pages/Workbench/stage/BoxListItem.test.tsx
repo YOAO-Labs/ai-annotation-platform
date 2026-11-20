@@ -50,7 +50,7 @@ describe("BoxListItem", () => {
     expect(getByText("(100, 100) · 300×200")).toBeInTheDocument();
   });
 
-  it("v0.10.9 · 渲染 onRefine 按钮并触发回调（AI 行）", () => {
+  it("渲染 onRefine 按钮并触发回调（AI 行）", () => {
     const b: Annotation = {
       ...base,
       annotation_type: "polygon",
@@ -122,7 +122,7 @@ describe("BoxListItem", () => {
     expect(getByText("已删除")).toBeInTheDocument();
   });
 
-  it("v0.10.9 · 渲染 onRefine 按钮并触发回调（user polygon 行）", () => {
+  it("渲染 onRefine 按钮并触发回调（user polygon 行）", () => {
     const b: Annotation = {
       ...base,
       annotation_type: "polygon",

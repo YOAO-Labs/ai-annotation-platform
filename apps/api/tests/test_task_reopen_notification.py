@@ -1,11 +1,8 @@
-"""v0.7.6 · reopen → 通知中心 fan-out 联动。
+"""reopen → 通知中心 fan-out 联动。
 
 reviewer approve / reject 后，标注员可单方面 reopen。reopen 应给原 reviewer
 往通知中心 (NotificationService) 写一条 type='task.reopened' 的记录。
 原 reviewer 调 GET /api/v1/notifications 应能在结果中看到该 entry。
-
-历史：v0.6.6 用 audit-derived /me/notifications；v0.7.0 删了该端点改用持久化通知中心，
-本测试在 v0.7.0 时 skip；v0.7.6 reopen 接 NotificationService.fan_out 后恢复。
 """
 
 from __future__ import annotations

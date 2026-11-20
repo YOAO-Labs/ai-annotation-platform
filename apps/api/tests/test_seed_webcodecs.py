@@ -1,4 +1,4 @@
-"""WebCodecs 确定性 fixture 生成纯函数测试(v0.23.15 Phase B)。
+"""WebCodecs 确定性 fixture 生成纯函数测试。
 
 验证 numpy→ffmpeg→ffprobe→avcC pipeline 产出与生产同结构的 chunk samples / codec
 description,以及 unsupported / malformed 的确定性篡改。需要主机提供 ffmpeg / ffprobe;

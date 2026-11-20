@@ -33,7 +33,7 @@ const STATUS_STYLE: Record<
     className: "text-muted-foreground bg-card",
     cancelClassName: "!text-muted-foreground",
   },
-  // v0.21.28 · 候选/接受流。
+  // 候选/接受流。
   pending_review: {
     label: "待接受",
     className: "text-status-info bg-status-info-soft",

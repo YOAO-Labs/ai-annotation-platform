@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ModelCapability(BaseModel):
-    """v0.14.9 · 能力声明协议 v2 — 单个 model 条目 (一个 backend 暴露 N 个).
+    """能力声明协议 v2 — 单个 model 条目 (一个 backend 暴露 N 个).
 
     由 services/ml_capabilities._normalize_model 规范化后存入
     BackendCapabilities.models; `task` 是条目边界 (决定输出几何与项目兼容性),

@@ -1,4 +1,4 @@
-"""v0.8.6 F2 · ML Backend 周期健康检查 worker 单测。
+"""ML Backend 周期健康检查 worker 单测。
 
 覆盖：
 - `MLBackendService.check_health` 写入 `last_checked_at` + 更新 `state`

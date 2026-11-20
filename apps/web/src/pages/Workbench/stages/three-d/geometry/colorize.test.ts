@@ -167,7 +167,7 @@ describe("colorizePoints", () => {
     expectColors(out, [1, 1, 1, 1, 1, 1, 0.5, 0.5, 0.5]);
   });
 
-  it("无 rasters 参数等价 v0.13.6 行为(undefined / null / [null] 均不做遮挡)", () => {
+  it("没有 rasters 时不做遮挡（undefined / null / [null]）", () => {
     const cam: CameraSample = {
       calib: calib(0, 0),
       width: 2,

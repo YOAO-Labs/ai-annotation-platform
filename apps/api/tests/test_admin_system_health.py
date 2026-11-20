@@ -1,4 +1,4 @@
-"""v0.10.58 · super_admin system health aggregate endpoint."""
+"""Tests for the aggregate system health endpoint available to super admins."""
 
 from __future__ import annotations
 

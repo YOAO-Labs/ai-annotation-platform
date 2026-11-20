@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// v0.18.30 · 从 capability-registry.snapshot.json 生成前端受控词表常量 (pnpm codegen 的一环)。
+// 从 capability-registry.snapshot.json 生成前端受控词表常量 (pnpm codegen 的一环)。
 // 镜像 OpenAPI codegen: 读后端导出的 snapshot (不依赖运行后端) → 静态 ts 常量。
 // 受控词表 SSOT 在后端 app/services/capability_registry.py; 生成物 gitignore, build 时重生成。
 

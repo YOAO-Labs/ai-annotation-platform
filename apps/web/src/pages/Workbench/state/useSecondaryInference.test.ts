@@ -1,4 +1,4 @@
-// v0.20.11 · buildSecondaryInferencePayload 能力→请求参数映射单测。
+// buildSecondaryInferencePayload 能力→请求参数映射单测。
 import { describe, it, expect, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

@@ -1,4 +1,4 @@
-# v0.8.8 · Prometheus scrape 配置（dev / staging）。
+# Prometheus scrape 配置（dev / staging）。
 # Production 部署用各自的 prometheus 实例，把这份文件作为参考即可。
 #
 # 启动：`docker compose --profile monitoring up -d prometheus grafana`
@@ -9,7 +9,7 @@ global:
   external_labels:
     env: development
 
-# v0.11.21 · 告警：规则在 alerts.yml，firing 后推给 alertmanager（monitoring profile）。
+# 告警：规则在 alerts.yml，firing 后推给 alertmanager（monitoring profile）。
 # alertmanager target 用 service DNS（生产/同网正确）；dev 本环境若 service DNS 不解析，
 # 改成 host.docker.internal:9093（prometheus 已配 extra_hosts host-gateway）。
 alerting:
@@ -29,7 +29,7 @@ scrape_configs:
         labels:
           service: anno-api
 
-  # ML backend 自动发现（v0.11.19）：从 anno-api 的 /internal/metrics-targets 拉
+  # ML backend 自动发现：从 anno-api 的 /internal/metrics-targets 拉
   # target 列表，真相源是 ml_backends 表 —— 新 backend 在超管注册即被抓取，无需改本文件。
   # backend 的 /metrics（grounded-sam2 8001 / sam3 8002）暴露 GPU/推理/cache 指标，免鉴权。
   # service / backend_id label 由端点注入，Grafana 按 service 区分多个 backend。

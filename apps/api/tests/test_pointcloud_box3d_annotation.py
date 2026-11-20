@@ -1,8 +1,8 @@
-"""v0.13.x · 点云 3D 框 / 分割标注 service 层校验.
+"""点云 3D 框 / 分割标注 service 层校验.
 
-后端无新端点 —— 标注 CRUD 链路在 v0.13.0 已为 Box3DGeometry + lidar_box_3d
-工具单位备好 (Geometry 判别联合的 box_3d / point_mask_3d 分发由 test_jsonb_strong_types
-覆盖)。本测试锁定 service 层创建路径:
+标注 CRUD 链路支持 Box3DGeometry 和 lidar_box_3d 工具单位。
+Geometry 判别联合的 box_3d / point_mask_3d 分发由 test_jsonb_strong_types 覆盖。
+本测试约束 service 层的创建行为：
 
 - create: lidar_box_3d 配了类集合且 class_name 命中 → 落库, geometry 原样
   存为 box_3d (center/size/rotation 各 len 3)

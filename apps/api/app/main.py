@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 setup_logging(level="DEBUG" if settings.debug else "INFO")
 
 
-# v0.6.6 · Sentry 初始化（DSN 留空则完全不启用）
+# Sentry 初始化（DSN 留空则完全不启用）
 if settings.sentry_dsn:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
             "PRODUCTION ENVIRONMENT DETECTED WITH DEFAULT SECRET KEY. "
             "Set SECRET_KEY to a strong random value in your .env file."
         )
-    # v0.8.8 · production 环境未配置 SENTRY_DSN 时启动告警（不阻断启动，
+    # production 环境未配置 SENTRY_DSN 时启动告警（不阻断启动，
     # 避免运维忘记填导致线上错误失踪）。
     if settings.environment == "production" and not settings.sentry_dsn:
         logger.warning(
@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
     if "invalid" in credential_states.values():
         logger.warning("Some managed inference credential stores are unavailable")
     storage_service.ensure_all_buckets()
-    # v0.19.0 ADR-0044 · env 配置的 ML backend 启动时 upsert 成全局注册项 (source=env)。
+    # ADR-0044 · env 配置的 ML backend 启动时 upsert 成全局注册项 (source=env)。
     # 失败不阻断启动 (探测超时/DB 抖动仅告警)。
     try:
         from app.services.ml_backend_env_sync import sync_env_backends
@@ -278,7 +278,7 @@ if settings.environment == "production" and not settings.cors_allow_origins:
         "production 环境必须显式设置 CORS_ALLOW_ORIGINS（JSON 列表或逗号分隔）"
     )
 
-# v0.8.8 · SecurityHeadersMiddleware production-only。
+# SecurityHeadersMiddleware production-only。
 # 注册顺序在 CORSMiddleware 之前 → dispatch 后执行 → 写 HSTS/CSP 时
 # CORS 头已就位，可以一并出站。
 if settings.environment == "production":

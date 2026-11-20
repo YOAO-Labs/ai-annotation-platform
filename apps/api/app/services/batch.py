@@ -75,7 +75,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 
-# v0.16.x 拆分：角色权限守卫已抽到 batch_permissions.py，此处冗余别名 re-export，
+# batch_permissions.py 持有角色权限守卫；此处保留已有导入入口，
 # 保持 `from app.services.batch import assert_can_transition/REVERSE_TRANSITIONS/...` 旧入口不变。
 from app.services.batch_permissions import (
     REVERSE_TRANSITIONS as REVERSE_TRANSITIONS,
@@ -87,7 +87,7 @@ from app.services.batch_permissions import (
 
 logger = logging.getLogger(__name__)
 
-# v0.12.0 B5 · split 回写 batch_id 的分块大小，避免十万级未归类「一键全量建包」
+# split 回写 batch_id 的分块大小，避免十万级未归类「一键全量建包」
 # 打成单条巨 IN/UPDATE。模块级常量便于测试覆盖分块边界。
 ASSIGN_CHUNK_SIZE = 5000
 
@@ -117,13 +117,13 @@ def _tracked_task_ids(
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
     BatchStatus.DRAFT: {BatchStatus.ACTIVE},
-    # v0.9.5：active → pre_annotated 由 batch_predict task 末尾自动触发
+    # active → pre_annotated 由 batch_predict task 末尾自动触发
     BatchStatus.ACTIVE: {
         BatchStatus.ANNOTATING,
         BatchStatus.PRE_ANNOTATED,
         BatchStatus.ARCHIVED,
     },
-    # v0.9.5：pre_annotated → annotating 与 active 同语义（scheduler 自动驱动）；
+    # pre_annotated → annotating 与 active 同语义（scheduler 自动驱动）；
     # → active 是 owner 兜底重置（逆向，丢弃预标 predictions）；→ archived 任意 owner
     BatchStatus.PRE_ANNOTATED: {
         BatchStatus.ANNOTATING,
@@ -132,15 +132,15 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     },
     BatchStatus.ANNOTATING: {BatchStatus.REVIEWING, BatchStatus.ARCHIVED},
     BatchStatus.REVIEWING: {BatchStatus.APPROVED, BatchStatus.REJECTED},
-    # v0.7.3：approved → reviewing 重开审核（owner 兜底，需 reason）
+    # approved → reviewing 重开审核（owner 兜底，需 reason）
     BatchStatus.APPROVED: {BatchStatus.ARCHIVED, BatchStatus.REVIEWING},
-    # v0.7.3：rejected → reviewing 跳过重标直接复审（owner 兜底，需 reason）
+    # rejected → reviewing 跳过重标直接复审（owner 兜底，需 reason）
     BatchStatus.REJECTED: {
         BatchStatus.ACTIVE,
         BatchStatus.ARCHIVED,
         BatchStatus.REVIEWING,
     },
-    # v0.7.3：archived → active 撤销归档（owner 兜底，需 reason）；后续由 scheduler 自动推进到正确阶段
+    # archived → active 撤销归档（owner 兜底，需 reason）；后续由 scheduler 自动推进到正确阶段
     BatchStatus.ARCHIVED: {BatchStatus.ACTIVE},
 }
 
@@ -247,12 +247,12 @@ class BatchService:
         project_id: uuid.UUID,
         default: TaskBatch | None,
     ) -> list[uuid.UUID]:
-        # v0.6.8 B-14：可被 split 的「未归类任务」= batch_id IS NULL ∪ 老项目残留 B-DEFAULT 中的任务。
-        # v0.6.7 后新项目不再有 B-DEFAULT；删完批次后任务回退为 batch_id=NULL，仍能被 split。
+        # 可被 split 的「未归类任务」= batch_id IS NULL ∪ 旧项目 B-DEFAULT 内的任务。
+        # 没有默认批次的项目中，删除批次后任务回退为 batch_id=NULL，仍可 split。
         conds = [task_row.batch_id.is_(None)]
         if default is not None:
             conds.append(task_row.batch_id == default.id)
-        # v0.11.22：按创建顺序返回，使「顺序切分（不打乱）」结果稳定可预期。
+        # 按创建顺序返回，使「顺序切分（不打乱）」结果稳定可预期。
         result = await self.db.execute(
             select(task_row.id)
             .where(task_row.project_id == project_id)
@@ -424,7 +424,7 @@ class BatchService:
                 detail=f"Cannot transition from '{batch.status}' to '{target_status}'",
             )
 
-        # v0.7.0：draft → active 必须有任务（拒绝空批次激活）
+        # draft → active 必须有任务（拒绝空批次激活）
         if batch.status == BatchStatus.DRAFT and target_status == BatchStatus.ACTIVE:
             count = (
                 await self.db.execute(
@@ -438,7 +438,7 @@ class BatchService:
                     status_code=400, detail="cannot activate empty batch"
                 )
 
-        # v0.7.3：approved → reviewing 重开审核 — 清空原审核元数据（reviewed_at / reviewed_by / review_feedback）
+        # approved → reviewing 重开审核 — 清空原审核元数据（reviewed_at / reviewed_by / review_feedback）
         # rejected → reviewing 不清反馈：复审时 reviewer 需要看到上次原因
         if is_decision:
             await self._assert_locked_batch_evidence(batch, actor_id)
@@ -456,7 +456,7 @@ class BatchService:
         )
         await self.db.flush()
 
-        # v0.9.13 · 广播 batch 状态变更, 前端 useBatchEventsSocket invalidate ["batches", projectId]
+        # 广播 batch 状态变更, 前端 useBatchEventsSocket invalidate ["batches", projectId]
         if result.changed:
             await publish_batch_status_change(
                 str(batch.project_id),
@@ -471,7 +471,7 @@ class BatchService:
         return batch
 
     async def _count_protected_tasks(self, batch_id: uuid.UUID) -> tuple[int, int, int]:
-        """v0.11.25 · 统计「有进行中成果」的 task: 非 pending 数 / 已预标数 / 去重后实际受影响数。
+        """统计「有进行中成果」的 task: 非 pending 数 / 已预标数 / 去重后实际受影响数。
         non_pending 与 predicted 可能重叠（同一 task 既非 pending 又已预标），affected 是二者的
         并集去重计数，供前端展示「将影响 N 个任务」避免 X+Y 误判。供 delete / bulk_delete 保护判定。"""
         row = (
@@ -513,7 +513,7 @@ class BatchService:
                 status_code=400, detail="Cannot delete the default batch"
             )
 
-        # v0.11.25：默认保护——批次含非 pending 或已预标 task 时拒删，需显式 force（前端弹保护框）。
+        # 默认保护——批次含非 pending 或已预标 task 时拒删，需显式 force（前端弹保护框）。
         non_pending = predicted = 0
         if not force:
             non_pending, predicted, affected = await self._count_protected_tasks(
@@ -535,7 +535,7 @@ class BatchService:
                     },
                 )
 
-        # v0.11.23：解绑前先重置非 pending task 为 pending、清 AI 预标（保留人工标注），
+        # 解绑前先重置非 pending task 为 pending、清 AI 预标（保留人工标注），
         # 否则 review/completed task 解绑后成孤儿、AI 预标残留会在重分包再预标时叠加重复标注。
         # 必须在改写 batch_id 之前调用（清理靠 Task.batch_id==batch_id 子查询定位）。
         await self._reset_and_clean_batch_tasks(
@@ -636,7 +636,7 @@ class BatchService:
                 detail="n_batches cannot exceed the number of tasks to split",
             )
 
-        # v0.11.22：shuffle=False 时保留 _splittable_task_ids 的创建顺序（顺序切分 / 顺序注入）。
+        # shuffle=False 时保留 _splittable_task_ids 的创建顺序（顺序切分 / 顺序注入）。
         if data.shuffle:
             random.shuffle(task_ids)
         chunk_size = len(task_ids) // n
@@ -651,7 +651,7 @@ class BatchService:
 
             batch = await self._create_batch(
                 project_id=project_id,
-                # v0.11.22: n=1 uses the name itself without a numeric suffix.
+                # n=1 uses the name itself without a numeric suffix.
                 name=data.name_prefix if n == 1 else f"{data.name_prefix} {i + 1}",
                 priority=data.priority,
                 deadline=data.deadline,
@@ -680,7 +680,7 @@ class BatchService:
             )
 
         default = await self.get_default_batch(project_id)
-        # v0.6.8 B-14：metadata 过滤同样作用于「未归类 ∪ B-DEFAULT」任务集合
+        # metadata 过滤同样作用于「未归类 ∪ B-DEFAULT」任务集合
         conds = [task_row.batch_id.is_(None)]
         if default is not None:
             conds.append(task_row.batch_id == default.id)
@@ -727,7 +727,7 @@ class BatchService:
             )
 
         default = await self.get_default_batch(project_id)
-        # v0.6.8 B-14：id_range 同样作用于「未归类 ∪ B-DEFAULT」任务集合
+        # id_range 同样作用于「未归类 ∪ B-DEFAULT」任务集合
         conds = [task_row.batch_id.is_(None)]
         if default is not None:
             conds.append(task_row.batch_id == default.id)
@@ -838,7 +838,7 @@ class BatchService:
     ) -> int:
         if not task_ids:
             return 0
-        # v0.12.0 B5 · 分块 UPDATE，避免十万级未归类「一键全量建包」打成单条巨 IN/UPDATE。
+        # 分块 UPDATE，避免十万级未归类「一键全量建包」打成单条巨 IN/UPDATE。
         affected = 0
         for i in range(0, len(task_ids), ASSIGN_CHUNK_SIZE):
             chunk = task_ids[i : i + ASSIGN_CHUNK_SIZE]
@@ -898,7 +898,7 @@ class BatchService:
         preview_version: str | None = None,
         batch_ids: list[uuid.UUID] | None = None,
     ) -> dict[str, Any]:
-        """v0.7.2：把项目下的 batch 圆周分派给所选 annotator / reviewer。
+        """把项目下的 batch 圆周分派给所选 annotator / reviewer。
         - 一 batch = 一标注员 + 一审核员
         - only_unassigned=True：仅 annotator_id IS NULL 的 batch 写 annotator；reviewer 同理
         - 不会处理 archived 状态的 batch
@@ -1021,7 +1021,7 @@ class BatchService:
         project.review_tasks = row.review
         project.in_progress_tasks = row.in_progress
 
-        # v0.10.25 · 同步 batch_summary 物化列 (取代 list_projects 实时 GROUP BY)
+        # 同步 batch_summary 物化列 (取代 list_projects 实时 GROUP BY)
         bs_row = (
             await self.db.execute(
                 select(
@@ -1081,7 +1081,7 @@ class BatchService:
         return result.changed
 
     async def check_auto_transitions(self, batch_id: uuid.UUID | None) -> None:
-        # v0.9.12 · INFO 日志诊断 B-15: admin 反馈 "标注员开始标注后 batch 未转 annotating".
+        # INFO 日志诊断 B-15: admin 反馈 "标注员开始标注后 batch 未转 annotating".
         # 6 个调用点见 tasks.py (acquire_next_task / save_annotation / complete_task etc.).
         if not batch_id:
             return
@@ -1089,7 +1089,7 @@ class BatchService:
         if not batch:
             logger.info("check_auto_transitions: batch_id=%s not found", batch_id)
             return
-        # v0.9.15 · ADR-0008: admin_locked batch 跳过自动状态推进
+        # ADR-0008 · admin_locked batch 跳过自动状态推进
         if batch.admin_locked:
             logger.info(
                 "check_auto_transitions: batch_id=%s admin_locked, skipping", batch_id
@@ -1276,7 +1276,7 @@ class BatchService:
         reviewer_id: uuid.UUID,
         actor_id: uuid.UUID | None = None,
     ) -> tuple[TaskBatch, int]:
-        """v0.7.0 方案 A · 软重置语义：
+        """软重置语义：
         - 仅把 review/completed 任务回退到 pending（让标注员可继续动它们）
         - **不**改 is_labeled，**不**清 annotations.is_active（保留历史标注）
         - 批次写入 review_feedback / reviewed_at / reviewed_by
@@ -1286,7 +1286,7 @@ class BatchService:
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        # v0.24.x：整批退回允许从 active / annotating / reviewing 发起——审核页会列出
+        # 整批退回允许从 active / annotating / reviewing 发起——审核页会列出
         # 部分送审（review_tasks > 0）但批次状态尚未推进到 reviewing 的批次，此时也应
         # 能把整批打回重做。语义仍是软重置：review/completed → pending，写反馈并置 rejected。
         rejectable = {
@@ -1320,24 +1320,23 @@ class BatchService:
         await self.recalculate_counters(batch_id)
         return batch, result.affected
 
-    # ── Reset to draft (v0.7.6) ────────────────────────────────────────────
+    # ── Reset to draft ──────────────────────────────────────────────────
 
     async def reset_to_draft(
         self, batch_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
     ) -> tuple[TaskBatch, int, dict[str, int]]:
-        """v0.7.6 · 终极重置：任意状态 → draft.
+        """将批次重置为 draft。
 
-        v0.9.12 BUG B-15 · 加 prediction 级联清理 (predictions / failed_predictions /
-        prediction_jobs / prediction_metas), 否则 `/ai-pre` 仍渲染该 batch 卡片.
+        清除预测、失败预测、预测元数据和批次预测作业历史，
+        避免 `/ai-pre` 继续展示该批次的就绪卡片。
 
-        B-33 (v0.10.17) · 之前只删 prediction 行, 却漏改 task 上的物化字段
-        (total_predictions / total_annotations / is_labeled) 与 AI 已采纳的 annotation,
-        导致 reset 之后 task 仍标 "AI 已预标"; 更严重的是再次跑预标时新 prediction
-        会与残留的 prediction_based annotation 叠加. 修复:
+        清理也覆盖任务计数和从预测采纳的标注，
+        避免任务仍显示为已预标或在重跑预标时与残留标注叠加。
+        处理方式：
           - 软删 source='prediction_based' 的 annotation (人工标注 source='manual' 保留)
           - task.total_predictions 归 0; 重算 total_annotations / is_labeled
         删除顺序: NULL annotations.parent_prediction_id → DELETE prediction_metas →
-        DELETE predictions/failed_predictions → DELETE prediction_jobs.
+        DELETE predictions/failed_predictions；批次作业历史由 async-job owner 清理。
 
         Returns: (batch, tasks_reset, cascade_counts)
             cascade_counts = {"predictions": N, "failed_predictions": N,
@@ -1388,9 +1387,9 @@ class BatchService:
     ) -> dict[str, int]:
         """把批次内所有非 pending task 重置为 pending, 并清理 AI 预标产物, 保留人工标注.
 
-        供 reset_to_draft (v0.7.6) 与 delete / bulk_delete (v0.11.23) 复用. 删除批次若
+        供 reset_to_draft 与 delete / bulk_delete 复用。删除批次若
         不走这套清理, review/completed 的 task 会带状态变孤儿; AI 预标残留 (predictions
-        + prediction_based annotation) 会在重分包后再次预标时叠加重复标注 (见 B-33).
+        + prediction_based annotation) 会在重新分包并预标后叠加重复标注。
 
         必须在 task 仍 batch_id==batch_id 时调用 (状态重置/锁/job 清理靠该条件定位).
         预测清理委托给 clean_task_predictions (按 task_id).
@@ -1438,7 +1437,7 @@ class BatchService:
         total_annotations / is_labeled.
 
         供 _reset_and_clean_batch_tasks (删批次/重置) 与 batch_predict overwrite 模式
-        (v0.11.24) 复用. task_ids 为空时 no-op.
+        复用。task_ids 为空时不执行清理。
 
         A2 · 软删 AI 标注是内容删除, 需要证据: 用户触发的调用传入 ``actor_id`` 并记为该
         actor 的贡献; 系统触发且无 actor 时, 已记录的贡献会漏掉删除者, 因此把这些 task 的
@@ -1527,7 +1526,7 @@ class BatchService:
             "ai_annotations_deactivated": ai_annotations_deactivated,
         }
 
-    # ── Bulk operations (v0.7.3) ───────────────────────────────────────────
+    # ── Bulk operations ─────────────────────────────────────────────────
 
     async def _list_batches_in_project(
         self,
@@ -1628,7 +1627,7 @@ class BatchService:
             if bid in seen_delete_ids:
                 succeeded.append(bid)
                 continue
-            # v0.11.25：默认保护——含进行中成果/已预标的批次非 force 时计入 failed（partial 语义）
+            # 默认保护——含进行中成果/已预标的批次非 force 时计入 failed（partial 语义）
             non_pending = predicted = 0
             if not force:
                 non_pending, predicted, affected = await self._count_protected_tasks(
@@ -1645,7 +1644,7 @@ class BatchService:
                         }
                     )
                     continue
-            # v0.11.23：与单删一致——解绑前先重置非 pending task + 清 AI 预标（保留人工标注）
+            # 与单删一致——解绑前先重置非 pending task + 清 AI 预标（保留人工标注）
             await self._reset_and_clean_batch_tasks(
                 bid,
                 actor_id=actor_id,
@@ -1803,7 +1802,7 @@ class BatchService:
         await self.db.flush()
         return {"succeeded": succeeded, "skipped": skipped, "failed": failed}
 
-    # ── v0.9.15 · ADR-0008 Admin Lock ─────────────────────────────────────
+    # ── ADR-0008 · Admin Lock ─────────────────────────────────────
 
     async def admin_lock(
         self,
@@ -1853,7 +1852,7 @@ class BatchService:
         await self.db.flush()
         return batch
 
-    # ── v0.9.15 · Bulk Approve/Reject ──────────────────────────────────────
+    # ── Bulk Approve/Reject ──────────────────────────────────────
 
     async def bulk_approve(
         self,
@@ -1995,8 +1994,6 @@ class BatchService:
     # ── AI/ML hook ─────────────────────────────────────────────────────────
 
     async def on_batch_approved(self, batch_id: uuid.UUID) -> None:
-        # TODO(v0.7.x+)：active learning 闭环 — 把已通过批次推回 ML backend 训练队列。
-        # 依赖 ML backend / 训练队列基座（ROADMAP A · AI/模型 区）落地后再实现。
         logger.info(
             "on_batch_approved hook: batch_id=%s — no-op (reserved for active learning)",
             batch_id,

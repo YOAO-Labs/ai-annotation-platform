@@ -117,7 +117,7 @@ describe("VariantSelector", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // v0.14.13 · yolo 协议 v2: axis_key 任意 (series/size 不在 VARIANT_FIELD_KEYS 白名单)
+  // yolo 协议 v2: axis_key 任意 (series/size 不在 VARIANT_FIELD_KEYS 白名单)
   it("renders arbitrary axis_keys from supportedVariants (yolo series/size)", () => {
     render(
       <VariantSelector
@@ -154,7 +154,7 @@ describe("VariantSelector", () => {
     expect(size.value).toBe("s");
   });
 
-  // v0.14.13 · sam3 单档 model_variant: 也是任意 axis_key, 只有一个选项
+  // sam3 单档 model_variant: 也是任意 axis_key, 只有一个选项
   it("renders single-option axis for sam3 model_variant", () => {
     render(
       <VariantSelector
@@ -176,7 +176,7 @@ describe("VariantSelector", () => {
     expect(select.options.length).toBe(1);
   });
 
-  // v0.14.12 · variantCombinations 非笛卡尔积联动: series=yolov9 → size 受限到 {t,s,m,c,e}
+  // variantCombinations 非笛卡尔积联动: series=yolov9 → size 受限到 {t,s,m,c,e}
   it("filters second axis options by variantCombinations (yolo non-cartesian)", () => {
     render(
       <VariantSelector
@@ -222,7 +222,7 @@ describe("VariantSelector", () => {
     expect(sizeValues).not.toContain("x");
   });
 
-  // v0.14.13 · 联动: 切第一轴让第二轴当前值变非法, onChange next 应清掉非法 value
+  // 联动: 切第一轴让第二轴当前值变非法, onChange next 应清掉非法 value
   it("clears downstream axis when series change makes current size illegal", () => {
     const onChange = vi.fn();
     render(
@@ -249,7 +249,7 @@ describe("VariantSelector", () => {
     expect(lastCall.size).toBeUndefined();
   });
 
-  // v0.14.13 · defaults 优先级高于 schema.default
+  // defaults 优先级高于 schema.default
   it("uses defaults over schema.default for initial value", () => {
     render(
       <VariantSelector

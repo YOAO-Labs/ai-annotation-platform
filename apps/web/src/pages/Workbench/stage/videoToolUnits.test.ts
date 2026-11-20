@@ -178,7 +178,7 @@ describe("videoToolEnabled", () => {
   });
 });
 
-// v0.21.23 · 交互式 SAM 工具必须登记进 VIDEO_TOOL_TARGET，否则 videoToolEnabled 的
+// 交互式 SAM 工具必须登记进 VIDEO_TOOL_TARGET，否则 videoToolEnabled 的
 // 「未知工具 → true」会静默放行、绕过全部 tool_bindings 门控（本 epic 头号陷阱）。
 describe("videoToolUnits · 交互式 SAM 工具", () => {
   it("smart-point / smart-box / exemplar 按产出几何归 region 单位", () => {

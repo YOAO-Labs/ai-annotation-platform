@@ -5,7 +5,7 @@ import { MIN_SIZE } from "./triview";
 import { fitSize, fitBottom, fitYaw, fitSizeAndBottom, psrFromPoints } from "./autofit";
 
 /* ──────────────────────────────────────────────────────────────────────
- * v0.13.8 · autofit 纯几何单测。合成数据 + 手算预期 + toBeCloseTo 浮点比较。
+ * autofit 纯几何单测。合成数据 + 手算预期 + toBeCloseTo 浮点比较。
  * inside 判定基于 box-local 反变换 (q⁻¹ · (p - center)), 与实现同口径。
  * ────────────────────────────────────────────────────────────────────── */
 

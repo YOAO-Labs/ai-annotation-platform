@@ -1,4 +1,4 @@
-// v0.6.4 · ImageStage 内的 5th Konva Layer：渲染（+ 编辑）评论画布批注。
+// ImageStage 内的 5th Konva Layer：渲染（+ 编辑）评论画布批注。
 //
 // 坐标系：shapes 永远是归一化 [0,1]，渲染时乘 imgW/imgH；strokeWidth = 2/scale
 // 保持屏幕粗细恒定。Layer 是 ImageStage Stage 的子节点，自动跟随 vp.tx/ty/scale。

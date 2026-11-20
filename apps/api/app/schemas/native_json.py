@@ -41,7 +41,7 @@ class AnnotationEntry(BaseModel):
 
     geometry: dict[str, Any]
     class_name: str | None = None
-    # v0.10.17 · 工具维度绑定 (1.1+). 老 1.0 reader 走 extra=ignore 容忍缺失.
+    # 工具维度绑定 (1.1+). 老 1.0 reader 走 extra=ignore 容忍缺失.
     tool_unit_id: str | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
@@ -85,11 +85,11 @@ class AnnotationEntry(BaseModel):
 
 class PredictionEntry(BaseModel):
     geometry: dict[str, Any] | None = None
-    # v0.10.53 · 一个 prediction entry 可合并多个 shape 写入同一 Prediction.result.
+    # 一个 prediction entry 可合并多个 shape 写入同一 Prediction.result.
     # 与 geometry 同时存在时 shapes 优先; 老单 geometry entry 继续兼容.
     shapes: list[dict[str, Any]] | None = None
     class_name: str | None = None
-    # v0.10.17 · 工具维度绑定 (1.1+).
+    # 工具维度绑定 (1.1+).
     tool_unit_id: str | None = None
     confidence: float | None = None
     model_version: str | None = None
@@ -135,9 +135,9 @@ class TaskBlock(BaseModel):
     available_tasks: list[VisualTaskName] = Field(default_factory=list)
     task_match: TaskMatch
     file_path: str | None = None
-    # v0.10.31 · 媒体维度 (1.2+). 1.x reader 走 extra=ignore, 缺失默认 "image".
+    # 媒体维度 (1.2+). 1.x reader 走 extra=ignore, 缺失默认 "image".
     media_type: Literal["image", "video", "lidar"] = "image"
-    # v0.10.31 · 视频专属元数据: 采样配置/fps/frame_count/timetable 摘要/segment/chapter.
+    # 视频专属元数据: 采样配置/fps/frame_count/timetable 摘要/segment/chapter.
     video: dict[str, Any] | None = None
     external_id: str | None = None
     annotations: list[AnnotationEntry] = Field(default_factory=list)
@@ -161,7 +161,7 @@ class ExportedFrom(BaseModel):
 class ProjectMeta(BaseModel):
     name: str | None = None
     type_key: str | None = None
-    # v0.10.17 · classes_config / attribute_schema 在 1.x 期间继续保留 (老 reader 派生用);
+    # classes_config / attribute_schema 在 1.x 期间继续保留 (老 reader 派生用);
     # tool_bindings 是 1.1+ 真值字段, 1.0 reader 走 extra=ignore 容忍.
     classes_config: dict[str, Any] = Field(default_factory=dict)
     attribute_schema: dict[str, Any] = Field(default_factory=lambda: {"fields": []})

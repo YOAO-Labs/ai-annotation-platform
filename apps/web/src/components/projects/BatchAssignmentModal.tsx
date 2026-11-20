@@ -22,7 +22,7 @@ interface Props {
 }
 
 /**
- * v0.7.2 · 一 batch = 一标注员 + 一审核员（单选语义）。
+ * 一 batch = 一标注员 + 一审核员（单选语义）。
  * 提交后 PATCH /batches/{id}（写 annotator_id / reviewer_id）。
  */
 export function BatchAssignmentModal({ projectId, batch, onClose }: Props) {

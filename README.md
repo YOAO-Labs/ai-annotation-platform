@@ -58,9 +58,9 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 ## 后端解耦与插件化
 
-核心能力的目标形态是随项目发布的内置插件，模型、UI、训练器、连接器与格式等扩展通过版本化契约接入。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和开发 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立维护面向自定义插件作者的能力抽象与工具；[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 维护六个官方插件、模型专属适配和预训练目录。API SDK、契约权威与业务治理留在平台。现有实现明确归属推理能力，UI、训练器、数据导出不依赖推理运行时，也不提前创建空 SDK。全扩展点统一装配尚未完成，资格以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准。
+平台内置核心模块负责业务规则、权限和事务；可安装的推理插件提供模型能力。管理员按[插件安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)审核制品、命名池以及 CPU／CUDA 资源配置，安装成功不等于项目已经启用。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供自定义推理插件的作者工具；[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 维护六个官方插件、模型专属适配和预训练目录。平台 API SDK 与公共契约留在平台仓库。UI、训练器和数据导出没有共用这套推理 SDK；各扩展点的实现与验收状态见[模块部署台账](./docs-site/dev/concepts/module-deployment.md)。
 
-平台 API 客户端是独立的 `yoao-sdk`（导入 `yoao`、命令 `yoao`）；插件作者 SDK 是 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 的 `yoao-inference-plugin-sdk`（导入 `yoao_inference_plugin`、命令 `yoao-plugin`）。官方实现与候选镜像构建见 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)。当前源码安装使用经 manifest 与 SHA256 核验的候选 wheel；历史公开制品不证明新发行名已发布。完整第三方 wheelhouse、权重、私有数据集和 OCI 镜像的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
+平台 API 客户端是 `yoao-sdk`（导入 `yoao`，管理员使用 `yoao plugins`）。当前插件作者候选是 `yoao-inference-plugin-sdk`（导入 `yoao_inference_plugin`，命令 `yoao-plugin`）；安装步骤见[当前作者指南](./docs-site/dev/tutorials/ml-backend-starter.md)。请使用与平台契约匹配、经 manifest 与 SHA256 核验的候选制品，并阅读该源码修订随附的构建说明。公开旧版的 `aap-inference-plugin` 命令和制品不能替代当前候选。完整第三方 wheelhouse、权重、私有数据集和 OCI 镜像的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
 
 受控模型兼容声明区分具名导出格式与显式 `format: null` 的原生 checkpoint；两者都必须与实际插件能力及平台模型回执精确匹配，清单声明不替代权重审批或 CPU／CUDA 资格。
 
@@ -370,7 +370,7 @@ ai-annotation-platform/
 └── package.json
 ```
 
-YOLO、RapidOCR 和 ONNXTools 的官方推理实现位于 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)，平台负责部署审批与受控资产。
+六个官方推理插件的实现位于 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)，平台负责部署审批与受控资产。
 
 ## 技术栈
 

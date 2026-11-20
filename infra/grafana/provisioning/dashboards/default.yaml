@@ -1,4 +1,4 @@
-# v0.8.8 · Grafana auto-provision dashboards。
+# Grafana auto-provision dashboards。
 # 把 /var/lib/grafana/dashboards/ 下的 *.json 自动加载到 "Anno" folder。
 apiVersion: 1
 

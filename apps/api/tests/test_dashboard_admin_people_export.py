@@ -1,4 +1,4 @@
-"""v0.12.5 · GET /dashboard/admin/people/export CSV 导出（A2）。"""
+"""GET /dashboard/admin/people/export 的 CSV 导出测试。"""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ async def test_admin_people_export_csv(
 async def test_admin_people_export_requires_admin_role(
     httpx_client, db_session, project_admin, annotator
 ):
-    """RBAC 角色门(v0.12.6 起放行 project_admin,annotator 仍拒)。
+    """项目管理员可以导出，标注员仍被拒绝。
 
     覆盖三条边界:
     - annotator → 403(无 admin 角色)

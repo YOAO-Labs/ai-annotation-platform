@@ -1,4 +1,4 @@
-"""v0.9.7 fix · LabelStudio → 内部 schema adapter 测试."""
+"""LabelStudio → 内部 schema adapter 测试."""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ def test_legacy_class_field_fallback():
 
 
 def test_already_internal_shape_passthrough():
-    """已是内部 schema (向后兼容): 原样返回, v0.10.17 在缺 tool_unit_id 时回填."""
+    """已是内部 schema 时保留原对象，仅补缺失的 tool_unit_id。"""
     raw = {
         "type": "rectanglelabels",
         "class_name": "cat",
@@ -138,7 +138,7 @@ def test_already_internal_shape_passthrough():
     out = to_internal_shape(raw)
     assert out["class_name"] == "cat"
     assert out["geometry"] == raw["geometry"]
-    # v0.10.17 · 缺 tool_unit_id 时按 type 反推回填
+    # 缺 tool_unit_id 时按 type 反推回填
     assert out["tool_unit_id"] == "bbox"
 
 
@@ -239,7 +239,7 @@ def test_non_dict_input_safe():
     assert to_internal_shape([1, 2]) == {}
 
 
-# ─── v0.14.9 · 协议 v2 OCR / doc_layout attributes 透传 ─────────────────────
+# ─── 协议 v2 OCR / doc_layout attributes 透传 ─────────────────────
 
 
 def test_ocr_shape_extracts_attributes_text():
@@ -303,7 +303,7 @@ def test_doc_layout_class_from_value_class_with_attributes():
     assert out["attributes"] == {"reading_order": 1}
 
 
-# ─── v0.9.8 黄金样本 — 锁定内部 schema 边界, 防止再次漂移 ────────────────────
+# ─── 黄金样本 — 锁定内部 schema 边界, 防止再次漂移 ────────────────────
 
 
 def test_idempotent_on_internal_shape():
@@ -325,7 +325,7 @@ def test_idempotent_on_internal_shape():
 
 
 def test_dual_presence_value_and_geometry_prefers_geometry():
-    """v0.9.7 fix 边界: 当后端写入既含 LS value 又含内部 geometry (老 fixture / 迁移期)
+    """边界: 当后端写入既含 LS value 又含内部 geometry (老 fixture / 迁移期)
     时, geometry 优先 pass-through, 不再二次解释 value."""
     raw = {
         "type": "rectanglelabels",
@@ -362,7 +362,7 @@ def test_geometry_passthrough_preserves_unknown_fields():
     assert out["extra_meta"] == {"hint": "from-sam"}
 
 
-# ─── v0.9.14 · mask 多连通域 / 空洞 LS → 内部 schema ─────────────────
+# ─── mask 多连通域 / 空洞 LS → 内部 schema ─────────────────
 
 
 def test_polygonlabels_with_holes_field():
@@ -412,7 +412,7 @@ def test_polygonlabels_with_polygons_field_multi():
 
 
 def test_polygonlabels_legacy_no_holes_field_unchanged():
-    """老格式 LS shape (仅 points, 无 holes / polygons) 输出与 v0.9.13 之前字面一致."""
+    """仅有 points 的 LabelStudio shape 转换后不带 holes 字段。"""
     raw = {
         "type": "polygonlabels",
         "score": 0.85,
@@ -513,7 +513,7 @@ def test_pydantic_multi_polygon_requires_at_least_one():
         MultiPolygonGeometry(polygons=[])
 
 
-# ── v0.21.1 · 检测式视频追踪 result item → VideoTrackGeometry ──────────────────
+# ── 检测式视频追踪 result item → VideoTrackGeometry ──────────────────
 
 
 def test_video_track_bbox_reshapes_keyframes_to_geometry():
@@ -614,7 +614,7 @@ def test_video_track_bbox_geometry_validates_against_pydantic():
     assert g.keyframes[1].frame_index == 5
 
 
-# ── v0.21.1 · ingestion 端 int track_id → trk_<uuid> 映射 ──────────────────────
+# ── ingestion 端 int track_id → trk_<uuid> 映射 ──────────────────────
 
 
 def test_remap_track_ids_int_to_uuid_with_semantic_label():

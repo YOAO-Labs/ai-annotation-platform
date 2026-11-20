@@ -1,4 +1,4 @@
-"""v0.13.x · type_key 与 data_type 媒体维度一致性 invariant (收口 PR#30 review #5).
+"""type_key 与 data_type 媒体维度一致性 invariant (收口 PR#30 review #5).
 
 前端用 `type_key === "lidar"` 入 3D Stage, 后端 manifest 用 `data_type == "lidar"`
 放行点云端点. 两侧落库不一致就会撕裂 (前端进 3D 台, 后端拒提供 manifest);

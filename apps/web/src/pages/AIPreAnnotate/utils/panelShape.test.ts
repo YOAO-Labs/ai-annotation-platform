@@ -131,7 +131,7 @@ describe("deriveVariantSource — 文本走顶层 / 几何走选中 model (#3 �
     variants: [{ value: "n" }, { value: "x" }],
   };
 
-  it("文本路径 (v0.18.12 model-first): 走选中文本 model 的逐 model 变体 (检测=仅 dino)", () => {
+  it("文本路径：按选中的文本模型显示变体（检测仅 dino）", () => {
     const src = deriveVariantSource({
       isDocMode: false,
       isGeometricBackend: false,

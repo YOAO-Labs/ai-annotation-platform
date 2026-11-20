@@ -1,4 +1,4 @@
-// v0.10.18 · CreateProjectWizard 第 5 步: 数据集关联 + 批次切分.
+// CreateProjectWizard 第 5 步: 数据集关联 + 批次切分.
 // 从 CreateProjectWizard.tsx 抽出.
 
 import { useEffect, useState } from "react";
@@ -38,9 +38,9 @@ export function Step5Datasets({
   // 这里走原始 api 直接调（hooks 仅用于 invalidate；step 完成后整体 invalidate 一次足够）。
   const datasets: DatasetResponse[] = datasetsRes?.items ?? [];
   const [linking, setLinking] = useState(false);
-  // v0.12.0 · 大 dataset 异步建 task 的 job id 列表，非空则在底部显示进度条
+  // 大 dataset 异步建 task 的 job id 列表，非空则在底部显示进度条
   const [linkJobIds, setLinkJobIds] = useState<string[]>([]);
-  // v0.12.0 · 大 dataset 异步时 task 尚未建完，切分需延后到所有建任务 job 完成再跑
+  // 大 dataset 异步时 task 尚未建完，切分需延后到所有建任务 job 完成再跑
   const [splitAfterJobs, setSplitAfterJobs] = useState(false);
 
   const runSplit = async () => {
@@ -130,7 +130,7 @@ export function Step5Datasets({
         }
       }
       pushToast({ msg: `已关联 ${linkedOK} 个数据集`, kind: "success" });
-      // v0.12.0 · 有大 dataset 异步建 task：留在本步显示进度，待用户点「下一步」再前进；
+      // 有大 dataset 异步建 task：留在本步显示进度，待用户点「下一步」再前进；
       // 否则（全同步）直接前进。
       if (jobIds.length > 0) {
         setLinkJobIds(jobIds);

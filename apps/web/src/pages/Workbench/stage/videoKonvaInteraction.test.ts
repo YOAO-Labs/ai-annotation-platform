@@ -1,5 +1,5 @@
 /**
- * v0.16.3 · 视频 Konva 交互状态机纯函数测试。
+ * 视频 Konva 交互状态机纯函数测试。
  *
  * advanceDrag(拖拽推进)/ resolveDragCommit(松手提交)是栈无关纯函数,与旧 SVG 栈
  * VideoStage 的 onPointerMove/finishDrag 语义对齐。真实 Konva 事件/命中由 konva-mock
@@ -535,7 +535,7 @@ describe("resolveDragCommit", () => {
   });
 });
 
-// v0.21.23 · 交互式 SAM 提示 (smart-point / smart-box)
+// 交互式 SAM 提示 (smart-point / smart-box)
 describe("samProbe · 交互式 SAM 提示", () => {
   const probe = (
     mode: "point" | "bbox",
@@ -605,7 +605,7 @@ describe("samProbe · 交互式 SAM 提示", () => {
   });
 });
 
-// v0.21.23 PR2 · exemplar (视觉示例框): 同为拖框, 但派发到 runExemplar 而非 runBbox。
+// PR2 · exemplar (视觉示例框): 同为拖框, 但派发到 runExemplar 而非 runBbox。
 describe("samProbe · exemplar", () => {
   const probe = (
     mode: "point" | "bbox" | "exemplar",

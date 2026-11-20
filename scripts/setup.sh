@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "=== AI 标注平台 - 开发环境初始化 ==="
+echo "=== YOAO 开发环境初始化 ==="
 
 echo "1. 启动基础服务 (PostgreSQL, Redis, MinIO)..."
 docker compose up -d postgres redis minio

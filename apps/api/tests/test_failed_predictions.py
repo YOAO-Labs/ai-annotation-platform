@@ -1,4 +1,4 @@
-"""v0.8.6 F6 · 失败预测列表与重试端点单测。
+"""失败预测列表与重试端点单测。
 
 覆盖：
 - GET /admin/failed-predictions 分页 + 角色守卫
@@ -65,7 +65,7 @@ async def _seed_task(
 
 
 async def _seed_backend(db: AsyncSession, project_id: uuid.UUID) -> MLBackendRegistry:
-    # v0.19.0 ADR-0044 · backend 上提为全局注册项 (url unique); 列表/重试按 ml_backend_id
+    # ADR-0044 · backend 上提为全局注册项 (url unique); 列表/重试按 ml_backend_id
     # join / db.get registry, 无需项目启用关联。
     b = MLBackendRegistry(
         id=uuid.uuid4(),
@@ -180,7 +180,7 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    # v0.19.5 起 retry 改 apply_async(queue=...) 以走设备感知路由(原 .delay() 静态落 ml/gpu)。
+    # 重试显式指定队列，使派发可以按设备路由。
     with patch(
         "app.workers.predictions_retry.retry_failed_prediction.apply_async"
     ) as mock_apply:
@@ -951,7 +951,7 @@ async def test_retry_requires_manager(httpx_client, annotator, db_session, super
     assert resp.status_code == 403
 
 
-# ─── v0.8.8 · dismiss / restore ──────────────────────────────────────────────
+# ─── dismiss / restore ──────────────────────────────────────────────
 
 
 async def test_dismiss_marks_failed_prediction_and_audit_logged(

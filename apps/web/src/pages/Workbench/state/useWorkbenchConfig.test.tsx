@@ -1,5 +1,5 @@
-// v0.10.10 · I17.3 · useWorkbenchConfig 单测：项目级覆盖合并优先级 + lockedFields。
-// v0.15.3 · 偏好四分树:用户偏好走 image.* / common.* 子树;项目级 rendering_config 保持平铺。
+// useWorkbenchConfig 单测：项目级覆盖合并优先级 + lockedFields。
+// 偏好四分树:用户偏好走 image.* / common.* 子树;项目级 rendering_config 保持平铺。
 
 import type { ReactNode } from "react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
@@ -45,7 +45,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={c}>{children}</QueryClientProvider>;
 }
 
-describe("useWorkbenchConfig · v0.10.10 项目级覆盖", () => {
+describe("useWorkbenchConfig · 项目级覆盖", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
@@ -211,7 +211,7 @@ describe("useWorkbenchConfig · v0.10.10 项目级覆盖", () => {
     vi.useRealTimers();
   });
 
-  // v0.16.8 · 选中标注浮动信息卡:位置 + 折叠态走偏好通道(跨设备),即本地立即生效 +
+  // 选中标注浮动信息卡:位置 + 折叠态走偏好通道(跨设备),即本地立即生效 +
   // localStorage 缓存 + debounce 全量 PATCH 带上 floatingSelection。
   it("setLayout 持久化 floatingSelection(位置 + 折叠态,跨设备)", async () => {
     mockGetPreferences.mockResolvedValue({ workbench: {} });
@@ -336,7 +336,7 @@ describe("useWorkbenchConfig · v0.10.10 项目级覆盖", () => {
   });
 });
 
-describe("useWorkbenchConfig · v0.15.3 setFields + 多实例广播", () => {
+describe("useWorkbenchConfig · setFields + 多实例广播", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();

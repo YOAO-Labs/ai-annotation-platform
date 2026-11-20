@@ -1,5 +1,5 @@
 /**
- * v0.16.3 · 视频交互层(Konva)渲染 + 句柄事件测试(konva-mock)。
+ * 视频交互层(Konva)渲染 + 句柄事件测试(konva-mock)。
  *
  * 断言:可编辑选中框出 8 向 resize 句柄、句柄 pointerdown 回传方向、画框/拖拽 live 预览
  * (虚线 + 像素空间几何)。真实命中/拖拽精度交给 Playwright(决策 C)。

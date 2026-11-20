@@ -41,7 +41,7 @@
 
 ## Batch 1 · 数据集 / 导入导出（新增于 2026-06-10 · IA 重构）
 
-> 文档侧已在对应位置打 `<!-- TODO(v0.14.18) IMAGE_CHECKLIST: ... -->` 注释占位（未嵌 `![]()`，不破图）；下面是配套拍摄清单。新增图片目录 `images/datasets/`。
+> 文档侧已在对应位置打 `<!-- TODO IMAGE_CHECKLIST: ... -->` 注释占位（未嵌 `![]()`，不破图）；下面是配套拍摄清单。新增图片目录 `images/datasets/`。
 
 ### 数据集 · 导入
 
@@ -57,7 +57,7 @@
 
 ### 预测导入 / 导出
 
-- [x] `images/projects/prediction-import-wizard.png` — 导入预测弹窗（AAP JSON / COCO / YOLO 格式选择 + 文件上传 + 替换开关）；红框：格式下拉、YOLO 变体下拉、替换开关 `[auto]`
+- [x] `images/projects/prediction-import-wizard.png` — 导入预测弹窗；拍摄时选择原生 JSON、COCO 或 YOLO，标出格式下拉、YOLO 变体下拉和替换开关 `[auto]`
 - [x] `images/projects/prediction-purge-modal.png` — 清理预测弹窗三种来源范围 + ML Backend 风险确认复选框 `[auto]`
 
 ### 导出格式
@@ -68,7 +68,7 @@
 
 - [x] `images/projects/tool-units-panel.png` — 项目设置「类别与属性」面板，按工具单位 tab 切换；红框：工具单位切换 tab、某工具下的类别列表、属性 schema 区 `[auto]`
 
-## Batch 2 · 视频/点云 AI 审阅 + 时间轴交互（新增于 2026-07-06） <!-- PR #50 · v0.21.9–17 -->
+## Batch 2 · 视频/点云 AI 审阅 + 时间轴交互（新增于 2026-07-06）
 
 > 配套视频/点云工作台 AI 审阅体验与时间轴交互。可重现的缩放、刷选、续写与键盘流转已逐步收录到 `[auto-gif]`；需要特殊审阅状态的画面仍保留为手工清单。
 

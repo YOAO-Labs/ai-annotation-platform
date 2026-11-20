@@ -1,5 +1,5 @@
 /**
- * v0.13.11 · 数据集 lidar 轴向约定归一化纯几何 (与 WebGL / renderer 无关, jsdom 可单测)。
+ * 数据集 lidar 轴向约定归一化纯几何 (与 WebGL / renderer 无关, jsdom 可单测)。
  *
  * 平台内部一律按 ISO 8855 (=ROS REP-103) 处理: **+X 前 / +Y 左 / +Z 上**, 右手系。
  * 数据集若来自 KITTI / Apollo / SUSTechPOINTS demo 等非 ISO 系, 在加载侧做一次旋转
@@ -119,7 +119,7 @@ const SRC_AXES_IN_ISO: Record<
 };
 
 /**
- * v0.13.11 · 取该约定的 R_norm (src → ISO) 3x3 行主序。
+ * 取该约定的 R_norm (src → ISO) 3x3 行主序。
  * 列 c 为 src 第 c 基轴在 ISO 系下的坐标; m[r*3+c] = 该列向量的第 r 分量。
  */
 export function rotationMatrixFor(c: LidarAxisConvention): Mat3 {
@@ -128,7 +128,7 @@ export function rotationMatrixFor(c: LidarAxisConvention): Mat3 {
 }
 
 /**
- * v0.13.11 · 就地左乘 R_norm 到点云 positions (Float32Array, 长度 = 3·N)。
+ * 就地左乘 R_norm 到点云 positions (Float32Array, 长度 = 3·N)。
  * `iso_8855` / `ros_rep103` / `raw` 是 identity, 但仍执行 (常数开销, 不分支判断, 写法统一)。
  */
 export function applyConventionToPositions(
@@ -158,7 +158,7 @@ export function applyConventionToPositions(
 }
 
 /**
- * v0.13.11 · 把 src 系下的 lidar → camera 4x4 行主序 extrinsic 转到 ISO 系。
+ * 把 src 系下的 lidar → camera 4x4 行主序 extrinsic 转到 ISO 系。
  *
  * 数学契约 (ADR-0034 Decision §3): `E_iso = E_src · diag(R_normᵀ, 1)`。
  *   - 旋转块 (前三列前三行) = E_src.rot · R_normᵀ
@@ -234,7 +234,7 @@ function mat3ToThree(m: Mat3): THREE.Matrix3 {
 }
 
 /**
- * v0.13.11 · 把 ISO 系下的 PSR 反向映射回源系 (导出 / 与历史数据互操作时用)。
+ * 把 ISO 系下的 PSR 反向映射回源系 (导出 / 与历史数据互操作时用)。
  *
  * 实现:
  *   - center_src = R_normᵀ · center_iso
@@ -267,7 +267,7 @@ export function unapplyConventionToPsr(psr: Psr, convention: LidarAxisConvention
 }
 
 /**
- * v0.13.12 · 把源系 PSR 映射到平台 ISO 系。用于 convention mismatch 重投影:
+ * 把源系 PSR 映射到平台 ISO 系。用于 convention mismatch 重投影:
  * `psr_new = R_new · R_oldᵀ · psr_old` 可拆成先 unapply(old), 再 apply(new)。
  */
 export function applyConventionToPsr(psr: Psr, convention: LidarAxisConvention): Psr {
@@ -300,7 +300,7 @@ export interface AxisSniffResult {
 }
 
 /**
- * v0.13.12 · 从 front camera 外参 row 2 推断源系 axis convention。
+ * 从 front camera 外参 row 2 推断源系 axis convention。
  * fz 可选以兼容原 fx/fy 调用; 有完整外参时应传 fz, 否则 KITTI/OpenCV (+Z 前) 不可区分。
  */
 export function sniffConventionFromForward(fx: number, fy: number, fz = 0): AxisSniffResult | null {

@@ -57,7 +57,7 @@ class User(Base):
         nullable=True,
     )
     disabled_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # v0.12.0 · 邮箱验证时间戳。None = 未验证；非空 = 已验证。仅在开放注册 +
+    # 邮箱验证时间戳。None = 未验证；非空 = 已验证。仅在开放注册 +
     # require_email_verification 打开时作为登录 gate；邀请注册 / 管理员建号恒视为已验证。
     # is_active 保持「停用/注销」单一语义，不背验证含义。
     email_verified_at: Mapped[datetime | None] = mapped_column(
@@ -66,11 +66,11 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # v0.8.1 · 管理员重置密码后落时间戳，登录后强制跳改密；用户自助改密后清空。
+    # 管理员重置密码后落时间戳，登录后强制跳改密；用户自助改密后清空。
     password_admin_reset_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # v0.8.1 · 自助注销冷静期（7 天）：申请时填 reason + scheduled_at = now+7d；
+    # 自助注销冷静期（7 天）：申请时填 reason + scheduled_at = now+7d；
     # 撤销时清三字段；Celery beat 命中 scheduled_at <= now 时执行软删并清三字段。
     deactivation_requested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -79,7 +79,7 @@ class User(Base):
     deactivation_scheduled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    # v0.8.4 · 用户级周目标（标注员任务量目标）；ProjectMember.weekly_target 覆盖优先
+    # 用户级周目标（标注员任务量目标）；ProjectMember.weekly_target 覆盖优先
     weekly_target_default: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 头像引用。NULL = 首字母回退；`preset:<slug>` = 内置像素头像；`upload:<32位hex>` = 用户上传。
     # 语法与解析集中在 services/avatar.py；upload: 只能由上传端点写入,客户端不可自选。

@@ -1,4 +1,4 @@
-// v0.20.22 · 「提交在途」几何 override 桥 —— 防松手闪回原尺寸。
+// 「提交在途」几何 override 桥 —— 防松手闪回原尺寸。
 //
 // 竞态背景：resize/move/polyVertex/kpNode/rotateBox 松手后, ImageStage 会同步
 // `setDrag(null)` (React state) 并触发 `mutations.update.mutate(...)`; 但 tanstack-query

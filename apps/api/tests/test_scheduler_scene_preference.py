@@ -1,4 +1,4 @@
-"""v0.14.1 · scheduler prefer_same_scene_continuation 开关行为 + 回归
+"""scheduler prefer_same_scene_continuation 开关行为 + 回归
 
 覆盖判据(plan §1.4 判据 5 / §3.7):
 - ON: get_next_task 返回"用户最近标注 task 的同 scene 下一帧"

@@ -95,8 +95,8 @@ async def _reviewing_batches(
         current_user, workspace_projects.c.project_id
     )
     claim_scope = _reviewable_claim_clause(current_user, workspace_projects)
-    # v0.7.0：批次级聚合 — 列出处于 reviewing 状态的批次（reviewer 跨批次审核）。
-    # v0.7.1 B-18：扩展为「reviewing 批次 ∪ 任意 review_tasks > 0 的批次」，让单任务级提交质检
+    # 批次级聚合 — 列出处于 reviewing 状态的批次（reviewer 跨批次审核）。
+    # 包含 reviewing 批次以及任意 review_tasks > 0 的批次，让单任务级提交质检
     # 也能在 ReviewPage 的批次树里看到，避免 reviewer 找不到入口。
     actionable_review = select(task_row.id).where(
         task_row.batch_id == batch_row.id,
@@ -128,7 +128,7 @@ async def _reviewing_batches(
             .limit(limit)
         )
     ).all()
-    # v0.7.2 · 单值语义 — 一 batch 一标注员，直接 IN 查询 user
+    # 单值语义 — 一 batch 一标注员，直接 IN 查询 user
     project_user_map: dict = {}
     for b, _ in batch_rows:
         if b.annotator_id is not None:
@@ -305,7 +305,7 @@ async def reviewer_dashboard(
         (total_completed / total_all_reviewed * 100) if total_all_reviewed > 0 else 0.0
     )
 
-    # v0.6.6 · 24h 滚动通过率：只统计当前审核员实际处理且在可见项目内的任务。
+    # 24h 滚动通过率：只统计当前审核员实际处理且在可见项目内的任务。
     cutoff_24h = now - timedelta(hours=24)
     rate_24h_result = await db.execute(
         select(
@@ -361,7 +361,7 @@ async def reviewer_dashboard(
 
     reviewing_batches = await _reviewing_batches(db, current_user)
 
-    # v0.8.4 · 效率看板 L2 扩展
+    # 效率看板 L2 扩展
     # 平均审核耗时（中位） = reviewed_at - reviewer_claimed_at（自己审过的任务）
     review_duration_row = (
         await db.execute(
@@ -519,7 +519,7 @@ async def reviewer_today_mini(
         require_roles(*DASHBOARD_PLATFORM_ROLES)
     ),
 ):
-    """v0.8.7 F5.3 · ReviewWorkbench 右侧栏 mini 仪表轻量端点。
+    """ReviewWorkbench 右侧栏 mini 仪表轻量端点。
 
     - approved_today / rejected_today: 自己当日 approve/reject 的次数（基于 Task.reviewer_id）
     - avg_review_seconds: 自己当日审过的任务（reviewer_claimed_at → reviewed_at）平均耗时秒数
@@ -586,9 +586,9 @@ async def my_recent_reviews(
         require_roles(*DASHBOARD_PLATFORM_ROLES)
     ),
 ):
-    """v0.6.6 · 当前 reviewer 最近审核过的任务（已 approve / reject 落定的）。
+    """当前 reviewer 最近审核过的任务（已 approve / reject 落定的）。
 
-    依据 Task.reviewer_id + Task.reviewed_at（v0.6.5 状态机字段）。
+    依据 Task.reviewer_id 和 Task.reviewed_at。
     """
     workspace_projects = project_search_scope(current_user)
     project_scope = _visible_project_clause(

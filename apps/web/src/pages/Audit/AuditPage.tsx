@@ -231,8 +231,8 @@ export function AuditPage() {
     if (page > lastPage) patch({ page: lastPage }, { replace: true });
   }, [data, isFetching, total, pageSize, page, patch]);
 
-  // v0.6.6 · 按 request_id 分组：同一 HTTP 请求的 metadata 行 + 业务 detail 行折叠为单行 + ▸ 展开
-  // v0.7.0：折叠状态 sessionStorage 持久化（30min TTL），刷新页面后自动恢复最近展开的 request_id。
+  // 按 request_id 分组：同一 HTTP 请求的 metadata 行 + 业务 detail 行折叠为单行 + ▸ 展开
+  // 折叠状态 sessionStorage 持久化（30min TTL），刷新页面后自动恢复最近展开的 request_id。
   const [expandedReqIds, setExpandedReqIds] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {
@@ -568,7 +568,7 @@ export function AuditPage() {
           </div>
         )}
 
-        {/* v0.6.6 · 按 request_id 折叠为单行 + ▸ 展开；virtualized 容器 */}
+        {/* 按 request_id 折叠为单行 + ▸ 展开；virtualized 容器 */}
         <div className={styles.tableHeader}>
           {["", "时间", "操作人", "动作", "对象", "IP", "状态", ""].map((h, i) => (
             <div key={i} className={styles.headerCell}>

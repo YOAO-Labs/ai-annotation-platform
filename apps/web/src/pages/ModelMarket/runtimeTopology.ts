@@ -1,5 +1,5 @@
 /**
- * v0.23.4 · pure view-model layer for the model-market registry/runtime pages.
+ * pure view-model layer for the model-market registry/runtime pages.
  *
  * Plan §9.2: this module is the only place that joins topology + runtime
  * snapshot + GPU resources into page view models. It is:
@@ -13,7 +13,7 @@
  * *displays* them — it does not copy router judgment (plan §3.4 / §9.2).
  *
  * Metrics-driven fields (last_selected_at, selection_count_window,
- * rejection_count_window, p95_ms, error_rate) are always null in v0.23.4
+ * rejection_count_window, p95_ms, error_rate) are null when metrics are unavailable
  * (plan §4.2 forbids wiring shared route counters). Callers MUST surface the
  * "暂无路由指标" sentinel rather than 0 — see {@link METRICS_AVAILABLE}.
  */
@@ -74,7 +74,7 @@ export interface MemberViewModel {
     route_inflight: number | null;
     circuit_open: boolean | null;
     registry_state: string;
-    // Metrics-driven — always null in v0.23.4.
+    // Counts are null when routing metrics are unavailable.
     last_selected_at: string | null;
     selection_count_window: number | null;
     rejection_count_window: number | null;
@@ -210,7 +210,7 @@ function toPoolViewModel(pool: TopologyPoolEntry, snap: RuntimePoolSnapshot | nu
     snap && runtimeInflight.every((value) => value != null)
       ? runtimeInflight.reduce((sum, value) => sum + (value ?? 0), 0)
       : null;
-  // No max_concurrency in v0.23.3 contract → limit unknown.
+  // The backend contract does not supply max_concurrency, so the limit is unknown.
   const limit = null;
   const saturated = snap ? (snap.members ?? []).some((m) => m.circuit_open) : false;
 
@@ -234,7 +234,7 @@ function toPoolViewModel(pool: TopologyPoolEntry, snap: RuntimePoolSnapshot | nu
       offline: disabled,
     },
     capacity: { inflight, limit, saturated },
-    // metrics_available is global in v0.23.4 (always false), but keep per-pool
+    // The backend reports metrics_available globally; retain the per-pool
     // for forward compat — when metrics land, only pools with data flip true.
     metrics_available: METRICS_AVAILABLE,
   };
@@ -297,7 +297,7 @@ export function deriveMemberRouting(
   return "routable";
 }
 
-/** Capacity axis: unknown when no runtime snapshot (limit unknown in v0.23.4). */
+/** Capacity axis: unknown without a runtime snapshot; the limit may be unavailable. */
 export function deriveMemberCapacity(snap: RuntimeMemberSnapshot | null): CapacityAxis {
   if (!snap || snap.route_inflight == null || snap.circuit_open == null) return "unknown";
   if (snap.circuit_open) return "saturated";

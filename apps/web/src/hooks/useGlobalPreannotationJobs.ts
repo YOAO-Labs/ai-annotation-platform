@@ -1,5 +1,5 @@
 /**
- * v0.9.8 · 全局预标 job 订阅 — Topbar 徽章 / 切项目 toast 共用.
+ * 全局预标 job 订阅 — Topbar 徽章 / 切项目 toast 共用.
  *
  * 与 `usePreannotationProgress(projectId)` 的差异:
  * - 后者单项目高频帧 (current/total)

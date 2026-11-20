@@ -29,14 +29,14 @@ logger = logging.getLogger("app.schemas.annotation")
 class AnnotationCreate(BaseModel):
     video_segment_id: UUID | None = None
     annotation_type: str = "bbox"
-    # v0.10.17 · 工具单位; service 层据此校验 class_name ∈ project.tool_bindings[unit].
+    # 工具单位; service 层据此校验 class_name ∈ project.tool_bindings[unit].
     # 旧调用方不传时默认 "bbox" 兼容向后.
     tool_unit_id: _ToolUnitId = "bbox"
     class_name: str
     geometry: Geometry
     confidence: float | None = None
     parent_prediction_id: UUID | None = None
-    # v0.20.9 · 父子标注: 建子框时指向父框 (仅一层, service 层校验). 缺省为顶层框。
+    # 父子标注: 建子框时指向父框 (仅一层, service 层校验). 缺省为顶层框。
     parent_annotation_id: UUID | None = None
     lead_time: float | None = None
     attributes: AnnotationAttributes | None = None
@@ -74,7 +74,7 @@ class AnnotationUpdate(BaseModel):
     class_name: str | None = None
     confidence: float | None = None
     attributes: AnnotationAttributes | None = None
-    # v0.10.5 M4-β · shape 状态位（I15）
+    # shape 状态位
     z_order: int | None = None
     is_locked: bool | None = None
     is_hidden: bool | None = None
@@ -86,7 +86,7 @@ class AnnotationUpdate(BaseModel):
 
 
 class AnnotationListPage(BaseModel):
-    """v0.7.6 · keyset cursor 分页响应。next_cursor=None 表示已是末页。"""
+    """keyset cursor 分页响应。next_cursor=None 表示已是末页。"""
 
     items: list["AnnotationOut"]
     next_cursor: str | None = None
@@ -117,7 +117,7 @@ class AnnotationBulkUpdateResponse(BaseModel):
 
 
 class SecondaryInferenceRequest(BaseModel):
-    """v0.20.11 · 选中框单框二次推理: 在选中框 ROI 上跑一个能力。
+    """选中框单框二次推理: 在选中框 ROI 上跑一个能力。
 
     镜像批量 pipeline 的单个下游阶段 (源=选中框, 无检测阶段)。
     write_target 决定产物归位: attributes → 写回原框; geometry → 建子框。
@@ -156,10 +156,6 @@ class SecondaryInferenceResponse(BaseModel):
     created_children: list["AnnotationOut"] = []
 
 
-# v0.21.3 · 标注编组(Ctrl+G)持久化已删除:AnnotationGroup/Ungroup 请求响应 schema
-# 随端点下线一并移除。批量编辑走 AnnotationBulkUpdate(保留)。
-
-
 class VideoTrackConvertToBboxesRequest(BaseModel):
     operation: Literal["copy", "split"] = "copy"
     scope: Literal["frame", "track"] = "frame"
@@ -179,7 +175,7 @@ class VideoTrackCompositionRequest(BaseModel):
     annotation_ids: list[UUID] = []
     frame_index: int | None = None
     delete_sources: bool = True
-    # v0.10.30 · D-2.5 join_tracks gap 填充模式; 仅 join_tracks 使用.
+    # D-2.5 join_tracks gap 填充模式; 仅 join_tracks 使用.
     # "interpolate": gap 端点间靠现有线性插值连接, 不写 gap outside;
     # "outside": 把 gap 区间标 outside 后合并 (与 merge_tracks 默认一致).
     gap_mode: Literal["interpolate", "outside"] = "interpolate"
@@ -193,7 +189,7 @@ class VideoTrackCompositionResponse(BaseModel):
 
 
 class PropagateRequest(BaseModel):
-    """v0.14.1 · 跨帧目标延续: 把源 annotation 复制到目标 task(同 project 同 scene)。
+    """跨帧目标延续: 把源 annotation 复制到目标 task(同 project 同 scene)。
 
     target_task_id 走 body(端点路径已含源 task_id + annotation_id)。
     override_psr 留扩展位: 本期前端总传 None = 完全复制源几何; 给定时按 key
@@ -206,13 +202,13 @@ class PropagateRequest(BaseModel):
 
 class PropagateResponse(BaseModel):
     annotation: "AnnotationOut"
-    # v0.15.1 · box_3d 且源/目标帧均有 ego pose 时为 True(已做运动补偿);
+    # box_3d 且源/目标帧均有 ego pose 时为 True(已做运动补偿);
     # False = 原样复制(无 pose 数据 / 非 box_3d / override_psr 显式给定)。
     motion_compensated: bool = False
 
 
 class PropagateBatchRequest(BaseModel):
-    """v0.15.1 · 多目标批量跨帧延续(源 task 走端点路径)。
+    """多目标批量跨帧延续(源 task 走端点路径)。
 
     annotation_ids=None → 源 task 全部 active box_3d;显式给定时逐条校验
     归属与几何类型,任一不合法整批拒(同一事务,无部分写入)。
@@ -233,11 +229,10 @@ class PropagateBatchResponse(BaseModel):
 
 
 class InterpolateRangeRequest(BaseModel):
-    """v0.15.1 · 关键帧区间插值(from task 走端点路径)。
+    """关键帧区间插值(from task 走端点路径)。
 
-    同 track_id 链上两端帧各有一个 box_3d,区间内每个中间帧生成一个插值框
-    (source="interpolated",便于审核过滤/批量删)。v0.21.2 · ADR-0045 · 按 track_id
-    (原 group_id)标识跨帧链。
+    同一 track_id 的两端帧各有一个 box_3d，区间内每个中间帧生成一个插值框。
+    插值结果标记 source="interpolated"，便于审核时筛选或批量删除。
     """
 
     track_id: str
@@ -259,14 +254,14 @@ class AnnotationOut(BaseModel):
     user_id: UUID | None = None
     source: str
     annotation_type: str
-    # v0.10.17 · 旧记录回落默认值 "bbox" (migration 已 backfill).
+    # 旧记录回落默认值 "bbox" (migration 已 backfill).
     tool_unit_id: _ToolUnitId = "bbox"
     class_name: str
     geometry: Geometry
     confidence: float | None = None
     parent_prediction_id: UUID | None = None
     parent_annotation_id: UUID | None = None
-    # v0.21.2 · ADR-0045 · 跨帧同一对象的通用标识 (trk_<hex>). 前端 3D 跨帧配对/
+    # ADR-0045 · 跨帧同一对象的通用标识 (trk_<hex>). 前端 3D 跨帧配对/
     # 插值/高亮据此认同一对象 (原用 group_id 高位段, 编组下线后该列已删).
     track_id: str | None = None
     scene_track_id: UUID | None = None
@@ -282,10 +277,10 @@ class AnnotationOut(BaseModel):
     is_active: bool
     ground_truth: bool = False
     attributes: AnnotationAttributes = {}
-    # v0.20.10 · 属性级溯源 sidecar: {key: {origin, model_ref?, confidence?, at?}}.
+    # 属性级溯源 sidecar: {key: {origin, model_ref?, confidence?, at?}}.
     # 存量行 / 无 AI 属性时为 {}; 前端据此渲染 AI 属性来源 chip。
     attributes_meta: dict = {}
-    # v0.10.5 M4-β · shape 状态位（I15）；旧记录回落默认值。
+    # shape 状态位；旧记录使用默认值。
     z_order: int = 0
     is_locked: bool = False
     is_hidden: bool = False
@@ -321,7 +316,7 @@ class AnnotationOut(BaseModel):
 
 
 class NeighborFrameAnnotations(BaseModel):
-    """v0.15.17 · 单个邻帧 task 的标注集合(若请求带 track_id 则已服务端过滤)。"""
+    """单个邻帧 task 的标注集合(若请求带 track_id 则已服务端过滤)。"""
 
     task_id: UUID
     frame_index: int
@@ -329,7 +324,7 @@ class NeighborFrameAnnotations(BaseModel):
 
 
 class NeighborAnnotationsResponse(BaseModel):
-    """v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。
+    """中心 task 前后 k 帧的邻帧标注,一次性返回。
 
     替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」:
     - track_id 给定 → 服务端只回该跨帧链(scope=selected,payload 最小);

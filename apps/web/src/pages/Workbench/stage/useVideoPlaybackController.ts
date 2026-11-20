@@ -111,7 +111,7 @@ export interface UseVideoPlaybackControllerOptions {
   videoSampling?: VideoSamplingConfig | null;
   defaultPlaybackRate?: VideoPlaybackRate;
   annotations: AnnotationResponse[];
-  /** v0.21.9 · AI 预测有内容的帧集合 (升序去重, collectPredictedFrames 产); 时间轴预测密度轨 + 跳预测帧。 */
+  /** AI 预测有内容的帧集合 (升序去重, collectPredictedFrames 产); 时间轴预测密度轨 + 跳预测帧。 */
   predictedFrames?: readonly number[];
   selectedId: string | null;
   selectedTrack: VideoTrackAnnotation | null;
@@ -588,7 +588,7 @@ export function useVideoPlaybackController({
     videoRef,
   ]);
 
-  // 全局诊断 producer(v0.23.15):把精确帧状态写入 window.__videoWorkbenchDiagnostics,
+  // 把精确帧状态写入 window.__videoWorkbenchDiagnostics，
   // 供 BugReportDrawer 附带与排障。写入 window 不触发 React 重渲染;发布频率上限 5 Hz,
   // state / fallback 转换立即写入,trailing 保证最后一次值落盘。
   const diagnosticsRoute =
@@ -706,7 +706,7 @@ export function useVideoPlaybackController({
     [manualBboxFrames, maxFrame, timelineDensityBins, videoTracks],
   );
 
-  // v0.21.9 · 预测密度轨: 始终计算, 让审阅时预测分布常驻可见。
+  // 预测密度轨: 始终计算, 让审阅时预测分布常驻可见。
   const predictionDensity = useMemo(
     () => buildPredictionDensity(predictedFrames, maxFrame, timelineDensityBins),
     [predictedFrames, maxFrame, timelineDensityBins],
@@ -1093,7 +1093,7 @@ export function useVideoPlaybackController({
     ],
   );
 
-  // v0.21.9 · 跳到下一个/上一个有预测的帧 (预测帧集合上的 next/prev)。
+  // 跳到下一个/上一个有预测的帧 (预测帧集合上的 next/prev)。
   const seekToAdjacentPredictedFrame = useCallback(
     (dir: -1 | 1) => {
       const target = adjacentPredictedFrame(predictedFrames, frameIndex, dir);
@@ -1488,7 +1488,7 @@ export function useVideoPlaybackController({
       toggleSelectedTrackLocked: trackActions.toggleSelectedTrackLocked,
       propagateSelectedTrack: trackActions.propagateSelectedTrack,
       deleteSelectedTrackKeyframe,
-      // v0.21.4 · 当前帧 → JPEG(视频单题 AI / 交互式 SAM 供图), 经 ref 读最新位图故不入 deps。
+      // 当前帧 → JPEG(视频单题 AI / 交互式 SAM 供图), 经 ref 读最新位图故不入 deps。
       captureCurrentFrameJpeg: async (quality?: number) => {
         const epoch = sourceOwnerRef.current.epoch;
         const frame = frameIndexRef.current;
@@ -1509,7 +1509,7 @@ export function useVideoPlaybackController({
           if (shown.frameIndex !== frame) return null;
           result = await imageBitmapToJpeg(shown.bitmap, quality);
         }
-        // v0.21.23 · 位图缓存未命中时画布画的是 <video> 本身(pickMediaImageSource 的回退),
+        // 位图缓存未命中时画布画的是 <video> 本身(pickMediaImageSource 的回退),
         // 只认 bitmap 会在画面明明可见时谎报「当前帧尚未就绪」。取帧与渲染取同一源。
         else {
           if (!nativeFrameCurrent()) return null;

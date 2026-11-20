@@ -1,4 +1,4 @@
-// v0.16.8 · SelectedAnnotationCard 基座单测:
+// SelectedAnnotationCard 基座单测:
 // - 展开态渲染 FloatingPanelShell(标题 + 内容 + 收起按钮),点收起触发 onCollapse
 // - 折叠态渲染可点信息胶囊(不渲染内容),点击触发 onExpand
 

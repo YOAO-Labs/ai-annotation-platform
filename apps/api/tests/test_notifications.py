@@ -1,4 +1,4 @@
-"""v0.6.9 · 通知中心 + BUG 反馈接入。"""
+"""通知中心 + BUG 反馈接入。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""v0.10.16 · EventEnvelope schema 序列化锁（ADR-0025）。
+"""EventEnvelope schema 序列化锁（ADR-0025）。
 
 锁住信封字段顺序与必备性；任何 breaking change 必须更新此测试 + 升 event_version major。
 """

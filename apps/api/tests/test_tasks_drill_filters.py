@@ -1,4 +1,4 @@
-"""v0.12.6 (A3) · GET /tasks 的 reject_reason_type / class_name 下钻过滤。"""
+"""GET /tasks 的 reject_reason_type / class_name 下钻过滤。"""
 
 from __future__ import annotations
 

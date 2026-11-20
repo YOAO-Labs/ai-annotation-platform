@@ -78,7 +78,7 @@ export default tseslint.config(
       ],
     },
   },
-  // v0.10.12 · CSP style-src 收紧 — 全站 TSX 已迁到 CSS modules / class 切换,
+  // CSP style-src 收紧 — 全站 TSX 已迁到 CSS modules / class 切换,
   // 用 lint guard 防止 JSX inline style 回潮. 文件级 disable 仅用于真正必要的
   // CSS custom property 注入逃生口，并应优先改用 useElementStyle。
   {

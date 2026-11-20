@@ -97,7 +97,7 @@ vi.mock("@/hooks/useSystemSettings", () => ({
 }));
 
 // --- workbench config ---
-// v0.15.3 · 偏好四分树形态(common/image/video/pointcloud 子树)。
+// 偏好四分树形态(common/image/video/pointcloud 子树)。
 const mockWorkbenchConfig = structuredClone(DEFAULT_WORKBENCH_PREFERENCES);
 const mockWorkbenchUpdate = vi.fn();
 vi.mock("@/pages/Workbench/state/useWorkbenchConfig", () => ({

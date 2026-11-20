@@ -1,5 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-// v0.10.15 · 外部预测导入向导.
+// 外部预测导入向导.
 //
 // 三步: ①选格式 + 文件 + 默认模型版本 ② dry-run 预览 ③确认提交.
 // 端点: POST /projects/{id}/predictions/import?format=&dry_run=
@@ -22,14 +22,14 @@ import styles from "./PredictionImportWizard.module.css";
 
 type WizardStep = "select" | "preview" | "done";
 
-// v0.10.54 · 导入对象: 预测 (predictions[]) 或标注 (annotations[], ADR-0028).
+// 导入对象: 预测 (predictions[]) 或标注 (annotations[], ADR-0028).
 export type ImportTarget = "predictions" | "annotations";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   projectId: string;
-  /** v0.10.54 · 打开时预设的导入对象 (菜单两个入口分别预设 预测 / 标注)。 */
+  /** 打开时预设的导入对象 (菜单两个入口分别预设 预测 / 标注)。 */
   initialTarget?: ImportTarget;
   onComplete?: (result: PredictionImportResult) => void;
 }

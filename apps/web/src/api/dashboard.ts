@@ -22,7 +22,7 @@ export interface AdminDashboardStats {
   ml_backends_connected: number;
   role_distribution: Record<string, number>;
   registration_by_day?: RegistrationDayPoint[];
-  /** v0.9.5 · pre_annotated 批次数（Sidebar 徽章 + AdminDashboard 卡片共用） */
+  /** pre_annotated 批次数（Sidebar 徽章 + AdminDashboard 卡片共用） */
   pre_annotated_batches?: number;
 }
 
@@ -50,7 +50,7 @@ export interface ReviewingBatchItem {
   /** 批次封面缩略图（presigned URL）+ blurhash 占位，用于卡片网格。 */
   thumbnail_url?: string | null;
   cover_blurhash?: string | null;
-  /** v0.7.2 · 这批的标注员（单值；让 reviewer 知道是谁标的） */
+  /** 这批的标注员（单值；让 reviewer 知道是谁标的） */
   annotator: UserBrief | null;
 }
 
@@ -62,7 +62,6 @@ export interface ReviewerDashboardStats {
   total_reviewed: number;
   pending_tasks: ReviewTaskItem[];
   reviewing_batches?: ReviewingBatchItem[];
-  // v0.8.4
   median_review_duration_ms?: number | null;
   reopen_after_approve_rate?: number | null;
   weekly_compare_pct?: number | null;
@@ -86,7 +85,6 @@ export interface AnnotatorDashboardStats {
   total_completed: number;
   personal_accuracy: number;
   daily_counts: number[];
-  // v0.8.4
   median_duration_ms?: number | null;
   rejected_rate?: number | null;
   reopened_avg?: number | null;
@@ -94,7 +92,7 @@ export interface AnnotatorDashboardStats {
   weekly_target?: number;
   active_minutes_today?: number | null;
   streak_days?: number | null;
-  // v0.8.5 · 当日 0-23 时分钟数
+  // 当日 0-23 时分钟数
   hour_buckets?: number[];
   // M1 · 当前待重做退回任务数
   rejected_tasks_count?: number;
@@ -112,7 +110,7 @@ export interface OnboardingProjectSummary {
   reviewed_task_reason: string | null;
 }
 
-// v0.8.4 · 管理员人员看板
+// 管理员人员看板
 export interface AdminPersonItem {
   user_id: string;
   name: string;
@@ -163,13 +161,13 @@ export interface AdminPersonDetail {
     task_display_id?: string;
     detail?: string;
   }>;
-  // v0.12.4 · 质量归因(A1)
+  // 质量归因(A1)
   reject_reason_breakdown: Array<{ reason_type: string; count: number; pct: number }>;
   class_distribution: Array<{ class_name: string; count: number; pct: number }>;
   first_pass_yield: number | null;
 }
 
-// v0.12.3 · 标注员自助绩效（取经合集 §4.1 个人页）
+// 标注员自助绩效（取经合集 §4.1 个人页）
 export interface MyPerformance {
   user_id: string;
   name: string;
@@ -183,7 +181,7 @@ export interface MyPerformance {
   duration_histogram: Array<{ upper_ms: number; count: number }>;
   p50_duration_ms: number | null;
   p95_duration_ms: number | null;
-  // v0.12.4 · 质量归因(A1)
+  // 质量归因(A1)
   reject_reason_breakdown: Array<{ reason_type: string; count: number; pct: number }>;
   class_distribution: Array<{ class_name: string; count: number; pct: number }>;
   first_pass_yield: number | null;
@@ -209,11 +207,11 @@ export interface MyBatchItem {
   cover_blurhash?: string | null;
   review_feedback: string | null;
   reviewed_at: string | null;
-  /** v0.7.2 · 这批的审核员（单值；让标注员知道谁会审） */
+  /** 这批的审核员（单值；让标注员知道谁会审） */
   reviewer: UserBrief | null;
 }
 
-// v0.8.6 F4 · 预测成本卡片
+// 预测成本卡片
 export interface BackendCostBreakdown {
   backend_id: string | null;
   backend_name: string | null;
@@ -229,7 +227,7 @@ export interface PredictionCostStats {
   failed_predictions: number;
   failure_rate: number;
   avg_inference_time_ms: number | null;
-  // v0.8.7 F2 · 延迟分位数
+  // 延迟分位数
   p50_inference_time_ms: number | null;
   p95_inference_time_ms: number | null;
   p99_inference_time_ms: number | null;
@@ -238,7 +236,7 @@ export interface PredictionCostStats {
   by_backend: BackendCostBreakdown[];
 }
 
-// v0.8.7 F5.3 · Reviewer 实时 mini 仪表（在 ReviewWorkbench 右侧栏渲染）
+// Reviewer 实时 mini 仪表（在 ReviewWorkbench 右侧栏渲染）
 export interface ReviewerMiniStats {
   approved_today: number;
   rejected_today: number;
@@ -255,7 +253,6 @@ export const dashboardApi = {
       { signal },
     ),
   getAnnotatorStats: () => apiClient.get<AnnotatorDashboardStats>("/dashboard/annotator"),
-  // v0.8.6 F4
   getPredictionCostStats: (range: "7d" | "30d" = "30d") =>
     apiClient.get<PredictionCostStats>(`/dashboard/admin/prediction-cost-stats?range=${range}`),
   getMyBatches: (limit = 100, offset = 0, signal?: AbortSignal) =>
@@ -268,9 +265,8 @@ export const dashboardApi = {
     ),
   getMyRecentReviews: (limit = 20) =>
     apiClient.get<RecentReviewItem[]>(`/dashboard/me/recent-reviews?limit=${limit}`),
-  // v0.8.7 F5.3
   getReviewerTodayMini: () => apiClient.get<ReviewerMiniStats>("/dashboard/reviewer/today-mini"),
-  // v0.8.4 · 管理员人员看板
+  // 管理员人员看板
   getAdminPeople: (
     params: {
       role?: string;
@@ -304,7 +300,7 @@ export const dashboardApi = {
       ? apiClient.get<AdminPersonDetail>(path, { signal })
       : apiClient.get<AdminPersonDetail>(path);
   },
-  // v0.12.5 · 成员绩效 CSV 导出（A2）。带 Bearer 拉 blob 触发下载，镜像 usersApi.exportUsers。
+  // 成员绩效 CSV 导出（A2）。带 Bearer 拉 blob 触发下载，镜像 usersApi.exportUsers。
   exportPeople: async (
     params: { role?: string; project?: string; period?: string; sort?: string; q?: string } = {},
   ): Promise<void> => {
@@ -346,7 +342,7 @@ export const dashboardApi = {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
-  // v0.12.3 · 标注员自助绩效（取经合集 §4.1 个人页）
+  // 标注员自助绩效（取经合集 §4.1 个人页）
   getMyPerformance: (period: string = "4w") =>
     apiClient.get<MyPerformance>(`/dashboard/me/performance?period=${period}`),
 };

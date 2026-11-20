@@ -1,4 +1,4 @@
-// v0.16.10 · 从 useWorkbenchShellModel.tsx 抽出的侧栏像素尺寸计算(自包含连续块)。
+// 从 useWorkbenchShellModel.tsx 抽出的侧栏像素尺寸计算(自包含连续块)。
 // 行为零变化:winWidth 监听 + leftPx/rightPx + onResize* + sidebar*Px 阈值逐字搬运。
 import { useCallback, useEffect, useState } from "react";
 import { clamp } from "./useWorkbenchShellModel.helpers";

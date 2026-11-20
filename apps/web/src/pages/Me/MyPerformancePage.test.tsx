@@ -1,5 +1,5 @@
 /**
- * v0.12.3 · MyPerformancePage 渲染冒烟测试。
+ * MyPerformancePage 渲染冒烟测试。
  *
  * 重点：验证 recharts（首次引入本仓）能正常 mount + 数据流通到 hero KPI，
  * 不抛运行时错误。图表在 jsdom 下 0 尺寸不渲染内部内容，故只断言图表容器外的文案。
@@ -68,7 +68,7 @@ describe("MyPerformancePage", () => {
     // 图表卡片标题（容器外文案）
     expect(screen.getByText("产出趋势 · 我 vs 团队均线（近 4 周）")).toBeInTheDocument();
     expect(screen.getByText("标注耗时分布")).toBeInTheDocument();
-    // v0.12.4 质量归因块
+    // 质量归因块
     expect(screen.getByText("82%")).toBeInTheDocument(); // 首过率
     expect(screen.getByText("Reject 原因分布")).toBeInTheDocument();
     expect(screen.getByText(/类别覆盖/)).toBeInTheDocument();

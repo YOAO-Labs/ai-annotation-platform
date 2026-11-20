@@ -1,5 +1,5 @@
 /**
- * v0.18.16 · 受限树形流水线 DAG 画布 (react-flow v12).
+ * 受限树形流水线 DAG 画布 (react-flow v12).
  *
  * 左列编排画布: 把 stagesGraph 派生的 GraphNodeModel[] 渲染成分层 DAG, 支持点选节点 (右列出参数)、
  * 节点上 +/🗑 增删、拖边改父 (re-parent)。所有真值仍在容器的 stagesGraph; nodes/edges 由 models
@@ -100,7 +100,7 @@ function tooltipDesc(data: StageNodeData, isSource: boolean) {
 /** 节点公共内容 (角色徽标 + backend + 就绪/警示 + 详情 + 父框 + 进度 + 计数 + 增删)。 */
 function NodeBody({ data }: { data: StageNodeData }) {
   const { onSelect, onAddChild, onRemove, connectingFrom, canReparentConn } = useContext(CanvasCtx);
-  // v0.21.5 · 输入节点 = parentSid==null (去 kind 二分); 无入 handle、不可删、显源类型/执行单位徽标。
+  // 输入节点 = parentSid==null (去 kind 二分); 无入 handle、不可删、显源类型/执行单位徽标。
   const isSource = data.parentSid == null;
 
   // 拖拽中: 本节点是否合法落点 (连线 source=connectingFrom 父, target=本节点 子)。
@@ -134,7 +134,7 @@ function NodeBody({ data }: { data: StageNodeData }) {
           <Badge variant={isSource ? "outline" : data.role.variant}>
             {isSource ? "输入" : data.role.label}
           </Badge>
-          {/* v0.21.5 · 输入节点显任务名 (目标检测 / 视频追踪) + 源类型 (图像 / 视频) + 执行单位 (整段序列/逐帧) 徽标。 */}
+          {/* 输入节点显任务名 (目标检测 / 视频追踪) + 源类型 (图像 / 视频) + 执行单位 (整段序列/逐帧) 徽标。 */}
           <span className={styles.nodeName}>{isSource ? data.role.label : ""}</span>
           {isSource && data.sourceTypeLabel && (
             <Badge variant="outline">{data.sourceTypeLabel}</Badge>
@@ -215,9 +215,9 @@ function NodeBody({ data }: { data: StageNodeData }) {
   );
 }
 
-// v0.21.5/v0.21.6 · 单一节点组件 (去 source/stage 二分): 入 handle 仅非输入节点 (parentSid!=null) 有;
+// 单一节点组件 (去 source/stage 二分): 入 handle 仅非输入节点 (parentSid!=null) 有;
 // 出 handle 产几何且未达深度上限 (canAddChild) 才有 —— 输入节点(parentSid==null)恒有出 handle
-// (总有源模型子, 供边渲染), 但 + 按钮由 canAddChild 单独门控 (v0.21.6 输入节点不加子)。
+// (总有源模型子，供边渲染)。是否显示 + 按钮由 canAddChild 单独决定，输入节点不显示。
 const StageNode = memo(({ data }: NodeProps<Node<StageNodeData>>) => (
   <>
     {data.parentSid != null && <Handle type="target" position={Position.Left} />}

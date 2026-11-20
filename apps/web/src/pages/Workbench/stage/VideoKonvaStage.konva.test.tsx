@@ -1,5 +1,5 @@
 /**
- * v0.16.1 · 视频 Konva 栈容器(VideoKonvaStage)konva-mock 测试。
+ * 视频 Konva 栈容器(VideoKonvaStage)konva-mock 测试。
  *
  * 验证容器层装配:渲染隐藏 `<video>` 解码源 + media-bg Layer + Konva.Image(world 尺寸按
  * manifest 固有宽高),并经转发的 VideoStageControls 暴露播放控制(供工作台热键驱动)。

@@ -111,7 +111,7 @@ const BULK_LABEL: Record<BulkActionKind, string> = {
   reject: "驳回",
 };
 
-// v0.7.3 · 逆向迁移（owner 专属）。原 ReverseTransitionModal 的文案随 plan T2 迁移 inputDialog 一并收编。
+// 逆向迁移（owner 专属）。原 ReverseTransitionModal 的文案随 plan T2 迁移 inputDialog 一并收编。
 type ReverseKind = "unarchive" | "reopen_from_approved" | "reopen_from_rejected";
 
 const REVERSE_COPY: Record<
@@ -160,7 +160,7 @@ function canSubmitReview(batch: BatchResponse): boolean {
 
 export function BatchesSection({ project }: { project: ProjectResponse }) {
   const pushToast = useToastStore((s) => s.push);
-  // v0.9.13 · 后端 batch 状态变更 (transition / auto_transition) 实时刷新本页列表
+  // 后端 batch 状态变更 (transition / auto_transition) 实时刷新本页列表
   useBatchEventsSocket(project.id);
   const { data: batches = [], isLoading } = useBatches(project.id);
   const pagination = useListPagination(batches, project.id);
@@ -187,7 +187,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   const [namePrefix, setNamePrefix] = useState("Batch");
   const [shuffle, setShuffle] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<BatchResponse | null>(null);
-  // v0.11.25 · 删批次保护：含进行中成果/已预标时后端 409，弹此框让用户确认强制删除
+  // 删批次保护：含进行中成果/已预标时后端 409，弹此框让用户确认强制删除
   const [forceDelete, setForceDelete] = useState<{
     batch: BatchResponse;
     nonPending: number;
@@ -196,10 +196,10 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   } | null>(null);
   const [assignTarget, setAssignTarget] = useState<BatchResponse | null>(null);
   const [distributeOpen, setDistributeOpen] = useState(false);
-  // v0.12.0 · P2 · 浏览未归类任务池
+  // 浏览未归类任务池
   const [browseUnbatched, setBrowseUnbatched] = useState(false);
 
-  // v0.7.3 · 多选批量操作
+  // 多选批量操作
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmBulk, setConfirmBulk] = useState<BulkActionKind | null>(null);
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -209,11 +209,11 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   } | null>(null);
   const [resultExpanded, setResultExpanded] = useState(false);
 
-  // v0.7.3 · 操作历史抽屉（逆向迁移 / 重置 / 驳回 / 锁定在 plan T2 已迁移 inputDialog，
+  // 操作历史抽屉（逆向迁移 / 重置 / 驳回 / 锁定在 plan T2 已迁移 inputDialog，
   // 目标批次以点击时的局部快照传入 async handler，不再需要 open state）
   const [auditTarget, setAuditTarget] = useState<BatchResponse | null>(null);
 
-  // v0.7.6 · view toggle [list | kanban] + URL ?batch_view=kanban 持久化
+  // view toggle [list | kanban] + URL ?batch_view=kanban 持久化
   const [searchParams, setSearchParams] = useSearchParams();
   const view = (searchParams.get("batch_view") === "kanban" ? "kanban" : "list") as
     | "list"
@@ -352,7 +352,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
 
   const renderBulkResultRow = (item: { batch_id: string; reason: string }) => {
     const b = idToBatch.get(item.batch_id);
-    // v0.11.25 · requires_force 的批次含进行中成果/已预标，批量删除默认跳过
+    // requires_force 的批次含进行中成果/已预标，批量删除默认跳过
     const reason =
       item.reason === "requires_force"
         ? "含进行中成果/已预标，未删除（可单独强制删除）"
@@ -376,7 +376,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // v0.12.0 · B5 兜底：一键把全部未归类任务注入 1 个批次（random split, n_batches=1）。
+  // B5 兜底：一键把全部未归类任务注入 1 个批次（random split, n_batches=1）。
   // 十万级导入后无需手动选 N，直接让任务进入工作流。
   const handleCreateAll = () => {
     splitBatches.mutate(
@@ -434,7 +434,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // v0.7.0 · 批次驳回（原 RejectBatchModal，plan T2 迁移 inputDialog，copy 原样保留）。
+  // 批次驳回（原 RejectBatchModal，plan T2 迁移 inputDialog，copy 原样保留）。
   const handleRejectBatch = async (batch: BatchResponse) => {
     if (rejectBatch.isPending) return;
     const feedback = await inputDialog({
@@ -459,7 +459,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // v0.7.3 · owner 逆向迁移（原 ReverseTransitionModal，plan T2 迁移 inputDialog）。
+  // owner 逆向迁移（原 ReverseTransitionModal，plan T2 迁移 inputDialog）。
   const handleReverseTransition = async (batch: BatchResponse, kind: ReverseKind) => {
     if (transitionBatch.isPending) return;
     const copy = REVERSE_COPY[kind];
@@ -482,7 +482,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // v0.7.6 · owner 终极重置到 draft（原 ResetBatchModal，plan T2 迁移 inputDialog；
+  // owner 终极重置到 draft（原 ResetBatchModal，plan T2 迁移 inputDialog；
   // 原警告块的列表文案并入 description，≥10 字下限走 validate）。
   const handleResetBatch = async (batch: BatchResponse) => {
     if (resetBatch.isPending) return;
@@ -507,7 +507,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // v0.9.15 · ADR-0008 admin-lock（原 AdminLockModal，plan T2 迁移 inputDialog）。
+  // ADR-0008 admin-lock（原 AdminLockModal，plan T2 迁移 inputDialog）。
   const handleAdminLockPrompt = async (batch: BatchResponse) => {
     if (adminLock.isPending) return;
     const reason = await inputDialog({
@@ -549,7 +549,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           setForceDelete(null);
         },
         onError: (e) => {
-          // v0.11.25 · 409 requires_force：含进行中成果/已预标 → 弹保护框让用户确认强制删除
+          // 409 requires_force：含进行中成果/已预标 → 弹保护框让用户确认强制删除
           const err = e as { status?: number; detailRaw?: Record<string, unknown> };
           if (err.status === 409 && err.detailRaw?.requires_force) {
             setConfirmDelete(null);
@@ -573,7 +573,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border px-4 py-3.5">
           <h3 className="text-sm font-semibold">批次管理</h3>
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* v0.7.6 · view toggle */}
+            {/* view toggle */}
             <div
               role="tablist"
               aria-label="批次视图"
@@ -628,7 +628,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           <div className="p-8 text-center text-sm text-muted-foreground">暂无批次</div>
         )}
 
-        {/* v0.7.3 · 未归类任务横带（关联数据集后但还没切分到 batch 的 task） */}
+        {/* 未归类任务横带（关联数据集后但还没切分到 batch 的 task） */}
         {unclassifiedCount > 0 && (
           <div className="flex items-center gap-3 border-b border-border bg-status-caution-soft px-4 py-2 text-sm">
             <Icon name="info" size={14} />
@@ -677,7 +677,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           </div>
         )}
 
-        {/* v0.7.3 · 多选浮层操作条（仅 owner 可见） */}
+        {/* 多选浮层操作条（仅 owner 可见） */}
         {isOwner && selectedCount > 0 && (
           <div className="flex items-center gap-3 border-b border-border bg-brand/10 px-4 py-2 text-sm">
             <span>
@@ -717,7 +717,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           </div>
         )}
 
-        {/* v0.7.3 · 上次批量操作结果（partial-success） */}
+        {/* 上次批量操作结果（partial-success） */}
         {bulkResult && (
           <div className="block border-b border-border bg-muted px-4 py-2 text-xs">
             <div className="flex items-center gap-2">
@@ -939,7 +939,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title="重新激活"
                           />
                         )}
-                        {/* v0.7.3 · owner 专属逆向迁移按钮 */}
+                        {/* owner 专属逆向迁移按钮 */}
                         {isOwner && b.status === "rejected" && (
                           <BatchActionButton
                             icon="refresh"
@@ -964,7 +964,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title="撤销归档"
                           />
                         )}
-                        {/* v0.7.6 · owner 终极重置到 draft（任意非 draft 状态） */}
+                        {/* owner 终极重置到 draft（任意非 draft 状态） */}
                         {isOwner && b.status !== "draft" && (
                           <BatchActionButton
                             icon="refresh"
@@ -989,14 +989,14 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title="删除"
                           />
                         )}
-                        {/* v0.7.3 · 操作历史抽屉 */}
+                        {/* 操作历史抽屉 */}
                         <BatchActionButton
                           icon="clock"
                           label="操作历史"
                           onClick={() => setAuditTarget(b)}
                           title="操作历史"
                         />
-                        {/* v0.9.15 · ADR-0008 admin-lock */}
+                        {/* ADR-0008 admin-lock */}
                         {isOwner && !b.admin_locked && (
                           <BatchActionButton
                             icon="lock"
@@ -1125,7 +1125,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* v0.11.25 · 删除保护：含进行中成果/已预标 → 强制删除确认 */}
+      {/* 删除保护：含进行中成果/已预标 → 强制删除确认 */}
       <Modal open={!!forceDelete} title="该批次有进行中的成果" onClose={() => setForceDelete(null)}>
         <div className="text-sm">
           <p>
@@ -1153,7 +1153,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* v0.6.7 B-12-②：分派 Modal */}
+      {/* B-12-②：分派 Modal */}
       {assignTarget && (
         <BatchAssignmentModal
           projectId={project.id}
@@ -1162,7 +1162,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.7.2：项目级 batch 分派 Modal */}
+      {/* 项目级 batch 分派 Modal */}
       {distributeOpen && (
         <ProjectDistributeBatchesModal
           projectId={project.id}
@@ -1170,7 +1170,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.7.3：批量操作二次确认 Modal */}
+      {/* 批量操作二次确认 Modal */}
       <Modal
         open={
           confirmBulk === "archive" ||
@@ -1230,7 +1230,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* v0.7.3：批量改派 Modal */}
+      {/* 批量改派 Modal */}
       {reassignOpen && (
         <ProjectDistributeBatchesModal
           projectId={project.id}
@@ -1239,7 +1239,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.7.3：操作历史抽屉 */}
+      {/* 操作历史抽屉 */}
       {auditTarget && (
         <BatchAuditLogDrawer
           projectId={project.id}
@@ -1248,7 +1248,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.12.0：浏览未归类任务池（虚拟滚动） */}
+      {/* 浏览未归类任务池（虚拟滚动） */}
       {browseUnbatched && (
         <UnbatchedTasksModal
           projectId={project.id}
@@ -1257,7 +1257,7 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* v0.9.15：批量驳回 Modal */}
+      {/* 批量驳回 Modal */}
       {confirmBulk === "reject" && (
         <BulkRejectModal
           count={selectedCount}

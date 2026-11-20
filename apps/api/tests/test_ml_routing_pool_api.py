@@ -1,10 +1,10 @@
-"""v0.23.3 ADR-0050 §12.2 · project pool-binding API tests.
+"""ADR-0050 §12.2 · project pool-binding API tests.
 
 GET /projects/:id/ml-backends/pools/available
 PUT /projects/:id/ml-backends/pools/:pool_id/enablement
 
 off/observe: each pool is a singleton; behavior is equivalent to the registry-level
-enablement endpoints. Full pool management UI is v0.23.4.
+enablement endpoints.
 """
 
 from __future__ import annotations

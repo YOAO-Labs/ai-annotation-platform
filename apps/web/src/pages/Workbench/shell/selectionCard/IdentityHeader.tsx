@@ -66,7 +66,7 @@ export interface IdentityHeaderProps {
 }
 
 /**
- * v0.16.14 · 选中信息卡通用身份头:类别色块 + 类名 + 来源徽章 +(可选)置信度 pill / 帧定位。
+ * 选中信息卡通用身份头:类别色块 + 类名 + 来源徽章 +(可选)置信度 pill / 帧定位。
  * 四种选中态共用,色块走数据域类别色(与画布/列表同源),徽章/pill 走 Tailwind 语义类。
  */
 export function IdentityHeader({

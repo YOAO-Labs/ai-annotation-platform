@@ -1,4 +1,4 @@
-// v0.15.3 · 工作台设置字段注册表(单一来源):工作台设置窗口与 Settings 页「标注偏好」
+// 工作台设置字段注册表(单一来源):工作台设置窗口与 Settings 页「标注偏好」
 // 共用本数组渲染,杜绝两处 UI 漂移。新增字段流程:后端子树加字段 → auth.ts 类型同步 →
 // 这里加一行 → 消费点读配置。
 import type { LabelContentByType, WorkbenchPreferences } from "@/api/auth";
@@ -34,10 +34,10 @@ export type WorkbenchSettingControl =
       resetTo?: number;
     }
   | { type: "select"; options: Array<{ value: WorkbenchSettingValue; label: string }> }
-  // v0.15.27 · 多选(存 string[]);min 兜底至少保留几项(labelContent 至少留「类别名」)。
+  // 多选(存 string[]);min 兜底至少保留几项(labelContent 至少留「类别名」)。
   | { type: "multiselect"; options: Array<{ value: string; label: string }>; min?: number }
   | { type: "text"; maxLength: number; placeholder?: string }
-  // v0.16.7 · 标签内容按标注类型分段：每段独立 toggle 列，提交整个 LabelContentByType 对象。
+  // 标签内容按标注类型分段：每段独立 toggle 列，提交整个 LabelContentByType 对象。
   | {
       type: "labelContentByType";
       segments: Array<{
@@ -58,7 +58,7 @@ interface WorkbenchSettingFieldBase {
   label: string;
   description?: string;
   control: WorkbenchSettingControl;
-  /** 注册但不渲染。v0.15.3 红线:不新增用户可感知项(snapToGrid 现状无设置 UI)。 */
+  /** 注册但不渲染；snapToGrid 不提供设置 UI。 */
   hidden?: boolean;
 }
 
@@ -66,7 +66,7 @@ export interface WorkbenchPreferenceSettingField extends WorkbenchSettingFieldBa
   key: `${WorkbenchPreferenceSettingCategory}.${string}`;
   category: WorkbenchPreferenceSettingCategory;
   storage?: "preferences";
-  /** 是否参与项目锁定(ProjectRenderingConfig 平铺同名字段可覆盖,v0.10.10)。 */
+  /** 是否参与项目锁定；ProjectRenderingConfig 可覆盖同名平铺字段。 */
   lockable?: boolean;
 }
 

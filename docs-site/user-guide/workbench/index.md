@@ -160,7 +160,7 @@ last_reviewed: 2026-10-26
 
 ## 任务队列里的状态标签
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/workbench/task-status-labels.png — 六种状态标签竖列 -->
+<!-- TODO IMAGE_CHECKLIST: images/workbench/task-status-labels.png — 六种状态标签竖列 -->
 
 左侧任务队列每条任务会显示一个状态标签，反映这条任务标到了哪一步：
 

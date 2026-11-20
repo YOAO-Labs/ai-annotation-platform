@@ -77,7 +77,7 @@ type Geom = { x: number; y: number; w: number; h: number };
 type StageGeometry = { imgW: number; imgH: number; vpSize: { w: number; h: number } };
 
 /**
- * v0.11.28：视频改类时，把选中框在「当前帧」的归一化 bbox 转成屏幕坐标，
+ * 视频改类时，把选中框在「当前帧」的归一化 bbox 转成屏幕坐标，
  * 让改类悬浮框锚到画布上的框（而非贴顶部）。帧矩形标记由 VideoKonvaStage 打上 `data-video-overlay`。
  * 框在当前帧不可见（如 track 在该帧被标消失）时返回 undefined，由调用方回落到其它锚点。
  */
@@ -125,14 +125,14 @@ interface UseImageAnnotationActionsArgs {
   stageGeom: StageGeometry;
   iouDedupThreshold: number;
   classes: string[];
-  /** v0.10.x · 项目 tool_bindings；用于把 AI 预测 class_name 的英文 alias 归一回原类别名。 */
+  /** 项目 tool_bindings；用于把 AI 预测 class_name 的英文 alias 归一回原类别名。 */
   toolBindings?: ToolBindings;
   /**
    * 当前激活工具「自身的 unit」是否定义了类别。false 时落框直接以 __unknown 落库,
    * 不弹选类别窗 (修复老项目用无类别工具仍弹窗的 BUG)。来自 useToolBindings.hasOwnClasses。
    */
   activeToolHasOwnClasses?: boolean;
-  /** v0.10.28 · 当前 keypoint 单元 schema 节点数，透传给 useWorkbenchAnnotationActions。 */
+  /** 当前 keypoint 单元 schema 节点数，透传给 useWorkbenchAnnotationActions。 */
   keypointNodeCount?: number;
   sam: UseInteractiveAIReturn;
   /** Decoded transient native candidates, kept separate from committed annotations. */
@@ -147,11 +147,11 @@ interface UseImageAnnotationActionsArgs {
   mutations: AnnotationMutations;
   enqueueOnError: (err: unknown, fallback: () => void) => void;
   isLocked?: boolean;
-  /** v0.10.8 · 由 WorkbenchShell 注入；mask 编辑器状态层。空时 refine/commitMask 返回 false。 */
+  /** 由 WorkbenchShell 注入；mask 编辑器状态层。空时 refine/commitMask 返回 false。 */
   maskEditor?: UseMaskEditorSessionReturn;
   /** 任务能力握手决定的图片 Mask 持久化路径；未知/失败必须 blocked。 */
   maskPersistenceMode?: "native" | "legacy" | "blocked";
-  /** v0.20.22 · 桥接松手闪回, 见 usePendingGeom。 */
+  /** 桥接松手闪回, 见 usePendingGeom。 */
   markPendingGeom?: (id: string, geom: import("@/types").Geometry) => void;
 }
 
@@ -424,7 +424,7 @@ export function useImageAnnotationActions({
     () => acceptedPredictionShapeKeys(annotationsData),
     [annotationsData],
   );
-  // v0.21.10 · 按 id 去重: offset 分页重取期相邻页 shape 可能重叠, 不去重会让待审计数瞬时冲高
+  // 按 id 去重: offset 分页重取期相邻页 shape 可能重叠, 不去重会让待审计数瞬时冲高
   //   (100→500→100)。在源头去重, 下游 (reviewableAiBoxes / aiBoxes / 计数 / 时间轴密度) 全继承唯一 id。
   const allAiBoxes = useMemo(
     () => dedupeAiBoxesById(predictionsToBoxes(predictionsData, toolBindings)),
@@ -588,7 +588,7 @@ export function useImageAnnotationActions({
         void acceptNativeMaskCandidate(pending.idx, cls);
         return;
       }
-      // v0.10.17 · Magic Box: bbox prompt → polygon → 紧凑外接矩形落 bbox.
+      // Magic Box: bbox prompt → polygon → 紧凑外接矩形落 bbox.
       // 不论候选 type 都收紧到 bbox, 跳过 polygon 创建路径.
       if (s.tool === "magic-box") {
         let tight: { x: number; y: number; w: number; h: number } | null = null;
@@ -601,7 +601,7 @@ export function useImageAnnotationActions({
         if (tight) createBboxWithClass(tight, cls);
         return;
       }
-      // v0.9.4 phase 2 · 按 type 分发: rectanglelabels 走 bbox 创建路径，polygonlabels 走 polygon 创建路径。
+      // 按 type 分发: rectanglelabels 走 bbox 创建路径，polygonlabels 走 polygon 创建路径。
       if (cand.type === "rectanglelabels" && cand.bbox) {
         createBboxWithClass(
           { x: cand.bbox.x, y: cand.bbox.y, w: cand.bbox.width, h: cand.bbox.height },
@@ -621,7 +621,7 @@ export function useImageAnnotationActions({
     if (s.tool === "magic-box") sam.cancel();
   }, [s.tool, sam]);
 
-  // v0.10.17 · Magic Box · SAM 返回候选后弹出类别选择 popover (复用 samPendingAccept),
+  // Magic Box · SAM 返回候选后弹出类别选择 popover (复用 samPendingAccept),
   // 用户选定类别再收紧成 bbox; 默认类沿用 s.activeClass (见 samDefaultClass).
   useEffect(() => {
     if (s.tool !== "magic-box") return;
@@ -636,7 +636,7 @@ export function useImageAnnotationActions({
     if (!sam.canAcceptCandidates && samPendingAccept) setSamPendingAccept(null);
   }, [sam.canAcceptCandidates, samPendingAccept]);
 
-  // v0.10.9 · R 键精修走 ref 间接调用,避免在 useEffect 依赖里前向引用未定义的 handleRefineSamCandidate.
+  // R 键精修走 ref 间接调用,避免在 useEffect 依赖里前向引用未定义的 handleRefineSamCandidate.
   const refineSamRef = useRef<(idx: number) => void>(() => {});
 
   const requestSamAccept = useCallback(() => {
@@ -648,7 +648,7 @@ export function useImageAnnotationActions({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isSamCandidateHotkeyBlocked(e)) return;
-      // v0.10.2 · sam 拆分后, Tab/Enter 候选导航在任一 AI 工具激活下都启用.
+      // sam 拆分后, Tab/Enter 候选导航在任一 AI 工具激活下都启用.
       const isAIActive =
         s.tool === "smart-point" ||
         s.tool === "smart-box" ||
@@ -678,7 +678,7 @@ export function useImageAnnotationActions({
         sam.cycle(e.shiftKey ? -1 : 1);
         return;
       }
-      // v0.10.9 · R 键精修当前 SAM 候选 → Mask 编辑器。仅 polygonlabels 类型有效。
+      // R 键精修当前 SAM 候选 → Mask 编辑器。仅 polygonlabels 类型有效。
       if (e.key === "r" || e.key === "R") {
         if (!sam.canAcceptCandidates) return;
         e.preventDefault();
@@ -1049,8 +1049,8 @@ export function useImageAnnotationActions({
   const handleAcceptPrediction = predictionDecisions.acceptPrediction;
   const handleRejectPrediction = predictionDecisions.rejectPrediction;
 
-  // v0.10.8 · I11 · Mask 精修：候选/已存 polygon → mask 编辑 → commit 路径按 kind 分流。
-  // v0.10.9 · 扩三种 kind：prediction（AI 预标 polygon 行）/ sam（SAM 交互候选，未 Enter）/ user（已落库 polygon，update 替换 geometry）。
+  // Mask 精修：候选/已存 polygon → mask 编辑 → commit 路径按 kind 分流。
+  // 扩三种 kind：prediction（AI 预标 polygon 行）/ sam（SAM 交互候选，未 Enter）/ user（已落库 polygon，update 替换 geometry）。
 
   const initMaskFromNormalizedPoints = useCallback(
     (normPoints: [number, number][]): boolean => {
@@ -1112,7 +1112,7 @@ export function useImageAnnotationActions({
     [initMaskFromNormalizedPoints, pushToast, s],
   );
 
-  // v0.10.9 (A) · SAM 交互候选精修：候选未 Enter 时，直接从 sam.candidates[idx] 启动 mask 编辑。
+  // (A) · SAM 交互候选精修：候选未 Enter 时，直接从 sam.candidates[idx] 启动 mask 编辑。
   // commit 时 sam.consume(samIdx) 清候选 + submitPolygon 落库（候选 label 优先；无 label 用工具栏当前 label）。
   const handleRefineSamCandidate = useCallback(
     (idx: number = sam.activeIdx) => {
@@ -1143,7 +1143,7 @@ export function useImageAnnotationActions({
     refineSamRef.current = handleRefineSamCandidate;
   }, [handleRefineSamCandidate]);
 
-  // v0.10.9 (B) · 已落库 user polygon 精修：commit 时走 update mutation 替换原 geometry（in-place）。
+  // (B) · 已落库 user polygon 精修：commit 时走 update mutation 替换原 geometry（in-place）。
   const handleRefineUserPolygon = useCallback(
     (annotationId: string) => {
       const ann = annotationsRef.current.find((a) => a.id === annotationId);
@@ -1174,7 +1174,7 @@ export function useImageAnnotationActions({
 
   const commitMaskAsPolygon = useCallback(async () => {
     if (!maskEditor) return Promise.resolve({ ok: false, retryable: false });
-    // v0.23.5 · WS-C · 提交边界 defense-in-depth: 即便 Enter hotkey 漏判, commit 本身也
+    // 提交边界 defense-in-depth: 即便 Enter hotkey 漏判, commit 本身也
     // 经 canEditMask 拦截锁定对象 (task 只读 / 选中 annotation is_locked)。
     const refine = pendingRefineRef.current;
     const generation = maskEditor.generation;
@@ -1450,10 +1450,10 @@ export function useImageAnnotationActions({
       pushToast({ msg: "Mask 为空,无可提交几何", kind: "warning" });
       return Promise.resolve({ ok: false, retryable: false });
     }
-    // v0.23.5 WS-E (ADR-0052 D5 / P4) · 止血: mask 含多连通分量 (或孔) 时转换有损,
+    // mask 含多连通分量或孔时，多边形转换有损 (ADR-0052 D5/P4)。
     // 禁止静默取最大环落库。阻断本次提交, 弹 warning toast 说明原因, 保留 mask 编辑态
-    // (不 cancel) 让用户: ① 用橡皮擦掉小分量后重试, 或 ② 等待 v0.23.7 原生 Mask 工作台
-    // (届时直接落 raster_mask, 不走 polygon 中转)。不创建 raster_mask annotation (那是 v0.23.6)。
+    // (不 cancel)，让用户用橡皮擦掉小分量后重试。
+    // 多边形提交路径不会创建 raster_mask 标注。
     if (out.lossy) {
       const dropped = out.droppedComponents ? ` (丢弃 ${out.droppedComponents} 个连通分量)` : "";
       pushToast({
@@ -1544,7 +1544,7 @@ export function useImageAnnotationActions({
         s.setSelectedId(null);
         return result;
       });
-    // v0.23.5 WS-E · multipleComponents 的「仅落最大外环」toast 已移除: lossy 转换在
+    // multipleComponents 的「仅落最大外环」toast 已移除: lossy 转换在
     // 上游被阻断 (见函数开头 out.lossy 早退分支), 走到这里的一定是单连通无损 mask。
   }, [
     maskEditor,
@@ -1679,7 +1679,7 @@ export function useImageAnnotationActions({
         s.setEditingClass(null);
         return;
       }
-      // v0.14.17 · 采纳模式: 带 override_class_name 采纳预测 (而非改已存标注的类). 不因
+      // 采纳模式: 带 override_class_name 采纳预测 (而非改已存标注的类). 不因
       // cls===currentClass 早返 — 这里 currentClass 是模型原生类名, cls 是人选的项目标签.
       if (editing.accept) return predictionDecisions.commitClass(cls);
       if (cls === editing.currentClass) {
@@ -1714,7 +1714,7 @@ export function useImageAnnotationActions({
     s.setEditingClass(null);
   }, [s, predictionDecisions]);
 
-  // v0.11.28：改类悬浮框含属性时，点类别即时提交但不关闭悬浮框
+  // 改类悬浮框含属性时，点类别即时提交但不关闭悬浮框
   // （更新 currentClass 让悬浮框内属性按新类别联动刷新可见字段）。
   // 失败时必须回滚 editingClass / activeClass，否则连点 A→B→C 中 B 失败会让
   // popover 显示 C 而服务端仍是 A，且历史栈缺中间步使 undo 跳步。

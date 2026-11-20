@@ -1,4 +1,4 @@
-"""v0.22.2 · B-combo · sam3_video_combo = multiplex 发现 → PVS 追踪 两趟编排。
+"""B-combo · sam3_video_combo = multiplex 发现 → PVS 追踪 两趟编排。
 
 seam A(改动集中在 runner, backend 零改): runner 先用 multiplex(sam3_video)在种子帧按
 text 检测出 per-obj 框, 铸成 PVS 逐对象种子(无源), 再用 PVS(sam3_video_interactive)跑

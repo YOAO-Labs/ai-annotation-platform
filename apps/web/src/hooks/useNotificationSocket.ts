@@ -12,7 +12,7 @@ import {
   useNotificationPreferences,
 } from "@/hooks/useNotificationPreferences";
 
-// v0.8.8 · WS 鉴权过期重连。
+// WS 鉴权过期重连。
 // 后端 /ws/notifications 鉴权失败用 1008（policy violation）关闭。
 // 标注员长会话（开着标注页面 24h+）token 过期后无需手动刷页：
 //   1) onclose code 1008/4001 → 调 /auth/refresh 拿新 token
@@ -75,8 +75,8 @@ function alertText(type: string, payload: Record<string, unknown>): string {
 }
 
 /**
- * v0.6.9 · 单用户通知 WS：订阅 /ws/notifications。
- * v0.9 起挂在 App 生命周期（路由切换不拆连接），进入标注/审核工作台
+ * 单用户通知 WS：订阅 /ws/notifications。
+ * 连接随 App 生命周期保持（切换路由不拆连接），进入标注/审核工作台
  * 仍有未读角标与实时刷新；WS 断线时 useNotifications 30s 轮询兜底。
  *
  * 职责：
@@ -201,7 +201,7 @@ export function useNotificationSocket() {
       if (!t) return;
 
       // 后端 ws_router 在 main.py:108 无 prefix 注册, 路径是 /ws/notifications
-      // (历史 v0.6.9 写错为 /api/v1/ws/...). v0.9.13 host/proto 拼接迁到 buildWsUrl helper.
+      // host/proto 拼接由 buildWsUrl 统一处理。
       const url = buildWsUrl("/ws/notifications", { token: t });
       try {
         ws = new WebSocket(url);
@@ -216,7 +216,7 @@ export function useNotificationSocket() {
         qc.invalidateQueries({ queryKey: ["notifications"] });
       };
       ws.onmessage = (e) => {
-        // v0.7.0：服务端 30s 心跳 ping 帧不应触发 invalidate；非 JSON 忽略。
+        // 服务端 30s 心跳 ping 帧不应触发 invalidate；非 JSON 忽略。
         let parsed: IncomingNotification | null = null;
         try {
           parsed = JSON.parse(e.data as string) as IncomingNotification;
@@ -236,7 +236,7 @@ export function useNotificationSocket() {
           }
           return; // sync 事件绝不产生 toast
         }
-        // v0.8.6 F6 · retry.* 进度事件触发失败预测列表 invalidate
+        // retry.* 进度事件触发失败预测列表 invalidate
         if (parsed.type.startsWith("failed_prediction.retry.")) {
           qc.invalidateQueries({ queryKey: ["admin", "failed-predictions"] });
         }
@@ -252,7 +252,7 @@ export function useNotificationSocket() {
       };
       ws.onclose = (event) => {
         if (closedManually) return;
-        // v0.8.8 · 鉴权过期：尝试 refresh token 后再重连
+        // 鉴权过期：尝试 refresh token 后再重连
         if (REAUTH_CLOSE_CODES.has(event.code) && !refreshing) {
           refreshing = true;
           authApi

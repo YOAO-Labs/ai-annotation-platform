@@ -22,9 +22,9 @@ import { useToastStore } from "@/components/ui/Toast";
 import { useAuthStore } from "@/stores/authStore";
 import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreferences";
 
-// v0.10.10 · I17.3 · 项目级覆盖的字段名集合（用于 SettingsPage badge 与控件 disabled）。
+// 项目级覆盖的字段名集合（用于 SettingsPage badge 与控件 disabled）。
 // 与 ProjectRenderingConfig 字段同集（平铺命名不变），不含 longTaskSampleRate / layout。
-// v0.15.3 · 偏好四分树后,这些字段落在用户偏好的 image.* 子树。
+// 偏好四分树后,这些字段落在用户偏好的 image.* 子树。
 export type LockableField = "smoothImage" | "cssImageFilter" | "controlPointsSize" | "snapToGrid";
 
 export type WorkbenchLayoutPatch = Omit<
@@ -49,7 +49,7 @@ export type WorkbenchLayoutPatch = Omit<
   pointcloudCamera?: PointcloudCameraState | null;
 };
 
-/** v0.15.3 · 子树级 patch:每个子树内字段可单独提交,layout 同 update 既有语义(整树合并)。 */
+/** 子树级 patch:每个子树内字段可单独提交,layout 同 update 既有语义(整树合并)。 */
 export interface WorkbenchConfigPatch {
   common?: Partial<WorkbenchCommonPreferences>;
   image?: Partial<WorkbenchImagePreferences>;
@@ -69,13 +69,13 @@ interface WorkbenchConfigState {
   /** 设置窗口写路径:本地立即生效 + 300ms 防抖 PATCH(与 setLayout 共用卸载 flush)。 */
   setFields: (patch: WorkbenchConfigPatch) => void;
   setLayout: (patch: WorkbenchLayoutPatch) => void;
-  /** v0.10.10 · I17.3 · 被项目级覆盖的字段名（用户级修改会立刻被合并覆盖）。 */
+  /** 被项目级覆盖的字段名（用户级修改会立刻被合并覆盖）。 */
   lockedFields: LockableField[];
 }
 
 const clampNum = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
-// v0.15.3 · 多实例同步:抽屉与画布(ImageStage)各自挂载本 hook,任一实例改动用户配置后
+// 多实例同步:抽屉与画布(ImageStage)各自挂载本 hook,任一实例改动用户配置后
 // 广播给其余实例 → 抽屉拖滑块画布实时预览。只广播内存态,不引入模块级缓存。
 type ConfigListener = (config: WorkbenchPreferences, source: object) => void;
 const configListeners = new Set<ConfigListener>();
@@ -150,7 +150,7 @@ function mergeUser(
     ...(remote?.common ?? {}),
   };
   const remoteCommon = remote?.common as Record<string, unknown> | undefined;
-  // v0.16.7 · labelContent 规范化：旧扁平 list / 缺段补全（与后端 before validator 同款，前端兜底）。
+  // labelContent 规范化：旧扁平 list / 缺段补全（与后端 before validator 同款，前端兜底）。
   common.labelContent = migrateLabelContent(remoteCommon?.labelContent);
   if (
     remoteCommon &&
@@ -171,7 +171,7 @@ function mergeUser(
   };
 }
 
-/** v0.15.3 · 把子树级 patch 应用到完整配置(子树内字段级合并;layout 由调用方决定合并策略)。 */
+/** 把子树级 patch 应用到完整配置(子树内字段级合并;layout 由调用方决定合并策略)。 */
 function applyConfigPatch(
   prev: WorkbenchPreferences,
   patch: WorkbenchConfigPatch,
@@ -199,7 +199,7 @@ const LAYOUT_KEY_NAMES = [
   "triViewFloat",
   "cameraPanels",
   "pointcloudCamera",
-  // v0.20.22 · 分组折叠 + 讨论区收起进 localStorage 白名单: 服务端仍是权威,
+  // 分组折叠 + 讨论区收起进 localStorage 白名单: 服务端仍是权威,
   // 但初始 render 直接从 localStorage 拿最近值, 避免"刷新一瞬间看到展开态再收起"闪。
   "aiSectionCollapsed",
   "manualSectionCollapsed",
@@ -260,7 +260,7 @@ function readLocalLayout(userId: string | null | undefined): WorkbenchLayoutPatc
     pointcloudCamera: readJsonObject<PointcloudCameraState>(K.pointcloudCamera) as
       | PointcloudCameraState
       | undefined,
-    // v0.20.22 · 分组折叠 + 讨论区收起本地读回, 消除首屏闪。
+    // 分组折叠 + 讨论区收起本地读回, 消除首屏闪。
     aiSectionCollapsed: readBool(K.aiSectionCollapsed),
     manualSectionCollapsed: readBool(K.manualSectionCollapsed),
     trackSectionCollapsed: readBool(K.trackSectionCollapsed),
@@ -308,7 +308,7 @@ function writeLocalLayout(
     window.localStorage.setItem(K.floatingSelection, JSON.stringify(layout.floatingSelection));
     window.localStorage.setItem(K.cameraPanels, JSON.stringify(layout.cameraPanels));
     window.localStorage.setItem(K.pointcloudCamera, JSON.stringify(layout.pointcloudCamera));
-    // v0.20.22 · 分组折叠 + 讨论区收起本地写入, 消除首屏闪。
+    // 分组折叠 + 讨论区收起本地写入, 消除首屏闪。
     window.localStorage.setItem(K.aiSectionCollapsed, layout.aiSectionCollapsed ? "1" : "0");
     window.localStorage.setItem(
       K.manualSectionCollapsed,
@@ -414,7 +414,7 @@ function mergeLayout(
     rightOpen: merged.rightOpen ?? DEFAULT_WORKBENCH_PREFERENCES.layout.rightOpen,
     attrPanelCollapsed:
       merged.attrPanelCollapsed ?? DEFAULT_WORKBENCH_PREFERENCES.layout.attrPanelCollapsed,
-    // v0.20.22 · 分组折叠 + 讨论区完全收起 (跨设备持久); 与 attrPanelCollapsed
+    // 分组折叠 + 讨论区完全收起 (跨设备持久); 与 attrPanelCollapsed
     // 不同, 这三个进 LAYOUT_KEY_NAMES localStorage 双写以消首屏闪 (进任务立即渲染,
     // 属性区选中后才渲染, 闪的可见度差异催出这一分化)。
     aiSectionCollapsed:
@@ -504,10 +504,10 @@ function applyLayoutPatch(
 }
 
 /**
- * v0.10.10 · 把项目级 rendering_config 合进用户级 preferences。
+ * 把项目级 rendering_config 合进用户级 preferences。
  * 仅 non-null/non-undefined 字段覆盖；其余字段沿用用户级。
  * 同时返回被覆盖的字段名列表，供 UI 渲染「项目锁定」badge。
- * v0.15.3 · ProjectRenderingConfig 保持平铺(项目侧不迁移),覆盖映射到 image.* 子树字段。
+ * ProjectRenderingConfig 保持平铺(项目侧不迁移),覆盖映射到 image.* 子树字段。
  */
 function applyProjectOverride(
   user: WorkbenchPreferences,
@@ -534,8 +534,8 @@ function applyProjectOverride(
 }
 
 /**
- * v0.9.41 · 工作台渲染配置 hook（I17）。
- * v0.10.10 · I17.3 · 支持项目级覆盖：合并优先级 = DEFAULTS → user prefs → project rendering_config。
+ * 工作台渲染配置 hook（I17）。
+ * 支持项目级覆盖：合并优先级 = DEFAULTS → user prefs → project rendering_config。
  *
  * 多组件可同时挂载本 hook —— Settings 页面不传 project (= 纯用户视图);
  * 工作台传 currentProject.rendering_config，合并后驱动 KonvaImage 等。
@@ -546,7 +546,7 @@ export function useWorkbenchConfig(
   const user = useAuthStore((s) => s.user);
   const userId = user?.id;
   const queryClient = useQueryClient();
-  // v0.21.18 · 读路径接入共享 preferences query: 与 ai.* 四偏好 hook 复用同一
+  // 读路径接入共享 preferences query: 与 ai.* 四偏好 hook 复用同一
   // ["me","preferences",userId] GET, 消除首屏多个 useWorkbenchConfig 实例各自裸 fetch。
   const { prefs, loaded, error, refetch } = useUserPreferences();
   // A background refresh failure does not invalidate a previously loaded preference snapshot.
@@ -565,7 +565,7 @@ export function useWorkbenchConfig(
   // 「正在拖动但防抖 PATCH 未发」的 layout。切账号 userId 变则重新 hydrate。
   const hydratedUserIdRef = useRef<string | null | undefined>(null);
   const [saving, setSaving] = useState(false);
-  // v0.15.3 · 多实例同步:本实例广播时携带 sourceRef 标识,收到自己发的广播不回灌。
+  // 多实例同步:本实例广播时携带 sourceRef 标识,收到自己发的广播不回灌。
   const sourceRef = useRef<object>({});
 
   useEffect(() => {
@@ -591,7 +591,7 @@ export function useWorkbenchConfig(
         window.clearTimeout(layoutSaveTimerRef.current);
         // 卸载(路由切换)时若仍有未发出的防抖 PATCH，立即 flush，避免拖完 300ms 内
         // 离开页面丢失跨设备同步。timer 仅在已登录时设置，故无需再判 userId。
-        // v0.21.18 · flush 成功后把整份返回值回灌共享 query 缓存, 否则 staleTime 内再进
+        // flush 成功后把整份返回值回灌共享 query 缓存, 否则 staleTime 内再进
         // 工作台会读到被本次 flush 覆盖前的旧缓存。userId 从 store 取最新(本 effect deps 稳定)。
         const flushUserId = useAuthStore.getState().user?.id;
         void authApi
@@ -611,7 +611,7 @@ export function useWorkbenchConfig(
     [queryClient],
   );
 
-  // v0.21.18 · 共享 query 数据到达时把 workbench 子树 hydrate 进本地态(每 userId 一次,
+  // 共享 query 数据到达时把 workbench 子树 hydrate 进本地态(每 userId 一次,
   // 见 hydratedUserIdRef)。首屏由 useUserPreferences 的单次 GET 供数; 各挂载实例各自在此
   // mergeUser + 写回本地 layout 缓存(幂等)。
   useEffect(() => {
@@ -642,7 +642,7 @@ export function useWorkbenchConfig(
           workbench: sanitizeForPersist(next),
         });
         if (saveRevision !== saveRevisionRef.current) return;
-        // v0.21.18 · 整份返回值回灌共享 query 缓存(PATCH 返回整份 preferences, 无子键覆盖风险)。
+        // 整份返回值回灌共享 query 缓存(PATCH 返回整份 preferences, 无子键覆盖风险)。
         cachePreferences(queryClient, userId, res);
         const saved = mergeUser(res.workbench, userId);
         userConfigRef.current = saved;

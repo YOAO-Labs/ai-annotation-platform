@@ -1,7 +1,7 @@
 import { originalOwnerKey } from "@/api/originals";
 import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
 /**
- * v0.17.x · 巨石拆分 Epic 收尾 —— 从 ThreeDWorkbench 抽出的 Three.js 场景生命周期 hook。
+ * 管理 Three.js 点云场景的生命周期。
  *
  * 封装 `PointCloudScene` 的 实例化 / 销毁 / 偏好同步 / 点云加载 / 框图层 / gizmo 挂载 /
  * W-E-R 模式键 / 相机视图存档(rAF 防抖)。与 ThreeDWorkbench 的唯一耦合点 ——
@@ -360,7 +360,7 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
   }, [pcdDecimate, rendererReadyVersion, sceneRef]);
 
   // manifest 到位后加载点云。
-  // v0.13.11 · 传入 axisConvention,scene 内部加载完 PCD 立即把 positions 旋到 ISO 系。
+  // 传入 axisConvention,scene 内部加载完 PCD 立即把 positions 旋到 ISO 系。
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) {

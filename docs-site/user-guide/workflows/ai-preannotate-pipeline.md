@@ -2,7 +2,6 @@
 title: AI 预标注流水线
 audience: [project_admin, super_admin]
 type: tutorial
-since: v0.9.0
 status: stable
 last_reviewed: 2026-10-20
 ---

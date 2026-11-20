@@ -42,7 +42,7 @@ function ocrTextSummary(box: AiBox): string | null {
   return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
 }
 
-/** v0.18.0 · 候选除 text(OCR 已单列)外是否还带可预览的二阶段属性(车型 / 颜色等)。 */
+/** 候选除 text(OCR 已单列)外是否还带可预览的二阶段属性(车型 / 颜色等)。 */
 function hasPreviewableAttrs(box: AiBox): boolean {
   const attrs = box.attributes;
   if (!attrs) return false;
@@ -52,7 +52,7 @@ function hasPreviewableAttrs(box: AiBox): boolean {
 }
 
 /**
- * v0.16.14 · 选中 AI 预测框的浮动卡内容(图片端专属)。
+ * 选中 AI 预测框的浮动卡内容(图片端专属)。
  * 补齐此前掉进 placeholder 而丢失的信息:大置信度条 + 来源 / 候选序号 + OCR 文本,
  * 动作组直连模型既有 handleAcceptPrediction / handleRefinePrediction / handleRejectPrediction,
  * 不新增业务逻辑。精修按钮仅 polygon 几何渲染(与右栏 AIInspectorPanel 同条件)。

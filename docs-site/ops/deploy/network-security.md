@@ -2,7 +2,6 @@
 title: 端口暴露与网络安全
 audience: [ops, dev]
 type: explanation
-since: v0.15.17
 status: stable
 last_reviewed: 2026-10-26
 ---

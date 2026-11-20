@@ -1,6 +1,6 @@
-// v0.10.18 · CreateProjectWizard 第 6 步: 项目成员选择 (annotator / reviewer).
+// CreateProjectWizard 第 6 步: 项目成员选择 (annotator / reviewer).
 // 从 CreateProjectWizard.tsx 抽出.
-// v0.25.x · 候选人统一为平台员工，项目职责（标注员 / 质检员）在选中后单独选择。
+// 候选人统一为平台员工，项目职责（标注员 / 质检员）在选中后单独选择。
 
 import { useMemo, useState } from "react";
 import { clsx } from "clsx";

@@ -1,5 +1,5 @@
 /**
- * v0.10.29 · VideoSamplingSection 单测 — 项目级视频帧采样配置.
+ * VideoSamplingSection 单测 — 项目级视频帧采样配置.
  *
  * 覆盖: 初值加载 / mode 切换即时保存 / fps & step 失焦保存 / 预览文案 /
  *       非法态不提交.

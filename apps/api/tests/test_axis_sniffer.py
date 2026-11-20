@@ -196,7 +196,7 @@ async def test_sniff_axis_convention_picks_canonical_front_not_front_side(
     httpx_client,
     super_admin,
 ):
-    """v0.14.2 回归:nuScenes 式多相机装置,CAM_FRONT_LEFT/RIGHT 也含 "front",
+    """回归:nuScenes 式多相机装置,CAM_FRONT_LEFT/RIGHT 也含 "front",
     旧实现会把它们当正前并按 created_at 选中(实测 CAM_FRONT_RIGHT→iso_8855 误判)。
     新实现只认 canonical 正前(不含 left/right/back/rear),故无论建序都锁定 CAM_FRONT。
 

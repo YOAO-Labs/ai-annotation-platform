@@ -1245,7 +1245,7 @@ async def test_video_project_export_returns_video_tracks_json(
     db_session,
     super_admin,
 ):
-    # v0.10.27 导出已异步化 (POST→job); 内容正确性直接断言 ExportService。
+    # 导出已异步化 (POST→job); 内容正确性直接断言 ExportService。
     user, _ = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
 

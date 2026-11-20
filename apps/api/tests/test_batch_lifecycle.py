@@ -1,10 +1,10 @@
-"""v0.7.0 · 批次状态机重设计端到端覆盖
+"""批次状态机重设计端到端覆盖
 
 5 个核心场景：
 1. TestTransitionAuth — /transition 鉴权矩阵（标注员不能直推 approved 等）
 2. TestRejectBatchSoftReset — 软重置语义（不动 annotations / is_labeled）
 3. TestEmptyBatchActivation — 0-task 批次 draft→active 拒绝
-4. TestWithdrawCascade — 标注员 withdraw 后 reviewing → annotating（v0.6.x 既有路径，本版固化）
+4. TestWithdrawCascade — 标注员撤回后，批次从 reviewing 回到 annotating
 5. TestReviewerVisibility — reviewer 在 reviewing 批次的可见性 + annotator 在 rejected 批次的特例
 """
 
@@ -67,7 +67,7 @@ async def _seed(
         display_id=await next_display_id(db, "batches"),
         name="b1",
         status=batch_status,
-        # v0.7.2 单值语义：annotator_id 单值；assigned_user_ids 派生
+        # 单值语义：annotator_id 单值；assigned_user_ids 派生
         annotator_id=annotator_id,
         assigned_user_ids=[str(annotator_id)],
     )
@@ -184,7 +184,7 @@ class TestTransitionAuth:
             user.id,
             batch_status="annotating",
         )
-        # v0.7.2：清空 annotator_id（单值语义）
+        # 清空 annotator_id（单值语义）
         batch.annotator_id = None
         batch.assigned_user_ids = []
         await db_session.commit()
@@ -333,7 +333,7 @@ class TestRejectBatchSoftReset:
         for t in tasks:
             await db_session.refresh(t)
             assert t.status == "pending"
-            # is_labeled 不应被重置（v0.6.x 老语义会清掉，v0.7.0 软重置保留）
+            # 软重置应保留 is_labeled。
             assert t.is_labeled is True
 
         ann_rows = (
@@ -545,7 +545,7 @@ class TestWithdrawCascade:
         tasks[0].status = "pending"
         await db_session.flush()
 
-        # 这里 v0.6.x 行为：annotator withdraw 端点本身会把 batch 反推回 annotating
+        # 标注员撤回时，端点会把批次转回 annotating。
         # （test_task_lock 等已覆盖 withdraw 端点）。本测试只验证 check_auto_transitions
         # 在 reviewing 时遇到新增 pending 不会卡死，需要业务侧主动反推。
         # 当前 check_auto_transitions 只处理 active→annotating / annotating→reviewing，
@@ -638,7 +638,7 @@ class TestReviewerVisibility:
             user.id,
             batch_status="rejected",
         )
-        # v0.7.2：清空 annotator_id（单值语义）
+        # 清空 annotator_id（单值语义）
         batch.annotator_id = None
         batch.assigned_user_ids = []
         await db_session.commit()
@@ -652,7 +652,7 @@ class TestReviewerVisibility:
         assert str(tasks[0].id) not in ids
 
 
-# ── 6. v0.7.3 · 管理员逆向迁移 ─────────────────────────────────────────
+# ── 6. 管理员逆向迁移 ─────────────────────────────────────────
 
 
 class TestReverseTransitions:
@@ -824,7 +824,7 @@ class TestReverseTransitions:
         assert resp.status_code == 403
 
 
-# ── 7. v0.7.3 · 多选批量操作 ─────────────────────────────────────────
+# ── 7. 多选批量操作 ─────────────────────────────────────────
 
 
 async def _seed_multi(
@@ -1043,7 +1043,7 @@ class TestBulkOperations:
         assert resp.status_code == 403
 
 
-# ── 8. v0.7.3 · 批次操作历史端点 ────────────────────────────────────
+# ── 8. 批次操作历史端点 ────────────────────────────────────
 
 
 class TestBatchAuditLogs:
@@ -1113,7 +1113,7 @@ class TestBatchAuditLogs:
         assert invalid.status_code == 422
 
 
-# ── 9. v0.9.15 · ADR-0008 admin-lock ────────────────────────────────────────
+# ── 9. ADR-0008 · admin-lock ────────────────────────────────────────
 
 
 class TestAdminLock:
@@ -1353,7 +1353,7 @@ class TestAdminLock:
         assert body["admin_lock_reason"] is None
 
 
-# ── 10. v0.9.15 · Bulk Approve/Reject ───────────────────────────────────────
+# ── 10. Bulk Approve/Reject ───────────────────────────────────────
 
 
 class TestBulkApproveReject:

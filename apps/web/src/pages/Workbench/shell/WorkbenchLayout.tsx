@@ -58,17 +58,17 @@ interface WorkbenchLayoutProps {
   videoTracker: ComponentProps<typeof VideoTrackerPropagateDialog>;
   hotkeys: ComponentProps<typeof HotkeyCheatSheet>;
   offlineQueue: ComponentProps<typeof OfflineQueueDrawer>;
-  /** v0.15.3 · 工作台设置窗口(齿轮菜单入口)。 */
+  /** 工作台设置窗口(齿轮菜单入口)。 */
   workbenchSettings: ComponentProps<typeof WorkbenchSettingsDialog>;
   conflict: ComponentProps<typeof ConflictModal>;
   deleteConfirm?: ComponentProps<typeof DeleteConfirmModal>;
-  // v0.10.13 · E1 · 顶栏标注指引入口 (可选; 项目无 guide 时不渲染).
+  // 顶栏标注指引入口 (可选; 项目无 guide 时不渲染).
   guidePanel?: ComponentProps<typeof GuidePanel>;
-  // v0.11.5 · B 组 · 右栏下段统一讨论面板 (转正; 上 AIInspectorPanel + 下 DiscussionPanel 两段固定).
+  // B 组 · 右栏下段统一讨论面板 (转正; 上 AIInspectorPanel + 下 DiscussionPanel 两段固定).
   discussionPanel: ComponentProps<typeof DiscussionPanel>;
-  // v0.16.8 · 选中标注浮动信息卡(图片 / 视频);null = 当前无选中 / 该端不显示。
+  // 选中标注浮动信息卡(图片 / 视频);null = 当前无选中 / 该端不显示。
   floatingSelection?: SelectedAnnotationCardProps | null;
-  // v0.20.x · 工作台桌宠;enabled=false 时不挂载,折叠态回退为纯文字小条。
+  // 工作台桌宠;enabled=false 时不挂载,折叠态回退为纯文字小条。
   pet?: ({ enabled: boolean } & WorkbenchPetProps) | null;
 }
 

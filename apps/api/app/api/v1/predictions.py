@@ -79,7 +79,7 @@ class FailedPredictionItem(BaseModel):
     message: str
     retry_count: int
     last_retry_at: datetime | None
-    # v0.8.8 · 永久放弃时间戳；非空表示已被 admin dismiss
+    # 永久放弃时间戳；非空表示已被 admin dismiss
     dismissed_at: datetime | None = None
     created_at: datetime
 
@@ -106,7 +106,7 @@ async def list_failed_predictions(
     page_size: int = Query(50, ge=1, le=200),
     include_dismissed: bool = Query(
         False,
-        description="v0.8.8 · true 时同时返回已 dismiss 的失败预测；默认隐藏",
+        description="为 true 时包含已隐藏的失败预测；默认不包含",
     ),
     db: AsyncSession = Depends(get_db),
     actor: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
@@ -219,7 +219,7 @@ async def dismiss_failed_prediction(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ) -> Any:
-    """v0.8.8 · 永久放弃失败预测（soft-delete）。
+    """永久放弃失败预测（soft-delete）。
 
     审计：``failed_prediction.dismissed``。重复调用幂等——已 dismiss 的行
     不更新 dismissed_at。
@@ -260,7 +260,7 @@ async def restore_failed_prediction(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ) -> Any:
-    """v0.8.8 · 误操作恢复：清空 ``dismissed_at``，让该行重回默认列表。"""
+    """误操作恢复：清空 ``dismissed_at``，让该行重回默认列表。"""
     fp = await get_core_row(db, failed_prediction_row, failed_id)
     if not fp:
         raise HTTPException(status_code=404, detail="Failed prediction not found")
@@ -340,7 +340,7 @@ async def import_predictions(
                 )
             image_size_hint = (image_width, image_height)
 
-    # v0.10.16 · async_jobs 双写（同步端点；dry_run 不记录）
+    # async_jobs 双写（同步端点；dry_run 不记录）
     aj_id: uuid.UUID | None = None
     if not dry_run:
         try:

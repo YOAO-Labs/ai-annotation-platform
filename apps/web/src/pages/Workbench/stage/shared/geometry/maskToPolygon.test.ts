@@ -1,11 +1,11 @@
-// v0.10.7 M4-δ · I11 · maskToPolygon 单测：
+// maskToPolygon 单测：
 // - 空 mask → 空
 // - 矩形 mask → 顶点紧绕外环（≥3，闭合后去重）
 // - 圆形 mask → 顶点数远小于 perimeter（RDP 起效）
 // - 多连通 mask → 取最大分量；multipleComponents=true
 // - 顶点无重复（去重生效）
 //
-// v0.23.5 WS-E (ADR-0052 D5) · 新增 lossy 显式报告测试:
+// (ADR-0052 D5) · 新增 lossy 显式报告测试:
 // - 多连通 → lossy=true, droppedComponents=分量数-1, lossyReason 非空
 // - 单前景连通但含背景孔洞 → lossy=true, droppedHoles=孔洞数
 // - 单连通 → lossy=false
@@ -126,9 +126,9 @@ describe("maskToPolygon", () => {
   });
 });
 
-// v0.23.5 WS-E · ADR-0052 D5: maskToPolygon 必须显式报告 lossy, 不再静默 pickLargest。
+// ADR-0052 D5: maskToPolygon 必须显式报告 lossy, 不再静默 pickLargest。
 // 调用方 (useImageAnnotationActions.commitMaskAsPolygon) 检查 lossy 后阻断有损提交。
-describe("maskToPolygon · lossy 显式报告 (v0.23.5 WS-E)", () => {
+describe("maskToPolygon · lossy 显式报告", () => {
   it("test_mask_to_polygon_marks_lossy_on_multiple_components: 2 个分量 → lossy=true, droppedComponents=1", () => {
     const m = new MaskBuffer({ width: 60, height: 60 });
     // 两个互不相交的方块 → 2 个连通分量。

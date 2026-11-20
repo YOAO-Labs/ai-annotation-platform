@@ -19,7 +19,7 @@ interface VideoKonvaTracksLayerProps {
   entries: VideoEntryView[];
   previews: VideoTrackPreviewView[];
   ghost: VideoGhostView | null;
-  /** v0.21.12 · 跨网格帧续写参考框(非选中待续轨迹);比选中 ghost 更淡, 提示「仅参考、点选后可续」。 */
+  /** 跨网格帧续写参考框(非选中待续轨迹);比选中 ghost 更淡, 提示「仅参考、点选后可续」。 */
   carryOverGhosts?: VideoGhostView[];
   size: VideoPixelSize;
   scale: number;
@@ -28,12 +28,12 @@ interface VideoKonvaTracksLayerProps {
 }
 
 /**
- * v0.16.2 · 视频 track 可视层(Konva Layer "tracks")。
+ * 视频 track 可视层(Konva Layer "tracks")。
  *
  * 渲染:轨迹预览线(Line)+ 选中态关键帧圆点(Circle)+ 当前帧 track 框
  * (VideoKonvaTrackShape)+ 选中轨迹 ghost 参考框。坐标像素空间(归一化 × size);
  * 线宽/虚线 `/scale` 屏幕恒定(替代旧 SVG non-scaling-stroke),圆点半径世界单位
- * (随画布缩放,与旧 SVG viewBox 几何一致)。本版 listening=false,不接交互(v0.16.3)。
+ * (随画布缩放)。轨迹层 listening=false，不处理交互。
  */
 export function VideoKonvaTracksLayer({
   entries,

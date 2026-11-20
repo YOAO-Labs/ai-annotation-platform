@@ -1,4 +1,4 @@
-"""v0.14.11 · 协议级能力目录端点 (与 ml backend 注册解耦).
+"""协议级能力目录端点 (与 ml backend 注册解耦).
 
 - `GET /v1/ml-capabilities/protocol` 返回 task / infra / modality / geometry /
   prompt / input 六张受控词表 + 每条 task 的人类可读元数据。
@@ -172,7 +172,7 @@ async def get_capability_instances(
                     source=item["source"],
                     name=item["name"],
                     infra=item["infra"],
-                    # v0.14.14 · backend 自报是否支持 POST /warmup (协议 §4.4).
+                    # backend 自报是否支持 POST /warmup (协议 §4.4).
                     warmup_endpoint=bool(item.get("warmup_endpoint", False)),
                     models=[InstanceModelItem(**m) for m in item["models"]],
                 )

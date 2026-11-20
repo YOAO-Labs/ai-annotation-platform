@@ -98,7 +98,7 @@ Linux 以 1.8 设备像素倍率渲染为 2592×1458，经 X11 / NVIDIA 采集�
 | `jobs-bell-active`                     | 顶栏角标 → 展开预标 / 导入 / 导出混排 → 核对进度与取消 → 定位 ZIP 摘要和下载                                    | 10 / 14 / 22 秒            | 全局异步任务进度与后续动作         |
 | `video-tracker-job-states`             | 四状态同屏 → 选择视频项目 → 筛选待审阅 → 核对帧范围与方向 → 返回对应视频工作台                                  | 12 / 17 / 26 秒            | 视频追踪执行态与候选审阅态         |
 | `project-ml-routing`                   | 启用 YOLO → 设为批量主后端 → 工作台当前题 AI 命中 YOLO → Smart Point 自动命中 SAM3                              | 18 / 25 / 32 秒            | 项目多后端启用与能力自动分流       |
-| `background-export-download`           | 选择 COCO + AAP JSON → 导出入队 → 任务铃展示运行状态 → 核对 ZIP 产物并下载                                      | 16 / 24 / 32 秒            | 异步多格式导出与真实产物校验       |
+| `background-export-download`           | 选择 COCO + 原生 JSON → 导出入队 → 任务铃展示运行状态 → 核对 ZIP 产物并下载                                     | 16 / 24 / 32 秒            | 异步多格式导出与真实产物校验       |
 | `project-create-existing-resources`    | 新建图片项目 → 添加 `car` 类别 → 关联已有道路数据集 → 选择现有标注员和审核员 → 核对创建摘要                     | 14 / 19 / 32 秒            | 项目创建、数据与团队资源复用       |
 | `video-track-carryover`                | 展示当前框 → 切帧后出现虚影 → 续写新框 → Tab 前进                                                               | 9 / 13 / 28 秒             | 视频标注效率技巧                   |
 | `video-mask-track-edit`                | 首帧创建 Mask 轨迹 → 切换后续帧 → 修正同一轨迹                                                                  | 10 / 16 / 35 秒            | 视频分割与轨迹编辑                 |

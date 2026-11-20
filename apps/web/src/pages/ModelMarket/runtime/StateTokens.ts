@@ -1,5 +1,5 @@
 /**
- * v0.23.4 · central label + variant maps for the 4-axis status model.
+ * central label + variant maps for the 4-axis status model.
  *
  * Plan Appendix A.1: every status axis has a stable label + semantic color.
  * Components consume these maps so labels never drift across the registry and

@@ -1,4 +1,4 @@
-// v0.10.2 · 最小 JSON Schema 表单 (Draft-07 子集).
+// 最小 JSON Schema 表单 (Draft-07 子集).
 // 支持类型: number / integer / boolean / string (含 enum).
 // 不依赖 @rjsf/core 以节省 ~50KB bundle; array / nested object 后续按需扩展.
 
@@ -26,7 +26,7 @@ export interface JsonSchemaField {
 export interface JsonSchemaObject {
   type?: string;
   /**
-   * v0.10.2 · 与后端 `/setup.params.properties` 同形, 因来自 unknown JSON 故宽容地用 unknown.
+   * 与后端 `/setup.params.properties` 同形, 因来自 unknown JSON 故宽容地用 unknown.
    * 内部按 JsonSchemaField 子集解释; 不匹配的字段渲染为 text input fallback.
    */
   properties?: Record<string, unknown>;
@@ -38,7 +38,7 @@ function asField(v: unknown): JsonSchemaField {
 }
 
 /**
- * v0.10.23 · 模型变体字段移到 AI 面板 (会话级设置), 不在每个子工具 drawer 重复渲染.
+ * 模型变体字段移到 AI 面板 (会话级设置), 不在每个子工具 drawer 重复渲染.
  * SchemaForm / deriveDefaults 统一排除这些 key; AI 面板单独消费 (见 VARIANT_FIELD_KEYS 引用方).
  */
 export const VARIANT_FIELD_KEYS = ["sam_variant", "dino_variant", "model_variant"] as const;
@@ -66,7 +66,7 @@ export interface SchemaFormProps {
   schema: JsonSchemaObject | undefined;
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
-  /** v0.10.2 · 整组 disabled, AI 工具不可用时灰显. */
+  /** 整组 disabled, AI 工具不可用时灰显. */
   disabled?: boolean;
 }
 

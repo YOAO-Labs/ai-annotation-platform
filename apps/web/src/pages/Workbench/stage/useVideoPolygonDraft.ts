@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { clamp01 } from "./videoStageGeometry";
 
 /**
- * v0.21.20 · 视频 polygon/polyline track 绘制草稿状态机 (点击累加顶点)。
+ * 视频 polygon/polyline track 绘制草稿状态机 (点击累加顶点)。
  *
  * 与拖拽式 bbox 绘制 (useVideoKonvaInteraction) 正交: 本 hook 只管「多次点击落点 →
  * 满足最小顶点数后可闭合提交」的折线/多边形草稿。closed=true (polygon) 需 ≥3 点、

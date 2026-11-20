@@ -1,4 +1,4 @@
-"""v0.9.7 · /admin/projects/:id/alias-frequency 端到端测试."""
+"""/admin/projects/:id/alias-frequency 端到端测试."""
 
 from __future__ import annotations
 

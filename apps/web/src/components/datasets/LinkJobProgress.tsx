@@ -1,4 +1,4 @@
-// v0.12.0 · B4 异步可见：大 dataset(>2000 items) 关联项目后异步建 task,
+// B4 异步可见：大 dataset(>2000 items) 关联项目后异步建 task,
 // 用 useAsyncJob 轮询 create_tasks job 并显示进度条,完成后 invalidate 相关查询。
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";

@@ -12,7 +12,7 @@ import { usePerfHudStore } from "./usePerfHudStore";
 import styles from "./PerfHud.module.css";
 
 /**
- * v0.9.11 · PerfHud GPU MVP 浮窗.
+ * PerfHud GPU MVP 浮窗.
  *
  * 触发: Ctrl+Shift+P (workbench) / TopBar gear → "性能监控" / programmatic open.
  * 权限 gating: super_admin / project_admin only (其他角色 store 即便 open 也不渲染).
@@ -69,7 +69,7 @@ function formatIdleAge(seconds: number | null | undefined): string | null {
 }
 
 function getLoadLabel(snap: BackendSnapshot): string | null {
-  // v0.14.14: 优先读 PoolStatus.current_size / loaded_keys; fallback 到老 loaded_variants
+  // 优先读 PoolStatus.current_size / loaded_keys; fallback 到老 loaded_variants
   // 与 gsam2 注入的 gpu_info.*_pool_loaded_variants.
   const imageLoaded =
     snap.pool?.current_size ??
@@ -290,7 +290,7 @@ export function PerfHud() {
             {status === "idle" ? "未连接" : null}
           </div>
         )}
-        {/* v0.10.18 · 浏览器侧指标; 与后端连接无关, 始终展示 */}
+        {/* 浏览器侧指标; 与后端连接无关, 始终展示 */}
         <BrowserPanel enabled={visible} />
       </div>
     </ShellPopover>

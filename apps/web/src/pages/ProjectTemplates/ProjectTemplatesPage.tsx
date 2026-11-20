@@ -1,7 +1,7 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { useListPagination } from "@/hooks/useListPagination";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
-// v0.10.14 · E2 · 模板库列表页. 三个 tab (我的 / 组织 / 公共), 搜索 + type
+// 模板库列表页. 三个 tab (我的 / 组织 / 公共), 搜索 + type
 // filter, 卡片列表. 操作: 应用 (跳 Wizard with template_id) / 克隆 / 编辑 / 删除.
 // 新建入口: + 新建模板 (空白) / 从已有项目导出.
 

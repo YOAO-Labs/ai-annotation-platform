@@ -36,7 +36,7 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> P
 async def _seed_backend(
     db: AsyncSession, project_id: uuid.UUID, name: str = "alpha-backend"
 ) -> MLBackendRegistry:
-    """v0.19.0 ADR-0044 · 建全局注册项 + 为本项目建启用关联 (项目内「可用 backend」读
+    """ADR-0044 · 建全局注册项 + 为本项目建启用关联 (项目内「可用 backend」读
     enabled 集合; url 全局唯一, 故每次造唯一 url)。"""
     b, pool = await create_registry_with_pool(
         db,

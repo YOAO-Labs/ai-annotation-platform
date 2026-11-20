@@ -3,7 +3,7 @@ import type { AsyncJob } from "../../../src/api/asyncJobs";
 
 // 工作流类截图：失败预测恢复 jobs 列表。
 // failed-jobs 用 page.route mock 后端响应，不污染真实 DB（同 ai-pre.ts 思路）。
-// v0.10.16+ 页面改读 /api/v1/async-jobs，响应为 { items, total } 的 AsyncJob 列表。
+// 页面改读 /api/v1/async-jobs，响应为 { items, total } 的 AsyncJob 列表。
 
 function makeFailedJob(i: number, now: number): AsyncJob {
   const prompts = [

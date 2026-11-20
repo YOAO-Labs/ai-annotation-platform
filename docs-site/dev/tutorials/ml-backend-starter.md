@@ -21,7 +21,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 export PIP_NO_INDEX=1
 export PIP_FIND_LINKS=/path/to/wheelhouse
-python -m pip install 'yoao-inference-plugin-sdk[dev]'
+python -m pip install 'yoao-inference-plugin-sdk[dev]' 'setuptools>=68' wheel
 yoao-plugin init my-detector
 yoao-plugin build my-detector
 python -m pip install my-detector/dist/*.whl
@@ -30,7 +30,7 @@ python -c 'import secrets; from pathlib import Path; Path("token").write_text(se
 yoao-plugin dev --entrypoint my-color-region-plugin --device cpu --token-file ./token
 ```
 
-SDK 的 `dev` extra 提供 wheel 构建工具。开发者可编辑生成的 provider，重新构建、安装并重启服务；发布制品不依赖 editable 路径。`yoao-plugin dev` 仅监听 loopback，调用已安装的作者 console script，预热默认检测变体并检查显式请求设备上的驻留；它移除继承的宿主路由／插件权限配置，不需要 Registry、管理员或 GPU keyring。本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。模型专属 serve 参数放在 `--` 之后，不能覆盖开发工具控制的 host、port、token 或 device。
+SDK 的 `dev` extra 提供 `build`；生成的项目不使用构建隔离，`setuptools` 和 `wheel` 也必须安装在当前环境，不能只放在 wheelhouse 里。编辑 provider 后，重新构建、安装并重启服务即可，不依赖 editable 路径。`yoao-plugin dev` 仅监听 loopback，调用已安装的作者 console script，预热默认检测变体并检查显式请求设备上的驻留；它移除继承的宿主路由／插件权限配置，不需要 Registry、管理员或 GPU keyring。本地 CUDA 成功不等于平台托管资格，也不自动回退 CPU。模型专属 serve 参数放在 `--` 之后，不能覆盖开发工具控制的 host、port、token 或 device。
 
 生成的 `my_color_region_plugin.py` 是可运行的 CPU 颜色区域算法，**不是预训练模型**：对每个 RGB 通道，选取本通道至少 200、其他通道至多 80 的像素，分别返回 `red-region`／`green-region`／`blue-region` 的一个包围框，分数为 1；同色不连通区域合并到同一框，没有匹配像素则返回空结果。作者替换 `Provider.load`、`ColorRegionModel.predict` 与 `close` 实现自己的模型；发布前修改 distribution、模块和入口名，避免使用示例身份。
 
@@ -66,11 +66,10 @@ Image.new("RGB", (100, 100), "black").save("empty.png")
 }
 ```
 
-图片路径相对于 fixture 文件解析；工具将本地图片作为有界 data URL 提交，不让服务读取任意本地路径。以同一 token 检查正在运行的 HTTP 服务：
+图片路径相对于 fixture 文件解析；工具将本地图片作为有界 data URL 提交，不让服务读取任意本地路径。另开终端，用启动服务时的同一份 token 文件检查 HTTP。`AAP_PLUGIN_TOKEN` 是当前候选工具实际读取的变量，不是平台 API key；只把它传给本次检查：
 
 ```bash
-export AAP_PLUGIN_TOKEN="$(cat ./token)"
-yoao-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
+AAP_PLUGIN_TOKEN="$(cat ./token)" yoao-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
 ```
 
 检查核对多检测与空检测的数量、类别、坐标、分数、认证、参数和本地路径拒绝，只报告 HTTP 事实。CPU 示例不实现 GPU 检查钩子。具备 `probe`／`qualification-server` 钩子的 GPU provider 才能进行下面的可选检查；先确保指定设备获准独占，用于取消场景的图片不大于 2 MiB：
@@ -246,7 +245,7 @@ async def predict(req: PredictRequest):
 - **预热与运行时观测**：`/setup.warmup_endpoint: true` + `POST /warmup`；`/predict` 响应带 `cache_hit` / `model_load_ms`，前端据此区分「加载中」与「推理中」（协议 §4.2 / §4.4）。
 - **标准错误形态**：非法 variant → 422 `variant_not_supported`；权重缺失 / 显存不可服务 → 503 `model_unavailable` + `Retry-After`（协议 §6）。
 
-**生产建议**：依赖发布的 `yoao_protocol_v2` 合同，使用其请求、响应、标准错误与词表。真实推理 backend 的组织方式可参考[官方 YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)。
+**生产建议**：按[制品获取说明](/dev/concepts/module-deployment#plugin-candidate-artifacts)核验与宿主匹配的 `yoao-protocol-v2`，从 `yoao_protocol_v2` 导入请求、响应、标准错误与词表。可参考[官方 YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)的服务组织方式；安装与构建请使用候选修订自带的说明，而非其他版本的 README。
 
 本教程的 OCR 主题，真实推理参考 [RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
 
@@ -260,7 +259,7 @@ backend 跑起来后，按两层模型接入平台：
 
 操作细节见用户手册：[ML 后端绑定](/user-guide/projects/ml-backends)、[AI 预标注](/user-guide/projects/ai-preannotate)；超管全局视角见 [ML Backend 注册](/user-guide/superadmin/ml-backend-registry)。
 
-本教程的 echo 示例不要求认证，开发调试可选 None。五个内置服务默认要求认证，可信地址选择对应的系统托管方式，保存时验证受认证的 `/managed-auth`；该方式不填写手动 Token，也不用普通「测试连接」替代认证校验。自建服务可实现并配置自己的手动 Bearer 认证，服务端与平台注册值需要一致。
+本教程的 echo 示例不要求认证，开发调试可选 None。系统托管仅适用于部署配置的可信地址：保存时平台验证该服务的 `/managed-auth`，不需要填写手动 Token，普通「测试连接」也不能替代这一步。自建服务可实现自己的 Bearer 认证，手动注册时服务端与平台的令牌必须一致。受控插件使用各安装实例自己的凭据，不继承同名服务的托管身份。
 
 一个外部 Backend 实现普通预测协议，不代表它已实现训练权重安装、共享逐样本评估或 GPU 仲裁。接入这些能力前分别核对[协议契约](/dev/reference/ml-backend-protocol)；服务池接流和凭据生命周期见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)，已有训练模型的排查见[模型回流链路](../how-to/debug-model-return)。
 

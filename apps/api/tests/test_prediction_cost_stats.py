@@ -1,4 +1,4 @@
-"""v0.8.6 F4 · 预测成本卡片端点 GET /admin/prediction-cost-stats 单测。
+"""预测成本卡片端点 GET /admin/prediction-cost-stats 单测。
 
 覆盖：
 - 空数据返回零值结构
@@ -56,7 +56,7 @@ async def _seed_task(db: AsyncSession, project_id: uuid.UUID) -> Task:
 async def _seed_backend(
     db: AsyncSession, project_id: uuid.UUID, name: str
 ) -> MLBackendRegistry:
-    # v0.19.0 ADR-0044 · backend 上提为全局注册项 (url unique); cost-stats 按 ml_backend_id
+    # ADR-0044 · backend 上提为全局注册项 (url unique); cost-stats 按 ml_backend_id
     # join registry 取 backend_name, 无需项目启用关联。
     b = MLBackendRegistry(
         id=uuid.uuid4(),
@@ -280,7 +280,7 @@ async def test_prediction_cost_stats_requires_super_admin(httpx_client, annotato
 async def test_prediction_cost_stats_p50_p95_p99(
     httpx_client, auth_headers, db_session, super_admin
 ):
-    """v0.8.7 F2 · PERCENTILE_CONT 聚合 inference_time_ms。"""
+    """PERCENTILE_CONT 聚合 inference_time_ms。"""
     user, _ = super_admin
     proj = await _seed_project(db_session, user.id)
     task = await _seed_task(db_session, proj.id)

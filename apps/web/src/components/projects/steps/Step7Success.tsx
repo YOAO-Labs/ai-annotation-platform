@@ -1,4 +1,4 @@
-// v0.10.18 · CreateProjectWizard 第 7 步: 创建成功页.
+// CreateProjectWizard 第 7 步: 创建成功页.
 // 从 CreateProjectWizard.tsx 抽出 (原 SuccessStep).
 
 import { Button } from "@/components/ui/Button";

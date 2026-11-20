@@ -205,7 +205,7 @@ const test = base.extend<{
   ],
 });
 
-test.describe("v0.23.9 Mask 高级编辑发布矩阵", { tag: "@mask-native" }, () => {
+test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
   test.use({ viewport: { width: 1440, height: 1080 } });
   test("1. 非正方形图片的方笔刷、圆橡皮、lasso 与 undo/redo 刷新后逐像素一致", async ({
     page,

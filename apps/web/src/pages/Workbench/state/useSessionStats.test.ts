@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · useSessionStats ring buffer 单测。
+ * useSessionStats ring buffer 单测。
  *
  * 覆盖：
  *  - < MIN_SAMPLES (10) 时 avgMs=null，etaMs=null

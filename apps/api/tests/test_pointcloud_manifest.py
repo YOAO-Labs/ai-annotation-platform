@@ -110,7 +110,7 @@ async def test_point_cloud_manifest_returns_scene(
     assert body["original_identity_path"] == (
         f"/api/v1/files/tasks/{task.id}/original-identity"
     )
-    # v0.13.11 · dataset 无 axis_convention 时 manifest 字段为 None,前端按 iso_8855 处理。
+    # dataset 无 axis_convention 时 manifest 字段为 None,前端按 iso_8855 处理。
     assert body["axis_convention"] is None
 
     cameras = body["cameras"]
@@ -138,7 +138,7 @@ async def test_point_cloud_manifest_returns_scene(
 async def test_point_cloud_manifest_exposes_dataset_axis_convention(
     db_session, httpx_client, super_admin
 ):
-    """v0.13.11 · 主点云所在 dataset.metadata.axis_convention 透到 manifest 字段。"""
+    """主点云所在 dataset.metadata.axis_convention 透到 manifest 字段。"""
     user, token = super_admin
     task, _, _ = await _seed_lidar_scene(db_session, user.id)
 

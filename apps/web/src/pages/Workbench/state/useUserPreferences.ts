@@ -3,7 +3,7 @@ import { authApi } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
 
 /**
- * v0.21.17 · 用户偏好 `GET /me/preferences` 的共享 react-query 单一来源。
+ * 用户偏好 `GET /me/preferences` 的共享 react-query 单一来源。
  *
  * 此前 `ai.*` 四个偏好 hook (interactive_backend / model / secondary / params) 各自在挂载时裸调
  * `authApi.getPreferences()`, 进工作台首屏并发多次相同 GET。收敛到一个 react-query 后, 同 key

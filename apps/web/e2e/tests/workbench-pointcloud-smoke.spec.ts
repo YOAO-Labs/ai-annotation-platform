@@ -1,7 +1,7 @@
 import { layoutCommand } from "../helpers/workbench-layout";
 import { writeFile } from "node:fs/promises";
 /**
- * v0.16.x · 点云工作台冒烟基线(P1)——拆 3D 整簇前的 Playwright 守护网地基。
+ * 点云工作台冒烟基线(P1)——拆 3D 整簇前的 Playwright 守护网地基。
  *
  * 缘由见 docs/plans/archive/2026-06-17-v0.16.x-pointcloud-e2e-baseline-for-3d-split.md:
  * usePsrEditor/usePointMask/usePointCloudSelection 因共享 scene+form+合并键盘 handler

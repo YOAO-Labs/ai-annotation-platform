@@ -1,4 +1,4 @@
-"""v0.19.0 ADR-0044 · PR3 端点:
+"""ADR-0044 · 全局注册表与项目启用端点测试：
 - superadmin 全局注册表 CRUD (/admin/ml-integrations/registry)
 - 项目启用勾选清单 (GET /projects/{id}/ml-backends/available)
 - 项目启用切换 + 覆盖 (PUT /projects/{id}/ml-backends/{rid}/enablement)
@@ -65,7 +65,7 @@ async def _singleton_pool(db: AsyncSession, registry_id: uuid.UUID) -> PoolFacts
 
 
 async def _seed_registry(db: AsyncSession, name: str = "g") -> MLBackendRegistry:
-    # v0.23.3 ADR-0050 · 每 registry 须有 singleton pool (alembic 0132 backfill 语义)。
+    # ADR-0050 · 每 registry 须有 singleton pool (alembic 0132 backfill 语义)。
     registry, _pool = await create_registry_with_pool(
         db,
         id=uuid.uuid4(),

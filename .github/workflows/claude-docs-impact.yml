@@ -84,9 +84,9 @@ jobs:
             - Use `needs_update` whenever you find at least one credible gap. Use `probably_not_needed` only when the diff is purely internal (refactor / test-only / build config / dependency bump with no behavior change) and nothing user-facing or contractual was added. When in doubt, prefer `uncertain` over `probably_not_needed`.
 
             Documentation style check (advisory):
-            - Docs must read as the CURRENT state of the system, with NO user-readable version numbers. A reader should never see a `vX.Y.Z`-style token in the rendered page — neither changelog-style prefixes (`v1.2.3: ...`, `## v1.2.3`) nor inline provenance (`端点 X（v0.14.11）`, `**邮箱验证（v0.12.0+）**`, `since v0.9.13`). Version provenance, if it must be recorded, goes where readers don't see it: an HTML comment (`<!-- since v1.2.3 -->`) or YAML frontmatter (`since: v1.2.3`).
-            - For every added line in this PR's doc changes (under `docs-site/**`, plus `README.md` / `DEV.md`) that introduces a user-visible `vX.Y.Z` token — in prose, a heading, a table, or a fenced code block — add one entry to `style_warnings` with the file `path`, best-effort `line`, the offending `snippet`, and a concrete `suggestion` (rewrite to current state; move the version into an HTML comment or frontmatter, or drop it).
-            - Exemptions — do NOT flag: `CHANGELOG.md`, `docs/adr/**`, `docs-site/dev/adr/**`, and generated `*.generated.md`; versions inside HTML comments or frontmatter; and version tokens without a dot (e.g. "requires Node v18+", a `/v1/` route, "the v2 protocol").
+            - Describe current behavior. Keep product release history in CHANGELOG, ADRs or Git history, not in headings, prose, examples, HTML comments or YAML frontmatter.
+            - For added release-history annotations under `docs-site/**`, `README.md` or `DEV.md`, add a `style_warnings` entry with the `path`, best-effort `line`, offending `snippet`, and a current-state rewrite. Do not suggest hiding the annotation.
+            - Do not flag historical records or generated `*.generated.md`. Preserve actual runtime requirements, API routes, protocol and model versions, filenames and link destinations.
             - This check is advisory: it never changes `status`. Report findings in `style_warnings` only.
           claude_args: >-
             --model claude-opus-4-8

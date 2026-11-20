@@ -1,4 +1,4 @@
-// v0.15.23 · §C.8-A perObjectAlign 纯函数单测:背景走 ego、目标搬到当前位置、
+// §C.8-A perObjectAlign 纯函数单测:背景走 ego、目标搬到当前位置、
 // 未配对走 fallback、identity/同位姿恒等、旋转随当前 box。
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";

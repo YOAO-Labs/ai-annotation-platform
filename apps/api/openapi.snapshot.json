@@ -464,7 +464,7 @@
         "type": "object"
       },
       "AdminPersonItem": {
-        "description": "v0.8.4 · AdminPeoplePage 卡片项。",
+        "description": "AdminPeoplePage 卡片项。",
         "properties": {
           "activity_score": {
             "title": "Activity Score",
@@ -1860,7 +1860,7 @@
         "type": "object"
       },
       "AnnotationCommentListPage": {
-        "description": "v0.8.8 · keyset 分页响应。\n\ncursor 编码 ``<created_at_iso>__<id>``；前端按返回的 ``next_cursor``\n继续拉「更早评论」。空数组 + ``next_cursor=None`` 即末尾。",
+        "description": "keyset 分页响应。\n\ncursor 编码 ``<created_at_iso>__<id>``；前端按返回的 ``next_cursor``\n继续拉「更早评论」。空数组 + ``next_cursor=None`` 即末尾。",
         "properties": {
           "items": {
             "items": {
@@ -3268,7 +3268,7 @@
         "type": "object"
       },
       "AnnotationListPage": {
-        "description": "v0.7.6 · keyset cursor 分页响应。next_cursor=None 表示已是末页。",
+        "description": "keyset cursor 分页响应。next_cursor=None 表示已是末页。",
         "properties": {
           "items": {
             "items": {
@@ -4688,7 +4688,7 @@
         "type": "object"
       },
       "AsyncJobOut": {
-        "description": "v0.10.16 · 异步任务行 schema（前端铃铛 + 详情页消费）。",
+        "description": "异步任务行 schema（前端铃铛 + 详情页消费）。",
         "properties": {
           "celery_task_id": {
             "anyOf": [
@@ -6115,7 +6115,7 @@
         "type": "object"
       },
       "BackendCapabilities": {
-        "description": "v0.10.37 · backend `/setup` 能力快照 (epic 阶段 1).\n\n由 services/ml_backend.check_health 探 `/setup` 后落进 health_meta[\"capabilities\"];\n`modalities` 为派生视图 (image / video / lidar), 见 services/ml_capabilities.derive_modalities.\n\nv0.14.9 · 能力声明协议 v2: 新增 `infra` (backend 默认基础设施) + `models` (多模型目录);\n其余顶层字段为各 model 的「扁平并集」, 供未迁移消费方继续读 (向后兼容)。",
+        "description": "backend `/setup` 能力快照。\n\n由 services/ml_backend.check_health 探 `/setup` 后落进 health_meta[\"capabilities\"];\n`modalities` 为派生视图 (image / video / lidar), 见 services/ml_capabilities.derive_modalities.\n\n协议 v2 用 `infra` 描述后端默认基础设施，`models` 枚举模型目录；\n其余顶层字段为各模型能力的扁平并集，兼容仍读取顶层字段的调用方。",
         "properties": {
           "compat_protocol_versions": {
             "default": [],
@@ -6955,7 +6955,7 @@
         "type": "object"
       },
       "BatchReset": {
-        "description": "v0.7.6 · 终极重置到 draft。reason 至少 10 字以避免误操作；写入 audit.detail.reason。",
+        "description": "终极重置到 draft。reason 至少 10 字以避免误操作；写入 audit.detail.reason。",
         "properties": {
           "reason": {
             "maxLength": 500,
@@ -7279,7 +7279,7 @@
                 "type": "null"
               }
             ],
-            "description": "可选 (v0.18.3): 采纳前在工作台审阅候选属性时改过的值, 按属性键覆盖 shape 自带的 attributes 原子落库 (多阶段预标的 select/multiselect 属性审阅 + 分步采纳)。",
+            "description": "可选: 采纳前在工作台审阅候选属性时改过的值, 按属性键覆盖 shape 自带的 attributes 原子落库 (多阶段预标的 select/multiselect 属性审阅 + 分步采纳)。",
             "title": "Attribute Overrides"
           }
         },
@@ -7437,7 +7437,7 @@
       },
       "Box3DGeometry": {
         "additionalProperties": true,
-        "description": "v0.13.0 · LiDAR 3D 框。center/size/rotation 各为长度 3 的列表\n(x,y,z 米 / 长宽高 / 绕各轴弧度)。extra=\"allow\" 容纳标定/属性等扩展字段。",
+        "description": "LiDAR 3D 框。center/size/rotation 各为长度 3 的列表\n(x,y,z 米 / 长宽高 / 绕各轴弧度)。extra=\"allow\" 容纳标定/属性等扩展字段。",
         "properties": {
           "center": {
             "items": {
@@ -10189,7 +10189,7 @@
         "type": "object"
       },
       "CapabilityWarning": {
-        "description": "v0.18.29 · backend `/setup` 上报值的受控词表校验诊断 (越界即记, 不阻断解析)。\n\n由 services/ml_capabilities._collect_warnings 产出; 前端模型市场据此显示 ⚠ +\n可读原因, 把「字段拼错 / 值越界致工具静默不亮」变成可见信号。",
+        "description": "backend `/setup` 上报值的受控词表校验诊断 (越界即记, 不阻断解析)。\n\n由 services/ml_capabilities._collect_warnings 产出; 前端模型市场据此显示 ⚠ +\n可读原因, 把「字段拼错 / 值越界致工具静默不亮」变成可见信号。",
         "properties": {
           "field": {
             "title": "Field",
@@ -10754,7 +10754,7 @@
       },
       "ClassRef": {
         "additionalProperties": false,
-        "description": "v0.17.15 · 跨工具单位的类别引用 (alias_to 软关联链用).\n\ntool_unit_id 必须是合法 ToolUnitId; class_name 是目标 unit 内的类名.\n目标存在性不在此校验 (siblings 不可见), 由读时派生层解析时降级处理 (悬空 → 用自身值).",
+        "description": "跨工具单位的类别引用 (alias_to 软关联链用).\n\ntool_unit_id 必须是合法 ToolUnitId; class_name 是目标 unit 内的类名.\n目标存在性不在此校验 (siblings 不可见), 由读时派生层解析时降级处理 (悬空 → 用自身值).",
         "properties": {
           "class_name": {
             "maxLength": 100,
@@ -10961,7 +10961,7 @@
       },
       "CommentAnchor": {
         "additionalProperties": false,
-        "description": "评论锚点。v0.9.35 起用于视频 review 的帧级定位。",
+        "description": "评论锚点，可定位到视频审核中的具体帧。",
         "properties": {
           "frameIndex": {
             "minimum": 0.0,
@@ -14477,7 +14477,7 @@
       },
       "DatasetItemMetadata": {
         "additionalProperties": true,
-        "description": "v0.13.1 · DatasetItem.metadata_ 的结构化视图。calibration 仅点云相机项有;\nextra=\"allow\" 保留其它历史/未来 metadata key 不丢。",
+        "description": "DatasetItem.metadata_ 的结构化视图。calibration 仅点云相机项有;\nextra=\"allow\" 保留其它历史/未来 metadata key 不丢。",
         "properties": {
           "calibration": {
             "anyOf": [
@@ -21377,7 +21377,7 @@
         "type": "object"
       },
       "GlobalBackendItem": {
-        "description": "v0.9.7 · CreateProjectWizard step 4 dropdown 用的 backend 概要项.",
+        "description": "CreateProjectWizard step 4 dropdown 用的 backend 概要项.",
         "properties": {
           "auth_method": {
             "title": "Auth Method",
@@ -22132,7 +22132,7 @@
       },
       "HealthMeta": {
         "additionalProperties": true,
-        "description": "v0.9.11 · backend `/health` 深度指标缓存. 由 services/ml_backend.check_health 写入,\n`/admin/ml-integrations/overview` + PerfHud WS 消费.",
+        "description": "backend `/health` 深度指标缓存. 由 services/ml_backend.check_health 写入,\n`/admin/ml-integrations/overview` + PerfHud WS 消费.",
         "properties": {
           "cache": {
             "anyOf": [
@@ -23475,7 +23475,7 @@
         "type": "object"
       },
       "InstanceModelItem": {
-        "description": "实例级 model 视图 (字段裁剪自协议 v2 ModelCapability, 不暴露 url / params 等运维\n信息; v0.14.12 起补 supported_variants + variant_combinations 让前端能按主轴展开\n「具体模型」行; v0.19.2 WS0 起补 supported_inputs + resource_profile, 与项目级\n/capabilities 对齐, 供全局编排选择器消费投递契约/批量画像).",
+        "description": "实例级 model 视图 (字段裁剪自协议 v2 ModelCapability, 不暴露 url / params 等运维\n信息)。supported_variants 和 variant_combinations 用于按主轴展开具体模型；\nsupported_inputs 和 resource_profile 与项目级 /capabilities 对齐，\n供全局编排选择器读取输入契约和批量执行能力。",
         "properties": {
           "classes": {
             "default": [],
@@ -23966,7 +23966,7 @@
         "type": "object"
       },
       "InteractiveRequest": {
-        "description": "工作台「AI 助手」单次推理请求。\n\n兼容请求的 ``context`` 仍是开放 dict；显式请求原生 Mask 时，平台会按目标\nmodel 能力预检、重建 prompt revision，并严格校验 backend 候选与字节上限。\n\n`context.type` 协商枚举（详见 `docs-site/dev/ml-backend-protocol.md` §2.2）：\n- ``point``：``{\"type\":\"point\",\"points\":[[x,y],...],\"labels\":[1,0,...],\"multimask_output\":false}``\n  （v0.18.17 · SAM-style 单实例点交互, 正/负点累加由前端重发全量点; multimask 出 3 候选）\n- ``interactive_box``：``{\"type\":\"interactive_box\",\"bbox\":[x1,y1,x2,y2],\"multimask_output\":false}``\n  （v0.18.17 · SAM-style 单框单 mask; 双 backend 统一名, 旧 ``bbox`` prompt 已退役）\n- ``polygon``：``{\"type\":\"polygon\",\"points\":[[x,y],...]}``\n- ``text``：``{\"type\":\"text\",\"text\":\"ripe apples\"}``（Grounded-SAM-2 DINO / SAM 3 PCS）\n- ``exemplar``：``{\"type\":\"exemplar\",\"bbox\":[x1,y1,x2,y2]}`` 或多正负框\n  ``{\"type\":\"exemplar\",\"exemplars\":[{\"bbox\":[...],\"label\":true},...],\"text\":\"car\",\"score_threshold\":0.5}``\n  （SAM 3 PCS 全图相似实例; v0.18.19 起支持多正负框累加 + text 概念组合 + 阈值重过滤的迭代 refinement）。",
+        "description": "工作台「AI 助手」单次推理请求。\n\n兼容请求的 ``context`` 仍是开放 dict；显式请求原生 Mask 时，平台会按目标\nmodel 能力预检、重建 prompt revision，并严格校验 backend 候选与字节上限。\n\n`context.type` 协商枚举（详见 `docs-site/dev/ml-backend-protocol.md` §2.2）：\n- ``point``：``{\"type\":\"point\",\"points\":[[x,y],...],\"labels\":[1,0,...],\"multimask_output\":false}``\n  （SAM-style 单实例点交互，累计正负点时前端重发全量点；multimask 返回 3 个候选）\n- ``interactive_box``：``{\"type\":\"interactive_box\",\"bbox\":[x1,y1,x2,y2],\"multimask_output\":false}``\n  （SAM-style 单框单 mask；统一使用 ``interactive_box``，不再接受旧 ``bbox`` prompt）\n- ``polygon``：``{\"type\":\"polygon\",\"points\":[[x,y],...]}``\n- ``text``：``{\"type\":\"text\",\"text\":\"ripe apples\"}``（Grounded-SAM-2 DINO / SAM 3 PCS）\n- ``exemplar``：``{\"type\":\"exemplar\",\"bbox\":[x1,y1,x2,y2]}`` 或多正负框\n  ``{\"type\":\"exemplar\",\"exemplars\":[{\"bbox\":[...],\"label\":true},...],\"text\":\"car\",\"score_threshold\":0.5}``\n  （SAM 3 PCS 全图相似实例；可累计多个正负框、组合文本概念、按阈值重过滤）。",
         "properties": {
           "context": {
             "additionalProperties": true,
@@ -24036,7 +24036,7 @@
         "type": "object"
       },
       "InterpolateRangeRequest": {
-        "description": "v0.15.1 · 关键帧区间插值(from task 走端点路径)。\n\n同 track_id 链上两端帧各有一个 box_3d,区间内每个中间帧生成一个插值框\n(source=\"interpolated\",便于审核过滤/批量删)。v0.21.2 · ADR-0045 · 按 track_id\n(原 group_id)标识跨帧链。",
+        "description": "关键帧区间插值(from task 走端点路径)。\n\n同一 track_id 的两端帧各有一个 box_3d，区间内每个中间帧生成一个插值框。\n插值结果标记 source=\"interpolated\"，便于审核时筛选或批量删除。",
         "properties": {
           "to_task_id": {
             "format": "uuid",
@@ -26032,7 +26032,7 @@
         "type": "object"
       },
       "MLBackendPoolSummary": {
-        "description": "服务池摘要 (项目可用清单 / 启用态)。\n\nv0.23.3 off/observe: 每池是 singleton, legacy_instance 指向唯一 registry 实例;\n项目设置勾选清单读此。完整池管理 (成员 / 权重 / drain) 留给 v0.23.4 超管 UI。",
+        "description": "服务池摘要 (项目可用清单 / 启用态)。\n\noff/observe 模式下，legacy_instance 标识用于旧式派发的注册实例。\n项目设置中的启用清单读取此摘要。",
         "properties": {
           "enabled": {
             "default": false,
@@ -32417,7 +32417,7 @@
       },
       "ModelCapability": {
         "additionalProperties": true,
-        "description": "v0.14.9 · 能力声明协议 v2 — 单个 model 条目 (一个 backend 暴露 N 个).\n\n由 services/ml_capabilities._normalize_model 规范化后存入\nBackendCapabilities.models; `task` 是条目边界 (决定输出几何与项目兼容性),\n`infra` 缺省继承 backend 默认, `modality` 为派生视图。",
+        "description": "能力声明协议 v2 — 单个 model 条目 (一个 backend 暴露 N 个).\n\n由 services/ml_capabilities._normalize_model 规范化后存入\nBackendCapabilities.models; `task` 是条目边界 (决定输出几何与项目兼容性),\n`infra` 缺省继承 backend 默认, `modality` 为派生视图。",
         "properties": {
           "classes": {
             "default": [],
@@ -33176,7 +33176,7 @@
         "type": "object"
       },
       "MyBatchItem": {
-        "description": "v0.7.1 B-17 · 标注员视角的批次卡片：自己被分派的、状态为\nactive / annotating / rejected / reviewing 的批次。",
+        "description": "标注员视角的批次卡片：自己被分派的、状态为\nactive / annotating / rejected / reviewing 的批次。",
         "properties": {
           "approved_tasks": {
             "title": "Approved Tasks",
@@ -33304,7 +33304,7 @@
         "type": "object"
       },
       "MyPerformance": {
-        "description": "v0.12.3 · 标注员自助绩效（自己 vs 团队均线，取经合集 §4.1 个人页）。",
+        "description": "标注员自助绩效（自己 vs 团队均线，取经合集 §4.1 个人页）。",
         "properties": {
           "class_distribution": {
             "items": {
@@ -33600,7 +33600,7 @@
         "type": "object"
       },
       "NeighborAnnotationsResponse": {
-        "description": "v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」:\n- track_id 给定 → 服务端只回该跨帧链(scope=selected,payload 最小);\n- track_id 省略 → 回区间全部框(scope=all)。\n几何坐标不变(各帧 ego 系 PSR),ego 对齐仍由前端 egoAlign 做。\n非 scene / 历史未 backfill 的 task → frames=[](不报错)。",
+        "description": "中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」:\n- track_id 给定 → 服务端只回该跨帧链(scope=selected,payload 最小);\n- track_id 省略 → 回区间全部框(scope=all)。\n几何坐标不变(各帧 ego 系 PSR),ego 对齐仍由前端 egoAlign 做。\n非 scene / 历史未 backfill 的 task → frames=[](不报错)。",
         "properties": {
           "frame_index": {
             "anyOf": [
@@ -33637,7 +33637,7 @@
         "type": "object"
       },
       "NeighborFrameAnnotations": {
-        "description": "v0.15.17 · 单个邻帧 task 的标注集合(若请求带 track_id 则已服务端过滤)。",
+        "description": "单个邻帧 task 的标注集合(若请求带 track_id 则已服务端过滤)。",
         "properties": {
           "annotations": {
             "items": {
@@ -38118,7 +38118,7 @@
       },
       "PointMaskGeometry": {
         "additionalProperties": false,
-        "description": "v0.13.0 · 3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。",
+        "description": "3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。",
         "properties": {
           "convention_at_create": {
             "anyOf": [
@@ -38258,7 +38258,7 @@
       },
       "PolygonGeometry": {
         "additionalProperties": false,
-        "description": "单连通域 polygon。\n\nv0.9.14 · holes 字段新增, 默认 [] 向后兼容。老存量 / 老前端写入仍走 type=polygon\n+ 仅 points 路径; 新 prediction 在有 hole 时把 hole 顶点列表填进 holes, 多连通域\n走 MultiPolygonGeometry 分支。",
+        "description": "单连通域 polygon。\n\n简单多边形只需 points；holes 可省略，默认 []。\n带孔的形状在 holes 中保存孔洞顶点；多连通域使用 MultiPolygonGeometry。",
         "properties": {
           "holes": {
             "items": {
@@ -40005,7 +40005,7 @@
         "type": "object"
       },
       "ProbeResponse": {
-        "description": "v0.9.6 · 无 DB 副作用的 health check.\n前端注册 modal 在保存前可调本端点验证连通性, 避免「先存再 health 失败 / DB 留无效行」摩擦.",
+        "description": "无 DB 副作用的 health check.\n前端注册 modal 在保存前可调本端点验证连通性, 避免「先存再 health 失败 / DB 留无效行」摩擦.",
         "properties": {
           "cache": {
             "anyOf": [
@@ -40539,7 +40539,7 @@
         "type": "object"
       },
       "ProjectDistributeBatches": {
-        "description": "v0.7.2 · 项目级 batch 分派：在所选 annotator / reviewer 间圆周分派 batch。\n每个 batch 落到 1 个 annotator + 1 个 reviewer。",
+        "description": "项目级 batch 分派：在所选 annotator / reviewer 间圆周分派 batch。\n每个 batch 落到 1 个 annotator + 1 个 reviewer。",
         "properties": {
           "annotator_ids": {
             "default": [],
@@ -43560,7 +43560,7 @@
         "type": "object"
       },
       "PropagateBatchRequest": {
-        "description": "v0.15.1 · 多目标批量跨帧延续(源 task 走端点路径)。\n\nannotation_ids=None → 源 task 全部 active box_3d;显式给定时逐条校验\n归属与几何类型,任一不合法整批拒(同一事务,无部分写入)。",
+        "description": "多目标批量跨帧延续(源 task 走端点路径)。\n\nannotation_ids=None → 源 task 全部 active box_3d;显式给定时逐条校验\n归属与几何类型,任一不合法整批拒(同一事务,无部分写入)。",
         "properties": {
           "annotation_ids": {
             "anyOf": [
@@ -43609,7 +43609,7 @@
         "type": "object"
       },
       "PropagateRequest": {
-        "description": "v0.14.1 · 跨帧目标延续: 把源 annotation 复制到目标 task(同 project 同 scene)。\n\ntarget_task_id 走 body(端点路径已含源 task_id + annotation_id)。\noverride_psr 留扩展位: 本期前端总传 None = 完全复制源几何; 给定时按 key\n覆盖 box_3d 的 center/size/rotation(其它几何忽略, 高阶 propagate 用)。",
+        "description": "跨帧目标延续: 把源 annotation 复制到目标 task(同 project 同 scene)。\n\ntarget_task_id 走 body(端点路径已含源 task_id + annotation_id)。\noverride_psr 留扩展位: 本期前端总传 None = 完全复制源几何; 给定时按 key\n覆盖 box_3d 的 center/size/rotation(其它几何忽略, 高阶 propagate 用)。",
         "properties": {
           "override_psr": {
             "anyOf": [
@@ -44279,7 +44279,7 @@
       },
       "RasterMaskGeometry": {
         "additionalProperties": false,
-        "description": "v0.23.6 · 图片栅格掩码几何。\n\n引用不可变 COCO RLE 对象存储掩码内容，不内联像素数据。\n只允许图片 DatasetItem（视频使用 video_mask / video_track_mask）。",
+        "description": "图片栅格掩码几何。\n\n引用不可变 COCO RLE 对象存储掩码内容，不内联像素数据。\n只允许图片 DatasetItem（视频使用 video_mask / video_track_mask）。",
         "properties": {
           "mask": {
             "$ref": "#/components/schemas/CocoRleMaskRef"
@@ -44853,7 +44853,7 @@
         "type": "object"
       },
       "RegistrationDayPoint": {
-        "description": "v0.8.1 · 注册来源按日聚合：邀请 vs 开放注册。",
+        "description": "注册来源按日聚合：邀请 vs 开放注册。",
         "properties": {
           "date": {
             "title": "Date",
@@ -45456,7 +45456,7 @@
         "type": "object"
       },
       "ReviewerMiniStats": {
-        "description": "v0.8.7 F5.3 · ReviewWorkbench 右侧栏 mini 仪表（当日通过/退回/平均耗时）。",
+        "description": "ReviewWorkbench 右侧栏 mini 仪表（当日通过/退回/平均耗时）。",
         "properties": {
           "approved_today": {
             "default": 0,
@@ -45998,7 +45998,7 @@
         "type": "object"
       },
       "RuntimeHints": {
-        "description": "v0.9.6 · 前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint.",
+        "description": "前端 modal 启动时一次性查; 提供注册 form 的 placeholder hint.",
         "properties": {
           "managed_backend_urls": {
             "additionalProperties": {
@@ -46023,7 +46023,7 @@
         "type": "object"
       },
       "RuntimeMemberSnapshot": {
-        "description": "One pool member's runtime state.\n\nMetrics-driven fields (``last_selected_at`` / ``selection_count_window``\n/ ``rejection_count_window`` / ``p95_ms`` / ``error_rate``) are ``None``\nby default: plan §4.2 forbids wiring shared route counters, and v0.23.3's\nPrometheus module is declared but unwired. The frontend renders these as\n\"暂无路由指标\" per §6.2; the fields exist in the schema so v0.23.4 does\nnot have to refactor the contract again when metrics arrive.",
+        "description": "One pool member's runtime state.\n\nMetrics-driven fields (``last_selected_at`` / ``selection_count_window``\n/ ``rejection_count_window`` / ``p95_ms`` / ``error_rate``) are ``None``\nwhen routing metrics are unavailable. The model market displays\n\"暂无路由指标\" for these values rather than reporting zero activity.",
         "properties": {
           "circuit_open": {
             "anyOf": [
@@ -47772,7 +47772,7 @@
       },
       "SecondaryInferenceRequest": {
         "additionalProperties": false,
-        "description": "v0.20.11 · 选中框单框二次推理: 在选中框 ROI 上跑一个能力。\n\n镜像批量 pipeline 的单个下游阶段 (源=选中框, 无检测阶段)。\nwrite_target 决定产物归位: attributes → 写回原框; geometry → 建子框。",
+        "description": "选中框单框二次推理: 在选中框 ROI 上跑一个能力。\n\n镜像批量 pipeline 的单个下游阶段 (源=选中框, 无检测阶段)。\nwrite_target 决定产物归位: attributes → 写回原框; geometry → 建子框。",
         "properties": {
           "class_filter": {
             "anyOf": [
@@ -54980,7 +54980,7 @@
       },
       "SystemSettingsUpdate": {
         "additionalProperties": false,
-        "description": "v0.8.1 · admin UI PATCH 入参，全部 Optional：未提供字段不变更。\nsmtp_password 传空串视为清除；未提供则不动现有值。",
+        "description": "admin UI PATCH 入参，全部 Optional：未提供字段不变更。\nsmtp_password 传空串视为清除；未提供则不动现有值。",
         "properties": {
           "allow_open_registration": {
             "anyOf": [
@@ -57380,7 +57380,7 @@
         "type": "object"
       },
       "TrackerExemplar": {
-        "description": "v0.21.19 · text-driven 追踪 (sam3_video) 的单个视觉示例框。\n\nbbox: 归一化 xyxy [x1, y1, x2, y2]; label: True=正框(扩召回) / False=负框(排误检)。\n复用 sam3 图片侧 `Exemplar` 形状，沿用归一化坐标红线。",
+        "description": "text-driven 追踪 (sam3_video) 的单个视觉示例框。\n\nbbox: 归一化 xyxy [x1, y1, x2, y2]; label: True=正框(扩召回) / False=负框(排误检)。\n复用 sam3 图片侧 `Exemplar` 形状，沿用归一化坐标红线。",
         "properties": {
           "bbox": {
             "items": {
@@ -63534,7 +63534,7 @@
         "type": "object"
       },
       "UserBrief": {
-        "description": "v0.7.2 · 责任人可视化用：列表 / 卡片侧 inline 渲染头像 + 名字 + 角色。",
+        "description": "责任人可视化用：列表 / 卡片侧 inline 渲染头像 + 名字 + 角色。",
         "properties": {
           "avatar_initial": {
             "title": "Avatar Initial",
@@ -64531,7 +64531,7 @@
       },
       "VideoBboxGeometry": {
         "additionalProperties": false,
-        "description": "v0.9.16 · 视频单帧 bbox。\n\n首版视频工作台只保存逐帧框，不表达 track/keyframe/interpolation。`frame_index`\n是唯一时间轴定位字段，展示层可自行换算 timecode。",
+        "description": "视频单帧 bbox。\n\n首版视频工作台只保存逐帧框，不表达 track/keyframe/interpolation。`frame_index`\n是唯一时间轴定位字段，展示层可自行换算 timecode。",
         "properties": {
           "frame_index": {
             "minimum": 0.0,
@@ -65615,7 +65615,7 @@
       },
       "VideoKeypointGeometry": {
         "additionalProperties": false,
-        "description": "v0.21.22 · 视频单帧关键点集合。与图片 KeypointGeometry 平行 + frame_index;\n骨骼拓扑走 keypoint 工具单位的 keypoint_schema。坐标归一化 [0,1]。",
+        "description": "视频单帧关键点集合。与图片 KeypointGeometry 平行 + frame_index;\n骨骼拓扑走 keypoint 工具单位的 keypoint_schema。坐标归一化 [0,1]。",
         "properties": {
           "frame_index": {
             "minimum": 0.0,
@@ -66154,7 +66154,7 @@
       },
       "VideoPolygonGeometry": {
         "additionalProperties": false,
-        "description": "v0.21.21 · 视频单帧 polygon。与图片 PolygonGeometry 平行, 多一个 frame_index\n定位到具体帧; 与 track/keyframe/插值无关 (那是 video_track_polygon)。points 归一化 [0,1]。",
+        "description": "视频单帧 polygon。与图片 PolygonGeometry 平行, 多一个 frame_index\n定位到具体帧; 与 track/keyframe/插值无关 (那是 video_track_polygon)。points 归一化 [0,1]。",
         "properties": {
           "frame_index": {
             "minimum": 0.0,
@@ -66201,7 +66201,7 @@
       },
       "VideoPolylineGeometry": {
         "additionalProperties": false,
-        "description": "v0.21.21 · 视频单帧开放折线 (不闭合)。与图片 PolylineGeometry 平行 + frame_index;\npoints 至少 2 个归一化 [0,1] 顶点。",
+        "description": "视频单帧开放折线 (不闭合)。与图片 PolylineGeometry 平行 + frame_index;\npoints 至少 2 个归一化 [0,1] 顶点。",
         "properties": {
           "frame_index": {
             "minimum": 0.0,
@@ -66235,7 +66235,7 @@
       },
       "VideoRotatedBboxGeometry": {
         "additionalProperties": false,
-        "description": "v0.21.22 · 视频单帧旋转矩形 (OBB)。与图片 RotatedBboxGeometry 平行 + frame_index;\ncx,cy 中心, w,h 边长, angle 顺时针角度 (度, [0,360))。坐标归一化 [0,1]。",
+        "description": "视频单帧旋转矩形 (OBB)。与图片 RotatedBboxGeometry 平行 + frame_index;\ncx,cy 中心, w,h 边长, angle 顺时针角度 (度, [0,360))。坐标归一化 [0,1]。",
         "properties": {
           "angle": {
             "exclusiveMaximum": 360.0,
@@ -66683,7 +66683,7 @@
       },
       "VideoTrackGeometry": {
         "additionalProperties": false,
-        "description": "v0.9.17 · 视频对象轨迹。\n\n轨迹以 compact JSON 保存，不逐帧展开写库。`track_id` 在一个 annotation 内稳定；\n`keyframes` 保存手工 / 预测关键帧，插值结果由前端按需计算。",
+        "description": "视频对象轨迹。\n\n轨迹以 compact JSON 保存，不逐帧展开写库。`track_id` 在一个 annotation 内稳定；\n`keyframes` 保存手工 / 预测关键帧，插值结果由前端按需计算。",
         "properties": {
           "keyframes": {
             "items": {
@@ -66935,7 +66935,7 @@
       },
       "VideoTrackPolygonGeometry": {
         "additionalProperties": false,
-        "description": "v0.21.20 · 视频对象轨迹 (polygon 几何)。\n\n与 `video_track_bbox` 平行的附加类型 (非泛化 bbox), 复用 track_id / semantic_label /\noutside 语义; keyframes 存 polygon 顶点, 帧间按弧长参数化插值 (顶点数不等时先重采样到\n公共参数化)。存量 bbox track 零迁移、零改动。",
+        "description": "视频对象轨迹 (polygon 几何)。\n\n与 `video_track_bbox` 平行的附加类型 (非泛化 bbox), 复用 track_id / semantic_label /\noutside 语义; keyframes 存 polygon 顶点, 帧间按弧长参数化插值 (顶点数不等时先重采样到\n公共参数化)。存量 bbox track 零迁移、零改动。",
         "properties": {
           "keyframes": {
             "items": {
@@ -66985,7 +66985,7 @@
       },
       "VideoTrackPolygonKeyframe": {
         "additionalProperties": false,
-        "description": "v0.21.20 · polygon track 的单关键帧。\n\n`points` 为归一化 [0,1] 的闭合多边形顶点序列 (与图片 PolygonGeometry 同形状,\n不含 holes——track 首切片只做单连通)。帧间由弧长参数化插值 (见 video_tracks.lerp_polygon)。",
+        "description": "polygon track 的单关键帧。\n\n`points` 为归一化 [0,1] 的闭合多边形顶点序列 (与图片 PolygonGeometry 同形状,\n不含 holes——track 首切片只做单连通)。帧间由弧长参数化插值 (见 video_tracks.lerp_polygon)。",
         "properties": {
           "attributes": {
             "anyOf": [
@@ -67040,7 +67040,7 @@
       },
       "VideoTrackPolylineGeometry": {
         "additionalProperties": false,
-        "description": "v0.21.20 · 视频对象轨迹 (polyline / 开路径几何)。\n\n与 `video_track_polygon` 平行, 但 keyframes 为不闭合折线 (无 holes / 无闭合边);\n帧间按开路径弧长参数化插值。存量轨迹零迁移。",
+        "description": "视频对象轨迹 (polyline / 开路径几何)。\n\n与 `video_track_polygon` 平行, 但 keyframes 为不闭合折线 (无 holes / 无闭合边);\n帧间按开路径弧长参数化插值。存量轨迹零迁移。",
         "properties": {
           "keyframes": {
             "items": {
@@ -67090,7 +67090,7 @@
       },
       "VideoTrackPolylineKeyframe": {
         "additionalProperties": false,
-        "description": "v0.21.20 · polyline track 的单关键帧。\n\n`points` 为归一化 [0,1] 的开路径折线顶点序列 (不闭合, 至少 2 点)。帧间由开路径弧长\n参数化插值 (首尾端点固定对应, 见 video_tracks.lerp_polyline)。",
+        "description": "polyline track 的单关键帧。\n\n`points` 为归一化 [0,1] 的开路径折线顶点序列 (不闭合, 至少 2 点)。帧间由开路径弧长\n参数化插值 (首尾端点固定对应, 见 video_tracks.lerp_polyline)。",
         "properties": {
           "attributes": {
             "anyOf": [
@@ -67968,7 +67968,7 @@
         "type": "object"
       },
       "VideoTrackerJobPreview": {
-        "description": "v0.21.28 · 候选预览: job 暂存的逐帧结果, 供前端在接受前渲染候选叠加。",
+        "description": "候选预览: job 暂存的逐帧结果, 供前端在接受前渲染候选叠加。",
         "properties": {
           "annotation_id": {
             "anyOf": [
@@ -69808,7 +69808,7 @@
   "paths": {
     "/api/v1/admin/analytics/{panel_name}": {
       "get": {
-        "description": "v0.10.16 · 取一个面板的数据。\n\nDuckDB 文件由 Celery beat (sync_to_duckdb) 每日更新；如果首次同步尚未跑过\n返回 503，让前端展示「数据初始化中」。",
+        "description": "取一个面板的数据。\n\nDuckDB 文件由 Celery beat (sync_to_duckdb) 每日更新；如果首次同步尚未跑过\n返回 503，让前端展示「数据初始化中」。",
         "operationId": "get_analytics_panel_api_v1_admin_analytics__panel_name__get",
         "parameters": [
           {
@@ -69902,13 +69902,13 @@
             }
           },
           {
-            "description": "v0.8.8 · true 时同时返回已 dismiss 的失败预测；默认隐藏",
+            "description": "为 true 时包含已隐藏的失败预测；默认不包含",
             "in": "query",
             "name": "include_dismissed",
             "required": false,
             "schema": {
               "default": false,
-              "description": "v0.8.8 · true 时同时返回已 dismiss 的失败预测；默认隐藏",
+              "description": "为 true 时包含已隐藏的失败预测；默认不包含",
               "title": "Include Dismissed",
               "type": "boolean"
             }
@@ -69949,7 +69949,7 @@
     },
     "/api/v1/admin/failed-predictions/{failed_id}/dismiss": {
       "post": {
-        "description": "v0.8.8 · 永久放弃失败预测（soft-delete）。\n\n审计：``failed_prediction.dismissed``。重复调用幂等——已 dismiss 的行\n不更新 dismissed_at。",
+        "description": "永久放弃失败预测（soft-delete）。\n\n审计：``failed_prediction.dismissed``。重复调用幂等——已 dismiss 的行\n不更新 dismissed_at。",
         "operationId": "dismiss_failed_prediction_api_v1_admin_failed_predictions__failed_id__dismiss_post",
         "parameters": [
           {
@@ -69998,7 +69998,7 @@
     },
     "/api/v1/admin/failed-predictions/{failed_id}/restore": {
       "post": {
-        "description": "v0.8.8 · 误操作恢复：清空 ``dismissed_at``，让该行重回默认列表。",
+        "description": "误操作恢复：清空 ``dismissed_at``，让该行重回默认列表。",
         "operationId": "restore_failed_prediction_api_v1_admin_failed_predictions__failed_id__restore_post",
         "parameters": [
           {
@@ -70215,7 +70215,7 @@
     },
     "/api/v1/admin/ml-integrations/all": {
       "get": {
-        "description": "v0.19.0 ADR-0044 · 列全局注册表所有 backend。\n\n用于 CreateProjectWizard step 4 让用户选「为新项目启用一个已注册 backend」;\n复用时 create_project 端点为新项目建启用关联 (复用同一全局 registry id)。\nsource_project_* 字段保留兼容: 现以 source ('manual'/'env') 作来源标签。",
+        "description": "ADR-0044 · 列全局注册表所有 backend。\n\n用于 CreateProjectWizard step 4 让用户选「为新项目启用一个已注册 backend」;\n复用时 create_project 端点为新项目建启用关联 (复用同一全局 registry id)。\nsource_project_* 字段保留兼容: 现以 source ('manual'/'env') 作来源标签。",
         "operationId": "list_all_backends_api_v1_admin_ml_integrations_all_get",
         "responses": {
           "200": {
@@ -71070,7 +71070,7 @@
     },
     "/api/v1/admin/ml-integrations/registry/{registry_id}": {
       "delete": {
-        "description": "删除全局 backend。running prediction job 仍在跑则 409; 否则级联解绑\nprojects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。\nv0.23.3 ADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除\n(legacy_instance_id FK RESTRICT + member FK RESTRICT)。",
+        "description": "删除全局 backend。running prediction job 仍在跑则 409; 否则级联解绑\nprojects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。\nADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除\n(legacy_instance_id FK RESTRICT + member FK RESTRICT)。",
         "operationId": "delete_registry_api_v1_admin_ml_integrations_registry__registry_id__delete",
         "parameters": [
           {
@@ -72027,7 +72027,7 @@
     },
     "/api/v1/admin/preannotate-queue/bulk-clear": {
       "post": {
-        "description": "v0.9.12 B-16 · 批量清理 /ai-pre 已就绪卡片.\n\n- predictions_only: 仅清 prediction / failed_prediction / prediction_jobs / prediction_metas;\n  batch.status 从 PRE_ANNOTATED 回 ACTIVE (避免 \"状态 PRE_ANNOTATED 但 prediction 已空\" 矛盾态).\n- reset_to_draft: 复用 BatchService.reset_to_draft, 全量重置 + 级联清理 (Phase 1 落地).\n\nproject_admin 只能处理自己 owned 项目下的 batch; 跨项目越权进 skipped.",
+        "description": "批量清理 /ai-pre 已就绪卡片.\n\n- predictions_only: 仅清 prediction / failed_prediction / prediction_jobs / prediction_metas;\n  batch.status 从 PRE_ANNOTATED 回 ACTIVE (避免 \"状态 PRE_ANNOTATED 但 prediction 已空\" 矛盾态).\n- reset_to_draft: 复用 BatchService.reset_to_draft, 全量重置 + 级联清理 (Phase 1 落地).\n\nproject_admin 只能处理自己 owned 项目下的 batch; 跨项目越权进 skipped.",
         "operationId": "bulk_clear_preannotate_api_v1_admin_preannotate_queue_bulk_clear_post",
         "requestBody": {
           "content": {
@@ -72074,7 +72074,7 @@
     },
     "/api/v1/admin/preannotate-summary": {
       "get": {
-        "description": "v0.9.12 B-17 · 给 ProjectCardGrid 提供 per-project 聚合.\n\n仅返回有「已启用」全局 backend 的项目 (EXISTS project_ml_backend_pool WHERE enabled).\nv0.10.38 · 撤回 v0.10.36 的 data_type=\"image\" 过滤: 模态分流改到前端 ProjectDetailPanel\n(image 走文本批量预标, video 走引导卡片+job 历史), summary 返回 data_type 供前端路由.",
+        "description": "给 ProjectCardGrid 提供 per-project 聚合.\n\n仅返回有「已启用」全局 backend 的项目 (EXISTS project_ml_backend_pool WHERE enabled).\nsummary 返回 data_type 供前端 ProjectDetailPanel 按模态区分入口：\n图像走文本批量预标，视频走引导卡片和 job 历史。",
         "operationId": "list_preannotate_project_summary_api_v1_admin_preannotate_summary_get",
         "responses": {
           "200": {
@@ -72355,7 +72355,7 @@
     },
     "/api/v1/annotations/{annotation_id}/comment-attachments/upload-init": {
       "post": {
-        "description": "v0.6.2：评论附件签发预签名 PUT URL。\n\nstorage_key 形如 `comment-attachments/{aid}/{uuid}-{filename}`，固定前缀使得后端可\n校验 attachments[].storageKey；同时让 MinIO 桶层级清晰。",
+        "description": "评论附件签发预签名 PUT URL。\n\nstorage_key 形如 `comment-attachments/{aid}/{uuid}-{filename}`，固定前缀使得后端可\n校验 attachments[].storageKey；同时让 MinIO 桶层级清晰。",
         "operationId": "comment_attachment_upload_init_api_v1_annotations__annotation_id__comment_attachments_upload_init_post",
         "parameters": [
           {
@@ -72414,7 +72414,7 @@
     },
     "/api/v1/annotations/{annotation_id}/comments": {
       "get": {
-        "description": "v0.8.8 · 旧端点保留作向后兼容；新调用方走 ``/comments/page`` keyset 分页。",
+        "description": "旧端点保留作向后兼容；新调用方走 ``/comments/page`` keyset 分页。",
         "operationId": "list_comments_api_v1_annotations__annotation_id__comments_get",
         "parameters": [
           {
@@ -72523,7 +72523,7 @@
     },
     "/api/v1/annotations/{annotation_id}/comments/page": {
       "get": {
-        "description": "v0.8.8 · keyset 分页：DESC(created_at, id)。\n\n单条标注 100+ 评论时初始化卡顿明显（CommentsPanel 全量拉），改为「最新 50\n+ 加载更早」按需拉取。返回 ``next_cursor=None`` 即末尾。",
+        "description": "keyset 分页：DESC(created_at, id)。\n\n单条标注 100+ 评论时初始化卡顿明显（CommentsPanel 全量拉），改为「最新 50\n+ 加载更早」按需拉取。返回 ``next_cursor=None`` 即末尾。",
         "operationId": "list_comments_paged_api_v1_annotations__annotation_id__comments_page_get",
         "parameters": [
           {
@@ -72889,7 +72889,7 @@
     },
     "/api/v1/annotations/{annotation_id}/mask-content": {
       "get": {
-        "description": "v0.23.6 · 获取图片掩码内容 (RasterMaskGeometry)。\n\n支持图片 RasterMaskGeometry 与视频单帧 VideoMaskGeometry 的静态内容服务。\n返回标准 COCO RLE 格式，带 ETag 支持条件请求。",
+        "description": "获取图片掩码内容 (RasterMaskGeometry)。\n\n支持图片 RasterMaskGeometry 与视频单帧 VideoMaskGeometry 的静态内容服务。\n返回标准 COCO RLE 格式，带 ETag 支持条件请求。",
         "operationId": "get_annotation_mask_content_api_v1_annotations__annotation_id__mask_content_get",
         "parameters": [
           {
@@ -73013,7 +73013,7 @@
     },
     "/api/v1/async-jobs": {
       "get": {
-        "description": "v0.10.16 · 当前用户可见 async_jobs 列表（super_admin 可见全部）。\n\n顺序：created_at DESC。前端铃铛走 polling，默认拉最近 50 行。",
+        "description": "当前用户可见 async_jobs 列表（super_admin 可见全部）。\n\n顺序：created_at DESC。前端铃铛走 polling，默认拉最近 50 行。",
         "operationId": "list_async_jobs_api_v1_async_jobs_get",
         "parameters": [
           {
@@ -73202,7 +73202,7 @@
     },
     "/api/v1/async-jobs/{job_id}/cancel": {
       "post": {
-        "description": "v0.10.51 · 软取消。\n\nbatch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，\nworker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。",
+        "description": "软取消。\n\nbatch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，\nworker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。",
         "operationId": "cancel_async_job_api_v1_async_jobs__job_id__cancel_post",
         "parameters": [
           {
@@ -75615,7 +75615,7 @@
     },
     "/api/v1/dashboard/admin/people": {
       "get": {
-        "description": "v0.8.4 · 全员效率卡片网格数据。\n\nrole 过滤：annotator / reviewer / both（默认 both）\nperiod: today / 7d / 4w / 1m\nsort: throughput / quality / activity / weekly_compare\n\nv0.12.6 (A3)：project 给定时所有产能/质量/活跃聚合**按该项目切分**（非全局）；\nproject_admin 必须指定其项目，super_admin 可全局或任意项目。",
+        "description": "全员效率卡片网格数据。\n\nrole 过滤：annotator / reviewer / both（默认 both）\nperiod: today / 7d / 4w / 1m\nsort: throughput / quality / activity / weekly_compare\n\nproject 给定时所有产能/质量/活跃聚合**按该项目切分**（非全局）；\nproject_admin 必须指定其项目，super_admin 可全局或任意项目。",
         "operationId": "admin_people_list_api_v1_dashboard_admin_people_get",
         "parameters": [
           {
@@ -75722,7 +75722,7 @@
     },
     "/api/v1/dashboard/admin/people/export": {
       "get": {
-        "description": "v0.12.5 · 成员绩效 CSV 导出。复用 admin_people_list 聚合,零重复;Excel UTF-8 BOM 防中文乱码。\n\nv0.12.6 (A3)：放行 project_admin（委托 admin_people_list 强制其项目范围）。",
+        "description": "成员绩效 CSV 导出。复用 admin_people_list 聚合,零重复;Excel UTF-8 BOM 防中文乱码。\n\n放行 project_admin（委托 admin_people_list 强制其项目范围）。",
         "operationId": "admin_people_export_api_v1_dashboard_admin_people_export_get",
         "parameters": [
           {
@@ -75827,7 +75827,7 @@
     },
     "/api/v1/dashboard/admin/people/{user_id}": {
       "get": {
-        "description": "v0.8.4 · 个人详情：4 周趋势、耗时直方图、项目分布、timeline。\n\nv0.12.6 (A3)：project 给定时产能/质量/耗时/归因聚合**按该项目切分**；\nproject_admin 必须指定其项目，super_admin 可全局或任意项目。\n项目范围的 timeline 只包含可验证归属的事件，过滤在最近 50 条限制之前。",
+        "description": "个人详情：4 周趋势、耗时直方图、项目分布、timeline。\n\nproject 给定时产能/质量/耗时/归因聚合**按该项目切分**；\nproject_admin 必须指定其项目，super_admin 可全局或任意项目。\n项目范围的 timeline 只包含可验证归属的事件，过滤在最近 50 条限制之前。",
         "operationId": "admin_person_detail_api_v1_dashboard_admin_people__user_id__get",
         "parameters": [
           {
@@ -75901,7 +75901,7 @@
     },
     "/api/v1/dashboard/admin/prediction-cost-stats": {
       "get": {
-        "description": "v0.8.6 F4 · 过去 N 天预测调用数 / 平均耗时 / 失败率 / 总成本。\n\n数据来源：predictions × prediction_metas × failed_predictions × ml_backends。\n异常时降级返回零，避免 Dashboard 因聚合失败黑屏。",
+        "description": "过去 N 天预测调用数 / 平均耗时 / 失败率 / 总成本。\n\n数据来源：predictions × prediction_metas × failed_predictions × ml_backends。\n异常时降级返回零，避免 Dashboard 因聚合失败黑屏。",
         "operationId": "prediction_cost_stats_api_v1_dashboard_admin_prediction_cost_stats_get",
         "parameters": [
           {
@@ -75977,7 +75977,7 @@
     },
     "/api/v1/dashboard/annotator/batches": {
       "get": {
-        "description": "v0.7.1 B-17 · 标注员视角的「我的批次」：仅返回当前用户被分派、且处于\nactive / annotating / rejected / reviewing 的批次。让标注员从 dashboard\n一眼看到自己手里的批次进度，并直接「提交质检」/ 查看 reviewer 留言。\n\nsuper_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤（v0.7.2 单值）。",
+        "description": "标注员视角的「我的批次」：仅返回当前用户被分派、且处于\nactive / annotating / rejected / reviewing 的批次。让标注员从 dashboard\n一眼看到自己手里的批次进度，并直接「提交质检」/ 查看 reviewer 留言。\n\nsuper_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤。",
         "operationId": "my_batches_api_v1_dashboard_annotator_batches_get",
         "parameters": [
           {
@@ -76092,7 +76092,7 @@
     },
     "/api/v1/dashboard/me/performance": {
       "get": {
-        "description": "v0.12.3 · 标注员自助绩效（取经合集 §4.1 个人页）。\n\n任意已认证用户看**自己**的 4 周趋势 + 耗时直方图，并叠加团队（annotator 群体）\n每周平均产出作对标基线。强制 self，不接受他人 user_id。",
+        "description": "标注员自助绩效（取经合集 §4.1 个人页）。\n\n任意已认证用户看**自己**的 4 周趋势 + 耗时直方图，并叠加团队（annotator 群体）\n每周平均产出作对标基线。强制 self，不接受他人 user_id。",
         "operationId": "my_performance_api_v1_dashboard_me_performance_get",
         "parameters": [
           {
@@ -76141,7 +76141,7 @@
     },
     "/api/v1/dashboard/me/recent-reviews": {
       "get": {
-        "description": "v0.6.6 · 当前 reviewer 最近审核过的任务（已 approve / reject 落定的）。\n\n依据 Task.reviewer_id + Task.reviewed_at（v0.6.5 状态机字段）。",
+        "description": "当前 reviewer 最近审核过的任务（已 approve / reject 落定的）。\n\n依据 Task.reviewer_id 和 Task.reviewed_at。",
         "operationId": "my_recent_reviews_api_v1_dashboard_me_recent_reviews_get",
         "parameters": [
           {
@@ -76287,7 +76287,7 @@
     },
     "/api/v1/dashboard/reviewer/today-mini": {
       "get": {
-        "description": "v0.8.7 F5.3 · ReviewWorkbench 右侧栏 mini 仪表轻量端点。\n\n- approved_today / rejected_today: 自己当日 approve/reject 的次数（基于 Task.reviewer_id）\n- avg_review_seconds: 自己当日审过的任务（reviewer_claimed_at → reviewed_at）平均耗时秒数\n20s 自动 refetch（前端 query staleTime）。",
+        "description": "ReviewWorkbench 右侧栏 mini 仪表轻量端点。\n\n- approved_today / rejected_today: 自己当日 approve/reject 的次数（基于 Task.reviewer_id）\n- avg_review_seconds: 自己当日审过的任务（reviewer_claimed_at → reviewed_at）平均耗时秒数\n20s 自动 refetch（前端 query staleTime）。",
         "operationId": "reviewer_today_mini_api_v1_dashboard_reviewer_today_mini_get",
         "responses": {
           "200": {
@@ -82293,7 +82293,7 @@
     },
     "/api/v1/datasets/{dataset_id}/scenes/backfill": {
       "post": {
-        "description": "v0.14.0 · 对 dataset 跑 scene layout backfill,补 scene + frame_index。\n\n幂等:dataset 已有 scene → 直接返回(notes 提示)。\ndry_run:不写库,返回会创建 / 赋值的统计。",
+        "description": "对 dataset 跑 scene layout backfill,补 scene + frame_index。\n\n幂等:dataset 已有 scene → 直接返回(notes 提示)。\ndry_run:不写库,返回会创建 / 赋值的统计。",
         "operationId": "backfill_scenes_endpoint_api_v1_datasets__dataset_id__scenes_backfill_post",
         "parameters": [
           {
@@ -86301,7 +86301,7 @@
     },
     "/api/v1/notification-preferences": {
       "get": {
-        "description": "v0.7.0：返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。",
+        "description": "返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。",
         "operationId": "get_preferences_api_v1_notification_preferences_get",
         "responses": {
           "200": {
@@ -86326,7 +86326,7 @@
         ]
       },
       "put": {
-        "description": "Upsert 单条偏好；v0.7.0 起 in_app/toast 至少提供一个。\n\n只合并请求中出现的键（JSONB ``channels || patch``），保留未提供的\nin_app/toast/email 及其它字段；并发标签页写不同键互不覆盖。\nchannels.email 字段保留但当前不消费。提交成功后发布\n``notifications.sync reason=preferences``，让其它会话刷新偏好而不产生通知。",
+        "description": "Upsert 单条偏好；in_app 和 toast 至少提供一个。\n\n只合并请求中出现的键（JSONB ``channels || patch``），保留未提供的\nin_app/toast/email 及其它字段；并发标签页写不同键互不覆盖。\nchannels.email 字段保留但当前不消费。提交成功后发布\n``notifications.sync reason=preferences``，让其它会话刷新偏好而不产生通知。",
         "operationId": "update_preference_api_v1_notification_preferences_put",
         "requestBody": {
           "content": {
@@ -89517,7 +89517,7 @@
     },
     "/api/v1/projects/{project_id}/batches/distribute-batches": {
       "post": {
-        "description": "v0.7.2：项目级 batch 分派 — 把项目下未分派/全部 batch 圆周分配给所选 annotator/reviewer。\n每 batch 落到 1 个 annotator + 1 个 reviewer；同步回填该 batch 下所有 task 的 assignee_id/reviewer_id。",
+        "description": "项目级 batch 分派 — 把项目下未分派/全部 batch 圆周分配给所选 annotator/reviewer。\n每 batch 落到 1 个 annotator + 1 个 reviewer；同步回填该 batch 下所有 task 的 assignee_id/reviewer_id。",
         "operationId": "distribute_batches_in_project_api_v1_projects__project_id__batches_distribute_batches_post",
         "parameters": [
           {
@@ -89750,7 +89750,7 @@
     },
     "/api/v1/projects/{project_id}/batches/unclassified-count": {
       "get": {
-        "description": "v0.7.3：项目下未归类（batch_id IS NULL）任务数。\n给 BatchesSection 顶部横带「未归类 N 条 · 去分包」用。",
+        "description": "项目下未归类（batch_id IS NULL）任务数。\n给 BatchesSection 顶部横带「未归类 N 条 · 去分包」用。",
         "operationId": "get_unclassified_task_count_api_v1_projects__project_id__batches_unclassified_count_get",
         "parameters": [
           {
@@ -90238,7 +90238,7 @@
     },
     "/api/v1/projects/{project_id}/batches/{batch_id}/audit-logs": {
       "get": {
-        "description": "v0.7.3：批次操作历史抽屉数据源。\n返回该批次相关的 audit_log，按时间倒序，包含：\n- 直接 target=batch 的事件（创建/状态迁移/驳回/删除）\n- bulk 类操作中提及到该批次的项目级事件（detail_json.batch_ids 包含此 id）",
+        "description": "批次操作历史抽屉数据源。\n返回该批次相关的 audit_log，按时间倒序，包含：\n- 直接 target=batch 的事件（创建/状态迁移/驳回/删除）\n- bulk 类操作中提及到该批次的项目级事件（detail_json.batch_ids 包含此 id）",
         "operationId": "list_batch_audit_logs_api_v1_projects__project_id__batches__batch_id__audit_logs_get",
         "parameters": [
           {
@@ -90601,7 +90601,7 @@
     },
     "/api/v1/projects/{project_id}/batches/{batch_id}/reset": {
       "post": {
-        "description": "v0.7.6 · owner 兜底：把任意状态批次回退到 draft。\n\n- task 全部回 pending（保留 annotation 记录与 is_active）\n- 删除 task_locks 释放标注员锁\n- 清 review_feedback / reviewed_at / reviewed_by\n- 强制 reason ≥ 10 字（schema 层校验），写入 audit.detail.reason",
+        "description": "owner 兜底：把任意状态批次回退到 draft。\n\n- task 全部回 pending（保留 annotation 记录与 is_active）\n- 删除 task_locks 释放标注员锁\n- 清 review_feedback / reviewed_at / reviewed_by\n- 强制 reason ≥ 10 字（schema 层校验），写入 audit.detail.reason",
         "operationId": "reset_batch_to_draft_api_v1_projects__project_id__batches__batch_id__reset_post",
         "parameters": [
           {
@@ -93829,7 +93829,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/available": {
       "get": {
-        "description": "v0.19.0 ADR-0044 · 项目设置「启用勾选清单」: 列出全部全局 backend + 本项目启用态/覆盖。\n\n与 GET \"\" (只返回已启用) 区分: 本端点含未启用项, 供项目管理员勾选启用。\n路由声明在 `/{backend_id}` 之前, 避免被当作 backend_id 捕获。",
+        "description": "ADR-0044 · 项目设置「启用勾选清单」: 列出全部全局 backend + 本项目启用态/覆盖。\n\n与 GET \"\" (只返回已启用) 区分: 本端点含未启用项, 供项目管理员勾选启用。\n路由声明在 `/{backend_id}` 之前, 避免被当作 backend_id 捕获。",
         "operationId": "list_available_ml_backends_api_v1_projects__project_id__ml_backends_available_get",
         "parameters": [
           {
@@ -93878,7 +93878,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/pools/available": {
       "get": {
-        "description": "列出本项目可用的服务池 + 启用态 + 成员数 (ADR-0050 §12.2)。\n\nv0.23.3: off/observe 下每池 singleton; 完整池管理 UI 留给 v0.23.4。",
+        "description": "列出本项目可用的服务池 + 启用态 + 成员数 (ADR-0050 §12.2)。\n\n项目管理员用此清单查看项目可选的服务池及其启用状态。",
         "operationId": "list_project_ml_backend_pools_api_v1_projects__project_id__ml_backends_pools_available_get",
         "parameters": [
           {
@@ -94169,7 +94169,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/capabilities": {
       "get": {
-        "description": "v0.14.9 · 能力声明协议 v2: 探 /setup (复用 setup 缓存链路) → 派生能力快照.\n\n返回含 models[] / infra / modalities + 扁平并集字段, 供前端多模型目录消费.\n权限同 /setup 端点 (managers + reviewer + annotator)。/setup 不可达时 502.",
+        "description": "能力声明协议 v2: 探 /setup (复用 setup 缓存链路) → 派生能力快照.\n\n返回含 models[] / infra / modalities + 扁平并集字段, 供前端多模型目录消费.\n权限同 /setup 端点 (managers + reviewer + annotator)。/setup 不可达时 502.",
         "operationId": "get_ml_backend_capabilities_api_v1_projects__project_id__ml_backends__backend_id__capabilities_get",
         "parameters": [
           {
@@ -94228,7 +94228,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/capabilities/refresh": {
       "post": {
-        "description": "v0.14.9 · 强制刷新能力快照: 先 invalidate setup 缓存再重探 + 派生.\n\n权限同 /health (managers); 用于 backend 升级/换模型后主动拉新能力。",
+        "description": "强制刷新能力快照: 先 invalidate setup 缓存再重探 + 派生.\n\n权限同 /health (managers); 用于 backend 升级/换模型后主动拉新能力。",
         "operationId": "refresh_ml_backend_capabilities_api_v1_projects__project_id__ml_backends__backend_id__capabilities_refresh_post",
         "parameters": [
           {
@@ -94287,7 +94287,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/enablement": {
       "put": {
-        "description": "v0.19.0 ADR-0044 · 切换本项目对某全局 backend 的启用 + 写项目级覆盖 (阈值/变体)。\n\n全局 backend 必须存在 (不在此创建全局项; 注册全局项走 admin 端点)。",
+        "description": "ADR-0044 · 切换本项目对某全局 backend 的启用 + 写项目级覆盖 (阈值/变体)。\n\n全局 backend 必须存在 (不在此创建全局项; 注册全局项走 admin 端点)。",
         "operationId": "set_ml_backend_enablement_api_v1_projects__project_id__ml_backends__backend_id__enablement_put",
         "parameters": [
           {
@@ -94551,7 +94551,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/predict-frame": {
       "post": {
-        "description": "v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。\n\n视频 task 的 ``file_path`` 是整段 mp4，图像 backend 不能直接读取单帧。\n因此前端把当前帧解成 JPEG 随 multipart 传入；服务端上传 import 桶换\npresigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走\n``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有\n``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。\n\n与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。",
+        "description": "对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。\n\n视频 task 的 ``file_path`` 是整段 mp4，图像 backend 不能直接读取单帧。\n因此前端把当前帧解成 JPEG 随 multipart 传入；服务端上传 import 桶换\npresigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走\n``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有\n``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。\n\n与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。",
         "operationId": "predict_frame_api_v1_projects__project_id__ml_backends__backend_id__predict_frame_post",
         "parameters": [
           {
@@ -94684,7 +94684,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/reload": {
       "post": {
-        "description": "B-28+ · 触发 backend 重新加载模型. 已加载则 noop.\n\nv0.10.26 · 可选 body {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);\n缺省回退 backend 默认变体.\n\n鉴权 super_admin only · /reload 会改写「全局 backend 常驻变体」(同 backend 被多项目共用),\n切变体等于换掉其他项目正在用的权重, 属破坏性驻留操作, 与 /unload 同基线收口到平台管理员\n(对齐 super_admin only 的「运行时观测」面板)。",
+        "description": "B-28+ · 触发 backend 重新加载模型. 已加载则 noop.\n\n可选 body {sam_variant, dino_variant} 预热指定变体 (模型市场单变体预热);\n缺省回退 backend 默认变体.\n\n鉴权 super_admin only · /reload 会改写「全局 backend 常驻变体」(同 backend 被多项目共用),\n切变体等于换掉其他项目正在用的权重, 属破坏性驻留操作, 与 /unload 同基线收口到平台管理员\n(对齐 super_admin only 的「运行时观测」面板)。",
         "operationId": "reload_ml_backend_api_v1_projects__project_id__ml_backends__backend_id__reload_post",
         "parameters": [
           {
@@ -94758,7 +94758,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/setup": {
       "get": {
-        "description": "v0.10.1 · 代理 backend /setup, 返回 JSON Schema 自描述能力 (供前端 useMLCapabilities).\n\n30s TTL 进程内缓存; backend 升级/重启后最坏延迟 30s. 删除/更新 backend 时 invalidate.",
+        "description": "代理 backend /setup, 返回 JSON Schema 自描述能力 (供前端 useMLCapabilities).\n\n30s TTL 进程内缓存; backend 升级/重启后最坏延迟 30s. 删除/更新 backend 时 invalidate.",
         "operationId": "get_ml_backend_setup_api_v1_projects__project_id__ml_backends__backend_id__setup_get",
         "parameters": [
           {
@@ -94874,7 +94874,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/warmup": {
       "post": {
-        "description": "v0.14.14 协议 §4.4 · 转发 POST /warmup 到 backend.\n\nbody 原样转发 (各 backend schema 不同). backend 未声明 warmup_endpoint=True 时仍\n转发, 收到 404/405 由上游 502 反馈; 前端 ⚡ 按钮应已通过 health_meta.capabilities.\nwarmup_endpoint 提前置灰.\n\n鉴权 project_owner (刻意不随 /unload·/reload 收口到 super_admin) · warmup 是「构造性」\n预热, 是项目自身预标/交互推理的前置: AIPreAnnotate 预热加载类别表 (model.names)、能力目录\n对项目管理员可见的预热按钮, 都是项目负责人的日常流程。共享态权衡: 预热可能驱逐同 backend\n上其他项目常驻的模型, 属可接受代价 —— 它是本项目用模型的必要前提, 且 backend 侧有\nmax_concurrency / idle 淘汰兜底。只有会直接驱逐/换掉他人在用权重的 unload/reload 才收口\n到平台管理员。",
+        "description": "协议 §4.4 · 转发 POST /warmup 到 backend.\n\nbody 原样转发 (各 backend schema 不同). backend 未声明 warmup_endpoint=True 时仍\n转发, 收到 404/405 由上游 502 反馈; 前端 ⚡ 按钮应已通过 health_meta.capabilities.\nwarmup_endpoint 提前置灰.\n\n鉴权 project_owner (刻意不随 /unload·/reload 收口到 super_admin) · warmup 是「构造性」\n预热, 是项目自身预标/交互推理的前置: AIPreAnnotate 预热加载类别表 (model.names)、能力目录\n对项目管理员可见的预热按钮, 都是项目负责人的日常流程。共享态权衡: 预热可能驱逐同 backend\n上其他项目常驻的模型, 属可接受代价 —— 它是本项目用模型的必要前提, 且 backend 侧有\nmax_concurrency / idle 淘汰兜底。只有会直接驱逐/换掉他人在用权重的 unload/reload 才收口\n到平台管理员。",
         "operationId": "warmup_ml_backend_api_v1_projects__project_id__ml_backends__backend_id__warmup_post",
         "parameters": [
           {
@@ -95352,7 +95352,7 @@
     },
     "/api/v1/projects/{project_id}/orphan-tasks/cleanup": {
       "post": {
-        "description": "v0.6.7 二修 B-10：删除本项目所有「无源 task」（含 annotations / locks / comments），重算 counters。\n\n适用场景：v0.6.0~v0.6.6 期间 link_project 写 dataset_item_id 但未持久化 batch 关系，\n后续数据集被 unlink / 删除留下的孤儿 task。",
+        "description": "删除本项目所有「无源 task」（含 annotations / locks / comments），重算 counters。\n\n适用于关联解除或数据集删除后遗留的旧任务，包括缺少批次关系、\n仅记录 dataset_item_id 的历史任务。",
         "operationId": "cleanup_orphan_tasks_api_v1_projects__project_id__orphan_tasks_cleanup_post",
         "parameters": [
           {
@@ -95399,7 +95399,7 @@
     },
     "/api/v1/projects/{project_id}/orphan-tasks/preview": {
       "get": {
-        "description": "v0.6.7 二修 B-10：预览本项目中「无源 task」（dataset_item_id 为空 / 指向已 unlink 的数据集 / 指向已删除 dataset_item）。",
+        "description": "预览本项目中「无源 task」（dataset_item_id 为空 / 指向已 unlink 的数据集 / 指向已删除 dataset_item）。",
         "operationId": "preview_orphan_tasks_api_v1_projects__project_id__orphan_tasks_preview_get",
         "parameters": [
           {
@@ -103768,7 +103768,7 @@
     },
     "/api/v1/scenes/{scene_id}/trajectory": {
       "get": {
-        "description": "v0.15.0 · scene 的有序逐帧 ego 轨迹(frame_index 升序)。\n\n无位姿 scene(历史数据 / 非 nuScenes 来源)→ 200 + poses=[],\n消费方按\"无轨迹\"降级,不报错。",
+        "description": "scene 的有序逐帧 ego 轨迹(frame_index 升序)。\n\n无位姿 scene(历史数据 / 非 nuScenes 来源)→ 200 + poses=[],\n消费方按\"无轨迹\"降级,不报错。",
         "operationId": "get_scene_trajectory_api_v1_scenes__scene_id__trajectory_get",
         "parameters": [
           {
@@ -110259,7 +110259,7 @@
     },
     "/api/v1/tasks/{task_id}/annotations/interpolate-range": {
       "post": {
-        "description": "v0.15.1 · 关键帧区间插值: 路径 task = 区间起点帧,body.to_task_id =\n终点帧;同 track_id 链两端各有一个 box_3d,中间帧自动生成插值框\n(source=\"interpolated\")。中间帧已有同 track 标注 → 幂等跳过。\nv0.21.2 · ADR-0045 · 按 track_id 标识跨帧链。",
+        "description": "关键帧区间插值: 路径 task = 区间起点帧,body.to_task_id =\n终点帧;同 track_id 链两端各有一个 box_3d,中间帧自动生成插值框\n(source=\"interpolated\")。中间帧已有同 track 标注 → 幂等跳过。\nADR-0045 · 按 track_id 标识跨帧链。",
         "operationId": "interpolate_annotations_range_api_v1_tasks__task_id__annotations_interpolate_range_post",
         "parameters": [
           {
@@ -110377,7 +110377,7 @@
     },
     "/api/v1/tasks/{task_id}/annotations/page": {
       "get": {
-        "description": "v0.7.6 · keyset 分页变体。单 task 1000+ 框场景下避免一次性大列表阻塞。\n\ncursor 编码：base64(`{ts_isoformat}|{annotation_id}`)，与 audit_logs 端点一致。",
+        "description": "keyset 分页变体。单 task 1000+ 框场景下避免一次性大列表阻塞。\n\ncursor 编码：base64(`{ts_isoformat}|{annotation_id}`)，与 audit_logs 端点一致。",
         "operationId": "get_annotations_paged_api_v1_tasks__task_id__annotations_page_get",
         "parameters": [
           {
@@ -110528,7 +110528,7 @@
     },
     "/api/v1/tasks/{task_id}/annotations/propagate-batch": {
       "post": {
-        "description": "v0.15.1 · 多目标批量跨帧延续: 把源 task 的多个(或全部)box_3d 一次\n运动补偿 propagate 到目标 task。整批一个事务,任一失败全部回滚。",
+        "description": "多目标批量跨帧延续: 把源 task 的多个(或全部)box_3d 一次\n运动补偿 propagate 到目标 task。整批一个事务,任一失败全部回滚。",
         "operationId": "propagate_annotations_batch_api_v1_tasks__task_id__annotations_propagate_batch_post",
         "parameters": [
           {
@@ -110831,7 +110831,7 @@
     },
     "/api/v1/tasks/{task_id}/annotations/{annotation_id}/propagate-to-task": {
       "post": {
-        "description": "v0.14.1 · 跨帧目标延续: 把源 annotation 复制到 target_task(同 project 同 scene)。\n\n源 task 与目标 task 均需可见且可编辑；审核态调整沿用权限与证据冻结规则。\n复制 geometry/class/attributes + 共享 track_id 跨帧链; box_3d 的 convention_at_create\n取目标 dataset 的 axis_convention(详 service.propagate)。",
+        "description": "跨帧目标延续: 把源 annotation 复制到 target_task(同 project 同 scene)。\n\n源 task 与目标 task 均需可见且可编辑；审核态调整沿用权限与证据冻结规则。\n复制 geometry/class/attributes + 共享 track_id 跨帧链; box_3d 的 convention_at_create\n取目标 dataset 的 axis_convention(详 service.propagate)。",
         "operationId": "propagate_annotation_to_task_api_v1_tasks__task_id__annotations__annotation_id__propagate_to_task_post",
         "parameters": [
           {
@@ -111940,7 +111940,7 @@
     },
     "/api/v1/tasks/{task_id}/neighbor-annotations": {
       "get": {
-        "description": "v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」。\nv0.21.2 · ADR-0045 · 跨帧链按 track_id(原 group_id)过滤。\n非 scene / 历史未 backfill 的 task → 200 + frames=[](与 neighbors 端点一致,不报错)。\n\nv0.15.26 · 可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态\n(`task_access.visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)\n仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。",
+        "description": "中心 task 前后 k 帧的邻帧标注,一次性返回。\n\n替代前端「对 2k 个邻帧 task 各发一条 getAnnotations + client 端按 track_id 过滤」。\nADR-0045 · 跨帧链按 track_id(原 group_id)过滤。\n非 scene / 历史未 backfill 的 task → 200 + frames=[](与 neighbors 端点一致,不报错)。\n\n可见性:与被替代的旧链路一致,邻帧逐 task 复核 batch 可见性 / 分派状态\n(`task_access.visible_task_ids`)。对调用者不可见的邻帧(如分派给别人 / 状态非可见的 batch)\n仍返回 frame 占位但 `annotations=[]`,不外泄他人 batch 的框几何。",
         "operationId": "get_neighbor_annotations_api_v1_tasks__task_id__neighbor_annotations_get",
         "parameters": [
           {
@@ -112019,7 +112019,7 @@
     },
     "/api/v1/tasks/{task_id}/neighbors": {
       "get": {
-        "description": "v0.14.0 · 返回 task 在所属 scene 内的前后 k 个邻居 task。\n\n历史未 backfill / 无 scene_id 的 task → 200 + 空 prev/next(与首末帧一致)。\nscene_id 非空但 frame_index NULL(异常)→ 409。",
+        "description": "返回 task 在所属 scene 内的前后 k 个邻居 task。\n\n历史未 backfill / 无 scene_id 的 task → 200 + 空 prev/next(与首末帧一致)。\nscene_id 非空但 frame_index NULL(异常)→ 409。",
         "operationId": "get_task_neighbors_api_v1_tasks__task_id__neighbors_get",
         "parameters": [
           {
@@ -112801,7 +112801,7 @@
             }
           },
           {
-            "description": "可选: 采纳时把类别落到指定项目标签 (v0.14.17). 用于预测类名既不在项目标签集、又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。",
+            "description": "可选: 采纳时把类别落到指定项目标签。用于预测类名既不在项目标签集、又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。",
             "in": "query",
             "name": "override_class_name",
             "required": false,
@@ -112814,7 +112814,7 @@
                   "type": "null"
                 }
               ],
-              "description": "可选: 采纳时把类别落到指定项目标签 (v0.14.17). 用于预测类名既不在项目标签集、又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。",
+              "description": "可选: 采纳时把类别落到指定项目标签。用于预测类名既不在项目标签集、又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。",
               "title": "Override Class Name"
             }
           },
@@ -115674,7 +115674,7 @@
     },
     "/api/v1/tasks/{task_id}/video:track": {
       "post": {
-        "description": "v0.22.1 · B · 任务级追踪 (画布级入口): source_annotation_id 可选——给出即延展该轨迹,\n缺省则为无源检测 (文本/种子), 新建轨迹类别由 target_class_name 指定。旧的\n/tracks/{annotation_id}:propagate 仍保留 (延展快捷路径)。",
+        "description": "B · 任务级追踪 (画布级入口): source_annotation_id 可选——给出即延展该轨迹,\n缺省则为无源检测 (文本/种子), 新建轨迹类别由 target_class_name 指定。旧的\n/tracks/{annotation_id}:propagate 仍保留 (延展快捷路径)。",
         "operationId": "track_video_api_v1_tasks__task_id__video_track_post",
         "parameters": [
           {
@@ -117441,7 +117441,7 @@
     },
     "/api/v1/video-tracker-jobs/{job_id}/accept": {
       "post": {
-        "description": "v0.21.28 · 接受候选: 把 job 暂存结果落库 (主实例回填源轨迹 + 新轨迹建), status=ACCEPTED。",
+        "description": "接受候选: 把 job 暂存结果落库 (主实例回填源轨迹 + 新轨迹建), status=ACCEPTED。",
         "operationId": "accept_video_tracker_job_api_v1_video_tracker_jobs__job_id__accept_post",
         "parameters": [
           {
@@ -117549,7 +117549,7 @@
     },
     "/api/v1/video-tracker-jobs/{job_id}/discard": {
       "post": {
-        "description": "v0.21.28 · 丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。",
+        "description": "丢弃候选: status=DISCARDED, 清 staged_result, annotation 零改动。",
         "operationId": "discard_video_tracker_job_api_v1_video_tracker_jobs__job_id__discard_post",
         "parameters": [
           {
@@ -117653,7 +117653,7 @@
     },
     "/api/v1/video-tracker-jobs/{job_id}/preview": {
       "get": {
-        "description": "v0.21.28 · 候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。",
+        "description": "候选预览: 返回 job 暂存的逐帧结果 (接受前渲染候选叠加用)。无 staged → 空。",
         "operationId": "get_video_tracker_job_preview_api_v1_video_tracker_jobs__job_id__preview_get",
         "parameters": [
           {

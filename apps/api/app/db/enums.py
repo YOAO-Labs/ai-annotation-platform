@@ -84,7 +84,7 @@ WORKBENCH_AI_EDITABLE_TASK_STATUSES = frozenset(
 class BatchStatus(str, Enum):
     DRAFT = "draft"
     ACTIVE = "active"
-    # v0.9.5 · AI 文本批量预标已跑完，等待人工接管/分派；语义介于 ACTIVE 与 ANNOTATING。
+    # AI 文本批量预标已跑完，等待人工接管/分派；语义介于 ACTIVE 与 ANNOTATING。
     PRE_ANNOTATED = "pre_annotated"
     ANNOTATING = "annotating"
     REVIEWING = "reviewing"

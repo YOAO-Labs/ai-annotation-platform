@@ -1,4 +1,4 @@
-// v0.10.18 · 从 RenderingConfigSection 抽出的受控视图.
+// 从 RenderingConfigSection 抽出的受控视图.
 //
 // 用法:
 //   ProjectSettings: <RenderingConfigSection> 持有 useUpdateProject + draft, 包一层

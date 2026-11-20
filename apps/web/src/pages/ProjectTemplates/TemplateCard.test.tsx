@@ -1,5 +1,5 @@
 /**
- * v0.10.14 · E2 · TemplateCard 单测.
+ * TemplateCard 单测.
  * 操作按钮可见性 / usage_count 渲染 / scope chip.
  */
 import { describe, expect, it, vi } from "vitest";

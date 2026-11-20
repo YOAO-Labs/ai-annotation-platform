@@ -1,4 +1,4 @@
-"""v0.8.1 · audit_logs 月分区 + 不可变 trigger + ensure_future / archive 服务验证。"""
+"""audit_logs 月分区 + 不可变 trigger + ensure_future / archive 服务验证。"""
 
 from __future__ import annotations
 

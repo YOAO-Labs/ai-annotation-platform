@@ -1,7 +1,6 @@
 ---
 audience: [annotator]
 type: how-to
-since: v0.10.28
 status: stable
 last_reviewed: 2026-06-10
 ---
@@ -42,7 +41,7 @@ last_reviewed: 2026-06-10
 
 ## 编辑已有折线
 
-<!-- TODO(v0.14.18) IMAGE_CHECKLIST: images/polyline/vertex-edit.png — 折线选中态 Alt 插入/Shift 删除提示 -->
+<!-- TODO IMAGE_CHECKLIST: images/polyline/vertex-edit.png — 折线选中态 Alt 插入/Shift 删除提示 -->
 
 - 选中后**拖动顶点** → 修改形状。
 - `Alt` + 单击边 → 在该段插入新顶点。

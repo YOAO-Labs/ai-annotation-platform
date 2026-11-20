@@ -1,4 +1,4 @@
-"""v0.14.0 · GET /tasks/{id}/neighbors 端点测试
+"""GET /tasks/{id}/neighbors 端点测试
 
 覆盖判据:
 - k=1 / k=5 默认行为

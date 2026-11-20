@@ -169,7 +169,7 @@ export function buildEncodedVideoDecodePlan(
   };
 }
 
-// ── GOP session plan(v0.23.14)────────────────────────────────────────────────
+// ── GOP session plan ────────────────────────────────────────────────
 
 /**
  * 计算 VideoDecoderConfig 的稳定指纹:codec + codedWidth×codedHeight + description 字节。

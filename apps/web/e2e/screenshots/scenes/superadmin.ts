@@ -343,7 +343,7 @@ export const SUPERADMIN_SCENES: ScreenshotScene[] = [
     capture: { kind: "locator", selector: '[role="dialog"]', padding: 0 },
     target: "docs-site/user-guide/images/notifications/panel-overview.png",
   },
-  // ── Tier A 扩展（v0.15.26）：用户 / 审计 / 失败预测 / 健康 / 模型注册 / 模板 / BUG ──
+  // ── 用户 / 审计 / 失败预测 / 健康 / 模型注册 / 模板 / BUG ──
   {
     name: "superadmin/users/edit-modal",
     role: "admin",

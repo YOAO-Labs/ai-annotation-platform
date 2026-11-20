@@ -1,5 +1,5 @@
 /**
- * v0.15.0 · Scenes API client。
+ * Scenes API client。
  *
  * 目前只消费 trajectory(scene 的有序逐帧 ego pose);scene CRUD 由
  * 数据集管理页按需另加。

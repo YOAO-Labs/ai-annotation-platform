@@ -1,7 +1,7 @@
-"""v0.23.3 ADR-0050 §10.1 / §B.4 · smooth weighted round robin (SWRR) selection.
+"""ADR-0050 §10.1 / §B.4 · smooth weighted round robin (SWRR) selection.
 
-The only production scheduling policy in v0.23.3 (ADR-0050 D10). Pure functional core
-(testable without Redis); the Redis acquire Lua mirrors this exact algorithm atomically
+The only production routing policy (ADR-0050 D10). The pure function
+is testable without Redis. The Redis acquire Lua mirrors this algorithm atomically
 (see ``ledger.py``). Both must stay in lockstep — golden fixtures (§C.2) verify the
 weight distribution and tie-break.
 

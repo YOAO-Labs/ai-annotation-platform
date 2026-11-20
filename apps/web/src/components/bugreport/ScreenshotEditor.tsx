@@ -1,5 +1,5 @@
 /**
- * v0.6.6 · BugReportDrawer 截图 + 涂抹遮罩。
+ * BugReportDrawer 截图 + 涂抹遮罩。
  *
  * 流程：父组件传 imageBlob (html2canvas 输出) → 本组件画到 canvas → 用户拖拽
  * 黑色矩形遮挡敏感区 → 点「确认」回写合并后的 dataUrl + blob 给父。

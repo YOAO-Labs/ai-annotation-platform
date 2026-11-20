@@ -230,7 +230,7 @@ def test_scribble_rejects_boolean_polarity() -> None:
         )
 
 
-# ---------- v0.14.14 新字段 ----------
+# ---------- 运行时状态与预热 ----------
 
 
 def test_prediction_result_v14_observability_defaults_none() -> None:
@@ -302,7 +302,7 @@ def test_warmup_response_with_evicted() -> None:
     assert r.evicted == "yolov8/n/detection"
 
 
-# ---------- v0.14.15 / protocol v2.1 ----------
+# ---------- Protocol v2.1 ----------
 
 
 def test_protocol_version_constants() -> None:

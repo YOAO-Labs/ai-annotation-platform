@@ -1,11 +1,11 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
 /**
- * v0.10.17 · Magic Box.
+ * Magic Box.
  *
  * 行为: 用户拖出一个粗略 bbox → SAM bbox prompt → 返回 polygon → 取该 polygon 的
  * 紧凑外接矩形写回 bbox 标注 (不进 AI 候选层). 复用 SmartBoxTool 的拖框语义.
- * v0.18.17 · requiredPrompt = "interactive_box" (依赖 ML backend 支持 interactive_box prompt).
+ * requiredPrompt = "interactive_box" (依赖 ML backend 支持 interactive_box prompt).
  */
 export const MagicBoxTool: CanvasTool = {
   id: "magic-box",

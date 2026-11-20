@@ -1,5 +1,5 @@
 /**
- * v0.23.4 P3 · shared prop shapes passed from the registry orchestrator
+ * shared prop shapes passed from the registry orchestrator
  * (`RegisteredBackendsTab`) to the five section components under `registry/`.
  *
  * The orchestrator owns the queries, the view-model merge and the registry URL

@@ -2,8 +2,8 @@ import type { ScreenshotScene } from "./_types";
 
 // 导出截图。导出入口在项目行「更多操作(⋮)」菜单 → 「导出标注数据」→ ExportModal。
 // 旧 scene 走 /settings 的 settings-tab-export（已不存在）故截成基本信息页。
-// export/progress 已移除：导出在 v0.10+ 异步化（点导出 → toast「导出已入队」+ 右上角
-// 任务铃 JobsBell 跟踪下载），无独立「进度条」UI 可截。
+// 导出异步执行：点导出后显示「导出已入队」，从右上角任务铃 JobsBell 跟踪下载。
+// 没有独立的导出进度条。
 export const EXPORT_SCENES: ScreenshotScene[] = [
   {
     name: "export/format-select",

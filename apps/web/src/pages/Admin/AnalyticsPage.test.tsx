@@ -1,5 +1,5 @@
 /**
- * v0.12.7 · AnalyticsPage 渲染冒烟测试。
+ * AnalyticsPage 渲染冒烟测试。
  *
  * 验证 4 个面板标题渲染 + recharts/热力图 mount 不崩。jsdom 下 recharts 0 尺寸不渲染
  * 内部内容，故只断言图表容器外的文案（面板标题、热力图星期标签）。

@@ -1,5 +1,5 @@
 /**
- * v0.8.8 · turnstile loader 单测：site key 解析 + script inject 幂等 + 重复加载复用 promise。
+ * turnstile loader 单测：site key 解析 + script inject 幂等 + 重复加载复用 promise。
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -72,7 +72,7 @@ describe("loadTurnstileScript", () => {
     await expect(p).rejects.toThrow(/turnstile script failed/);
   });
 
-  it("v0.9.11 · 注入 script 时从 meta[name=csp-nonce] 读取 nonce 设到 script.nonce", async () => {
+  it("注入 script 时从 meta[name=csp-nonce] 读取 nonce 设到 script.nonce", async () => {
     const meta = document.createElement("meta");
     meta.setAttribute("name", "csp-nonce");
     meta.setAttribute("content", "test-nonce-abc123");
@@ -86,7 +86,7 @@ describe("loadTurnstileScript", () => {
     expect(s.nonce).toBe("test-nonce-abc123");
   });
 
-  it("v0.9.11 · meta 缺省时不设 nonce (dev 模式无 Nginx 替换占位符)", async () => {
+  it("meta 缺省时不设 nonce (dev 模式无 Nginx 替换占位符)", async () => {
     const { loadTurnstileScript } = await import("../turnstile");
     loadTurnstileScript();
     const s = document.head.querySelector(

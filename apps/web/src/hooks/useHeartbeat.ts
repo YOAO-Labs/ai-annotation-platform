@@ -5,7 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
- * v0.8.3 · 在线状态心跳。
+ * 在线状态心跳。
  *
  * - 已登录（store.token 非空）+ document.visibilityState === 'visible' 时每 30s
  *   POST /auth/me/heartbeat 一次，刷新后端 last_seen_at + status='online'。

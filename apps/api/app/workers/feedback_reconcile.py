@@ -1,11 +1,10 @@
-"""v0.11.0 · ADR-0027 双写一致性对账 Celery beat 任务（A 组安全网）.
+"""ADR-0027 双写一致性对账 Celery beat 任务。
 
 reconcile_annotation_feedback: 每日 03:00 UTC（避开 03:30 的分区维护），调纯函数
 `compute_feedback_drift` 比对双写一致性；drift>0 时写 audit_logs
 （action=FEEDBACK_RECONCILE_DRIFT）+ notify 所有 superadmin。
 
-切单源（v0.11.9+）前用它积累「双写长期一致」的客观证据。本任务无 schema 变更，
-回退 = 删任务 + 注销 beat schedule。
+定期记录漂移，为后续判断能否安全停止双写提供证据。
 """
 
 from __future__ import annotations

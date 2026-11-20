@@ -1,4 +1,4 @@
-"""v0.8.1 · AdminDashboardStats.registration_by_day 聚合验证。"""
+"""AdminDashboardStats.registration_by_day 聚合验证。"""
 
 from __future__ import annotations
 

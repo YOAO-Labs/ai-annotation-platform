@@ -1,5 +1,5 @@
 /**
- * v0.10.2 · SchemaForm 单测 (number / boolean / enum / 空 schema).
+ * SchemaForm 单测 (number / boolean / enum / 空 schema).
  * 不引入 @rjsf, 自研 ~150 行覆盖核心范畴.
  */
 import { describe, it, expect, vi } from "vitest";

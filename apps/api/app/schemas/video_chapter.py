@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# v0.10.29 · 章节的 frame_step / source 不新增数据库列, 而是约定存进
+# 章节的 frame_step / source 不新增数据库列, 而是约定存进
 # chapter_metadata (JSONB) 的这两个键。schema 层做强类型互转, 旧章节缺键时
 # 退化为 frame_step=None / source="manual"。
 ChapterSource = Literal["manual", "sampled"]

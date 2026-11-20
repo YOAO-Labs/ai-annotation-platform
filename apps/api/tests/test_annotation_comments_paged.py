@@ -1,4 +1,4 @@
-"""v0.8.8 · GET /annotations/{id}/comments/page keyset 分页单测。
+"""GET /annotations/{id}/comments/page keyset 分页单测。
 
 覆盖：
 - limit + cursor 串联拉取，items 顺序 DESC(created_at, id)

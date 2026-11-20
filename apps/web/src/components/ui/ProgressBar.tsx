@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * ProgressBar —— 三层叠条进度(v0.17.2,module.css → Tailwind)。
+ * ProgressBar —— 三层叠条进度。
  * 第 0 层「已动工」副条(in_progress/review/completed)+ 第 1 层 AI 完成(violet)+ 第 2 层人工完成。
  * 动态 width/left/background 命令式写在元素上(非 JSX inline style,绕 eslint);默认色 --sc-brand。
  */

@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 /**
- * v0.23.4 P3 · registry "问题中心" tab (Super Admin only).
+ * registry "问题中心" tab (Super Admin only).
  *
  * Plan §4.3 / §5（模型市场多 TAB UI 优化 · 阶段一）: same
  * `code + subject_type + subject_id` renders only ONE primary record; affected

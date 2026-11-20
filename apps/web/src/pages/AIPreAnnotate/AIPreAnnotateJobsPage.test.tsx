@@ -1,5 +1,5 @@
 /**
- * v0.10.45 · AIPreAnnotateJobsPage 单测
+ * AIPreAnnotateJobsPage 单测
  * 覆盖: 渲染 / 加载态 / 空态 / 有数据 / tab 切换
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

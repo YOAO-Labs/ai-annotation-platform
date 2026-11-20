@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Icon, type IconName } from "./Icon";
 
 /**
- * v0.17.2:module.css → Tailwind。逻辑/定位/键盘/a11y 一律不动(已等价 Radix);仅把 className
+ * module.css → Tailwind。逻辑/定位/键盘/a11y 一律不动(已等价 Radix);仅把 className
  * 换成 Tailwind,面板位置/尺寸沿用 imperative CSS 变量(--dropdown-*),用 Tailwind 任意值消费。
  * item 是 portal 内原生 <button>,加 appearance-none 防 UA 默认样式漏出。
  */
@@ -71,7 +71,7 @@ interface DropdownMenuItemsProps extends DropdownMenuBaseProps {
 
 interface DropdownMenuContentProps extends DropdownMenuBaseProps {
   items?: never;
-  /** v0.9.3 · 自定义内容槽（与 items 互斥）。ctx.close 用于业务确认后主动关闭面板。 */
+  /** 自定义内容槽（与 items 互斥）。ctx.close 用于业务确认后主动关闭面板。 */
   content: (ctx: { close: () => void }) => ReactNode;
   footer?: never;
 }
@@ -146,7 +146,7 @@ function syncDomStyles(
 }
 
 /**
- * 通用 dropdown 菜单（v0.5.5 phase 2；v0.9.3 加 content 槽）：
+ * 通用 dropdown 菜单，支持 content 槽：
  * - outside-mousedown / Esc 关闭；
  * - items 模式：子项 ↑↓ Home End 键盘导航 + role="menu" / "menuitem"；
  * - content 模式：自由 ReactNode（form / 列表等），仅保留 outside-click + Esc。

@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §15 · Prometheus metrics for the routing ledger.
+"""ADR-0050 §15 · Prometheus metrics for the routing ledger.
 
 All gauges/counters are sourced from the Redis ledger snapshot (aggregated, not
 per-process) to avoid multi-process double-counting. Labels use stable UUIDs /

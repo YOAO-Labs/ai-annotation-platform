@@ -1,4 +1,4 @@
-"""v0.23.5 · WS-D · D1 · gzip transport contract for coco_rle mask objects.
+"""Gzip transport contract for coco_rle mask objects.
 
 Covers ``app.utils.raster_mask_gzip`` (bounded decompress) and the new
 ``store_coco_rle_gzip`` / ``load_coco_rle`` async paths in

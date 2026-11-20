@@ -91,14 +91,14 @@ export interface SelectedAnnotationCardProps {
   onCollapse: () => void;
   onExpand: () => void;
   linkedToPet?: boolean;
-  /** v0.20.19 · 二次推理面板显隐 + 切换 (图片任务, 头部加 toggle 按钮)。 */
+  /** 二次推理面板显隐 + 切换 (图片任务, 头部加 toggle 按钮)。 */
   secondaryBarHidden?: boolean;
   onToggleSecondaryBar?: () => void;
   children: ReactNode;
 }
 
 /**
- * v0.16.8 · 选中标注浮动信息卡(图片 / 视频共用基座)。
+ * 选中标注浮动信息卡(图片 / 视频共用基座)。
  *
  * 复用 FloatingPanelShell(可拖 / 可缩放),不带「合并回边栏」(variant=no-merge);
  * 折叠态收成一枚可拖信息胶囊(对齐 3D 三视图浮层的收起体验)。显隐由调用方按选中状态决定:

@@ -8,7 +8,7 @@ import {
 } from "@/components/shadcn/ui/tooltip";
 
 /**
- * Tooltip —— shadcn(Radix)适配层(v0.17.2)。
+ * Tooltip —— shadcn(Radix)适配层。
  * 保留 `{name,desc?,hotkey?,side?,delay?,children}` API(调用点零改动);定位/hover/focus/Esc
  * 由 Radix 兜底,去掉手写 portal + 定位。Provider 内置(每用例自带,免改 App 根)。
  */

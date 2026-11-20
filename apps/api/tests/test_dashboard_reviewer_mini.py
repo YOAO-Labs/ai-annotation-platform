@@ -1,4 +1,4 @@
-"""v0.8.7 F5.3 · GET /dashboard/reviewer/today-mini 单测。"""
+"""GET /dashboard/reviewer/today-mini 单测。"""
 
 from __future__ import annotations
 
@@ -142,7 +142,7 @@ async def test_reviewer_mini_today_counts(httpx_client, db_session, super_admin)
 
 @pytest.mark.asyncio
 async def test_reviewer_mini_other_user_isolated(httpx_client, db_session, super_admin):
-    """v0.8.7 · 不同 reviewer 看到自己的数。"""
+    """不同 reviewer 看到自己的数。"""
     admin_user, admin_token = super_admin
     proj = await _seed_project(db_session, admin_user.id)
     rev_user = await create_user(

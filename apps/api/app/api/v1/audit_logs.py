@@ -670,7 +670,7 @@ async def export_audit_logs(
 
     def _gen_csv():
         buf = io.StringIO()
-        # v0.8.1 · 首部审计 metadata 注释行
+        # 首部审计 metadata 注释行
         buf.write(
             export_metadata_header(actor=current_user, fmt="csv", request=request)
         )

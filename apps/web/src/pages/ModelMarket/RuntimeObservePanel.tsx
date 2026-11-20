@@ -3,7 +3,7 @@ import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
- * v0.23.4 · runtime observation orchestrator (plan §6.2 / §9.3).
+ * runtime observation orchestrator (plan §6.2 / §9.3).
  *
  * Pure shell: owns three queries (topology, runtime-snapshot, observe) and
  * delegates rendering to the runtime/ components. No URL-join — pool/member
@@ -77,8 +77,8 @@ export function RuntimeObservePanel(): React.ReactElement {
     refetchInterval: 60_000,
   });
   // legacy /all + /overview — still needed for per-member backend lookup,
-  // GPU claim display and the warmup projectId path (v0.23.3 pool members
-  // reference registry_id; /all is the per-registry record source).
+  // GPU claim display and the warmup projectId path. Pool members
+  // reference registry_id, and /all is the per-registry record source.
   const allQ = useQuery({
     queryKey: ["admin", "ml-integrations", "all"],
     queryFn: () => adminMlIntegrationsApi.listAll(),

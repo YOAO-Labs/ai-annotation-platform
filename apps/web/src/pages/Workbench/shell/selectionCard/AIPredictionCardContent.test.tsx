@@ -1,4 +1,4 @@
-// v0.16.14 · AIPredictionCardContent 单测:
+// AIPredictionCardContent 单测:
 // - 置信度条 + 来源/候选序号渲染
 // - 采纳 / 忽略 回调透传整个 box
 // - 精修按钮仅 polygon 几何渲染;readOnly 禁用动作

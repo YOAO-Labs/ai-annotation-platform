@@ -20,7 +20,7 @@ export interface ConfidenceBarProps {
 }
 
 /**
- * v0.16.14 · AI 置信度大条。按阈值着色(≥0.8 emerald / 0.5–0.8 amber / <0.5 brand),
+ * AI 置信度大条。按阈值着色(≥0.8 emerald / 0.5–0.8 amber / <0.5 brand),
  * 填充宽度经 CSS 变量注入,保证条 / 数字同色。
  */
 export function ConfidenceBar({ value }: ConfidenceBarProps) {

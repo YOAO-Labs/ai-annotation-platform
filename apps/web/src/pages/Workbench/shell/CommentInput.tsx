@@ -61,12 +61,12 @@ export interface CommentInputProps {
   busy?: boolean;
   /** Reviewer 端：传入当前题图 URL，画布批注弹窗以此为背景。 */
   backgroundUrl?: string | null;
-  /** v0.6.4：图像真实尺寸；画布批注按真实比例，避免 16:9 / 4:3 上批注被拉成 600×400 比例。*/
+  /** 图像真实尺寸；画布批注按真实比例，避免 16:9 / 4:3 上批注被拉成 600×400 比例。*/
   imageWidth?: number | null;
   imageHeight?: number | null;
   /** 是否显示「画布批注」入口（仅 reviewer 端默认开启）。 */
   enableCanvasDrawing?: boolean;
-  /** v0.6.4：在题图上直接画批注的桥接（与 ImageStage CanvasDrawingLayer 共享坐标系）。
+  /** 在题图上直接画批注的桥接（与 ImageStage CanvasDrawingLayer 共享坐标系）。
    *  active=true 时，本组件不渲染入口按钮（toolbar 移到 ImageStage 上方）；
    *  result 非空表示一段绘制完成，本组件应消费并写回 canvasDrawing 后调 onConsume。*/
   liveCanvas?: {
@@ -79,7 +79,7 @@ export interface CommentInputProps {
     onConsume: (resultId?: string | null) => void;
   };
   anchor?: AnnotationCommentAnchor | null;
-  /** v0.11.12 · 上报当前 pending 批注，让画布把「正在编辑的评论」的批注预览出来。 */
+  /** 上报当前 pending 批注，让画布把「正在编辑的评论」的批注预览出来。 */
   onPendingDrawingChange?: (drawing: CommentCanvasDrawing | null) => void;
   /** Unavailable targets stay recoverable but cannot be silently retargeted. */
   targetAvailable?: boolean;
@@ -115,7 +115,7 @@ function cn(...xs: Array<string | false | null | undefined>): string {
 }
 
 /** Serialize contenteditable 内容：扁平化文本 + 抽取 mention chip 的 (offset, length, userId, displayName)。
- *  v0.6.6 起 export 给单测。 */
+ *  导出以便单测。 */
 export function serialize(root: HTMLElement): { body: string; mentions: CommentMention[] } {
   let body = "";
   const mentions: CommentMention[] = [];
@@ -668,7 +668,7 @@ export function CommentInput({
     setCanvasOpen(false);
   }, [canvasSession]);
 
-  // v0.6.4：消费来自 ImageStage 的 live canvas 结果. A result with an
+  // 消费来自 ImageStage 的 live canvas 结果. A result with an
   // origin is never attached to the currently visible target by inference.
   useEffect(() => {
     const result = liveCanvas?.result;
@@ -730,7 +730,7 @@ export function CommentInput({
     targetIdentity,
   ]);
 
-  // v0.11.12：把当前 pending 批注上报给画布预览通道；卸载时清空。
+  // 把当前 pending 批注上报给画布预览通道；卸载时清空。
   useEffect(() => {
     onPendingDrawingChange?.(effectiveCanvasDrawing);
     return () => onPendingDrawingChange?.(null);

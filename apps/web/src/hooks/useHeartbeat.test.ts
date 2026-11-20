@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · useHeartbeat 单测。
+ * useHeartbeat 单测。
  *
  * 覆盖：
  *  - token 为空 → 不打心跳

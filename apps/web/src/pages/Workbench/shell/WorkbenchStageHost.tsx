@@ -51,7 +51,7 @@ import type { VideoManagedTrackAnnotation, VideoSamPrompt } from "../stage/video
 import type { VideoMaskCandidate } from "../stage/videoMaskFrames";
 import { ImageWorkbench } from "../stages/image/ImageWorkbench";
 import type { StageKind } from "../stages/types";
-// v0.13.2 · 点云 3D 模块 lazy import：three(~600KB)只在打开 lidar 任务时加载，不进主 bundle。
+// 点云 3D 模块 lazy import：three(~600KB)只在打开 lidar 任务时加载，不进主 bundle。
 const ThreeDWorkbench = lazy(() => import("../stages/three-d/ThreeDWorkbench"));
 import { VideoWorkbench } from "../stages/video/VideoWorkbench";
 import type { VideoSamCandidateShape } from "../stage/VideoSamCandidateOverlay";
@@ -84,7 +84,7 @@ type VideoGeometry =
   | VideoTrackPolylineGeometry;
 
 /**
- * v0.10.39 · WorkbenchStageHostProps 按语义嵌套:
+ * WorkbenchStageHostProps 按语义嵌套:
  *   - common: stageKind / overlays / readOnly / activeClass / selectedId / annotations + selection 回调
  *   - video : video* / hidden|lockedVideoTrackIds + video 回调 (stageKind="video" 才消费)
  *   - image : fileUrl / blurhash / thumbnailUrl / tool / vp / image 标注回调 (stageKind="image" 才消费)
@@ -94,7 +94,7 @@ type VideoGeometry =
 interface WorkbenchStageHostCommonProps {
   maskCompareStore?: MaskCompareTileStore | null;
   stageKind: StageKind;
-  /** v0.13.2 · 当前任务 id，点云 3D 舞台据此拉 point-cloud manifest。 */
+  /** 当前任务 id，点云 3D 舞台据此拉 point-cloud manifest。 */
   taskId: string | null;
   overlays: ReactNode;
   readOnly: boolean;
@@ -109,23 +109,23 @@ interface WorkbenchStageHostCommonProps {
   onCursorMove: (pt: { x: number; y: number } | null) => void;
   onDeleteUserBox: (id: string) => void;
   onChangeUserBoxClass: (id: string) => void;
-  /** v0.13.3-5 · 点云 3D 台工具态(壳层共享,与 ToolDock 同源);非 3D 任务忽略。 */
+  /** 点云 3D 台工具态(壳层共享,与 ToolDock 同源);非 3D 任务忽略。 */
   threeDTool: ThreeDTool;
   onSetThreeDTool: (t: ThreeDTool) => void;
-  /** v0.14.1 · 跨帧目标延续 (Shift+→ / Shift+←): 把选中框 propagate 到同 scene 邻帧。 */
+  /** 跨帧目标延续 (Shift+→ / Shift+←): 把选中框 propagate 到同 scene 邻帧。 */
   onCrossFramePropagate: (direction: "next" | "prev") => void;
-  /** v0.15.1 · 批量延续 (Ctrl+Shift+→/←): 当前帧全部 box_3d 延续到邻帧。 */
+  /** 批量延续 (Ctrl+Shift+→/←): 当前帧全部 box_3d 延续到邻帧。 */
   onCrossFramePropagateBatch: (direction: "next" | "prev") => void;
-  /** v0.15.1 · 把选中框延续到 scene 内指定帧 task(插值工作流的建链一步)。 */
+  /** 把选中框延续到 scene 内指定帧 task(插值工作流的建链一步)。 */
   onCrossFramePropagateToTask: (targetTaskId: string, targetFrameIndex: number) => void;
-  /** v0.15.1 · 区间插值: 当前 task(起点)与 toTask(终点)的同 track 框之间插值填充。 */
+  /** 区间插值: 当前 task(起点)与 toTask(终点)的同 track 框之间插值填充。 */
   onCrossFrameInterpolate: (trackId: string, toTaskId: string) => void;
   /** Scene 时间轴复用壳层保存保护与 task 导航。 */
   onNavigateSceneFrame: (targetTaskId: string) => Promise<boolean>;
   scenePlaybackActive?: boolean;
   onScenePlaybackActiveChange?: (active: boolean) => void;
   scenePlaybackBlockedReason?: string | null;
-  /** v0.13.10 · 3D 浮层避让右栏 + 三视图浮窗偏好。 */
+  /** 3D 浮层避让右栏 + 三视图浮窗偏好。 */
   rightSidebarOpen: boolean;
   rightSidebarWidth: number;
   workbenchLayout: WorkbenchLayoutPreferences;
@@ -144,27 +144,27 @@ interface WorkbenchStageHostVideoProps {
   videoManifestLoading?: boolean;
   videoManifestError?: unknown;
   videoChapters?: VideoTimelineChapter[];
-  /** v0.21.13 · 章节 × 时间轴联动控制器 (刷选建章节 / resize / hover)。 */
+  /** 章节 × 时间轴联动控制器 (刷选建章节 / resize / hover)。 */
   videoTimelineChapterControls?: VideoTimelineChapterControls;
-  /** v0.21.14 WS3 · AI 传播对话框打开时在时间轴高亮的影响范围。 */
+  /** AI 传播对话框打开时在时间轴高亮的影响范围。 */
   videoPropagateRange?: { startFrame: number; endFrame: number } | null;
   trackerReview?: TrackerReviewProjection | null;
   reviewReference?: VideoTrackContextBarProps["reviewReference"];
   onSeekReviewFrame?: (frame: number) => void;
   videoSegmentRange?: VideoSegmentTimelineRange | null;
-  /** v0.10.29 · 项目级采样配置 → VideoStage 软网格导航。 */
+  /** 项目级采样配置 → VideoStage 软网格导航。 */
   videoSampling?: VideoSamplingConfig | null;
   videoTool: VideoTool;
   keypointSchema?: import("@/types").KeypointSchema | null;
   isVideoToolEnabled?: (t: VideoTool) => boolean;
-  /** v0.21.23 · 视频交互式 SAM: 提示派发 + 瞬态候选 / 点会话。 */
+  /** 视频交互式 SAM: 提示派发 + 瞬态候选 / 点会话。 */
   onVideoSamPrompt?: (prompt: VideoSamPrompt) => void;
   samCandidates?: VideoSamCandidateShape[];
   samMaskRecords?: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate?: (candidateId: string) => void;
   samActiveIdx?: number;
   samSessionPoints?: { pt: [number, number]; polarity: 1 | 0; obj?: number }[];
-  /** v0.21.27 · 框修正 · 当前帧已落的 PVS 框种子 (归一化 xyxy)。 */
+  /** 框修正 · 当前帧已落的 PVS 框种子 (归一化 xyxy)。 */
   samSessionBoxes?: { bbox: [number, number, number, number]; obj?: number }[];
   videoMaskCandidates?: VideoMaskCandidate[];
   videoMaskEditor?: UseMaskEditorReturn;
@@ -182,7 +182,7 @@ interface WorkbenchStageHostVideoProps {
   trackColorOverrides?: Record<string, string>;
   onVideoFrameIndexChange: (frameIndex: number) => void;
   onVideoCreate: (frameIndex: number, geom: Geom) => void;
-  /** v0.21.20 · 由绘制顶点新建 polygon/polyline track。 */
+  /** 由绘制顶点新建 polygon/polyline track。 */
   onVideoCreatePointsTrack?: (
     type: "video_track_polygon" | "video_track_polyline",
     frameIndex: number,
@@ -207,7 +207,7 @@ interface WorkbenchStageHostVideoProps {
   onToggleHiddenVideoTrack?: (trackId: string) => void;
   onToggleLockedVideoTrack?: (trackId: string) => void;
   onPropagateVideoTrack?: (annotation: VideoManagedTrackAnnotation) => void;
-  // v0.21.4 · 视频单题 AI 候选(画布渲染 + 采纳/驳回)。
+  // 视频单题 AI 候选(画布渲染 + 采纳/驳回)。
   aiBoxes?: AiBox[];
   onAcceptPrediction?: (b: AiBox) => void;
   onRejectPrediction?: (b: AiBox) => void;
@@ -235,7 +235,7 @@ interface WorkbenchStageHostImageProps {
   tool: Tool;
   fadedAiIds: Set<string>;
   nudgeMap: Map<string, Geom>;
-  /** v0.20.22 · 提交在途几何 override, 见 usePendingGeom (防松手闪回原尺寸)。 */
+  /** 提交在途几何 override, 见 usePendingGeom (防松手闪回原尺寸)。 */
   pendingGeomMap: Map<string, import("@/types").Geometry>;
   userBoxes: Annotation[];
   aiBoxes: AiBox[];
@@ -254,9 +254,9 @@ interface WorkbenchStageHostImageProps {
   onToggleSecondaryBar?: () => void;
   imageClipboardActions?: ImageContextMenuClipboardActions | null;
   onCommitDrawing: (geo: Geom) => void;
-  /** v0.10.28 · 旋转框: 拖出矩形 → 提交 angle=0 的 rotated_bbox。 */
+  /** 旋转框: 拖出矩形 → 提交 angle=0 的 rotated_bbox。 */
   onCommitRotatedBbox: (geo: Geom) => void;
-  /** v0.10.28 · 旋转框: 旋转手柄落定 → 更新 angle。 */
+  /** 旋转框: 旋转手柄落定 → 更新 angle。 */
   onCommitRotateBbox: (id: string, before: RotatedBboxGeometry, after: RotatedBboxGeometry) => void;
   onSamPrompt: (
     prompt:
@@ -277,7 +277,7 @@ interface WorkbenchStageHostImageProps {
     before: [number, number][],
     after: [number, number][],
   ) => void;
-  // v0.10.28 · keypoint 节点几何/可见性变更。
+  // keypoint 节点几何/可见性变更。
   onCommitKeypointGeometry?: (
     id: string,
     before: import("@/types").Keypoint[],
@@ -299,24 +299,24 @@ interface WorkbenchStageHostAiProps {
   samMaskRecords: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate: (candidateId: string) => void;
   samActiveIdx: number;
-  /** v0.18.18 · §5.5 当前点会话已落的正/负点, 透传到画布 overlay 渲染。 */
+  /** §5.5 当前点会话已落的正/负点, 透传到画布 overlay 渲染。 */
   samSessionPoints: { pt: [number, number]; polarity: 1 | 0 }[];
   samSessionScribbles: {
     points: [number, number][];
     polarity: 1 | 0;
     width: number;
   }[];
-  /** v0.18.19 · exemplar refine 会话已落的正/负框, 透传到画布 overlay 渲染。 */
+  /** exemplar refine 会话已落的正/负框, 透传到画布 overlay 渲染。 */
   samSessionExemplars: { bbox: [number, number, number, number]; polarity: 1 | 0 }[];
   samSubTool: SamSubTool | null;
   samPolarity: SamPolarity;
-  /** v0.10.9 · SAM 候选「精修」入口（画布浮按钮 + R 键）。 */
+  /** SAM 候选「精修」入口（画布浮按钮 + R 键）。 */
   onRefineSamCandidate?: (idx: number) => void;
 }
 
 interface WorkbenchStageHostEditorProps {
   polygonDraft?: PolygonDraftHandle;
-  // v0.10.28 · keypoint 工具草稿 + 骨骼模板。
+  // keypoint 工具草稿 + 骨骼模板。
   keypointDraft?: import("../stage/tools").KeypointDraftHandle;
   keypointSchema?: import("@/types").KeypointSchema | null;
   canvasShapes: NonNullable<CommentCanvasDrawing["shapes"]>;
@@ -335,9 +335,9 @@ interface WorkbenchStageHostEditorProps {
   onCancelCanvasDraft: () => void;
   onDoneCanvasDraft: () => void;
   stageGeom: StageGeometry;
-  /** v0.10.8 · I11 · Mask 编辑器状态；仅图像舞台消费。 */
+  /** Mask 编辑器状态；仅图像舞台消费。 */
   maskEditor?: UseMaskEditorReturn;
-  /** v0.10.10 · I17.3 · 项目级 rendering_config 覆盖（仅图像舞台消费）。 */
+  /** 项目级 rendering_config 覆盖（仅图像舞台消费）。 */
   projectRenderingConfig?: import("@/api/projects").ProjectRenderingConfig | null;
   // Issue pins and creation anchors are shared by image and video stages.
   issuePixelFeedbacks?: import("@/api/feedbacks").AnnotationFeedback[];
@@ -468,7 +468,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
       onToggleHiddenVideoTrack,
       onToggleLockedVideoTrack,
       onPropagateVideoTrack,
-      // v0.21.4 · 视频单题 AI 候选(画布渲染 + 采纳/驳回); aiBoxes 属 video 组(非 image 组)。
+      // 视频单题 AI 候选(画布渲染 + 采纳/驳回); aiBoxes 属 video 组(非 image 组)。
       aiBoxes: videoAiBoxes,
       onAcceptPrediction: onVideoAcceptPrediction,
       onRejectPrediction: onVideoRejectPrediction,

@@ -1,5 +1,5 @@
 /**
- * v0.8.3 · auditLabels 工具单测。
+ * auditLabels 工具单测。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -44,7 +44,7 @@ describe("AUDIT_BUSINESS_ACTIONS / AUDIT_TARGET_TYPES", () => {
     expect(AUDIT_ACTION_LABELS["http.delete"]).toBe("HTTP·删");
   });
 
-  it("AUDIT_TARGET_TYPES 含核心 6 类 + v0.9.9 新增 ml_backend / bug_report", () => {
+  it("AUDIT_TARGET_TYPES 含核心 6 类与 ml_backend / bug_report", () => {
     expect(AUDIT_TARGET_TYPES).toEqual([
       "user",
       "project",

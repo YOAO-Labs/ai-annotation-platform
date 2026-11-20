@@ -18,7 +18,7 @@ import type {
 } from "./videoStageTypes";
 
 /**
- * v0.16.4 · 视频右键上下文菜单条目构建(纯函数,栈无关)。
+ * 视频右键上下文菜单条目构建(纯函数,栈无关)。
  *
  * 从旧 SVG 栈 VideoStage 的内联 `contextMenuItems` useMemo 原样抽出(逐项对齐),
  * 供 SVG `VideoStage` 与新 Konva `VideoKonvaStage` 共用——消除「同一份菜单两栈各写一遍」。
@@ -48,7 +48,7 @@ export interface VideoContextMenuCtx {
   onPropagateTrack?: (annotation: VideoTrackAnnotation) => void;
   onToggleHiddenTrack?: (trackId: string) => void;
   onToggleLockedTrack?: (trackId: string) => void;
-  /** v0.21.26 · 点集轨迹显隐/锁定标签需当前状态翻转 (bbox 轨迹走 trackActions, 点集轨迹走这两个集合)。 */
+  /** 点集轨迹显隐/锁定标签需当前状态翻转 (bbox 轨迹走 trackActions, 点集轨迹走这两个集合)。 */
   hiddenTrackIds?: Set<string>;
   lockedTrackIds?: Set<string>;
   maskKeyframeActions?: VideoMaskKeyframeActionHandlers;
@@ -122,7 +122,7 @@ export function buildVideoContextMenuItems(ctx: VideoContextMenuCtx): DropdownIt
     ];
   }
 
-  // v0.21.26 · 单帧点集/旋转几何 (polygon / polyline / rotated_bbox): 改类 + 删除
+  // 单帧点集/旋转几何 (polygon / polyline / rotated_bbox): 改类 + 删除
   // (此前落到空菜单)。键于 contextMenuAnnotation (命中即建, 不依赖异步选中态)。
   if (
     contextMenuAnnotation &&
@@ -234,8 +234,8 @@ export function buildVideoContextMenuItems(ctx: VideoContextMenuCtx): DropdownIt
     ];
   }
 
-  // v0.21.26 · 点集轨迹 (polygon / polyline track): 改类 + 显隐 + 锁定 + 删整条
-  // (此前落到空菜单)。关键帧级操作/AI 追踪归 v0.21.20 epic, 此处不列。
+  // 点集轨迹 (polygon / polyline track): 改类 + 显隐 + 锁定 + 删整条
+  // 此菜单不含关键帧级操作或 AI 追踪。
   if (contextMenuAnnotation && isVideoPointsTrack(contextMenuAnnotation)) {
     const trackId = contextMenuAnnotation.geometry.track_id;
     const locked = lockedTrackIds?.has(trackId) ?? false;

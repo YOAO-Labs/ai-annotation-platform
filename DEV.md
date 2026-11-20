@@ -2082,7 +2082,7 @@ HTTP API 统一挂载在 `/api/v1`，而 WebSocket 单独挂载在 `/ws/...`。�
 
 ## Grounded-SAM-2 ML Backend
 
-Grounded-SAM-2 与 SAM3 的实现和镜像由独立 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 提供。Compose 使用已审核的不可变镜像，不从平台源码构建；原生安装和 Compose 管理是独立的所有权路径，不会互相接管。
+Grounded-SAM-2 与 SAM3 的源码和镜像构建说明由独立 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) 维护。Compose 使用从获准渠道取得并经摘要核验的不可变镜像，不从平台源码构建；公开源码或 Python wheel 不代表已有公开 OCI 镜像。原生安装和 Compose 管理是独立的所有权路径，不会互相接管。
 
 ### 起 / 停
 
@@ -2100,8 +2100,8 @@ curl -fsS http://localhost:8001/health
 
 - **请求**：`POST /predict { task: { id, file_path }, context: { type, ... } }`
 - **`context.type`**：`point` / `bbox` / `text`
-- **v0.9.4 phase 2 字段**：`output: "box" | "mask" | "both"`（仅 type=text 生效，默认 mask 老前端兼容）
-- **v0.9.4 phase 3 字段**：`simplify_tolerance: float | null`（仅 mask/both 路径，默认 1.0；像素级；调高减顶点 / 调低保细节；顶点 > 200 后端 logger.warning）
+- **输出类型**：`output: "box" | "mask" | "both"`（仅 type=text 生效，默认 mask，兼容旧客户端）
+- **轮廓简化**：`simplify_tolerance: float | null`（仅 mask/both 生效，默认 1.0 像素；调高可减少顶点；顶点超过 200 时后端记录告警）
 - 完整协议见 [docs-site/dev/reference/ml-backend-protocol.md](docs-site/dev/reference/ml-backend-protocol.md)
 
 ### `mask_utils` 共享包
@@ -3449,7 +3449,7 @@ AAP_WORKSPACE_EXPORT_WORKER_LIVE=1 apps/api/.venv/bin/python \
   --test-file tests/test_workspace_export_worker_live.py
 ```
 
-该开关只用于隔离夹具。案例用普通 employee 的 reviewer 身份执行真实 AAP JSON 导出，
+该开关只用于隔离夹具。案例用普通 `employee` 的 `reviewer` 项目身份执行真实原生 JSON 导出，
 通过数据库锁卡住实际构建，再验证整容器 SIGKILL 后的新 task ID 接管、原始 unacked
 消息精确恢复、prefork 子进程丢失后的自动同 ID 重投，以及排队后撤员、缓存复用、
 产物和源图片的真实签名 URL 下载。Worker 无 Workspace 私表读取或桶管理权限。
