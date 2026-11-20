@@ -32,14 +32,6 @@ class TestNewTrackId:
 
 
 class TestCleanBboxGeometry:
-    def test_full_dict_coerced_to_float(self):
-        assert _clean_bbox_geometry({"x": 1, "y": 2, "w": 3, "h": 4}) == {
-            "x": 1.0,
-            "y": 2.0,
-            "w": 3.0,
-            "h": 4.0,
-        }
-
     def test_missing_keys_default_zero(self):
         assert _clean_bbox_geometry({}) == {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
 

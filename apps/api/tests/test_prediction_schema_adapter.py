@@ -411,24 +411,6 @@ def test_polygonlabels_with_polygons_field_multi():
     assert len(out["geometry"]["polygons"][1]["holes"]) == 1
 
 
-def test_polygonlabels_legacy_no_holes_field_unchanged():
-    """仅有 points 的 LabelStudio shape 转换后不带 holes 字段。"""
-    raw = {
-        "type": "polygonlabels",
-        "score": 0.85,
-        "value": {
-            "points": [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]],
-            "polygonlabels": ["person"],
-        },
-    }
-    out = to_internal_shape(raw)
-    # 老回归: geometry 字面值不带 holes 字段
-    assert out["geometry"] == {
-        "type": "polygon",
-        "points": [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]],
-    }
-
-
 def test_pydantic_polygon_geometry_default_holes_empty():
     """PolygonGeometry 解析无 holes 字段的老 dict 时 holes 默认 []."""
     from app.schemas._jsonb_types import PolygonGeometry

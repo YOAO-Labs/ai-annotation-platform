@@ -58,14 +58,6 @@ describe("<DropdownMenu />", () => {
     expect(screen.queryByText("Option A")).toBeNull();
   });
 
-  it("Escape 关闭打开的菜单", () => {
-    render(<Wrapper />);
-    fireEvent.click(screen.getByText("打开"));
-    expect(screen.getByText("Option A")).toBeInTheDocument();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByText("Option A")).toBeNull();
-  });
-
   // PR #116 评审 P2：打开时焦点必须真实移入菜单（面板 portal 在 body 末尾，
   // 只改视觉高亮会让键盘用户无法触达菜单项）
   it("打开后焦点移入首个可选中项，ArrowDown 移到下一项", () => {

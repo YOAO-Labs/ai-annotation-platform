@@ -218,18 +218,6 @@ describe("AIPreAnnotateJobsPage", () => {
     expect(await screen.findByTestId("video-tracker-panel")).toBeInTheDocument();
   });
 
-  it("状态过滤 select → 传参给 asyncJobsApi.list", async () => {
-    mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
-    renderUI();
-    await screen.findByText("暂无图片预标任务");
-    const select = screen.getByRole("combobox", { name: "预标任务状态" }) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "failed" } });
-    // 变更后重新调用 list
-    expect(mockAsyncJobsList).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }), {
-      signal: expect.any(AbortSignal),
-    });
-  });
-
   it("从 URL 恢复图像项目、状态、q 和 one-based page", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 41 });
     renderUI("/ai-pre/jobs?tab=image&project_id=p9&status=failed&q=%20car%20&page=2");

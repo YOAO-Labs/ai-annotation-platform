@@ -27,6 +27,7 @@ def test_encode_accepts_batched_shapes():
     s1 = encode_low_res_mask(base)
     s2 = encode_low_res_mask(base[None, :, :])
     s3 = encode_low_res_mask(base[None, None, :, :])
+    assert isinstance(s1, str) and s1.isascii()
     assert s1 == s2 == s3
 
 
@@ -59,10 +60,3 @@ def test_codec_rejects_non_finite_logits():
     arr[0, 0] = np.nan
     with pytest.raises(ValueError, match="finite"):
         encode_low_res_mask(arr)
-
-
-def test_encoded_is_base64_ascii_str():
-    s = encode_low_res_mask(np.zeros((256, 256), dtype=np.float32))
-    assert isinstance(s, str)
-    # 纯 ASCII (可安全放进 JSON 不转义)。
-    s.encode("ascii")

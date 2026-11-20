@@ -46,6 +46,7 @@ const data: ProtocolCapabilities = {
 };
 let protocolError = false;
 let modelsError = false;
+let taskCounts: Record<string, number>;
 const refetch = vi.fn();
 vi.mock("@/api/mlCapabilities", () => ({
   useProtocolCapabilities: () => ({
@@ -58,7 +59,7 @@ vi.mock("@/api/mlCapabilities", () => ({
 }));
 vi.mock("@/api/modelCatalog", () => ({
   useModelCatalog: () => ({
-    data: modelsError ? undefined : { task_counts: { detect: 5 } },
+    data: modelsError ? undefined : { task_counts: taskCounts },
     isError: modelsError,
   }),
 }));
@@ -72,6 +73,7 @@ function renderPanel(url = "/model-market?tab=protocol") {
 beforeEach(() => {
   protocolError = false;
   modelsError = false;
+  taskCounts = { detect: 5 };
   refetch.mockClear();
 });
 afterEach(cleanup);
@@ -114,6 +116,19 @@ describe("协议能力信息层级", () => {
     await user.clear(screen.getByRole("textbox", { name: "搜索协议能力" }));
     await user.type(screen.getByRole("textbox", { name: "搜索协议能力" }), "unknown");
     expect(screen.getByText("没有匹配的协议能力。")).toBeInTheDocument();
+  });
+
+  it("没有接入模型时仍可阅读协议详情，并能跳到该任务的空目录", async () => {
+    taskCounts = {};
+    renderPanel();
+    const task = screen.getByRole("heading", { name: "目标检测 detect" }).closest("article")!;
+    expect(within(task).getByRole("link", { name: "查看模型（0）" })).toHaveAttribute(
+      "href",
+      "/model-market?model_task=detect",
+    );
+    await userEvent.click(within(task).getByRole("button", { name: "查看协议" }));
+    const dialog = screen.getByRole("dialog", { name: "目标检测 · 协议详情" });
+    expect(within(dialog).getByText("result.type=rectanglelabels")).toBeVisible();
   });
 
   it("目录读取失败不冒充零个模型，协议仍可独立浏览", () => {

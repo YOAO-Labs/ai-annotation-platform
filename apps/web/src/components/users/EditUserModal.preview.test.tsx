@@ -83,9 +83,17 @@ it("shows anonymous cross-project impact and waits for the selected role preview
   await screen.findByText(/另涉及 2 个管理范围外/);
   fireEvent.change(screen.getByLabelText("角色"), { target: { value: "viewer" } });
   expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  await waitFor(() => expect(api.previewRoleChange).toHaveBeenCalledTimes(2));
+  expect(api.previewRoleChange.mock.calls).toEqual([
+    ["a", "employee"],
+    ["a", "viewer"],
+  ]);
+  expect(api.changeRole).not.toHaveBeenCalled();
   await act(async () => {
     resolve({ ...preview, requested_role: "viewer" });
   });
+  expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+  expect(api.changeRole).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(api.changeRole).toHaveBeenCalledWith("a", "viewer"));
 });

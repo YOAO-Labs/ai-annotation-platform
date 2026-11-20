@@ -1,32 +1,24 @@
-/**
- * UsersPage — URL-driven member list, filters/paging, export, delete and
- * permission/lifecycle branches.
- *
- * The page's data dependencies run for real against MSW at the HTTP boundary
- * (`installUsersApi`), with a fresh QueryClient, the real query hooks,
- * permission table and seeded auth store per test. Only the heavy modal
- * components and the sonner-backed toast store stay stubbed as narrow
- * page-wiring stand-ins (the page's own contract is routing/URL/filters/query
- * shaping, not each modal's body).
- */
+/** Member list, invitation flows, filters and account operations against the HTTP boundary. */
 import { QueryClientProvider, onlineManager } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { server } from "@/mocks/server";
 import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { createTestQueryClient } from "@/test/queryClient";
 import { renderWithProviders } from "@/test/renderWithProviders";
-import { DEFAULT_USERS, INACTIVE_USER, createUser, installUsersApi } from "@/test/usersApi";
+import {
+  DEFAULT_PROJECTS,
+  DEFAULT_USERS,
+  INACTIVE_USER,
+  createUser,
+  installUsersApi,
+} from "@/test/usersApi";
 
-// Heavy modal bodies are deliberate stand-ins: this suite protects the UsersPage
-// routing/filter/query/export/delete contract, not each modal's own flow. They
-// keep their own suites.
-vi.mock("@/components/users/InviteUserModal", () => ({
-  InviteUserModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="invite-modal">InviteModal</div> : null,
-}));
 vi.mock("@/components/users/BulkInviteModal", () => ({
   BulkInviteModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="bulk-invite-modal">BulkInviteModal</div> : null,
@@ -41,9 +33,6 @@ vi.mock("@/components/users/EditUserModal", () => ({
 }));
 vi.mock("@/components/users/GroupManageModal", () => ({
   GroupManageModal: () => null,
-}));
-vi.mock("@/components/users/InvitationListPanel", () => ({
-  InvitationListPanel: () => <div data-testid="invitation-panel">InvitationPanel</div>,
 }));
 vi.mock("@/components/users/OffboardingDialog", () => ({
   OffboardingDialog: ({ open }: { open: boolean }) =>
@@ -110,20 +99,41 @@ function renderUsersAt(initialEntries: string[], initialIndex: number) {
 const locationSearch = () => screen.getByTestId("location-search").textContent ?? "";
 const capturedQuery = (queries: URLSearchParams[]) => queries[queries.length - 1];
 
+const createObjectURL = vi.fn((_blob: Blob) => "blob:mock-export");
+const downloads: HTMLAnchorElement[] = [];
+function onDownload(event: MouseEvent) {
+  if (event.target instanceof HTMLAnchorElement && event.target.download) {
+    downloads.push(event.target);
+    event.preventDefault();
+  }
+}
+
 beforeAll(() => {
-  // jsdom does not implement object URLs; the page's CSV download needs them.
-  URL.createObjectURL = (() => "blob:mock-export") as typeof URL.createObjectURL;
-  URL.revokeObjectURL = (() => undefined) as typeof URL.revokeObjectURL;
+  vi.stubGlobal(
+    "URL",
+    class extends URL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = vi.fn();
+    },
+  );
+  document.addEventListener("click", onDownload);
+});
+afterAll(() => {
+  document.removeEventListener("click", onDownload);
+  vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
   resetUnexpectedApiRequests();
+  downloads.length = 0;
+  createObjectURL.mockClear();
   mockPushToast.mockReset();
   onlineManager.setOnline(true);
   seedAuthUser(createTestUser({ id: ACTOR_ID, role: "super_admin" }));
 });
 
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
   expectNoUnexpectedApiRequests();
   onlineManager.setOnline(true);
@@ -219,12 +229,74 @@ describe("UsersPage", () => {
     expect(screen.getAllByText("超级管理员").length).toBeGreaterThan(0);
   });
 
-  it("点击「邀请记录」tab → 渲染 InvitationListPanel", () => {
+  it("项目管理员打开带全局范围的邀请记录，只查询、统计和导出自己的邀请", async () => {
+    seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
     installUsersApi();
-    renderUsers();
-    const invTab = screen.getAllByRole("button").find((b) => b.textContent?.includes("邀请记录"));
-    fireEvent.click(invTab!);
-    expect(screen.getByTestId("invitation-panel")).toBeInTheDocument();
+    const reads: URL[] = [];
+    const own = {
+      id: "own-invite",
+      email: "sample+own@example.org",
+      role: "employee",
+      status: "pending",
+      invited_by: ACTOR_ID,
+      expires_at: "2027-01-01T00:00:00Z",
+    };
+    const other = {
+      ...own,
+      id: "other-invite",
+      email: "sample+other@example.org",
+      invited_by: "another-admin",
+    };
+    server.use(
+      http.get("*/api/v1/invitations/:action", ({ request, params }) => {
+        const url = new URL(request.url);
+        reads.push(url);
+        const items = url.searchParams.get("scope") === "me" ? [own] : [own, other];
+        if (params.action === "query") {
+          return HttpResponse.json({
+            items,
+            total: items.length,
+            page: 1,
+            pages: 1,
+            page_size: 20,
+          });
+        }
+        if (params.action === "stats") {
+          return HttpResponse.json({
+            total: items.length,
+            pending: items.length,
+            accepted: 0,
+            expired: 0,
+            revoked: 0,
+          });
+        }
+        if (params.action === "export")
+          return HttpResponse.text(items.map((row) => row.email).join("\n"));
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
+    renderUsers("/users?q=Alice&invite_q=sample&invite_scope=all");
+    await screen.findByText("Alice");
+    fireEvent.click(screen.getByRole("button", { name: "邀请记录" }));
+    expect(await screen.findByText(own.email)).toBeVisible();
+    expect(reads.filter((url) => url.searchParams.get("scope") !== "me").map(String)).toEqual([]);
+    expect(screen.queryByText(other.email)).not.toBeInTheDocument();
+    expect(await screen.findByText("筛选结果 1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "导出筛选结果" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "导出筛选结果" })).toBeEnabled());
+    expect(downloads.map((anchor) => anchor.download)).toEqual(["invitations.csv"]);
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(await createObjectURL.mock.calls[0][0].text()).toBe(own.email);
+    expect([...new Set(reads.map((url) => url.pathname))].sort()).toEqual([
+      "/api/v1/invitations/export",
+      "/api/v1/invitations/query",
+      "/api/v1/invitations/stats",
+    ]);
+    for (const url of reads) {
+      expect(url.searchParams.get("scope"), url.href).toBe("me");
+      expect(url.searchParams.get("search"), url.href).toBe("sample");
+    }
+    expect(new URLSearchParams(locationSearch()).get("q")).toBe("Alice");
   });
 
   it("点击「导出名单」→ 以当前筛选请求 CSV + toast 成功", async () => {
@@ -241,29 +313,104 @@ describe("UsersPage", () => {
     );
   });
 
-  it("点击「邀请成员」→ 显示 InviteModal", () => {
-    installUsersApi();
+  it("从成员页生成项目邀请：创建和复制不发信，明确点击邮件后只发送一次", async () => {
+    const actor = userEvent.setup();
+    seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
+    const target = {
+      ...DEFAULT_PROJECTS[0],
+      id: "project-2",
+      name: "Review project",
+      display_id: "PRJ-002",
+    };
+    installUsersApi({ projects: [...DEFAULT_PROJECTS, target] });
+    const id = "created-invite";
+    const link = "https://app.example.test/invite?t=review";
+    const email = "tom+review@example.org";
+    const writes: { path: string; body: unknown }[] = [];
+    const create = {
+      path: "/api/v1/users/invite",
+      body: {
+        email,
+        role: "employee",
+        project_id: target.id,
+        project_member_role: "reviewer",
+        group_name: "质检组",
+      },
+    };
+    const mail = { path: `/api/v1/invitations/${id}/send-email`, body: {} };
+    server.use(
+      http.post("*/api/v1/*", async ({ request }) => {
+        const path = new URL(request.url).pathname;
+        writes.push({ path, body: await request.json() });
+        if (path === create.path)
+          return HttpResponse.json(
+            {
+              id,
+              token: "review",
+              invite_url: link,
+              expires_at: "2027-01-01T00:00:00Z",
+              project_id: target.id,
+              project_name: target.name,
+              project_member_role: "reviewer",
+            },
+            { status: 201 },
+          );
+        if (path === mail.path)
+          return HttpResponse.json({
+            ok: true,
+            invitation_id: id,
+            email,
+            invite_url: link,
+            message: "sent",
+          });
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
     renderUsers();
-    fireEvent.click(screen.getByRole("button", { name: /邀请成员/ }));
-    expect(screen.getByTestId("invite-modal")).toBeInTheDocument();
+    await screen.findByText("Alice");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await actor.click(screen.getByRole("button", { name: /邀请成员/ }));
+    await screen.findByText(target.display_id, { selector: "option" });
+    fireEvent.change(screen.getByPlaceholderText("newuser@your-org.com"), {
+      target: { value: " Tom+Review@Example.ORG " },
+    });
+    fireEvent.change(screen.getByPlaceholderText("输入或选择项目名称"), {
+      target: { value: target.name },
+    });
+    fireEvent.change(screen.getByLabelText(/^项目职责/), { target: { value: "reviewer" } });
+    fireEvent.change(screen.getByPlaceholderText("例如：标注组A"), {
+      target: { value: "  质检组  " },
+    });
+    await actor.click(screen.getByRole("button", { name: "生成邀请链接" }));
+    expect(await screen.findByDisplayValue(link)).toBeVisible();
+    expect(writes).toEqual([create]);
+    await actor.click(screen.getByRole("button", { name: "复制" }));
+    expect(await navigator.clipboard.readText()).toBe(link);
+    expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ msg: "邀请链接已复制" }));
+    expect(writes).toEqual([create]);
+    await actor.click(screen.getByRole("button", { name: "发送邀请邮件" }));
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ msg: "邀请邮件已发送" }),
+      ),
+    );
+    expect(writes).toEqual([create, mail]);
+    await actor.click(screen.getByRole("button", { name: "继续邀请" }));
+    expect(screen.getByRole("button", { name: "生成邀请链接" })).toBeVisible();
+    await actor.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("点击删除按钮 → 显示确认弹窗", async () => {
-    installUsersApi();
+  it("取消删除不发送 DELETE，成员仍在列表中", async () => {
+    const captured = installUsersApi();
     renderUsers();
     await screen.findByText("Alice");
     fireEvent.click(screen.getAllByTitle("删除账号")[0]);
-    expect(screen.getByText(/确认删除以下账号/)).toBeInTheDocument();
-  });
-
-  it("删除确认弹窗 → 点取消关闭弹窗", async () => {
-    installUsersApi();
-    renderUsers();
-    await screen.findByText("Alice");
-    fireEvent.click(screen.getAllByTitle("删除账号")[0]);
-    expect(screen.getByText(/确认删除以下账号/)).toBeInTheDocument();
+    expect(screen.getByText(/确认删除以下账号/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByText(/确认删除以下账号/)).not.toBeInTheDocument();
+    expect(captured.deletes).toEqual([]);
+    expect(screen.getByText("Alice")).toBeVisible();
   });
 
   it("确认删除 → 发出 DELETE /users/:id、成功 toast 并关闭弹窗", async () => {

@@ -578,9 +578,6 @@ describe("useWorkbenchHotkeys module", () => {
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" })));
     expect(args.handleAcceptPrediction).toHaveBeenCalledTimes(1);
   });
-  it("exports the hook", () => {
-    expect(typeof useWorkbenchHotkeys).toBe("function");
-  });
 
   it("does not block hotkeys while the video timeline range is focused", () => {
     const timeline = document.createElement("input");

@@ -295,40 +295,6 @@ async def test_link_project_no_default_batch(db_session: AsyncSession, super_adm
 
 
 @pytest.mark.asyncio
-async def test_unlink_project_hard_deletes_tasks(db_session: AsyncSession, super_admin):
-    """unlink 应级联删除该 dataset 在该 project 下的 task，project.total_tasks 归零。"""
-    user, _ = super_admin
-    ds = await _seed_dataset(db_session, user.id, n_items=10)
-    project = await _seed_project(db_session, user.id)
-
-    await DatasetTaskCreationWorkflow(db_session).link_project(
-        ds.id, project.id, actor_id=user.id
-    )
-    await db_session.refresh(project)
-    assert project.total_tasks == 10
-
-    info = await unlink_dataset_from_project(
-        db_session,
-        ds.id,
-        project.id,
-        actor_id=user.id,
-        cleanup_bucket=storage_service.media_cache_bucket,
-    )
-    assert info is not None
-    assert info["deleted_tasks"] == 10
-    assert info["soft"] is False
-
-    await db_session.refresh(project)
-    real_total = (
-        await db_session.execute(
-            select(func.count()).select_from(Task).where(Task.project_id == project.id)
-        )
-    ).scalar()
-    assert real_total == 0, "hard-unlink 后该 dataset 创建的 task 应清光"
-    assert project.total_tasks == 0
-
-
-@pytest.mark.asyncio
 async def test_unlink_cascades_user_split_batches(
     db_session: AsyncSession, super_admin
 ):
@@ -508,28 +474,37 @@ async def test_link_unlink_relink_no_double_count(
 ):
     """link → unlink → re-link 不出现 double-count。hard-unlink 下 task 真删 + 重 link 重新创建。"""
     user, _ = super_admin
-    ds = await _seed_dataset(db_session, user.id, n_items=4)
+    item_count = 10
+    ds = await _seed_dataset(db_session, user.id, n_items=item_count)
     project = await _seed_project(db_session, user.id)
 
     await DatasetTaskCreationWorkflow(db_session).link_project(
         ds.id, project.id, actor_id=user.id
     )
-    await unlink_dataset_from_project(
+    await db_session.refresh(project)
+    assert project.total_tasks == item_count
+
+    info = await unlink_dataset_from_project(
         db_session,
         ds.id,
         project.id,
         actor_id=user.id,
         cleanup_bucket=storage_service.media_cache_bucket,
     )
+    assert info is not None
+    assert info["deleted_tasks"] == item_count
+    assert info["soft"] is False
+    task_count = (
+        select(func.count()).select_from(Task).where(Task.project_id == project.id)
+    )
+    await db_session.refresh(project)
+    assert await db_session.scalar(task_count) == 0
+    assert project.total_tasks == 0
+
     await DatasetTaskCreationWorkflow(db_session).link_project(
         ds.id, project.id, actor_id=user.id
     )
 
     await db_session.refresh(project)
-    real_total = (
-        await db_session.execute(
-            select(func.count()).select_from(Task).where(Task.project_id == project.id)
-        )
-    ).scalar()
-    assert project.total_tasks == real_total
-    assert real_total == 4, "重 link 应重新创建 4 个 task"
+    assert await db_session.scalar(task_count) == item_count
+    assert project.total_tasks == item_count

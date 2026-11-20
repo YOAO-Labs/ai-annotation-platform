@@ -15,6 +15,7 @@ from app.db.models.prediction import (
 )
 from app.db.models.task_batch import TaskBatch
 from app.db.models.video_tracker_job import VideoTrackerJob
+from app.services.data_management.views import TaskViewService
 from tests.factory import create_membership, create_project, create_task
 
 
@@ -419,6 +420,35 @@ async def test_task_feedback_filters_and_last_activity_are_task_scoped(
         (str(info_task.id), start + timedelta(hours=2)),
         (str(quiet_task.id), start + timedelta(hours=1)),
     ]
+
+
+async def test_empty_task_filter_paginates_equal_activity_by_task_id(
+    db_session: AsyncSession, project_admin
+):
+    owner, _ = project_admin
+    project = await create_project(db_session, owner_id=owner.id, type_key="image-det")
+    tasks = [await create_task(db_session, project_id=project.id) for _ in range(3)]
+    first_tied, second_tied, newest = sorted(tasks, key=lambda task: task.id)
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for task in tasks:
+        task.created_at = task.updated_at = start
+    newest.updated_at = start + timedelta(hours=1)
+    await db_session.flush()
+
+    service = TaskViewService(db_session)
+    for offset, expected in ((0, [newest.id, first_tied.id]), (2, [second_tied.id])):
+        rows, total = await service.query_tasks(
+            project_id=project.id,
+            filter_json={},
+            sort_json=[{"field": "last_activity_at", "direction": "desc"}],
+            columns_json=["last_activity_at"],
+            limit=2,
+            offset=offset,
+            user=owner,
+            project=project,
+        )
+        assert total == 3
+        assert [row[0].id for row in rows] == expected
 
 
 async def test_keyword_search_matches_task_id_and_file_name(

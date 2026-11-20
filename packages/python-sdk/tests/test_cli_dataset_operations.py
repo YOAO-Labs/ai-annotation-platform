@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -14,6 +14,7 @@ from yoao.cli import datasets as datasets_cli
 from yoao.cli import guide_assets as guide_assets_cli
 from yoao.cli.datasets import app as datasets_app
 from yoao.cli.guide_assets import app as guide_assets_app
+from yoao.cli.main import app
 from yoao.guide_assets import GuideAssets
 
 from .conftest import API, BASE
@@ -50,11 +51,11 @@ def _patch_cli_clients(monkeypatch, client):
 
 
 def test_new_cli_commands_have_valid_help():
-    for app in (datasets_app, guide_assets_app):
-        command = get_command(app)
+    for group in (datasets_app, guide_assets_app):
+        command = get_command(group)
         assert command.commands is not None
         for name in command.commands:
-            result = runner.invoke(app, [name, "--help"])
+            result = runner.invoke(group, [name, "--help"])
             assert result.exit_code == 0, (name, result.output, result.exception)
 
 
@@ -154,123 +155,51 @@ def test_invalid_ingest_cli_key_fails_before_any_request(
     assert scan.call_count == 0
 
 
-def test_dimension_backfill_cli_reports_accepted_job(respx_mock):
-    operation_id = str(uuid4())
-    job_id = str(uuid4())
-    idempotency_key = str(uuid4())
+@pytest.mark.parametrize(
+    ("command", "purpose", "status", "exit_code", "with_key"),
+    [
+        ("backfill-dimensions", "dimensions", "pending", 0, True),
+        ("backfill-dimensions", "dimensions", "failed", 1, False),
+        ("backfill-media", "thumbnail", "running", 0, True),
+        ("backfill-media", "thumbnail", "canceled", 1, False),
+    ],
+    ids=["dimensions-pending", "dimensions-failed", "media-running", "media-canceled"],
+)
+def test_backfill_cli_prints_durable_receipt_without_polling(
+    respx_mock, command, purpose, status, exit_code, with_key
+):
     receipt = {
         "dataset_id": DATASET_ID,
-        "operation_id": operation_id,
-        "job_id": job_id,
-        "purpose": "dimensions",
-        "status": "pending",
+        "operation_id": str(uuid4()),
+        "job_id": str(uuid4()),
+        "purpose": purpose,
+        "status": status,
         "accepted_before": "2026-10-18T12:34:56Z",
     }
-    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/backfill-dimensions").respond(
+    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/{command}").respond(
         202, json=receipt
     )
-    result = runner.invoke(
-        datasets_app,
-        [
-            "backfill-dimensions",
-            DATASET_ID,
-            "--batch",
-            "25",
-            "--yes",
-            "--idempotency-key",
-            idempotency_key,
-            "--json",
-        ],
-        env=ENV,
-    )
-    assert result.exit_code == 0, result.output
+    args = ["datasets", command, DATASET_ID, "--yes", "--json"]
+    key = str(uuid4()) if with_key else None
+    if key:
+        args.extend(["--idempotency-key", key])
+    if command == "backfill-dimensions":
+        args.extend(["--batch", "25"])
+
+    result = runner.invoke(app, args, env=ENV)
+
+    assert result.exit_code == exit_code, result.output
     assert json.loads(result.stdout) == receipt
+    assert result.stderr == ""
+    assert len(respx_mock.calls) == 1
     request = route.calls.last.request
-    assert request.url.params["batch"] == "25"
-    assert request.headers["Idempotency-Key"] == idempotency_key
-    assert result.stderr == "" and route.call_count == 1
-
-
-def test_failed_dimension_backfill_replay_prints_receipt_and_exits_one(respx_mock):
-    receipt = {
-        "dataset_id": DATASET_ID,
-        "operation_id": str(uuid4()),
-        "job_id": str(uuid4()),
-        "purpose": "dimensions",
-        "status": "failed",
-        "accepted_before": "2026-10-18T12:34:56Z",
-    }
-    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/backfill-dimensions").respond(
-        202, json=receipt
-    )
-
-    result = runner.invoke(
-        datasets_app,
-        ["backfill-dimensions", DATASET_ID, "--yes", "--json"],
-        env=ENV,
-    )
-
-    assert result.exit_code == 1
-    assert json.loads(result.stdout) == receipt
-    assert route.call_count == 1
-
-
-def test_media_backfill_cli_prints_job_receipt(respx_mock):
-    operation_id = str(uuid4())
-    job_id = str(uuid4())
-    idempotency_key = str(uuid4())
-    receipt = {
-        "dataset_id": DATASET_ID,
-        "operation_id": operation_id,
-        "job_id": job_id,
-        "purpose": "thumbnail",
-        "status": "running",
-        "accepted_before": "2026-10-18T12:34:56Z",
-    }
-    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/backfill-media").respond(
-        202, json=receipt
-    )
-
-    result = runner.invoke(
-        datasets_app,
-        [
-            "backfill-media",
-            DATASET_ID,
-            "--yes",
-            "--idempotency-key",
-            idempotency_key,
-            "--json",
-        ],
-        env=ENV,
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout) == receipt
-    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
-
-
-def test_failed_media_backfill_replay_prints_receipt_and_exits_one(respx_mock):
-    receipt = {
-        "dataset_id": DATASET_ID,
-        "operation_id": str(uuid4()),
-        "job_id": str(uuid4()),
-        "purpose": "thumbnail",
-        "status": "canceled",
-        "accepted_before": "2026-10-18T12:34:56Z",
-    }
-    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/backfill-media").respond(
-        202, json=receipt
-    )
-
-    result = runner.invoke(
-        datasets_app,
-        ["backfill-media", DATASET_ID, "--yes", "--json"],
-        env=ENV,
-    )
-
-    assert result.exit_code == 1
-    assert json.loads(result.stdout) == receipt
-    assert route.call_count == 1
+    if command == "backfill-dimensions":
+        assert request.url.params["batch"] == "25"
+    sent_key = request.headers["Idempotency-Key"]
+    if key:
+        assert sent_key == key
+    else:
+        assert str(UUID(sent_key)) == sent_key
 
 
 def test_backfill_cli_rejects_invalid_key_before_request(respx_mock):
@@ -296,60 +225,7 @@ def test_backfill_cli_rejects_invalid_key_before_request(respx_mock):
     assert route.call_count == 0
 
 
-def test_import_from_connection_cli_requires_confirmation_and_returns_job(
-    client, monkeypatch, respx_mock
-):
-    _patch_cli_clients(monkeypatch, client)
-    job_id = str(uuid4())
-    idempotency_key = str(uuid4())
-    route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/import-from-connection").mock(
-        return_value=httpx.Response(202, json={"job_id": job_id})
-    )
-    body = json.dumps(
-        {
-            "connection_id": str(uuid4()),
-            "source_path": "incoming/images",
-            "recursive": False,
-            "include_globs": ["*.jpg"],
-        }
-    )
-
-    refused = runner.invoke(
-        datasets_app,
-        ["import-from-connection", DATASET_ID, "--body", "-", "--json"],
-        input=body,
-        env=ENV,
-    )
-    assert refused.exit_code != 0
-    assert not route.called
-
-    accepted = runner.invoke(
-        datasets_app,
-        [
-            "import-from-connection",
-            DATASET_ID,
-            "--body",
-            "-",
-            "--json",
-            "--yes",
-            "--idempotency-key",
-            idempotency_key,
-        ],
-        input=body,
-        env=ENV,
-    )
-    assert accepted.exit_code == 0, accepted.output
-    assert json.loads(accepted.stdout) == {"job_id": job_id}
-    assert (
-        json.loads(route.calls.last.request.content)["source_path"] == "incoming/images"
-    )
-    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
-
-
-def test_import_from_connection_cli_reuses_saved_key_after_lost_response(
-    client, monkeypatch, respx_mock
-):
-    _patch_cli_clients(monkeypatch, client)
+def test_import_from_connection_cli_reuses_saved_key_after_lost_response(respx_mock):
     idempotency_key = str(uuid4())
     job_id = str(uuid4())
     route = respx_mock.post(f"{API}/datasets/{DATASET_ID}/import-from-connection").mock(
@@ -358,24 +234,39 @@ def test_import_from_connection_cli_reuses_saved_key_after_lost_response(
             httpx.Response(202, json={"job_id": job_id}),
         ]
     )
-    body = json.dumps({"connection_id": str(uuid4()), "source_path": "incoming"})
+    payload = {
+        "connection_id": str(uuid4()),
+        "source_path": "incoming/images",
+        "recursive": False,
+        "include_globs": ["*.jpg"],
+    }
+    body = json.dumps(payload)
     args = [
+        "datasets",
         "import-from-connection",
         DATASET_ID,
         "--body",
         "-",
         "--json",
-        "--yes",
         "--idempotency-key",
         idempotency_key,
     ]
 
-    first = runner.invoke(datasets_app, args, input=body, env=ENV)
-    second = runner.invoke(datasets_app, args, input=body, env=ENV)
+    refused = runner.invoke(app, args, input=body, env=ENV)
+    assert refused.exit_code == 2 and "--yes" in refused.output
+    assert not respx_mock.calls
 
+    first = runner.invoke(app, [*args, "--yes"], input=body, env=ENV)
     assert first.exit_code == 1
+    assert len(respx_mock.calls) == 1
+    second = runner.invoke(app, [*args, "--yes"], input=body, env=ENV)
     assert second.exit_code == 0, second.output
     assert json.loads(second.stdout) == {"job_id": job_id}
+    assert len(respx_mock.calls) == 2
+    assert [json.loads(call.request.content) for call in route.calls] == [
+        payload,
+        payload,
+    ]
     assert [call.request.headers["Idempotency-Key"] for call in route.calls] == [
         idempotency_key,
         idempotency_key,
@@ -540,50 +431,6 @@ def test_unlink_cli_reuses_saved_key_after_lost_response(
         idempotency_key,
         idempotency_key,
     ]
-
-
-def test_unlink_cli_confirmation_passes_idempotency_key(
-    client, monkeypatch, respx_mock
-):
-    _patch_cli_clients(monkeypatch, client)
-    idempotency_key = str(uuid4())
-    respx_mock.get(
-        f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}/preview-unlink"
-    ).respond(
-        200,
-        json={
-            "will_delete_tasks": 3,
-            "will_delete_annotations": 2,
-            "will_delete_batches": 0,
-        },
-    )
-    route = respx_mock.delete(f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}").respond(
-        200,
-        json={
-            "deleted_tasks": 3,
-            "deleted_annotations": 2,
-            "deleted_batches": 0,
-            "deleted_batch_ids": [],
-            "soft": False,
-        },
-    )
-
-    result = runner.invoke(
-        datasets_app,
-        [
-            "unlink",
-            DATASET_ID,
-            PROJECT_ID,
-            "--idempotency-key",
-            idempotency_key,
-        ],
-        input="y\n",
-        env=ENV,
-    )
-
-    assert result.exit_code == 0, result.output
-    assert route.called
-    assert route.calls.last.request.headers["Idempotency-Key"] == idempotency_key
 
 
 def test_unlink_cli_rejects_invalid_key_before_requests(

@@ -9,6 +9,7 @@
  * 由 `pointcloud` project 跑(WebGL 软渲染)。
  */
 import { test, expect } from "../fixtures/seed";
+import { waitForApiWrite } from "../helpers/api-response";
 
 test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
   test("B 键一次激活 → 连续创建 20 个框 → 保存期串行且 V 退出", async ({ page, seed }) => {
@@ -146,7 +147,7 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await seed.injectToken(page, data.admin_email);
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
+    await page.goto(`/projects/${lidar.lidar_project_id}/annotate?task=${lidar.lidar_task_ids[0]}`);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
 
     let failNext = true;
@@ -166,22 +167,19 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     if (!box) throw new Error("canvas boundingBox 不可用");
     const point = { x: box.x + box.width * 0.5, y: box.y + box.height * 0.55 };
 
-    const failedResponse = page.waitForResponse(
-      (response) => response.request().method() === "POST" && response.status() === 500,
-    );
+    const annotationsPath = `/tasks/${lidar.lidar_task_ids[0]}/annotations` as const;
+    const failedResponse = waitForApiWrite(page, "POST", annotationsPath);
     await page.mouse.click(point.x, point.y);
-    await failedResponse;
+    expect((await failedResponse).status()).toBe(500);
     const creationStatus = page.getByTestId("three-d-creation-status");
     await expect(creationStatus).toHaveAttribute("data-phase", "error");
     await expect(creationStatus).toContainText("保存失败，请重试");
     await expect(page.locator('[data-testid^="box-list-item-"]')).toHaveCount(1);
     await expect(page.getByTestId("three-d-tool-btn-box")).toHaveAttribute("aria-pressed", "true");
 
-    const retryResponse = page.waitForResponse(
-      (response) => response.request().method() === "POST" && response.status() === 201,
-    );
+    const retryResponse = waitForApiWrite(page, "POST", annotationsPath);
     await page.mouse.click(point.x + 12, point.y);
-    await retryResponse;
+    expect((await retryResponse).status()).toBe(201);
     await expect(creationStatus).toHaveAttribute("data-phase", "armed");
     await expect(page.locator('[data-testid^="box-list-item-"]')).toHaveCount(2);
   });
@@ -252,7 +250,7 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await seed.injectToken(page, data.admin_email);
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
+    await page.goto(`/projects/${lidar.lidar_project_id}/annotate?task=${lidar.lidar_task_ids[0]}`);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
 
     const payloadClasses: string[] = [];
@@ -270,22 +268,19 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     if (!box) throw new Error("主点云 canvas boundingBox 不可用");
     const point = { x: box.x + box.width * 0.5, y: box.y + box.height * 0.55 };
 
-    const firstResponse = page.waitForResponse(
-      (response) => response.request().method() === "POST" && response.status() === 201,
-    );
+    const annotationsPath = `/tasks/${lidar.lidar_task_ids[0]}/annotations` as const;
+    const firstResponse = waitForApiWrite(page, "POST", annotationsPath);
     await page.mouse.click(point.x, point.y);
-    await firstResponse;
+    expect((await firstResponse).status()).toBe(201);
     await page
       .locator('[data-workbench-panel="class-palette"]')
       .getByText("pedestrian", { exact: true })
       .click();
     await expect(status).toContainText("pedestrian");
 
-    const secondResponse = page.waitForResponse(
-      (response) => response.request().method() === "POST" && response.status() === 201,
-    );
+    const secondResponse = waitForApiWrite(page, "POST", annotationsPath);
     await page.mouse.click(point.x + 12, point.y);
-    await secondResponse;
+    expect((await secondResponse).status()).toBe(201);
     expect(payloadClasses).toEqual(["car", "pedestrian"]);
     await expect(status).toHaveAttribute("data-phase", "armed");
     await expect(page.getByTestId("three-d-tool-btn-box")).toHaveAttribute("aria-pressed", "true");

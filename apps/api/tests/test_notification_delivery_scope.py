@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.notification import NotificationService, _notification_project_id
+from app.services.notification import NotificationService
 
 
 def _row(payload, target_type="bug_report", target_id=None):
@@ -48,34 +48,17 @@ def _job_row(payload, target_type, target_id):
     return row
 
 
-def test_project_id_extracted_from_payload():
-    project_id = uuid.uuid4()
-    assert _notification_project_id(_row({"project_id": str(project_id)})) == project_id
-
-
-def test_discussion_payload_project_scope():
-    project_id = uuid.uuid4()
-    row = _row({"project_id": str(project_id), "task_id": str(uuid.uuid4())})
-    assert _notification_project_id(row) == project_id
-
-
-def test_non_project_payload_is_ungated():
-    assert _notification_project_id(_row({"kind": "audit_archive"})) is None
-    assert _notification_project_id(_row({})) is None
-    assert _notification_project_id(_row(None)) is None
-
-
-def test_malformed_project_id_is_ungated():
-    assert _notification_project_id(_row({"project_id": "not-a-uuid"})) is None
-
-
 async def test_payload_project_id_marks_notification_restricted():
     svc = NotificationService(_FakeDb())
-    rows = [_row({"project_id": str(uuid.uuid4())})]
-    scopes = await svc._resolve_delivery_scopes(rows)
-    assert scopes[0][0] is True
-    assert scopes[0][1] is not None
-    assert scopes[0][2] is False
+    project_id = uuid.uuid4()
+    rows = [
+        _row({"project_id": str(project_id), "task_id": str(uuid.uuid4())}),
+        _row({"project_id": "not-a-uuid"}),
+    ]
+    assert await svc._resolve_delivery_scopes(rows) == [
+        (True, project_id, False),
+        (True, None, False),
+    ]
 
 
 async def test_missing_project_id_is_not_restricted():

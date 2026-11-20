@@ -254,5 +254,3 @@ export const projectPerformanceApi = {
     };
   },
 };
-
-export { queryString as projectPerformanceQueryString };

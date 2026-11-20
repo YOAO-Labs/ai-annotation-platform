@@ -49,7 +49,7 @@ function renderPage(initialUrl = "/model-market"): void {
     <MemoryRouter initialEntries={[initialUrl]}>
       <Routes>
         <Route path="/model-market" element={<ModelMarketPage />} />
-        <Route path="/ai-pre/jobs" element={<div data-testid="ai-pre-jobs" />} />
+        <Route path="/ai-pre/jobs" element={null} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
@@ -114,33 +114,34 @@ describe("ModelMarketPage 主 TAB（阶段一骨架）", () => {
         expect(screen.getByTestId("location-probe").dataset.search).toBe("");
       });
     });
-
-    it("项目管理员可见模型、协议与注册管理，隐藏运行时观测", () => {
-      renderPage("/model-market?tab=registry");
-      expect(screen.getByRole("tab", { name: /模型目录/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /协议能力/ })).toBeInTheDocument();
-      expect(screen.getByRole("tab", { name: /注册管理/ })).toBeInTheDocument();
-      expect(screen.queryByRole("tab", { name: /运行时观测/ })).not.toBeInTheDocument();
-    });
   });
 
   it("旧书签 ?tab=failed 重定向到 /ai-pre/jobs?status=failed", async () => {
     renderPage("/model-market?tab=failed");
     await waitFor(() => {
-      expect(screen.getByTestId("ai-pre-jobs")).toBeInTheDocument();
+      const destination = screen.getByTestId("location-probe").dataset;
+      expect(destination.pathname).toBe("/ai-pre/jobs");
+      expect(new URLSearchParams(destination.search).get("status")).toBe("failed");
+      expect(destination.navigationType).toBe("REPLACE");
     });
   });
 
-  it("旧任务分组深链迁移到协议页并保留任务与搜索", async () => {
+  it.each([
+    ["task", "protocol", "protocol"],
+    ["bogus", "models", "model"],
+  ])("旧分组 %s 迁移后保留任务与搜索，丢弃过时条件", async (group, tab, prefix) => {
     renderPage(
-      "/model-market?tab=catalog&catalog_group=task&catalog_task=detect&catalog_q=car&catalog_view=list",
+      `/model-market?tab=catalog&catalog_group=${group}&catalog_task=detect&catalog_q=car&catalog_view=list`,
     );
-    expect(screen.getByTestId("protocol-panel")).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: tab === "protocol" ? /协议能力/ : /模型目录/ }),
+    ).toHaveAttribute("aria-selected", "true");
     await waitFor(() => {
-      const search = screen.getByTestId("location-probe").dataset.search ?? "";
-      expect(search).toContain("tab=protocol");
-      expect(search).toContain("protocol_task=detect");
-      expect(search).not.toContain("catalog_");
+      const params = new URLSearchParams(screen.getByTestId("location-probe").dataset.search);
+      expect(params.get("tab")).toBe(tab);
+      expect(params.get(`${prefix}_task`)).toBe("detect");
+      expect(params.get(`${prefix}_q`)).toBe("car");
+      expect([...params.keys()].some((key) => key.startsWith("catalog_"))).toBe(false);
     });
     expect(screen.getByRole("status")).toHaveTextContent("原分组及卡片/列表显示设置已移除");
   });

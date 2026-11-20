@@ -20,15 +20,6 @@ describe("useDebouncedValue", () => {
     expect(result.current).toBe("car");
   });
 
-  it("flushes synchronously when the owner changes the immediate key", () => {
-    const { result, rerender } = renderHook(
-      ({ value, immediateKey }) => useDebouncedValue(value, 250, immediateKey),
-      { initialProps: { value: "old", immediateKey: 1 } },
-    );
-    rerender({ value: "new", immediateKey: 2 });
-    expect(result.current).toBe("new");
-  });
-
   it("never exposes the retired value during StrictMode navigation renders", () => {
     const seen: string[] = [];
     const { rerender } = renderHook(

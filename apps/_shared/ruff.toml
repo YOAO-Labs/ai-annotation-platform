@@ -1,0 +1,4 @@
+extend = "../../ruff.toml"
+
+[lint]
+extend-select = ["B017"]

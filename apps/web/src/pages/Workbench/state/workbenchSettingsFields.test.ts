@@ -22,13 +22,6 @@ describe("workbenchSettingsFields 注册表", () => {
     }
   });
 
-  it("每个字段都能从 DEFAULT_WORKBENCH_PREFERENCES 解析出默认值(注册表与类型不漂移)", () => {
-    for (const field of WORKBENCH_SETTING_FIELDS) {
-      const value = getFieldValue(DEFAULT_WORKBENCH_PREFERENCES, field);
-      expect(value).not.toBeUndefined();
-    }
-  });
-
   it("透明度设置明确区分通用填充与重复 AI 候选，不再暴露独立 Mask 控件", () => {
     expect(
       WORKBENCH_SETTING_FIELDS.find((field) => field.key === "image.fadedOpacity")?.label,

@@ -310,22 +310,6 @@ describe("DashboardPage", () => {
     );
   });
 
-  it("applies debounced search and page reset to the URL together", async () => {
-    vi.useFakeTimers();
-    renderUI();
-    const input = screen.getByPlaceholderText("搜索项目...");
-    fireEvent.change(input, { target: { value: "car" } });
-    expect(mockUseProjectPage).toHaveBeenLastCalledWith(
-      expect.objectContaining({ search: undefined }),
-    );
-    expect(screen.getByTestId("location-search").textContent).not.toContain("q=car");
-
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-    expect(mockUseProjectPage).toHaveBeenLastCalledWith(expect.objectContaining({ search: "car" }));
-  });
-
   it("keeps the pending search draft when the wizard opens before debounce", async () => {
     vi.useFakeTimers();
     renderUI();
@@ -337,6 +321,7 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("cp-wizard")).toBeInTheDocument();
     expect(input).toHaveValue("car");
     expect(screen.getByTestId("location-search").textContent).toContain("new=1");
+    expect(screen.getByTestId("location-search").textContent).not.toContain("q=car");
 
     await act(async () => {
       vi.advanceTimersByTime(250);

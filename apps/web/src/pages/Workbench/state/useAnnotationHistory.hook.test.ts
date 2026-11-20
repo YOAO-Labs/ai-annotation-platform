@@ -61,20 +61,16 @@ describe("useAnnotationHistory · 栈状态机", () => {
     sessionStorage.removeItem(`wb:hist:alice:${taskId}`);
   });
 
-  it("retains a failed ordinary undo so it can be retried", async () => {
+  it.each(["push", "pushBatch"] as const)("retries a failed undo via %s", async (add) => {
     const handlers = makeHandlers();
     vi.mocked(handlers.deleteAnnotation).mockRejectedValueOnce(new TypeError("offline"));
-    const { result } = renderHook(() => useAnnotationHistory("failed-undo-task", handlers));
-    act(() =>
-      result.current.push({
-        kind: "create",
-        annotationId: "created",
-        payload: {
-          class_name: "car",
-          geometry: {} as never,
-        },
-      }),
-    );
+    const { result } = renderHook(() => useAnnotationHistory(`failed-undo-${add}`, handlers));
+    const cmd: Command = {
+      kind: "create",
+      annotationId: "created",
+      payload: { class_name: "car", geometry: {} as never },
+    };
+    act(() => (add === "push" ? result.current.push(cmd) : result.current.pushBatch([cmd])));
     await act(async () => {
       await result.current.undo();
     });
@@ -85,16 +81,14 @@ describe("useAnnotationHistory · 栈状态机", () => {
     });
     expect(result.current.canRedo).toBe(true);
   });
-  it("初始 canUndo / canRedo 全 false", () => {
+  it("undo → canRedo true；redo → canUndo true", async () => {
     const handlers = makeHandlers();
     const { result } = renderHook(() => useAnnotationHistory("t1", handlers));
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
-  });
-
-  it("push 一条 → canUndo true，canRedo false", () => {
-    const handlers = makeHandlers();
-    const { result } = renderHook(() => useAnnotationHistory("t1", handlers));
+    act(() => result.current.pushBatch([]));
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
     const cmd: Command = {
       kind: "update",
       annotationId: "a1",
@@ -104,18 +98,6 @@ describe("useAnnotationHistory · 栈状态机", () => {
     act(() => result.current.push(cmd));
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(false);
-  });
-
-  it("undo → canRedo true；redo → canUndo true", async () => {
-    const handlers = makeHandlers();
-    const { result } = renderHook(() => useAnnotationHistory("t1", handlers));
-    const cmd: Command = {
-      kind: "update",
-      annotationId: "a1",
-      before: { class_name: "old" } as any,
-      after: { class_name: "new" } as any,
-    };
-    act(() => result.current.push(cmd));
 
     await act(async () => {
       await result.current.undo();
@@ -157,32 +139,6 @@ describe("useAnnotationHistory · 栈状态机", () => {
       } as Command),
     );
     expect(result.current.canRedo).toBe(false);
-  });
-
-  it("pushBatch · 单条 → 不裹 batch", () => {
-    const handlers = makeHandlers();
-    const { result } = renderHook(() => useAnnotationHistory("t1", handlers));
-    act(() =>
-      result.current.pushBatch([
-        {
-          kind: "delete",
-          annotation: {
-            id: "d1",
-            annotation_type: "bbox",
-            class_name: "c",
-            geometry: { type: "bbox", x: 0, y: 0, w: 1, h: 1 },
-          } as any,
-        },
-      ]),
-    );
-    expect(result.current.canUndo).toBe(true);
-  });
-
-  it("pushBatch · 0 条 → 不入栈", () => {
-    const handlers = makeHandlers();
-    const { result } = renderHook(() => useAnnotationHistory("t1", handlers));
-    act(() => result.current.pushBatch([]));
-    expect(result.current.canUndo).toBe(false);
   });
 
   it("切任务 → 清栈", async () => {

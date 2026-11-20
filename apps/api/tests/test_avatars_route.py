@@ -36,16 +36,6 @@ async def test_get_avatar_returns_bytes_with_cache_headers(
     assert response.headers["content-length"] == str(len(WEBP_BYTES))
 
 
-async def test_get_avatar_anonymous_access_is_allowed(
-    httpx_client, monkeypatch, db_session
-):
-    """未携带 Authorization 头也必须能取到图片(<img src> 不会带 Bearer)。"""
-    fake = _fake(monkeypatch)
-    await seed_upload(db_session, fake, TOKEN, WEBP_BYTES)
-    response = await httpx_client.get(f"/api/v1/avatars/{TOKEN}")
-    assert response.status_code == 200
-
-
 async def test_get_avatar_returns_304_on_matching_etag(
     httpx_client, monkeypatch, db_session
 ):

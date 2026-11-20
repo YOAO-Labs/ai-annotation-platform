@@ -1,6 +1,7 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { openSelectedMaskEditor } from "../helpers/mask-selection";
-import { mergeTests, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
+import { json, waitForApiWrite } from "../helpers/api-response";
+import { mergeTests, type APIRequestContext, type Page } from "@playwright/test";
 import { expect, test as seedTest, type SeedAPI, type SeedData } from "../fixtures/seed";
 import { test as browserTest } from "../fixtures/raster-browser";
 
@@ -105,15 +106,6 @@ async function expectPyramidTileCoverage(page: Page): Promise<void> {
 
 function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
-}
-
-async function json<T>(response: APIResponse): Promise<T> {
-  if (!response.ok()) {
-    throw new Error(
-      `${response.request().method()} ${response.url()} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return (await response.json()) as T;
 }
 
 async function listAnnotations(
@@ -240,17 +232,12 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     await openMaskSettings(page);
     await expect(page.getByTestId("mask-toolbar")).toContainText("\u672a\u4fdd\u5b58");
 
-    const createResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations`) &&
-        response.request().method() === "POST" &&
-        response.status() === 201,
-    );
+    const createResponse = waitForApiWrite(page, "POST", `/tasks/${taskId}/annotations`);
     await closeMaskSettings(page);
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("class-picker-popover")).toBeVisible();
     await page.keyboard.press("Enter");
-    const created = await json<AnnotationDto>(await createResponse);
+    const created = await json<AnnotationDto>(await createResponse, 201);
     expect(created.annotation_type).toBe("raster_mask");
     expect(created.geometry.type).toBe("raster_mask");
     const firstContent = await getMaskContent(request, created.id, token);
@@ -266,11 +253,10 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     );
     await beginRasterEdit(page, created.id);
     await paintStroke(page, [0.62, 0.56], [0.7, 0.62]);
-    const updateResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations/${created.id}`) &&
-        response.request().method() === "PATCH" &&
-        response.ok(),
+    const updateResponse = waitForApiWrite(
+      page,
+      "PATCH",
+      `/tasks/${taskId}/annotations/${created.id}`,
     );
     await closeMaskSettings(page);
     await page.keyboard.press("Enter");
@@ -360,15 +346,14 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     await expect(toolbar).toContainText("\u672a\u4fdd\u5b58");
     await expect(toolbar.getByTitle("\u64a4\u9500\u7b14\u753b (Ctrl+Z)")).toBeEnabled();
 
-    const success = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations/${fixture.annotation_id}`) &&
-        response.request().method() === "PATCH" &&
-        response.ok(),
+    const success = waitForApiWrite(
+      page,
+      "PATCH",
+      `/tasks/${taskId}/annotations/${fixture.annotation_id}`,
     );
     await closeMaskSettings(page);
     await page.keyboard.press("Enter");
-    await success;
+    expect((await success).status()).toBe(200);
     expect(patchAttempts).toBe(2);
     expect(successfulMutations).toBe(1);
   });
@@ -494,11 +479,10 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     );
     await page.reload();
     await page.getByTestId(`box-list-item-${created.id}`).click();
-    const convertedResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotation-conversions:execute`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
+    const convertedResponse = waitForApiWrite(
+      page,
+      "POST",
+      `/tasks/${taskId}/annotation-conversions:execute`,
     );
     await page.getByRole("button", { name: "\u8f6c\u4e3a Mask" }).click();
     const dialog = page.getByRole("dialog", { name: "\u6807\u6ce8\u8f6c\u6362\u4e2d\u5fc3" });
@@ -560,11 +544,10 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
       )
       .toBe("raster_mask");
 
-    const convertedResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotation-conversions:execute`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
+    const convertedResponse = waitForApiWrite(
+      page,
+      "POST",
+      `/tasks/${taskId}/annotation-conversions:execute`,
     );
     await page.getByRole("button", { name: "\u8f6c\u4e3a\u77e2\u91cf\u51e0\u4f55" }).click();
     dialog = page.getByRole("dialog", { name: "\u6807\u6ce8\u8f6c\u6362\u4e2d\u5fc3" });
@@ -618,17 +601,12 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     await page.keyboard.press("m");
     await expect(page.getByTestId("mask-tool-capsule")).toBeVisible({ timeout: 10_000 });
     await paintStroke(page);
-    const createdResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations`) &&
-        response.request().method() === "POST" &&
-        response.status() === 201,
-    );
+    const createdResponse = waitForApiWrite(page, "POST", `/tasks/${taskId}/annotations`);
     await closeMaskSettings(page);
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("class-picker-popover")).toBeVisible();
     await page.keyboard.press("Enter");
-    const created = await json<AnnotationDto>(await createdResponse);
+    const created = await json<AnnotationDto>(await createdResponse, 201);
     expect(created.annotation_type).toBe("polygon");
     expect(created.geometry.type).toBe("polygon");
   });
@@ -730,15 +708,14 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     await expect(toolbar.getByTitle("撤销笔画 (Ctrl+Z)")).toBeEnabled();
     await expect.poll(async () => (await rasterResources(page))?.invariantOk).toBe(true);
 
-    const updateResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations/${annotationId}`) &&
-        response.request().method() === "PATCH" &&
-        response.ok(),
+    const updateResponse = waitForApiWrite(
+      page,
+      "PATCH",
+      `/tasks/${taskId}/annotations/${annotationId}`,
     );
     await closeMaskSettings(page);
     await page.keyboard.press("Enter");
-    await updateResponse;
+    expect((await updateResponse).status()).toBe(200);
     const saved = await getMaskContent(request, annotationId, token);
     expect(saved.size).toEqual([8192, 8192]);
     expect(saved.counts).not.toEqual(before.counts);

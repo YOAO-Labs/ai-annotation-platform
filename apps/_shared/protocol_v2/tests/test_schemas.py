@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 from yoao_protocol_v2 import (
     BatchPredictResponse,
     COMPAT_PROTOCOL_VERSIONS,
@@ -56,6 +57,9 @@ def test_prediction_result_defaults() -> None:
     assert r.result == []
     assert r.score is None
     assert r.diagnostic is None
+    assert r.cache_hit is None
+    assert r.model_load_ms is None
+    assert r.pool_state is None
 
 
 def test_tracker_context_control_contract() -> None:
@@ -110,8 +114,9 @@ def test_batch_predict_response_empty() -> None:
 
 
 def test_task_item_missing_file_path_rejects() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError) as exc:
         TaskItem(id="t1")  # type: ignore[call-arg]
+    assert exc.value.errors()[0]["loc"] == ("file_path",)
 
 
 def test_native_mask_interaction_fixture_contract() -> None:
@@ -149,8 +154,9 @@ def test_native_mask_preview_rejects_non_normalized_points() -> None:
     raw = json.loads(json.dumps(FIXTURE["candidate"]))
     raw["value"]["preview"]["points"][0] = [-0.1, 0.0]
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError) as exc:
         NativeMaskCandidate.model_validate(raw)
+    assert exc.value.errors()[0]["loc"] == ("value", "preview")
 
 
 def test_native_mask_candidate_id_binds_prompt_revision_and_index() -> None:
@@ -173,8 +179,9 @@ def test_native_mask_candidate_rejects_empty_foreground() -> None:
             "rle": {"encoding": "coco_rle", "size": [3, 4], "counts": [12]},
         },
     }
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError) as exc:
         NativeMaskCandidate.model_validate(payload)
+    assert exc.value.errors()[0]["loc"] == ("value",)
 
 
 def test_unsupported_output_diagnostic_accepts_bbox_capability() -> None:
@@ -194,50 +201,27 @@ def test_unsupported_output_diagnostic_accepts_bbox_capability() -> None:
     ],
 )
 def test_native_mask_rle_rejects_invalid_bounds(payload: dict) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         CocoRlePayload.model_validate(payload)
 
 
-def test_scribble_rejects_out_of_bounds_point() -> None:
-    with pytest.raises(Exception):
+@pytest.mark.parametrize(
+    ("polarity", "points", "location"),
+    [
+        (1, [[0.0, 0.0], [1.1, 0.5]], ("scribbles", 0)),
+        (True, [[0.0, 0.0], [0.5, 0.5]], ("scribbles", 0, "polarity")),
+    ],
+    ids=["out-of-bounds-point", "boolean-polarity"],
+)
+def test_scribble_rejects_invalid_stroke(polarity, points, location) -> None:
+    with pytest.raises(ValidationError) as exc:
         ScribblePrompt.model_validate(
-            {
-                "type": "scribble",
-                "scribbles": [
-                    {
-                        "polarity": 1,
-                        "points": [[0.0, 0.0], [1.1, 0.5]],
-                        "width": 0.01,
-                    }
-                ],
-            }
+            {"scribbles": [{"polarity": polarity, "points": points, "width": 0.01}]}
         )
-
-
-def test_scribble_rejects_boolean_polarity() -> None:
-    with pytest.raises(Exception):
-        ScribblePrompt.model_validate(
-            {
-                "type": "scribble",
-                "scribbles": [
-                    {
-                        "polarity": True,
-                        "points": [[0.0, 0.0], [0.5, 0.5]],
-                        "width": 0.01,
-                    }
-                ],
-            }
-        )
+    assert exc.value.errors()[0]["loc"] == location
 
 
 # ---------- 运行时状态与预热 ----------
-
-
-def test_prediction_result_v14_observability_defaults_none() -> None:
-    r = PredictionResult()
-    assert r.cache_hit is None
-    assert r.model_load_ms is None
-    assert r.pool_state is None
 
 
 def test_prediction_result_with_cache_hit_and_pool_state() -> None:
@@ -278,12 +262,13 @@ def test_pool_status_with_loaded_keys_and_evict() -> None:
 
 
 def test_evict_record_rejects_unknown_reason() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError) as exc:
         EvictRecord(
             key="k",
             at=datetime(2026, 6, 8, tzinfo=timezone.utc),
             reason="nope",  # type: ignore[arg-type]
         )
+    assert exc.value.errors()[0]["loc"] == ("reason",)
 
 
 def test_warmup_response_defaults() -> None:

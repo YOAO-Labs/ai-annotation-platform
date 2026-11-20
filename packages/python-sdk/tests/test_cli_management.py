@@ -1,9 +1,10 @@
 """Phase 2 资源管理 CLI 命令。"""
 
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 from yoao.cli.main import app
@@ -339,7 +340,14 @@ def test_dataset_destructive_commands(respx_mock):
     assert delete_route.called
 
 
-def test_dataset_unlink_previews_before_interactive_confirmation(respx_mock):
+@pytest.mark.parametrize(
+    ("confirm", "with_key"),
+    [("y", True), ("y", False), ("n", False)],
+    ids=["saved-key", "generated-key", "declined"],
+)
+def test_dataset_unlink_previews_before_interactive_confirmation(
+    respx_mock, confirm, with_key
+):
     preview_route = respx_mock.get(
         f"{API}/datasets/{DATASET_ID}/link/{PROJECT_ID}/preview-unlink"
     ).mock(
@@ -365,20 +373,34 @@ def test_dataset_unlink_previews_before_interactive_confirmation(respx_mock):
             },
         )
     )
-    result = runner.invoke(
-        app, ["datasets", "unlink", DATASET_ID, PROJECT_ID], input="y\n", env=ENV
+    args = ["datasets", "unlink", DATASET_ID, PROJECT_ID]
+    key = str(uuid4()) if with_key else None
+    if key:
+        args.extend(["--idempotency-key", key])
+    result = runner.invoke(app, args, input=f"{confirm}\n", env=ENV)
+    assert preview_route.call_count == 1
+    assert [call.request.method for call in respx_mock.calls] == (
+        ["GET", "DELETE"] if confirm == "y" else ["GET"]
     )
-    assert result.exit_code == 0
-    assert preview_route.called and unlink_route.called
     assert result.output.index("将删除") < result.output.index("确认取消关联")
+    if confirm == "n":
+        assert result.exit_code == 1, result.output
+        return
+    assert result.exit_code == 0, result.output
+    sent_key = unlink_route.calls.last.request.headers["Idempotency-Key"]
+    if key:
+        assert sent_key == key
+    else:
+        assert str(UUID(sent_key)) == sent_key
 
 
-def test_dataset_unlink_json_requires_yes():
+def test_dataset_unlink_json_requires_yes(respx_mock):
     result = runner.invoke(
         app, ["datasets", "unlink", DATASET_ID, PROJECT_ID, "--json"], env=ENV
     )
     assert result.exit_code == 2
     assert "--yes" in result.output
+    assert not respx_mock.calls
 
 
 def test_batches_create_update_and_force_delete(respx_mock):

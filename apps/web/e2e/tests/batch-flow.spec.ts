@@ -1,9 +1,5 @@
 /**
- * batch lifecycle E2E：smoke + 多角色串联。
- *
- * - smoke: super_admin 登录 → 项目设置页 200
- * - 多角色串联: annotator 提交（advance_task）→ reviewer 看到 /review 列表 →
- *   admin 在项目设置 → batches tab 看到批次 section（settings-tab-batches）。
+ * batch lifecycle E2E：annotator 提交 → reviewer 待审 → admin 进入项目批次设置。
  *
  * 走 _test_seed.advance_task 跳过 UI 提交链路，spec 重点在多角色登录跳转 +
  * 状态推进 + 关键页面元素可见。
@@ -11,14 +7,6 @@
 import { test, expect } from "../fixtures/seed";
 
 test.describe("batch lifecycle", () => {
-  test("super_admin 登录 → 项目设置页 200（smoke）", async ({ page, seed }) => {
-    const data = await seed.owned();
-    await seed.injectToken(page, data.admin_email);
-    await page.goto(`/projects/${data.project_id}/settings`);
-    await expect(page).toHaveURL(new RegExp(`/projects/${data.project_id}/settings`));
-    await page.waitForLoadState("networkidle");
-  });
-
   test("annotator 提交 → reviewer 待审 → admin 设置页 batches tab", async ({ page, seed }) => {
     const data = await seed.owned();
 

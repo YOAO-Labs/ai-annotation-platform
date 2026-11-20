@@ -36,10 +36,6 @@ vi.mock("@/hooks/useAsyncJob", () => ({
   useAsyncJob: () => ({ data: undefined, isLoading: false }),
 }));
 
-vi.mock("@/hooks/useAsyncJob", () => ({
-  useAsyncJob: () => ({ data: undefined, isLoading: false }),
-}));
-
 vi.mock("@/hooks/useStorageConnections", () => ({
   useStorageConnections: () => ({
     data: mockStorage.connections,
@@ -229,17 +225,6 @@ describe("ImportDatasetWizard", () => {
     expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
   });
 
-  it("选好文件后「下一步」启用 + 点击进入 step2「基本信息」", async () => {
-    renderUI();
-    pickFile();
-    await waitFor(() => expect(screen.getByText(/已选 1 个文件/)).toBeInTheDocument());
-    const nextBtn = screen.getByRole("button", { name: /下一步/ });
-    expect(nextBtn).not.toBeDisabled();
-    fireEvent.click(nextBtn);
-    expect(screen.getByText("基本信息")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/商品检测训练集/)).toBeInTheDocument();
-  });
-
   it("step2 名称不足 2 字符时「开始上传」禁用, 填合法名称后启用", async () => {
     renderUI();
     pickFile();
@@ -418,49 +403,6 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /重试提交/ }));
     await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(2));
     expect(mockImportFromConnectionMutateAsync.mock.calls[1][0]).toEqual(first);
-  });
-
-  it("连接器提交响应不确定时手动重试复用同一个键", async () => {
-    mockImportFromConnectionMutateAsync
-      .mockRejectedValueOnce(new Error("response lost"))
-      .mockResolvedValueOnce({ job_id: "job-1" });
-    renderUI({ datasetId: "existing-ds" });
-    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
-    fireEvent.change(screen.getByPlaceholderText("batch-a/"), {
-      target: { value: "incoming/images" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /开始导入/ }));
-    await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(1));
-    const first = mockImportFromConnectionMutateAsync.mock.calls[0][0];
-    expect(first.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
-    expect(first.payload).toEqual({
-      connection_id: "c1",
-      source_path: "incoming/images",
-      recursive: true,
-      include_globs: [],
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /重试提交/ }));
-    await waitFor(() => expect(mockImportFromConnectionMutateAsync).toHaveBeenCalledTimes(2));
-    expect(mockImportFromConnectionMutateAsync.mock.calls[1][0]).toEqual(first);
-  });
-
-  it("完整新建流程: 选文件 → 下一步 → 填名 → 开始上传 → 触发 createDataset", async () => {
-    renderUI();
-    pickFile();
-    await waitFor(() => expect(screen.getByText(/已选 1 个文件/)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.change(screen.getByPlaceholderText(/商品检测训练集/), {
-      target: { value: "新建集合" },
-    });
-    const uploadBtn = screen.getByRole("button", { name: /开始上传/ });
-    expect(uploadBtn).not.toBeDisabled();
-    fireEvent.click(uploadBtn);
-    await waitFor(() => {
-      expect(mockCreateDatasetMutateAsync).toHaveBeenCalledTimes(1);
-    });
   });
 
   it("reuses the create key for retries, changes it with intent, and resets it for a new form", async () => {

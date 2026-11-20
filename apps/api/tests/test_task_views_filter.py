@@ -13,7 +13,6 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.services.data_management.task_filters import _MAX_IN_VALUES, compile_filter
 from app.services.data_management.views import (
-    apply_sort,
     validate_columns,
     validate_filter,
     validate_sort,
@@ -56,11 +55,6 @@ def test_compile_filter_supported_rules(field, op, value):
         {"op": "and", "rules": [{"field": field, "op": op, "value": value}]}
     )
     assert isinstance(clause, ColumnElement)
-
-
-def test_compile_filter_empty_is_true():
-    # 空 filter 退化为恒真，列出全部任务。
-    assert isinstance(compile_filter({}), ColumnElement)
 
 
 def test_compile_filter_nested_and_or():
@@ -170,16 +164,6 @@ def test_validate_sort_rejects_unknown_field_and_direction():
     with pytest.raises(HTTPException) as exc:
         validate_sort([{"field": "task.status", "direction": "sideways"}])
     assert exc.value.status_code == 422
-
-
-def test_apply_sort_builds_order_by():
-    from sqlalchemy import select
-
-    from app.db.models.task import Task
-
-    q = apply_sort(select(Task), [{"field": "last_activity_at", "direction": "desc"}])
-    # order_by 子句应包含我们要求的列 + 末尾的 Task.id tiebreaker。
-    assert q._order_by_clauses  # noqa: SLF001 — 仅断言已挂上排序
 
 
 def test_validate_columns_allows_known_and_rejects_unknown():

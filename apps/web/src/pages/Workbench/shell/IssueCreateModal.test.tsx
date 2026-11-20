@@ -143,13 +143,6 @@ describe("IssueCreateModal", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("retains the frozen source frame and point in the submission snapshot", () => {
-    setup();
-    fillBody();
-    submit();
-    expect(requests[0].payload.anchor_position).toEqual({ x: 0.2, y: 0.4, frame: 3 });
-  });
-
   it("preserves form input and the same source frame after a failed mutation", () => {
     const view = setup();
     fireEvent.change(screen.getByPlaceholderText("一句话概括"), { target: { value: "检查边界" } });

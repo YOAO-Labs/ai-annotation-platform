@@ -1,8 +1,16 @@
 import js from "@eslint/js";
+import vitest from "@vitest/eslint-plugin";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
+import testContracts from "./scripts/eslint-test-contracts.mjs";
+
+const nativeDialogs = [
+  { name: "confirm", message: "用 @/components/ui/decisionDialog 的 confirmDialog 确认操作。" },
+  { name: "alert", message: "用 alertDialog 或行内字段错误展示提示。" },
+  { name: "prompt", message: "用 inputDialog 收集输入；嵌入浏览器可能静默拦截原生弹窗。" },
+];
 
 export default tseslint.config(
   {
@@ -47,33 +55,40 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
-  // Decision-dialog guardrail (plan docs/plans/1789527942 T4/Phase 4) —
-  // 原生阻塞对话框在嵌入 / 企业 / 自动化浏览器里会被静默拦截：prompt 已实际
-  // 造成整批退回不发请求（2ee3bc16），confirm 被拦会让破坏性操作变成静默 no-op。
-  // 确认 / 通知 / 原因输入一律走 @/components/ui/decisionDialog 的应用内决策弹窗。
-  // 只限 window.* 成员调用：少量同名局部 helper（如 FramePicker 的 confirm()）
-  // 不是浏览器对话框，裸全局调用暂不在此拦。beforeunload 原生确认不受影响。
+  {
+    files: ["{src,scripts}/**/*.test.{ts,tsx,mjs}"],
+    plugins: { vitest, "test-contracts": testContracts },
+    rules: {
+      "vitest/no-identical-title": "error",
+      "test-contracts/no-bare-expect": "error",
+    },
+  },
+  // Embedded browsers can silently discard native dialogs. Locally bound actions are fine.
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: ["src/**/*.test.{ts,tsx}", "src/**/__tests__/**/*.{ts,tsx}"],
     rules: {
+      "no-restricted-globals": ["error", ...nativeDialogs],
       "no-restricted-properties": [
         "error",
+        ...nativeDialogs.flatMap(({ name: property, message }) =>
+          ["window", "globalThis"].map((object) => ({ object, property, message })),
+        ),
+      ],
+    },
+  },
+  {
+    files: ["e2e/{tests,fixtures,helpers}/**/*.{ts,tsx,mjs}"],
+    plugins: { "test-contracts": testContracts },
+    rules: {
+      "test-contracts/no-response-status-filter": "error",
+      "no-restricted-syntax": [
+        "error",
         {
-          object: "window",
-          property: "confirm",
+          selector:
+            "ImportExpression[source.value=/^\\u002fsrc\\u002f/], ImportExpression[source.quasis.0.value.cooked=/^\\u002fsrc\\u002f/]",
           message:
-            "用 @/components/ui/decisionDialog 的 confirmDialog；原生 confirm 在部分嵌入浏览器会被拦截成静默 no-op。",
-        },
-        {
-          object: "window",
-          property: "alert",
-          message: "用 alertDialog 或行内字段错误；原生 alert 在部分嵌入浏览器会被吞掉。",
-        },
-        {
-          object: "window",
-          property: "prompt",
-          message: "用 inputDialog；原生 prompt 已被证明会被嵌入浏览器静默拦截（2ee3bc16）。",
+            "产品 E2E 操作已构建的应用，不从 Vite 的 /src/ 加载实现。源码 Worker 等专项放入 e2e/browser-integration。",
         },
       ],
     },

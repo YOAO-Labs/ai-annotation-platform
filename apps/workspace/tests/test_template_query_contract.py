@@ -87,7 +87,6 @@ def _wire(request):
 
 
 def test_row_projection_matches_verified_model_and_enrichment_columns():
-    assert len(TEMPLATE_ROW_COLUMNS) == 25
     assert TEMPLATE_RESPONSE_COLUMNS == TEMPLATE_ROW_COLUMNS + ("created_by_name",)
     assert TEMPLATE_ROW_COLUMNS == (
         "id",

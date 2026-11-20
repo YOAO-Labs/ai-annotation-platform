@@ -1,4 +1,5 @@
 import { expectStableContextCapsule, openContextToolbar } from "../fixtures/context-toolbar";
+import { waitForApiWrite } from "../helpers/api-response";
 import type { APIRequestContext, Page, Response } from "@playwright/test";
 
 import { expect, test } from "../fixtures/seed";
@@ -122,11 +123,10 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
     // 仅接受 A 的 F10-F15；B 与窗口外必须保持不变。
     await page.getByTestId("tracker-review-instance-B").uncheck();
     await setWindow(page, 10, 15);
-    const accepted = page.waitForResponse(
-      (response) => decisionResponse(response) && response.status() === 200,
-    );
+    const decisionPath = `/video-tracker-jobs/${fixture.job_id}/decisions` as const;
+    const accepted = waitForApiWrite(page, "POST", decisionPath);
     await page.getByTestId("tracker-review-accept").click();
-    await accepted;
+    expect((await accepted).status()).toBe(200);
     await expect(review).toContainText("已审 6/20");
     await expect(page.getByTestId("tracker-review-instance-A")).toBeChecked();
     await expect(page.getByTestId("tracker-review-instance-B")).not.toBeChecked();
@@ -157,11 +157,9 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
     await page.getByTestId("tracker-review-instance-A").uncheck();
     await page.getByTestId("tracker-review-instance-B").check();
     await setWindow(page, 10, 15);
-    const rejected = page.waitForResponse(
-      (response) => decisionResponse(response) && response.status() === 200,
-    );
+    const rejected = waitForApiWrite(page, "POST", decisionPath);
     await page.getByTestId("tracker-review-discard").click();
-    await rejected;
+    expect((await rejected).status()).toBe(200);
     await expect(review).toContainText("已审 12/20");
     await expect(page.getByTestId("tracker-review-instance-A")).not.toBeChecked();
     await expect(page.getByTestId("tracker-review-instance-B")).toBeChecked();

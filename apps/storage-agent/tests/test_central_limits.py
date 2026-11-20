@@ -93,14 +93,6 @@ def test_socket_never_sends_next_source_segment_after_pacing_crosses_expiry():
     assert clock.now == 1
 
 
-def test_closure_metadata_keeps_pacing_without_a_source_grant_deadline():
-    clock = Clock()
-    budget = Bandwidth(1024, clock=clock, sleep=clock.sleep)
-    conn = connection(clock, budget)
-    conn.request("POST", "/result", body=b"x" * 2048)
-    assert [at for at, _ in conn.sock.sent[1:]] == [0, 1]
-
-
 @pytest.mark.parametrize("local,central", [(4096, 1024), (1024, 4096)])
 def test_client_caps_both_result_metadata_and_image_requests(
     agent, command, local, central

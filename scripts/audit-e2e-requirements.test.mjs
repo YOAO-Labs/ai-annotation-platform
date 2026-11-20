@@ -134,26 +134,36 @@ test("docs-allowed skip flags cannot bypass a planned:true required suite", () =
   try {
     const bypass = auditE2ERequirements({
       requiredSuites: {
-        classification: "app-code",
-        reason: "legacy frozen gate membership",
-        suites: [{ suite: "smoke", planned: true, docsAllowedSkip: true }],
+        classification: "docs-only",
+        reason: "documentation update",
+        suites: [{ suite: "smoke", planned: true, docsAllowedSkip: true, reason: "docs only" }],
       },
       statusDir: dir,
     });
     assert.equal(bypass.ok, false);
-    assert.ok(bypass.blockers.some((row) => row.state === "invalid-manifest"));
+    assert.deepEqual(
+      bypass.blockers.map((row) => row.state),
+      ["invalid-manifest"],
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("CLI fails closed on unreadable artifacts and missing inputs", () => {
+test("CLI distinguishes missing arguments, manifest and status directory", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-audit-inputs-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const manifest = join(dir, "required.json");
+  const status = join(dir, "status");
   const stderr = [];
-  assert.equal(main([], { stderr: { write: (c) => stderr.push(c) } }), 2);
-  assert.equal(
-    main(["req.json", "missing-dir"], { stderr: { write: () => {} }, existsSync: () => false }),
-    2,
-  );
+  const io = { stderr: { write: (message) => stderr.push(message) } };
+  assert.equal(main([], io), 2);
+  assert.match(stderr.pop(), /usage:/);
+  assert.equal(main([manifest, status], io), 2);
+  assert.ok(stderr.pop().includes(manifest));
+  writeFileSync(manifest, "[]");
+  assert.equal(main([manifest, status], io), 2);
+  assert.ok(stderr.pop().includes(status));
 });
 
 test("audit rejects malformed completion artifacts fail-closed", () => {
@@ -210,11 +220,14 @@ test("array manifest cannot smuggle a docs-allowed skip (exact negative probe)",
   const dir = mkdtempSync(join(tmpdir(), "e2e-audit-array-bypass-"));
   try {
     const audit = auditE2ERequirements({
-      requiredSuites: [{ suite: "x", planned: false, docsAllowedSkip: true }],
+      requiredSuites: [{ suite: "x", planned: false, docsAllowedSkip: true, reason: "docs only" }],
       statusDir: dir,
     });
     assert.equal(audit.ok, false);
-    assert.ok(audit.blockers.every((row) => row.state === "invalid-manifest"));
+    assert.deepEqual(
+      audit.blockers.map((row) => row.state),
+      ["invalid-manifest"],
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

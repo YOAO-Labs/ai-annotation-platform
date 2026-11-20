@@ -163,21 +163,22 @@ def test_registered_preannotation_stdin_requires_confirmation_and_keeps_identity
     assert len(respx_mock.calls) == 1
 
 
-def test_registered_notification_preference_preserves_other_channels(respx_mock):
+@pytest.mark.parametrize("toast", [True, False])
+def test_registered_notification_preference_preserves_other_channels(respx_mock, toast):
     route = respx_mock.put(f"{API}/notification-preferences").mock(
         return_value=httpx.Response(200, json={"ok": True})
     )
     result = CliRunner().invoke(
         app,
         ["notifications", "update-preference", "--body", "-", "--json"],
-        input='{"type":"future-type","toast":false}',
+        input=json.dumps({"type": "future-type", "toast": toast}),
         env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == {"ok": True}
     assert json.loads(route.calls.last.request.content) == {
         "type": "future-type",
-        "toast": False,
+        "toast": toast,
     }
 
 

@@ -898,7 +898,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 保留顶层「扁平并集」字段，让现有 `useMLCapabilities` / 绑定校验在改造完成前零回归。模态派生升级为 **per-model 派生 + backend 汇总**：`task=tracker` 或 `supported_trackers` 非空 ⇒ video；几何含 `lidar_box_3d` / `point_mask_3d` ⇒ lidar（留位）；否则 ⇒ image（含 `supported_prompts=["none"]` 的批量模型）。backend `modalities` = 各 model modality 去重并集。
 
-`warnings` 是非阻断诊断列表，由平台校验规范化后的 `task` / `infra` / `supported_prompts` / `supported_geometric_outputs` 是否落在受控词表内后生成。每条包含 `{level, model_id, field, value, message}`。模型市场用它显示 `⚠ 协议 N`，帮助接入方发现字段拼写或枚举漂移；平台不会因此丢弃该 model。
+`warnings` 是非阻断诊断列表，由平台校验规范化后的 `task` / `infra` / `supported_prompts` / `supported_geometric_outputs` 是否落在受控词表内后生成。每条包含 `{level, model_id, field, value, message}`；可用它定位拼写或枚举漂移，平台不会因此丢弃该 model。当前模型目录不显示旧卡片的 `⚠ 协议 N` 徽标；要核对告警请读取诊断字段。
 
 #### 4.1.5 向后兼容规则
 
@@ -1259,7 +1259,7 @@ GET /api/v1/ml-capabilities/protocol
 }
 ```
 
-**消费方**：前端 `CapabilityCatalogPanel` 默认 `groupBy=task`，遍历 `tasks` 渲染 9 张协议卡；已注册 backend 的 model 按 `model.task` 字段挂载到对应卡下。无 backend 注册时协议卡仍可见（带「暂无接入」徽标 + 推荐 backend CTA），不再阻塞用户探索。
+**消费方**：[模型市场的协议能力页](../../user-guide/superadmin/model-market#协议能力)用 `tasks` 显示协议并打开技术详情，不依赖任何 backend 已注册。按任务显示的模型数量来自模型目录；未接入显示零，目录读取失败则显示数量暂不可用，而不是零。
 
 **维护流程**：`capability_registry.py` 是 task / infra / modality / geometry / prompt 的 SSOT。修改受控词表、响应 schema 或序列化后，运行：
 
@@ -1330,7 +1330,7 @@ cd ../.. && pnpm codegen
 }
 ```
 
-**前端消费**：`CapabilityCatalogPanel` 协议卡视图（默认 `groupBy=task`）按 `model.task` 把 instance.models 挂到 9 张协议卡上；子卡的「自带 / 已注册」徽标按该 backend 是否已被某个项目启用（即是否出现在 admin overview）判定——已启用记「已注册」并挂项目名，未接入任何已启用项目的平台内置 backend 记「自带」——而非直接取本端点的 `source` 字段（`source` 只区分 backend 是 env 自动注册还是 superadmin 手动注册）。
+**前端消费**：预标流水线库与项目类别配置使用实例能力清单。`source` 描述注册来源（环境自动注册或人工注册），不能据此断定项目已启用该模型。模型市场的模型目录读取 `/model-catalog`，不是用实例清单拼装项目可见目录。
 
 ---
 

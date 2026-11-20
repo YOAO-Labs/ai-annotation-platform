@@ -1,6 +1,8 @@
 """Exact native admission keeps logical members distinct and historical contracts honest."""
 
 from copy import deepcopy
+import hashlib
+import json
 import uuid
 
 import pytest
@@ -49,8 +51,17 @@ def test_identical_content_is_not_a_single_logical_member_and_order_is_irrelevan
     records = member_records(record)
     paths = [path for path in records if records[path]["split"] == "train"]
     accepted = observed_members(records, "train", paths[::-1])
-    assert len(accepted) == 2
-    assert accepted[0]["member_digest"] != accepted[1]["member_digest"]
+    expected = sorted(
+        (
+            row["task_id"],
+            hashlib.sha256(
+                json.dumps(row, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+        )
+        for row in original["samples"]
+        if row["split"] == "train"
+    )
+    assert sorted((r["task_id"], r["member_digest"]) for r in accepted) == expected
     record["samples"].reverse()
     assert contract_for(record) == contract_for(original)
     members = compact_members(records)
@@ -61,7 +72,6 @@ def test_identical_content_is_not_a_single_logical_member_and_order_is_irrelevan
         "train": 2,
         "val": 1,
     }
-    assert original == manifest()
 
 
 @pytest.mark.parametrize("change", ["missing", "extra", "duplicate", "wrong_split"])

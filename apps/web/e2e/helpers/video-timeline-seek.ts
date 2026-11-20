@@ -73,15 +73,3 @@ export function timelineClickX(frame: number, win: TimelineWindowRange, width: n
   if (ratio === 1) return width - 2;
   return ratio * width;
 }
-
-/**
- * 组件 `frameFromPointer` 的镜像：对实际落点像素预测应用将导航到的帧。
- * 浏览器输入量化到整数像素，端点附近的比例漂移可能改变取整结果；断言必须
- * 使用本函数对实际 x 的预测，而不是想当然的目标帧。
- */
-export function frameAtClickX(x: number, win: TimelineWindowRange, width: number): number {
-  const span = win.to - win.from;
-  if (!Number.isFinite(width) || width <= 0) throw new Error(`时间轴 shell 宽度不可用：${width}`);
-  if (span <= 0) throw new Error(`时间轴窗口 [${win.from}, ${win.to}] 退化，无法换算点击位置`);
-  return Math.max(win.from, Math.min(win.to, Math.round(win.from + (x / width) * span)));
-}

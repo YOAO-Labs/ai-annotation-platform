@@ -10,6 +10,7 @@
  * 这里补浏览器层的 guard UI 与 Enter 守卫闭环。
  */
 import { test, expect } from "../fixtures/seed";
+import { waitForApiWrite } from "../helpers/api-response";
 
 test.describe("mask session guard", () => {
   test("未涂抹时 Enter 不提交; 涂抹后 Enter 提交一次", async ({ page, seed }) => {
@@ -20,7 +21,7 @@ test.describe("mask session guard", () => {
       annotatorEmail: data.annotator_email,
     });
     await seed.injectToken(page, data.annotator_email);
-    await page.goto(`/projects/${data.project_id}/annotate`);
+    await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
     await page.waitForLoadState("networkidle");
 
     await page.keyboard.press("m");
@@ -60,19 +61,15 @@ test.describe("mask session guard", () => {
       )
         commitPostCount += 1;
     });
-    const commitPost = page.waitForResponse(
-      (resp) =>
-        /\/api\/v1\/(annotations|tasks\/[^/]+\/annotations)/.test(resp.url()) &&
-        resp.request().method() === "POST" &&
-        resp.status() < 400,
-      { timeout: 10_000 },
-    );
+    const commitPost = waitForApiWrite(page, "POST", `/tasks/${data.task_ids[0]}/annotations`, {
+      timeout: 10_000,
+    });
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("class-picker-popover")).toBeVisible();
     expect(commitPostCount).toBe(0);
     await page.keyboard.press("Enter");
     const resp = await commitPost;
-    expect(resp.status()).toBeLessThan(400);
+    expect(resp.status()).toBe(201);
     await page.waitForTimeout(500);
     expect(commitPostCount).toBe(1);
   });

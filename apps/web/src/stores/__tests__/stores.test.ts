@@ -60,11 +60,8 @@ describe("bugDrawerStore", () => {
     useBugDrawerStore.setState({ open: false, focusBugId: null });
   });
 
-  it("默认关闭", () => {
-    expect(useBugDrawerStore.getState().open).toBe(false);
-  });
-
   it("openDrawer 不带 id → 仅设 open", () => {
+    expect(useBugDrawerStore.getInitialState().open).toBe(false);
     useBugDrawerStore.getState().openDrawer();
     expect(useBugDrawerStore.getState().open).toBe(true);
     expect(useBugDrawerStore.getState().focusBugId).toBeNull();

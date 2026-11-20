@@ -120,7 +120,7 @@ def test_semantic_target_budget_fails_before_native_work():
         {
             "schema_id": schema["schema_id"],
             "schema_digest": schema["schema_digest"],
-            "values": {"batch": 2, "imgsz": 1280},
+            "values": {"batch": 2, "imgsz": 800},
         },
     )
     config = {
@@ -128,11 +128,13 @@ def test_semantic_target_budget_fails_before_native_work():
         "framework_version": "8.4.183",
         "adapter_revision": 2,
         "base_model": {"id": "yolo26x-seg"},
-        "classes": [str(index) for index in range(80)],
+        "classes": [str(index) for index in range(50)],
         "configuration": configuration,
         "parameters": {
             key: configuration["effective_values"][key] for key in CANONICAL
         },
     }
+    verify_frozen(config)  # 2 images × 50 classes × 800² = 64,000,000 elements.
+    config["classes"].append("50")
     with pytest.raises(ValueError, match="64000000"):
         verify_frozen(config)

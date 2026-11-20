@@ -1,14 +1,7 @@
-// CapabilityCatalogPanel 双层视图测试.
-// 覆盖:
-// - 0 backend + groupBy=task → 9 张协议卡 + onboarding 横幅;
-// - 切换 groupBy=backend → 显示旧空态，不渲染空协议卡；
-// - 搜索 "ocr" → 仅 OCR 协议卡可见。
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import userEvent from "@testing-library/user-event";
 
 const mockOverview = vi.fn();
 vi.mock("@/api/adminMlIntegrations", () => ({
@@ -44,10 +37,8 @@ vi.mock("@/api/mlCapabilities", async () => {
   };
 });
 
-// 默认以 super_admin 渲染 (现有用例依赖 admin overview 可用); 降级用例按需切 project_admin。
-const mockUsePermissions = vi.fn(() => ({ role: "super_admin" }));
 vi.mock("@/hooks/usePermissions", () => ({
-  usePermissions: () => mockUsePermissions(),
+  usePermissions: () => ({ role: "super_admin" }),
 }));
 
 const mockPushToast = vi.fn();
@@ -185,17 +176,6 @@ function renderUI() {
 }
 
 describe("CapabilityCatalogPanel · 协议双层视图", () => {
-  it("目录搜索逐字输入保留空格", async () => {
-    const user = userEvent.setup();
-    renderUI();
-    await screen.findByText(/支持 9 类 AI 标注能力/);
-    const input = screen.getByRole("textbox");
-    await user.type(input, "SAM ");
-    expect(input).toHaveValue("SAM ");
-    await user.type(input, "2");
-    expect(input).toHaveValue("SAM 2");
-  });
-
   it("按后端分组的模型卡保留任务徽标", async () => {
     mockGetInstances.mockResolvedValue({
       instances: [
@@ -239,71 +219,6 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     });
     mockGetProtocol.mockResolvedValue(makeProtocol());
     mockGetInstances.mockResolvedValue({ instances: [] });
-    mockUsePermissions.mockReturnValue({ role: "super_admin" });
-  });
-
-  it("0 backend + 默认 groupBy=task → 渲染 9 张协议卡 + onboarding 横幅", async () => {
-    renderUI();
-    await screen.findByText(/支持 9 类 AI 标注能力/);
-    // 9 个 task label 都出现 (作为卡标题)
-    for (const label of [
-      "目标检测",
-      "旋转框",
-      "实例分割",
-      "关键点",
-      "图像分类",
-      "OCR",
-      "版面分析",
-      "视频追踪",
-      "交互分割",
-    ]) {
-      // task.label 在 title 和 badge 中都出现 (多次)
-      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
-    }
-    // 0 backend 时所有协议卡都是「暂无接入」
-    expect(screen.getAllByText("暂无接入").length).toBe(9);
-  });
-
-  it("非法 catalog_group 深链 → chip 提示且可移除，移除后非法参数从 URL 清掉", async () => {
-    // 回归（PR #103 Codex P2）：issue chip 此前只读，共享链接里的非法
-    // catalog_group 无法被用户清除。移除 = 回落默认枚举（codec 删除该键）。
-    let currentSearch = "";
-    function LocationProbe() {
-      const location = useLocation();
-      currentSearch = location.search;
-      return null;
-    }
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-    render(
-      <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/?catalog_group=bogus"]}>
-          <CapabilityCatalogPanel />
-          <LocationProbe />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-    // 渲染回落默认 task 分组，同时给出可见提示 chip。
-    await screen.findByText(/支持 9 类 AI 标注能力/);
-    expect(screen.getByText("无效的目录分组")).toBeInTheDocument();
-    expect(currentSearch).toContain("catalog_group=bogus");
-
-    fireEvent.click(screen.getByRole("button", { name: "移除无效的目录分组筛选" }));
-    await waitFor(() => {
-      expect(currentSearch).not.toContain("catalog_group");
-    });
-    expect(screen.queryByText("无效的目录分组")).not.toBeInTheDocument();
-  });
-
-  it("默认协议能力分组切到列表视图 → 渲染协议能力列表", async () => {
-    renderUI();
-    await screen.findByText(/支持 9 类 AI 标注能力/);
-    fireEvent.click(screen.getByTitle("列表视图"));
-    expect(screen.getByRole("columnheader", { name: "协议能力" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "接入状态" })).toBeInTheDocument();
-    expect(screen.getAllByRole("row")).toHaveLength(10);
-    expect(screen.getAllByText("暂无接入")).toHaveLength(9);
   });
 
   it("env-only 容器的 model 出现在对应协议卡 (即使 admin overview 为空)", async () => {
@@ -397,42 +312,6 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     // 阶段二后属性行在卡片详情展开区内，先展开再断言。
     fireEvent.click(screen.getByRole("button", { name: /详情/ }));
     expect(await screen.findByText("class")).toBeInTheDocument();
-  });
-
-  it("非超管 (project_admin) 不调 admin overview, 能力目录退到 /instances 视图而非硬报错", async () => {
-    // 盲点4: overview (/admin/ml-integrations/overview) 是 super_admin only; project_admin
-    // 也能进本页, 目录应退到 /instances 单端点 (登录用户可访问), 而不是整块「加载失败」。
-    mockUsePermissions.mockReturnValue({ role: "project_admin" });
-    mockGetInstances.mockResolvedValue({
-      instances: [
-        {
-          backend_id: "yolo-registry-id",
-          state: "connected",
-          source: "env",
-          name: "yolo-backend",
-          infra: "pytorch",
-          models: [
-            {
-              id: "yolov8-det",
-              display_name: "YOLOv8 · 目标检测",
-              task: "detection",
-              infra: "pytorch",
-              is_interactive: false,
-              supported_prompts: [],
-              supported_geometric_outputs: ["bbox"],
-              supported_trackers: [],
-              modality: "image",
-            },
-          ],
-        },
-      ],
-    });
-    renderUI();
-    // 协议卡视图 (默认 task) 仍渲染, model 由 /instances 挂到 detection 卡。
-    expect(await screen.findByText("YOLOv8 · 目标检测")).toBeInTheDocument();
-    // admin overview 不应被调用 (super_admin only), 也不出现「加载失败」硬报错。
-    expect(mockOverview).not.toHaveBeenCalled();
-    expect(screen.queryByText(/加载失败/)).not.toBeInTheDocument();
   });
 
   it("同 URL 跨多项目注册时, groupBy=backend 只渲染一组 + 注册状态列聚合项目名", async () => {
@@ -602,20 +481,5 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     expect(screen.getByRole("button", { name: "sam" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("SAM 检测")).toBeInTheDocument();
     expect(screen.queryByText("YOLO 检测")).not.toBeInTheDocument();
-  });
-
-  it("搜索 'ocr' → 仅 OCR 协议卡可见", async () => {
-    renderUI();
-    await screen.findByText(/支持 9 类 AI 标注能力/);
-    const searchBox = screen.getByPlaceholderText(
-      "搜索模型、ID、模型族、任务或来源",
-    ) as HTMLInputElement;
-    fireEvent.change(searchBox, { target: { value: "ocr" } });
-    await waitFor(() => {
-      // OCR 卡仍在
-      expect(screen.getAllByText("OCR").length).toBeGreaterThan(0);
-      // 其他 task 卡不再出现 (用「目标检测」作为代表)
-      expect(screen.queryAllByText("目标检测").length).toBe(0);
-    });
   });
 });

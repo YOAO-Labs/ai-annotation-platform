@@ -7,7 +7,6 @@ description,以及 unsupported / malformed 的确定性篡改。需要主机提�
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 
 import numpy as np
@@ -29,11 +28,6 @@ _SAMPLE_KEYS = {
     "size_bytes",
     "offset_in_chunk",
 }
-
-
-def test_ffmpeg_prerequisites_are_available():
-    missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
-    assert not missing, f"WebCodecs fixture prerequisites missing: {', '.join(missing)}"
 
 
 def test_baseline_fixture_produces_production_shaped_samples(tmp_path):

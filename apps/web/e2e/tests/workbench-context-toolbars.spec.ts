@@ -1,5 +1,6 @@
 import { expect, test } from "../fixtures/seed";
 import { startAiRequestBackend } from "../fixtures/ai-request-backend";
+import { waitForApiWrite } from "../helpers/api-response";
 import {
   closeContextToolbar,
   expectStableContextCapsule,
@@ -85,11 +86,8 @@ test("secondary capsule preserves configuration and real child writes across col
 
     await page.getByTestId("secondary-settings-trigger").hover();
     await backend.hold();
-    const write = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/annotations/${parent.id}/secondary-inference`) &&
-        response.request().method() === "POST",
-    );
+    const inferencePath = `/tasks/${taskId}/annotations/${parent.id}/secondary-inference` as const;
+    const write = waitForApiWrite(page, "POST", inferencePath);
     await page.getByTestId("secondary-run").dblclick();
     await expect.poll(async () => (await backend.requests()).length).toBe(1);
     await expect(page.getByTestId("secondary-run")).toBeDisabled();
@@ -166,11 +164,9 @@ test("secondary capsule preserves configuration and real child writes across col
     await expect(page.getByTestId("secondary-prompt")).toHaveValue("");
     await page.getByTestId("secondary-prompt").fill("car");
     await backend.failNext();
-    const failed = page.waitForResponse(
-      (item) => item.url().endsWith("/secondary-inference") && item.status() === 503,
-    );
+    const failed = waitForApiWrite(page, "POST", inferencePath);
     await page.getByTestId("secondary-run").click();
-    await failed;
+    expect((await failed).status()).toBe(503);
     await expect(page.getByTestId("secondary-run")).toBeEnabled();
     await closeContextToolbar(page, "secondary");
     await expect(page.getByTestId("secondary-prompt")).toHaveValue("car");

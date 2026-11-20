@@ -15,11 +15,6 @@ describe("sessionVariantCache", () => {
     expect(isVariantHot("b1", { series: "yolo11", size: "s" })).toBe(false);
   });
 
-  it("markVariantHot 后同 variant 返回 true", () => {
-    markVariantHot("b1", { series: "yolo11", size: "s" });
-    expect(isVariantHot("b1", { series: "yolo11", size: "s" })).toBe(true);
-  });
-
   it("不同 variant 互不影响", () => {
     markVariantHot("b1", { series: "yolo11", size: "s" });
     expect(isVariantHot("b1", { series: "yolo11", size: "n" })).toBe(false);

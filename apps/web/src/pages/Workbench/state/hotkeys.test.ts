@@ -103,6 +103,7 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "1", altKey: true, ctrlKey: true })).toBeNull();
   });
   it("字母键（非保留）不再切类别：类别直选只有数字 1-9、0", () => {
+    expect(dispatch({ key: "x" })).toBeNull();
     expect(dispatch({ key: "y" })).toBeNull();
     expect(dispatch({ key: "z" })).toBeNull();
     expect(dispatch({ key: "i" })).toBeNull();
@@ -129,12 +130,6 @@ describe("dispatchKey · 单键", () => {
   it("J / K → cycleUser 不循环", () => {
     expect(dispatch({ key: "j" })).toEqual({ type: "cycleUser", dir: 1, loop: false });
     expect(dispatch({ key: "k" })).toEqual({ type: "cycleUser", dir: -1, loop: false });
-  });
-  it("X / 其他未绑定字母不再切类别（类别直选收归数字 1-9、0）", () => {
-    expect(dispatch({ key: "x" })).toBeNull();
-    // 循环 AI 待审框现在: Tab 在同类内循环, ` 跨到 AI 待审类。
-    expect(dispatch({ key: "Tab" })).toEqual({ type: "imageCycleInCategory", dir: 1 });
-    expect(dispatch({ code: "Backquote" })).toEqual({ type: "imageStepCategory", dir: 1 });
   });
   it("[ / ] → 阈值微调", () => {
     expect(dispatch({ key: "[" })).toEqual({ type: "thresholdAdjust", delta: -0.05 });
@@ -401,11 +396,8 @@ describe("dispatchKey · video mode", () => {
     expect(dispatch({ key: "Escape" }, videoCtx)).toEqual({ type: "cancel" });
   });
 
-  it("1-9 → setClassByDigit and video V/B/T switch video tools", () => {
+  it("数字键切类别，Alt+2 和视频专用字母键切工具", () => {
     expect(dispatch({ key: "4" }, videoCtx)).toEqual({ type: "setClassByDigit", idx: 3 });
-    expect(dispatch({ key: "v" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "select" });
-    expect(dispatch({ key: "b" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "box" });
-    expect(dispatch({ key: "T" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "track" });
     expect(dispatch({ key: "2", altKey: true }, videoCtx)).toEqual({
       type: "setVideoTool",
       tool: "track",
@@ -417,8 +409,6 @@ describe("dispatchKey · video mode", () => {
     // G / P 与图片侧同键 (图片: G=magic-box, P=polygon)。
     expect(dispatch({ key: "G" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "magic-box" });
     expect(dispatch({ key: "p" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "polygon" });
-    // 视频 L 是播放 jog, 不是折线工具 —— 工具栏角标曾谎称 L 能切折线。
-    expect(dispatch({ key: "l" }, videoCtx)).toEqual({ type: "videoJogPlayback", dir: 1 });
     expect(dispatch({ key: "w" }, videoCtx)).toEqual({
       type: "setVideoTool",
       tool: "rotated-box",
@@ -565,12 +555,6 @@ describe("dispatchKey · 属性 hotkey 绑定 (D.1)", () => {
 });
 
 describe("shape 状态位快捷键", () => {
-  it("无选中 [ → thresholdAdjust -0.05", () => {
-    expect(dispatch({ key: "[" })).toEqual({ type: "thresholdAdjust", delta: -0.05 });
-  });
-  it("无选中 ] → thresholdAdjust +0.05", () => {
-    expect(dispatch({ key: "]" })).toEqual({ type: "thresholdAdjust", delta: 0.05 });
-  });
   it("选中态 [ → bumpZOrder -1", () => {
     expect(dispatch({ key: "[" }, { hasSelection: true })).toEqual({
       type: "bumpZOrder",

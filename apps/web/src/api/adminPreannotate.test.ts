@@ -5,34 +5,37 @@ import { adminPreannotateApi, type PreannotateQueueItem } from "./adminPreannota
 vi.mock("./client", () => ({ apiClient: { get: vi.fn() } }));
 beforeEach(() => vi.mocked(apiClient.get).mockReset());
 
+const history: PreannotateQueueItem[] = Array.from({ length: 201 }, (_, index) => ({
+  batch_id: `batch-${index}`,
+  batch_name: `Batch ${index}`,
+  batch_status: "pre_annotated",
+  project_id: "project-one",
+  project_name: "Image review",
+  total_tasks: 10,
+  prediction_count: 7,
+  failed_count: index === 0 ? 2 : 0,
+  can_retry: index === 0,
+}));
+
 describe("project preannotation history", () => {
-  it("reads every page for the selected project with request cancellation", async () => {
-    const first = Array.from(
-      { length: 200 },
-      (_, index) => ({ batch_id: `batch-${index}` }) as PreannotateQueueItem,
-    );
-    const last = { batch_id: "last" } as PreannotateQueueItem;
+  it("keeps every batch in order, including mixed successes and failures across pages", async () => {
     vi.mocked(apiClient.get)
-      .mockResolvedValueOnce({ items: first })
-      .mockResolvedValueOnce({ items: [last] });
+      .mockResolvedValueOnce({ items: structuredClone(history.slice(0, 200)) })
+      .mockResolvedValueOnce({ items: structuredClone(history.slice(200)) });
     const controller = new AbortController();
     const response = await adminPreannotateApi.projectQueue("project-one", controller.signal);
-    expect(response.items).toHaveLength(201);
-    expect(response.items[response.items.length - 1]).toEqual(last);
-    expect(apiClient.get).toHaveBeenNthCalledWith(
-      1,
-      "/admin/preannotate-queue?limit=200&project_id=project-one",
-      { signal: controller.signal },
-    );
-    expect(apiClient.get).toHaveBeenNthCalledWith(
-      2,
-      "/admin/preannotate-queue?limit=200&project_id=project-one&offset=200",
-      { signal: controller.signal },
-    );
+    expect(response.items).toEqual(history);
+    expect(vi.mocked(apiClient.get).mock.calls).toEqual([
+      ["/admin/preannotate-queue?limit=200&project_id=project-one", { signal: controller.signal }],
+      [
+        "/admin/preannotate-queue?limit=200&project_id=project-one&offset=200",
+        { signal: controller.signal },
+      ],
+    ]);
   });
   it("does not mistake a failed continuation for a complete collection", async () => {
     vi.mocked(apiClient.get)
-      .mockResolvedValueOnce({ items: Array.from({ length: 200 }, () => ({})) })
+      .mockResolvedValueOnce({ items: history.slice(0, 200) })
       .mockRejectedValueOnce(new Error("continuation failed"));
     await expect(adminPreannotateApi.projectQueue("project-one")).rejects.toThrow(
       "continuation failed",

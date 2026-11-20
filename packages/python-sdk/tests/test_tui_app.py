@@ -32,7 +32,7 @@ from yoao.tui.app import (
     ProjectDetailScreen,
 )
 
-from .conftest import BASE
+from .conftest import API, BASE
 from .support_tui import (
     JOB_ID,
     _StubClient,
@@ -396,8 +396,45 @@ async def test_action_bar_open_button_pushes_project_detail():
         assert isinstance(app.screen, ProjectDetailScreen)
 
 
-async def test_dataset_detail_loads_items_and_linked_projects():
-    app = _make_app()
+async def test_dataset_detail_loads_items_and_linked_projects(client, respx_mock):
+    dataset = _dataset()
+    project = _project().model_dump(mode="json") | {
+        "display_id": "P-linked",
+        "name": "linked-only",
+    }
+    root = f"{API}/datasets/{dataset.id}"
+    respx_mock.get(f"{API}/datasets").respond(
+        200,
+        json={
+            "items": [dataset.model_dump(mode="json")],
+            "total": 1,
+            "limit": 50,
+            "offset": 0,
+        },
+    )
+    respx_mock.get(f"{root}/items").respond(
+        200,
+        json={
+            "items": [
+                {
+                    "id": str(uuid4()),
+                    "dataset_id": str(dataset.id),
+                    "file_name": "detail.jpg",
+                    "file_path": "images/detail.jpg",
+                    "file_type": "image/jpeg",
+                    "width": 19,
+                    "height": 7,
+                }
+            ],
+            "total": 1,
+            "limit": 50,
+            "offset": 0,
+        },
+    )
+    respx_mock.get(f"{root}/projects").respond(200, json=[project])
+    shell = _StubClient([], [], [JobPage(items=[], total=0)])
+    shell.datasets = client.datasets
+    app = TuiApp(shell, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         app.query_one("#tabs", TabbedContent).active = "tab-datasets"
@@ -406,8 +443,10 @@ async def test_dataset_detail_loads_items_and_linked_projects():
         await pilot.press("enter")
         await _settle_screen(app, pilot)
         assert isinstance(app.screen, DatasetDetailScreen)
-        assert app.screen.query_one("#dd-items-table", DataTable).row_count == 1
-        assert app.screen.query_one("#dd-projects-table", DataTable).row_count == 0
+        item = app.screen.query_one("#dd-items-table", DataTable).get_row_at(0)
+        assert (item[0], item[3]) == ("detail.jpg", "19×7")
+        linked = app.screen.query_one("#dd-projects-table", DataTable).get_row_at(0)
+        assert linked[:2] == ["P-linked", "linked-only"]
 
 
 async def test_batch_detail_and_project_pool_tab():

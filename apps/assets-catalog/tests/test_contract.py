@@ -11,7 +11,6 @@ from yoao_assets_catalog.contract import (
     CATALOG_SCHEMA,
     CatalogFailure,
     CatalogItem,
-    CreateDatasetRequest,
     DatasetPatch,
     DatasetMutationResult,
     DatasetPage,
@@ -59,19 +58,6 @@ def test_dataset_patch_preserves_omitted_and_explicit_null_fields() -> None:
         "axis_convention": None,
     }
     assert DatasetPatch(name="renamed").native_payload() == {"name": "renamed"}
-
-
-def test_create_native_payload_contains_defaults_but_not_transport_identity() -> None:
-    request = CreateDatasetRequest(
-        operation_id=uuid4(), actor_id=uuid4(), name="sample"
-    )
-    assert request.native_payload() == {
-        "name": "sample",
-        "description": "",
-        "data_type": "image",
-        "is_temporal": False,
-        "axis_convention": None,
-    }
 
 
 def test_success_reply_decodes_exact_typed_branch() -> None:

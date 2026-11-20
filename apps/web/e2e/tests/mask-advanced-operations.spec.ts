@@ -1,12 +1,7 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { openSelectedMaskEditor } from "../helpers/mask-selection";
-import {
-  mergeTests,
-  type APIRequestContext,
-  type APIResponse,
-  type Page,
-  type Response,
-} from "@playwright/test";
+import { json, waitForApiWrite } from "../helpers/api-response";
+import { mergeTests, type APIRequestContext, type Page } from "@playwright/test";
 import { expect, test as seedTest, type SeedAPI, type SeedData } from "../fixtures/seed";
 import { test as browserTest } from "../fixtures/raster-browser";
 
@@ -43,13 +38,6 @@ interface AnnotationDto {
 
 function auth(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
-}
-
-async function json<T>(response: APIResponse | Response): Promise<T> {
-  if (!response.ok()) {
-    throw new Error(`${response.url()} failed: ${response.status()} ${await response.text()}`);
-  }
-  return (await response.json()) as T;
 }
 
 async function annotations(
@@ -312,14 +300,13 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     await clickPixel(page, 20, 20);
     await expect(toolbar).toContainText("面积 32→16");
     await applyPreview(page);
-    const savedResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/${fixture.annotation_id}`) &&
-        response.request().method() === "PATCH" &&
-        response.ok(),
+    const savedResponse = waitForApiWrite(
+      page,
+      "PATCH",
+      `/tasks/${taskId}/annotations/${fixture.annotation_id}`,
     );
     await toolbar.getByTestId("mask-primary-action").click();
-    await savedResponse;
+    expect((await savedResponse).status()).toBe(200);
     expect(foregroundArea(await maskContent(request, fixture.annotation_id, token))).toBe(16);
   });
 
@@ -388,11 +375,8 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     );
     expect(bumped.ok(), await bumped.text()).toBe(true);
 
-    const conflicted = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/mask-mutations:commit`) &&
-        response.request().method() === "POST",
-    );
+    const commitPath = `/tasks/${taskId}/annotations/mask-mutations:commit` as const;
+    const conflicted = waitForApiWrite(page, "POST", commitPath);
     await toolbar.getByTestId("mask-primary-action").click();
     const conflictResponse = await conflicted;
     expect(conflictResponse.status()).toBe(409);
@@ -401,12 +385,7 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
 
     await toolbar.getByTestId("mask-primary-action").click();
     await expect(toolbar).toContainText("1 个来源 → 3 个结果", { timeout: 15_000 });
-    const committed = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/mask-mutations:commit`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
-    );
+    const committed = waitForApiWrite(page, "POST", commitPath);
     await toolbar.getByTestId("mask-primary-action").click();
     const body = await json<{
       created_annotations: Array<{ id: string }>;
@@ -450,11 +429,10 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     await expect(page.locator('[role="menu"]:visible')).toHaveCount(0);
     await expect(toolbar).toContainText("2 个来源 → 1 个结果");
     await expect(toolbar).toContainText("保留 2 个来源");
-    const joined = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/mask-mutations:commit`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
+    const joined = waitForApiWrite(
+      page,
+      "POST",
+      `/tasks/${taskId}/annotations/mask-mutations:commit`,
     );
     await toolbar.getByTestId("mask-primary-action").click();
     const joinBody = await json<{
@@ -537,14 +515,13 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     // 起笔点 (50,8) 在浮动选择面板 (fixed, 默认停靠右上, 覆盖画布图片内 x>=51 区域)
     // 之外: 落点被浮层截获时 mousedown 不会到达画布, 整笔无声丢失且不置 dirty。
     await paintStroke(page, [50, 8], [55, 13]);
-    const saved = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/${primary.annotation_id}`) &&
-        response.request().method() === "PATCH" &&
-        response.ok(),
+    const saved = waitForApiWrite(
+      page,
+      "PATCH",
+      `/tasks/${taskId}/annotations/${primary.annotation_id}`,
     );
     await toolbar.getByTestId("mask-primary-action").click();
-    await saved;
+    expect((await saved).status()).toBe(200);
     await expect(toolbar.getByTestId("mask-primary-action")).toHaveText("已保存");
     expect(await maskContent(request, sameClass.annotation_id, token)).toEqual(sameBefore);
     expect(await maskContent(request, otherClass.annotation_id, token)).toEqual(otherBefore);
@@ -556,11 +533,10 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     await strictToolbar.getByTestId("mask-primary-action").click();
     const confirm = page.getByRole("alertdialog");
     await expect(confirm).toContainText("确认删除 1 个 Mask 实例");
-    const committed = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/mask-mutations:commit`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
+    const committed = waitForApiWrite(
+      page,
+      "POST",
+      `/tasks/${taskId}/annotations/mask-mutations:commit`,
     );
     await confirm.getByRole("button", { name: "确认删除并提交" }).click();
     const body = await json<{ deleted_annotation_ids: string[] }>(await committed);

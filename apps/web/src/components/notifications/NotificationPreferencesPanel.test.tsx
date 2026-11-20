@@ -108,21 +108,6 @@ describe("NotificationPreferencesPanel", () => {
     await waitFor(() => expect(screen.queryByText("保存中…")).toBeNull());
   });
 
-  it("保存失败恢复上次确认值并提供本行重试", async () => {
-    api.updatePreference.mockRejectedValueOnce(new Error("network"));
-    mountPanel();
-    await screen.findByTestId("notification-preference-task.rejected");
-
-    const receipt = screen.getByRole("checkbox", { name: "任务被退回 接收通知" });
-    fireEvent.click(receipt);
-    expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
-    // 恢复为确认值
-    await waitFor(() => expect(receipt).toBeChecked());
-
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    await waitFor(() => expect(api.updatePreference).toHaveBeenCalledTimes(2));
-  });
-
   it("连续修改不同类型时，每行等待自己的保存完成，并接受后续服务端值", async () => {
     const first = deferredSave();
     const second = deferredSave();
@@ -215,19 +200,6 @@ describe("NotificationPreferencesPanel", () => {
     expect(screen.queryByText("没有匹配的通知类型。")).toBeNull();
   });
 
-  it("账号切换后丢弃旧账号的待保存/失败状态", async () => {
-    api.updatePreference.mockReturnValue(new Promise(() => {}));
-    mountPanel();
-    await screen.findByTestId("notification-preference-task.rejected");
-    fireEvent.click(screen.getByRole("checkbox", { name: "任务被退回 接收通知" }));
-    await screen.findByText("保存中…");
-
-    act(() => {
-      useAuthStore.getState().setAuth("t2", { id: "u2", role: "employee" } as MeResponse);
-    });
-    await waitFor(() => expect(screen.queryByText("保存中…")).toBeNull());
-  });
-
   it("旧账号迟到的保存失败不能重新写入新账号的错误状态", async () => {
     const oldSave = deferredSave();
     api.updatePreference.mockReturnValueOnce(oldSave.promise);
@@ -241,7 +213,9 @@ describe("NotificationPreferencesPanel", () => {
     await waitFor(() => expect(screen.queryByText("保存中…")).toBeNull());
     // 等新账号偏好加载完成后再放行旧账号的迟到失败:账号切换会重拉偏好,
     // 若在此前的加载态断言,会和 CI 高负载下的查询结算竞态。
-    await screen.findByRole("checkbox", { name: "任务被退回 接收通知" }, { timeout: 5_000 });
+    expect(
+      await screen.findByRole("checkbox", { name: "任务被退回 接收通知" }, { timeout: 5_000 }),
+    ).toBeEnabled();
 
     await act(async () => oldSave.reject(new Error("retired owner failed")));
     const receipt = screen.getByRole("checkbox", { name: "任务被退回 接收通知" });

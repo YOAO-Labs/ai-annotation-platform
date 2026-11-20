@@ -2,9 +2,7 @@
 
 import pytest
 
-from app.services import export_media_removal_accounting as version_removal
 from app.services import key_removal_accounting as removal
-from app.services import object_removal_accounting
 from tests.test_export_media_removal_accounting import KEY, MemoryRecorder, Provider
 
 
@@ -170,9 +168,3 @@ def test_intent_failure_precedes_snapshot_and_actual_delete():
     with pytest.raises(OSError, match="intent failed"):
         removal.Observation(rec, client, KEY)
     assert client.calls == []
-
-
-def test_protocol_reuses_existing_recorder_factory_and_finish():
-    assert removal.Recorder is version_removal.Recorder
-    assert removal.finish is version_removal.finish
-    assert removal.recorder is object_removal_accounting.recorder

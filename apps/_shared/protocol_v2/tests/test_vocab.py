@@ -27,12 +27,15 @@ def test_infra_values_immutable_tuple() -> None:
     assert "other" in INFRA_VALUES
 
 
-def test_geometry_values_cover_yolo_outputs() -> None:
-    """yolo det/seg/pose/obb 四 task 输出几何必须在受控词表内."""
-    assert "bbox" in GEOMETRY_VALUES
-    assert "polygon" in GEOMETRY_VALUES
-    assert "keypoint" in GEOMETRY_VALUES
-    assert "rotated_bbox" in GEOMETRY_VALUES
+def test_default_geometry_for_yolo_outputs() -> None:
+    for task, geometry in (
+        ("detect", "bbox"),
+        ("obb", "rotated_bbox"),
+        ("segment", "polygon"),
+        ("pose", "keypoint"),
+    ):
+        assert TASK_DEFAULT_GEOMETRY[task] == (geometry,)
+        assert geometry in GEOMETRY_VALUES
 
 
 def test_prompt_values_include_none_for_batch_only() -> None:

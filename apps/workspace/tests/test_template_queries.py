@@ -8,7 +8,6 @@ import pytest
 
 from yoao_workspace.template_query_contract import (
     TEMPLATE_QUERY_PROTOCOL,
-    TEMPLATE_ROW_COLUMNS,
     TemplateQueryUnavailable,
     template_query_request,
 )
@@ -368,7 +367,3 @@ async def test_mismatched_native_echo_is_unavailable_before_creator_name():
 
     assert [call[0] for call in transaction.calls] == ["list_rows"]
     assert transaction.creator_calls == []
-
-
-def test_workspace_row_column_constant_is_the_fixed_owner_projection():
-    assert len(TEMPLATE_ROW_COLUMNS) == 25

@@ -155,6 +155,7 @@ describe("AdminPeoplePage", () => {
       await act(async () => vi.advanceTimersByTime(100));
       fireEvent.change(input, { target: { value: "Alice" } });
       fireEvent.click(screen.getByRole("button", { name: "标注员" }));
+      expect(params().get("role")).toBe("annotator");
       await act(async () => vi.advanceTimersByTime(249));
       expect(params().get("q")).toBe("restored");
       await act(async () => vi.advanceTimersByTime(1));
@@ -234,18 +235,6 @@ describe("AdminPeoplePage", () => {
     });
     renderUI();
     expect(screen.getByText(/退回率 20%/)).toBeInTheDocument();
-  });
-
-  it("点击角色筛选按钮更新 URL 参数", () => {
-    mockUseAdminPeople.mockReturnValue({
-      data: { items: [], total: 0, period: "7d" },
-      isLoading: false,
-    });
-    renderUI();
-    const annotatorBtn = screen.getByRole("button", { name: "标注员" });
-    fireEvent.click(annotatorBtn);
-    // 筛选按钮触发后, useAdminPeople 会被以新参数调用
-    expect(mockUseAdminPeople).toHaveBeenCalled();
   });
 
   it("点击卡片打开个人抽屉", () => {

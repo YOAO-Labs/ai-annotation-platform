@@ -1,210 +1,62 @@
-/**
- * CreateProjectWizard 单测
- * 覆盖: 初始渲染 step1 / step1 名称校验 / step1→2→3→4 推进 / step4 提交触发 mutation /
- *       提交成功进入 step5 / sourceProjectId 复制模式横幅
- */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ComponentProps } from "react";
+import type { ProjectCreatePayload } from "@/api/projects";
+import { projectTemplatesApi } from "@/api/projectTemplates";
+import { server } from "@/mocks/server";
 import * as stageColors from "@/pages/Workbench/stage/colors";
-
-const mockCreateProjectMutate = vi.fn();
-const mockCreateProjectReset = vi.fn();
-const mockPushToast = vi.fn();
-const mockProjectsApiGet = vi.fn();
-const mockProjectTemplatesApiGet = vi.fn();
-
-vi.mock("@/hooks/useProjects", () => ({
-  useCreateProject: () => ({
-    mutate: mockCreateProjectMutate,
-    reset: mockCreateProjectReset,
-    isPending: false,
-  }),
-  useAddProjectMember: () => ({ mutateAsync: vi.fn(), isPending: false }),
-}));
-
-vi.mock("@/api/projects", async () => {
-  const actual = await vi.importActual<any>("@/api/projects");
-  return {
-    ...actual,
-    projectsApi: {
-      ...actual.projectsApi,
-      get: (...args: unknown[]) => mockProjectsApiGet(...args),
-    },
-  };
-});
-
-vi.mock("@/api/projectTemplates", async () => {
-  const actual = await vi.importActual<any>("@/api/projectTemplates");
-  return {
-    ...actual,
-    projectTemplatesApi: {
-      ...((actual as any).projectTemplatesApi ?? {}),
-      get: (...args: unknown[]) => mockProjectTemplatesApiGet(...args),
-    },
-  };
-});
-
-vi.mock("@/api/adminMlIntegrations", () => ({
-  adminMlIntegrationsApi: {
-    listAll: vi.fn().mockResolvedValue([]),
-  },
-}));
-
-// Step5 / Step6 use datasetsApi / usersApi — mock those hooks/apis used by subcomponents
-vi.mock("@/hooks/useDatasets", () => ({
-  useDatasets: () => ({ data: { items: [] } }),
-  useLinkProject: () => ({ mutate: vi.fn(), isPending: false }),
-}));
-
-vi.mock("@/hooks/useBatches", () => ({
-  useSplitBatches: () => ({ mutateAsync: vi.fn(), isPending: false }),
-}));
-
-vi.mock("@/hooks/useUsers", () => ({
-  useUsers: () => ({ data: [] }),
-}));
-
-vi.mock("@/components/ui/Toast", async () => {
-  const actual = await vi.importActual<any>("@/components/ui/Toast");
-  return {
-    ...actual,
-    useToastStore: <T,>(sel: (s: any) => T) => sel({ push: mockPushToast }),
-  };
-});
-
+import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
+import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
+import { renderWithProviders } from "@/test/renderWithProviders";
 import { CreateProjectWizard } from "./CreateProjectWizard";
 
-function renderUI(props: Partial<React.ComponentProps<typeof CreateProjectWizard>> = {}) {
-  const defaults = {
-    open: true,
-    onClose: vi.fn(),
-  };
-  return render(
-    <MemoryRouter>
-      <CreateProjectWizard {...defaults} {...props} />
-    </MemoryRouter>,
-  );
+function renderUI(props: Partial<ComponentProps<typeof CreateProjectWizard>> = {}) {
+  return renderWithProviders(<CreateProjectWizard open onClose={vi.fn()} {...props} />);
 }
 
 describe("CreateProjectWizard", () => {
-  afterEach(() => vi.restoreAllMocks());
+  const creates: ProjectCreatePayload[] = [];
 
   beforeEach(() => {
-    mockCreateProjectMutate.mockReset();
-    mockCreateProjectReset.mockReset();
-    mockPushToast.mockReset();
-    mockProjectsApiGet.mockReset().mockResolvedValue({
-      id: "src1",
-      name: "Source",
-      type_key: "image-det",
-      data_type: "image",
-      ai_enabled: false,
-      classes: [],
-      classes_config: {},
-      tool_bindings: {},
-    });
-    mockProjectTemplatesApiGet.mockReset().mockResolvedValue({
-      id: "t1",
-      name: "Template",
-      type_key: "image-det",
-      data_type: "image",
-      ai_enabled: false,
-      classes: [],
-      classes_config: {},
-      tool_bindings: {},
-    });
-  });
-
-  it("初始渲染: 显示「新建项目」标题 + step1 表单 + 下一步按钮禁用", () => {
-    renderUI();
-    expect(screen.getByText("新建项目")).toBeInTheDocument();
-    // Step1 内容
-    expect(screen.getByPlaceholderText(/智能门店货架/)).toBeInTheDocument();
-    const nextBtn = screen.getByRole("button", { name: /下一步/ });
-    expect(nextBtn).toBeDisabled();
-  });
-
-  it("step1 名称 1 字符时「下一步」仍禁用", () => {
-    renderUI();
-    fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
-      target: { value: "A" },
-    });
-    expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
-  });
-
-  it("step1 填入有效名称后「下一步」启用并点击进入 step2", () => {
-    renderUI();
-    fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
-      target: { value: "测试项目名称" },
-    });
-    const nextBtn = screen.getByRole("button", { name: /下一步/ });
-    expect(nextBtn).not.toBeDisabled();
-    fireEvent.click(nextBtn);
-    // step2 — 类别步骤
-    expect(screen.getByText("类别")).toBeInTheDocument();
-  });
-
-  it("step1→2→3→4 逐步推进, step4 显示「创建」按钮", () => {
-    renderUI();
-    // step1 → step2
-    fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
-      target: { value: "完整流程项目" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // step2 → step3
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // step3 → step4
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // step4: 「创建」按钮出现
-    expect(screen.getByRole("button", { name: /^创建$/ })).toBeInTheDocument();
-  });
-
-  it("step4 点「创建」→ 调用 createProject.mutate", () => {
-    renderUI();
-    // 快速推进到 step4
-    fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
-      target: { value: "提交测试项目" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^创建$/ }));
-    expect(mockCreateProjectMutate).toHaveBeenCalledTimes(1);
-    const payload = mockCreateProjectMutate.mock.calls[0][0];
-    expect(payload.name).toBe("提交测试项目");
-  });
-
-  it("提交成功后 onSuccess 回调显示 step5 (数据集步骤)", async () => {
-    renderUI();
-    fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
-      target: { value: "成功回调项目" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^创建$/ }));
-
-    // 模拟 mutate onSuccess 回调
-    const onSuccess = mockCreateProjectMutate.mock.calls[0][1]?.onSuccess;
-    if (onSuccess) {
-      await onSuccess({
-        id: "p-new",
-        display_id: "P-100",
-        name: "成功回调项目",
-        type_key: "image-det",
-        data_type: "image",
-      });
-    }
-    await waitFor(() =>
-      expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ kind: "success" })),
+    creates.length = 0;
+    resetUnexpectedApiRequests();
+    seedAuthUser(createTestUser({ role: "project_admin" }));
+    server.use(
+      http.post("*/api/v1/projects", async ({ request }) => {
+        const body = (await request.json()) as ProjectCreatePayload;
+        creates.push(body);
+        return HttpResponse.json({ ...body, id: "p-new", display_id: "P-1" }, { status: 201 });
+      }),
+      http.get("*/api/v1/datasets", () => HttpResponse.json({ items: [], total: 0 })),
     );
   });
 
-  it("sourceProjectId 给定时显示「复制项目配置」横幅", async () => {
-    renderUI({ sourceProjectId: "src1" });
-    await waitFor(() => expect(screen.getByText(/已用源项目配置预填表单/)).toBeInTheDocument());
-    expect(screen.getByText("复制项目配置")).toBeInTheDocument();
+  afterEach(() => {
+    cleanup();
+    resetAuthUser();
+    vi.restoreAllMocks();
+    expectNoUnexpectedApiRequests();
+  });
+
+  it("名称边界：空白和一个字符不能继续，两个非空字符可以无来源创建", async () => {
+    renderUI();
+    expect(screen.getByRole("dialog", { name: "新建项目" })).toBeVisible();
+    const input = screen.getByPlaceholderText(/智能门店货架/);
+    const next = screen.getByRole("button", { name: /下一步/ });
+    expect(next).toBeDisabled();
+    fireEvent.change(input, { target: { value: " A " } });
+    expect(next).toBeDisabled();
+    fireEvent.change(input, { target: { value: " AB " } });
+    expect(next).toBeEnabled();
+    fireEvent.click(next);
+    expect(screen.getByRole("button", { name: /上一步/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^创建$/ }));
+    await waitFor(() =>
+      expect(creates).toMatchObject([{ name: "AB", template_id: null, source_project_id: null }]),
+    );
   });
 
   it.each([
@@ -237,9 +89,12 @@ describe("CreateProjectWizard", () => {
           }
         : { tool_bindings: { bbox: { enabled: true, classes } } }),
     };
-    mockProjectsApiGet.mockResolvedValue(source);
-    mockProjectTemplatesApiGet.mockResolvedValue(source);
+    const route = mode === "source" ? "*/api/v1/projects/src1" : "*/api/v1/project-templates/t1";
+    server.use(http.get(route, () => HttpResponse.json(source)));
     renderUI(mode === "source" ? { sourceProjectId: "src1" } : { templateId: "t1" });
+    expect(
+      screen.getByRole("dialog", { name: mode === "source" ? "复制项目配置" : "从模板创建项目" }),
+    ).toBeVisible();
     await screen.findByText(mode === "source" ? /已用源项目配置预填表单/ : /已用模板字段预填表单/);
     fireEvent.change(screen.getByPlaceholderText(/智能门店货架/), {
       target: { value: "颜色复制测试" },
@@ -260,23 +115,30 @@ describe("CreateProjectWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     fireEvent.click(screen.getByRole("button", { name: /^创建$/ }));
-    const payload = mockCreateProjectMutate.mock.calls[0][0];
-    expect(payload.tool_bindings.bbox.classes).toEqual([
+    await waitFor(() => expect(creates).toHaveLength(1));
+    const [payload] = creates;
+    expect(payload).toMatchObject({
+      source_project_id: mode === "source" ? "src1" : null,
+      template_id: mode === "template" ? "t1" : null,
+    });
+    expect(payload).toHaveProperty("tool_bindings.bbox.classes", [
       { name: "person", color: "#123456", order: 0, alias: "pedestrian" },
       { name: "bicycle", color: "#654321", order: 1 },
       { name: "car", color: "#ff0000", order: 2 },
       { name: "motorcycle", color: "#888888", order: 3 },
     ]);
-    expect(payload.classes_config.person).toEqual({
+    expect(payload).toHaveProperty("classes_config.person", {
       color: "#123456",
       order: 0,
       alias: "pedestrian",
     });
-    expect(payload.classes_config.bicycle).toEqual({ color: "#654321", order: 1 });
+    expect(payload).toHaveProperty("classes_config.bicycle", { color: "#654321", order: 1 });
   });
 
-  it("open=false 时不渲染任何内容", () => {
-    renderUI({ open: false });
-    expect(screen.queryByText("新建项目")).not.toBeInTheDocument();
+  it("模板向导关闭时既不展示表单，也不读取模板详情", () => {
+    const readTemplate = vi.spyOn(projectTemplatesApi, "get");
+    renderUI({ open: false, templateId: "t1" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(readTemplate).not.toHaveBeenCalled();
   });
 });

@@ -23,7 +23,7 @@ from yoao_identity.recovery_contract import (
 from yoao_identity.recovery_crypto import request_fingerprint, token_hash
 from yoao_identity.session_manager import sign_session_claims
 from pydantic import ValidationError
-from recovery_helpers import SECRET, account, claims, policy, recovery_request
+from recovery_helpers import SECRET, account, claims, recovery_request
 
 
 def _native_prepare(request):
@@ -294,9 +294,3 @@ def test_password_policy_failure_uses_only_the_request_specific_safe_message():
             request,
             recovery_failure_reply(RecoveryFailure("policy_rejected", 422, unsafe)),
         )
-
-
-def test_policy_reply_values_are_closed_and_exact():
-    request = recovery_request("register_open")
-    assert request.operation_id
-    assert policy().email_verification_required is True

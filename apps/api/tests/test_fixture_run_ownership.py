@@ -399,6 +399,10 @@ async def test_presentation_jobs_are_nondispatchable_and_retire_only_the_sealed_
 
     assert await make(0) == 2
     assert await ownership.seal(db_session, runs[0], family="owned") == ()
+    with pytest.raises(DBAPIError) as closed:
+        async with db_session.begin_nested():
+            await make(0)
+    assert closed.value.orig.sqlstate == "23514"
     assert await make(1) == 2
     with pytest.raises(DBAPIError) as dispatch:
         async with db_session.begin_nested():

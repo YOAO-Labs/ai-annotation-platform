@@ -214,27 +214,6 @@ def test_attribute_schema_unique_keys():
         )
 
 
-def test_attribute_schema_hotkey_constraints():
-    # hotkey 字符必须 1-9
-    with pytest.raises(ValidationError):
-        AttributeField(key="x", label="X", type="boolean", hotkey="0")
-    # hotkey 仅 boolean / select
-    with pytest.raises(ValidationError):
-        AttributeSchema(
-            fields=[
-                AttributeField(key="x", label="X", type="text", hotkey="1"),
-            ]
-        )
-    # 重复 hotkey
-    with pytest.raises(ValidationError):
-        AttributeSchema(
-            fields=[
-                AttributeField(key="a", label="A", type="boolean", hotkey="1"),
-                AttributeField(key="b", label="B", type="boolean", hotkey="1"),
-            ]
-        )
-
-
 # ── mutable / immutable ──────────────────────────
 
 

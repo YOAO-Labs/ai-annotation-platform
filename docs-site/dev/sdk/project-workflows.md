@@ -83,9 +83,9 @@ yoao datasets sniff-axis "$DATASET_ID" --json
 
 scene backfill 默认 `dry_run=false`，实际写入须确认；已有 scene 时可能只返回 notes。axis sniff 虽使用 POST，却只返回分析建议，不修改坐标系配置。
 
-尺寸回填每次 1–200 条，返回 processed、failed、remaining_hint。当前 API 没有排序或游标，失败项会继续符合 `width IS NULL`，可能反复占满后续批次；`processed=0` 且 `failed>0` 不能证明完成。CLI 在 failed 非零时输出回执后退出 1，SDK 不自动循环。先检查失败素材；backfill-media 可为缺缩略图的图片同时尝试补尺寸，但不处理“已有缩略图、仍缺尺寸”的全部情况。
+`backfill-dimensions` 和 `backfill-media` 都返回持久作业回执，分别对应 `purpose=dimensions` 和 `purpose=thumbnail`。`operation_id` 标识这次操作；要查询进度，用回执里的 `job_id`，不是数据集 UUID。尺寸回填的 `--batch` 仅为兼容保留，实际按服务端有界分页处理；媒体回填仍保留视频元数据处理。
 
-backfill-media 只返回 queued，没有可轮询的 AsyncJob ID。核对数据集素材状态；不要把 dataset UUID 填入 jobs.get。
+CLI 输出回执后即结束，不轮询；`pending` 或 `running` 不代表已完成，回执为 `failed` 或 `canceled` 时退出码为 1。需要能在响应丢失后安全重放时，在首次提交前保存 UUID，两次均显式传入同一个 `--idempotency-key`。
 
 ## 指引图片三步上传
 

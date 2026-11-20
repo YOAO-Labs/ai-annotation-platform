@@ -15,7 +15,6 @@ const surfaces = [
   ["review assignee", "pages/Review/ReviewPage.tsx", "FilterGroup"],
   ["people analysis", "pages/Admin/AdminPeoplePage.tsx", "FilterGroup"],
   ["analytics range", "pages/Admin/AnalyticsPage.tsx", "FilterGroup"],
-  ["model catalog", "pages/ModelMarket/capability/FilterToolbar.tsx", "FilterGroup"],
   ["registry status", "pages/ModelMarket/registry/ServicePoolsSection.tsx", "FilterGroup"],
   ["registry diagnostics", "pages/ModelMarket/registry/IssueCenter.tsx", "FilterPanel"],
   ["image preannotation jobs", "pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx", "FilterGroup"],

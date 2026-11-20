@@ -15,10 +15,6 @@ from app.db.enums import BatchStatus
 from app.services.batch import REVERSE_TRANSITIONS, VALID_TRANSITIONS
 
 
-def test_pre_annotated_in_valid_transitions():
-    assert BatchStatus.PRE_ANNOTATED in VALID_TRANSITIONS
-
-
 def test_active_can_transition_to_pre_annotated():
     assert BatchStatus.PRE_ANNOTATED in VALID_TRANSITIONS[BatchStatus.ACTIVE]
 

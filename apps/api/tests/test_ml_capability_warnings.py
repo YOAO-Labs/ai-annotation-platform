@@ -1,7 +1,6 @@
 """协议契约校验 (extract_capabilities.warnings) + prompt 受控词表 SSOT 单测.
 
-纯函数, 无 DB。覆盖: 越界 task/prompt/geometry 产 warning、合法 setup 零 warning、
-越界值仍原样规范化 (零回归)、缺省 unknown 不误报、PROMPTS 派生集合等价旧硬编码。
+覆盖合法与越界声明的诊断、model_id 溯源、缺省值和交互 prompt 集合。
 """
 
 from yoao_inference.capability_registry import (
@@ -50,18 +49,6 @@ def test_warnings_flag_unknown_task_prompt_geometry():
     assert ("supported_geometric_outputs", "polygon") not in flagged
     # 每条带 model_id 溯源
     assert all(w["model_id"] == "m1" for w in warnings)
-
-
-def test_unknown_values_still_normalized_zero_regression():
-    """越界值只诊断、不改写: models[] 原样保留, 不破坏既有解析。"""
-    setup = {
-        "name": "bad",
-        "infra": "pytorch",
-        "models": [{"id": "m1", "task": "seg", "supported_prompts": ["boxes"]}],
-    }
-    model = extract_capabilities(setup)["models"][0]
-    assert model["task"] == "seg"
-    assert model["supported_prompts"] == ["boxes"]
 
 
 def test_absent_task_not_flagged():

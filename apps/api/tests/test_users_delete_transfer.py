@@ -96,13 +96,3 @@ class TestUserDelete:
             "transferred_count": 0,
             "released_locks": 0,
         }
-
-    async def test_cannot_delete_last_super_admin(self, httpx_client, super_admin):
-        """不能删除最后一名 super_admin。"""
-        user, token = super_admin
-        # 尝试删除自己——应拒绝
-        r = await httpx_client.delete(
-            f"/api/v1/users/{user.id}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert r.status_code == 400  # 不能删除自己

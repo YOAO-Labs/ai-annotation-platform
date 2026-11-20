@@ -296,9 +296,6 @@ describe("useWorkbenchAnnotationActions module", () => {
     hook.unmount();
     hook.queryClient.clear();
   });
-  it("exports the hook", () => {
-    expect(typeof useWorkbenchAnnotationActions).toBe("function");
-  });
 
   it("geometry fallback waits for durable queue acceptance before recording history", async () => {
     enqueueDurably.mockClear();

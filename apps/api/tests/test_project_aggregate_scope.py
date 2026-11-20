@@ -18,7 +18,6 @@ from app.application.async_job_read import _build_async_job_query
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from yoao_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import (
     ANNOTATOR_ROLE,
     DASHBOARD_PLATFORM_ROLES,
@@ -163,15 +162,6 @@ def test_membership_helpers_require_known_active_account():
     assert "account_profiles.role" in member_sql
 
 
-def test_platform_role_is_manager():
-    assert platform_role_is_manager("super_admin")
-    assert platform_role_is_manager("project_admin")
-    assert not platform_role_is_manager("employee")
-    assert not platform_role_is_manager("annotator")
-    assert not platform_role_is_manager("viewer")
-    assert not platform_role_is_manager(None)
-
-
 def test_workspace_relation_client_does_not_require_provider_runtime():
     script = """
 import importlib.abc
@@ -187,10 +177,28 @@ class RejectProvider(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, RejectProvider())
 from app.services.workspace_read_relations import actor_project_memberships, project_search_scope, project_search_member_ids, project_member_facts, project_facts, project_counter_facts, project_rows
 from sqlalchemy import select
+from sqlalchemy.sql import visitors
+from sqlalchemy.sql.functions import Function
+from sqlalchemy.sql.selectable import TableClause
 actor = SimpleNamespace(id=uuid.uuid4(), role='employee')
-for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor), project_member_facts(), project_facts(), project_counter_facts(), project_rows()):
-    sql = str(select(relation))
-    assert 'aap_workspace' in sql or 'yoao_labeling_v1.project_catalog_counters' in sql
+facts = 'yoao_workspace_v1.project_facts'
+counters = 'yoao_labeling_v1.project_catalog_counters'
+for relation, expected in (
+    (actor_project_memberships(actor.id), {'yoao_workspace_v1.actor_project_memberships'}),
+    (project_search_scope(actor), {'yoao_workspace_project_query_v1.project_search_scope'}),
+    (project_search_member_ids(actor), {'yoao_workspace_project_query_v1.project_search_member_ids'}),
+    (project_member_facts(), {'yoao_workspace_v1.project_member_facts'}),
+    (project_facts(), {facts}),
+    (project_counter_facts(), {counters}),
+    (project_rows(), {facts, counters}),
+):
+    sources = set()
+    for node in visitors.iterate(select(relation).compile().statement):
+        if isinstance(node, TableClause) and node.schema:
+            sources.add(node.fullname)
+        elif isinstance(node, Function) and node.packagenames:
+            sources.add('.'.join((*node.packagenames, node.name)))
+    assert sources == expected, (sources, expected)
 print('ok')
 """
     result = subprocess.run(

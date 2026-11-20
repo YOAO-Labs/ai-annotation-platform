@@ -165,10 +165,3 @@ def test_private_assets_pin_reply_must_match_the_annotation_evidence_exactly():
     response["data"]["frame"]["blob"]["sha256"] = "0" * 64
     with pytest.raises(e.VideoEvidenceFailure, match="invalid_response"):
         e.parse_assets_pin(request, response)
-
-
-def test_existing_video_execution_contract_still_owns_frame_entry_validation():
-    assert "lock_accepted_video_frame" in c.OPERATIONS
-    retained = frame("ready")
-    evidence = e.ready_evidence(retained.plan, retained)
-    assert evidence.entry == retained.entry

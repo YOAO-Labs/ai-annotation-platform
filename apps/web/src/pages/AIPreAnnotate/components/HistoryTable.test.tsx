@@ -53,27 +53,18 @@ describe("HistoryTable 多选", () => {
     mockBulkClear.mockReset();
   });
 
-  it("空选中时不渲染浮窗", () => {
-    renderUI([makeItem()]);
+  it("逐行选择与当前页全选、取消更新批量操作计数", () => {
+    renderUI([makeItem({ batch_id: "b1" }), makeItem({ batch_id: "b2", batch_name: "B2" })]);
     expect(screen.queryByText(/已选/)).toBeNull();
-  });
-
-  it("勾选行后浮窗渲染 + 显示计数", () => {
-    renderUI([makeItem({ batch_id: "b1" }), makeItem({ batch_id: "b2", batch_name: "B2" })]);
-    const rowChecks = screen.getAllByRole("checkbox", { name: /选择/ });
-    fireEvent.click(rowChecks[0]);
-    expect(screen.getByText(/已选 1 项/)).toBeInTheDocument();
-    fireEvent.click(rowChecks[1]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 B1" }));
+    expect(screen.getByText("已选 1 项")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 B2" }));
     expect(screen.getByText(/已选 2 项/)).toBeInTheDocument();
-  });
-
-  it("全选 checkbox 切换当前页所有 batch", () => {
-    renderUI([makeItem({ batch_id: "b1" }), makeItem({ batch_id: "b2", batch_name: "B2" })]);
-    const headerCheck = screen.getByRole("checkbox", { name: /全选/ });
-    fireEvent.click(headerCheck);
-    expect(screen.getByText(/已选 2 项/)).toBeInTheDocument();
+    const headerCheck = screen.getByRole("checkbox", { name: "全选当前页" });
     fireEvent.click(headerCheck);
     expect(screen.queryByText(/已选/)).toBeNull();
+    fireEvent.click(headerCheck);
+    expect(screen.getByText("已选 2 项")).toBeInTheDocument();
   });
 
   it("批量重激活: reason ≥10 字提交后调 bulkClear(predictions_only)", async () => {

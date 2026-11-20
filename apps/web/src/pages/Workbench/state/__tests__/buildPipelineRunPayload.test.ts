@@ -52,10 +52,6 @@ describe("buildPipelineRunPayload", () => {
 
   // claude[bot] P1 #5 · 编排引用的 backend 必须都在 availableBackendIds 集合里, 否则 null
   // (避免默默发请求换通用 422)。
-  it("availableBackendIds 未传 → 跳过校验, 向后兼容", () => {
-    expect(buildPipelineRunPayload(STAGES, "T-1")).not.toBeNull();
-  });
-
   it("availableBackendIds 含全部引用 backend → 正常返回 payload", () => {
     const known = new Set(["be-detect", "be-classify", "be-other"]);
     expect(buildPipelineRunPayload(STAGES, "T-1", known)).not.toBeNull();

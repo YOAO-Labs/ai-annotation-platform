@@ -1,5 +1,6 @@
 import { openContextToolbar } from "../fixtures/context-toolbar";
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
+import { json, waitForApiWrite } from "../helpers/api-response";
 import type { APIResponse, Page, Request } from "@playwright/test";
 import { expect, test, type SeedNativeMaskCandidateData } from "../fixtures/seed";
 
@@ -350,18 +351,11 @@ test.describe("native Mask interactive candidate acceptance", () => {
 
     await page.keyboard.press("Enter");
     const picker = page.getByTestId("class-picker-popover");
-    const created = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations`) &&
-        response.request().method() === "POST" &&
-        response.status() === 201,
-    );
+    const created = waitForApiWrite(page, "POST", `/tasks/${taskId}/annotations`);
     await picker.getByText("car", { exact: true }).click();
     await expect(picker).toBeVisible();
     await page.keyboard.press("Enter");
-    const createdBody = (await created.then((response) => response.json())) as {
-      annotation_type: string;
-    };
+    const createdBody = await json<{ annotation_type: string }>(await created, 201);
     expect(createdBody.annotation_type).toBe("polygon");
 
     const token = await seed.accessToken(data.annotator_email);

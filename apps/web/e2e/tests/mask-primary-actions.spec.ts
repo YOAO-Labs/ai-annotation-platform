@@ -1,6 +1,7 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { openSelectedMaskEditor } from "../helpers/mask-selection";
-import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
+import { json, waitForApiWrite } from "../helpers/api-response";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
@@ -27,10 +28,6 @@ interface MaskAnnotation {
   };
 }
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
-async function json<T>(response: APIResponse): Promise<T> {
-  expect(response.ok(), `${response.status()} ${await response.text()}`).toBe(true);
-  return response.json() as Promise<T>;
-}
 async function annotations(request: APIRequestContext, taskId: string, token: string) {
   return json<MaskAnnotation[]>(
     await request.get(`${API_BASE}/api/v1/tasks/${taskId}/annotations`, { headers: auth(token) }),
@@ -89,15 +86,10 @@ async function saveImage(
   annotationId: string,
   via: "button" | "keyboard",
 ) {
-  const saved = page.waitForResponse(
-    (response) =>
-      response.url().endsWith(`/tasks/${taskId}/annotations/${annotationId}`) &&
-      response.request().method() === "PATCH" &&
-      response.ok(),
-  );
+  const saved = waitForApiWrite(page, "PATCH", `/tasks/${taskId}/annotations/${annotationId}`);
   if (via === "button") await page.getByTestId("mask-primary-action").click();
   else await primaryKey(page);
-  await saved;
+  expect((await saved).status()).toBe(200);
   await openMaskSettings(page);
   await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");
 }

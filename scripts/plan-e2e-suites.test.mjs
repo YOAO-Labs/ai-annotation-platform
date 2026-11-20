@@ -491,106 +491,6 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
   }
 });
 
-test("docs-only PRs plan an explicit allowed skip instead of running suites", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "e2e-docs-skip-"));
-  const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
-  const git = (...args) =>
-    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-  try {
-    git("init");
-    git("config", "user.name", "E2E routing test");
-    git("config", "user.email", "test@example.invalid");
-    mkdirSync(join(cwd, "docs-site/user-guide"), { recursive: true });
-    writeFileSync(join(cwd, "docs-site/user-guide/seed.md"), "seed\n");
-    git("add", ".");
-    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "seed");
-    const base = git("rev-parse", "HEAD");
-    mkdirSync(join(cwd, "docs-site/user-guide"), { recursive: true });
-    writeFileSync(join(cwd, "docs-site/user-guide/index.md"), "# docs\n");
-    git("add", ".");
-    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "docs");
-
-    const result = spawnSync(process.execPath, [script, base], {
-      cwd,
-      encoding: "utf8",
-      env: { ...process.env, GITHUB_EVENT_NAME: "pull_request" },
-    });
-    assert.equal(result.status, 0, result.stderr);
-    const outputs = Object.fromEntries(
-      result.stdout
-        .trim()
-        .split("\n")
-        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-    );
-    assert.equal(outputs.run_suites, "false");
-    assert.deepEqual(JSON.parse(outputs.matrix).include, []);
-    const manifest = JSON.parse(outputs.required);
-    assert.equal(manifest.classification, "docs-only");
-    assert.equal(manifest.suites.length, 0);
-    assert.ok(manifest.reason.trim().length > 0);
-    // Legacy comparison still records what the frozen gate would have run.
-    assert.deepEqual(
-      JSON.parse(outputs.legacy).include.map(({ suite }) => suite),
-      [...functional],
-    );
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test("E2E_SELECTION_MODE=legacy restores the frozen selection for rollback", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "e2e-rollback-"));
-  const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
-  try {
-    const result = spawnSync(process.execPath, [script], {
-      cwd,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        GITHUB_EVENT_NAME: "push",
-        E2E_SELECTION_MODE: "legacy",
-      },
-    });
-    assert.equal(result.status, 0, result.stderr);
-    const outputs = Object.fromEntries(
-      result.stdout
-        .trim()
-        .split("\n")
-        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-    );
-    assert.deepEqual(
-      JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
-      [...functional, "layout-stress"],
-    );
-    assert.equal(outputs.run_suites, "true");
-    // Rollback mode keeps full point-cloud coverage: those specs no longer ride
-    // inside the chromium shards, so the dedicated suite must be required. The
-    // new-only smoke suite stays out of the frozen gate.
-    const legacyRequired = JSON.parse(outputs.required).suites;
-    assert.ok(
-      legacyRequired.some(({ suite }) => suite === "pointcloud"),
-      "legacy rollback must require the point-cloud contract",
-    );
-    assert.equal(
-      legacyRequired.some(({ suite }) => suite === "smoke"),
-      false,
-    );
-    assert.deepEqual(
-      legacyRequired.map(({ suite }) => suite),
-      JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
-    );
-
-    const invalid = spawnSync(process.execPath, [script], {
-      cwd,
-      encoding: "utf8",
-      env: { ...process.env, GITHUB_EVENT_NAME: "push", E2E_SELECTION_MODE: "sideways" },
-    });
-    assert.notEqual(invalid.status, 0);
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
 test("bounded smoke runs without retries and forbids flaky passes", () => {
   const smoke = SUITE_CONTRACT.find((entry) => entry.suite === "smoke");
   assert.ok(smoke, "smoke suite must exist in the contract");
@@ -615,19 +515,23 @@ test("effective gate and required manifest stay identical in every mode and even
         .filter((line) => line.includes("="))
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
-  const run = (env, argv = []) =>
-    parse(
-      spawnSync(process.execPath, [script, ...argv], {
-        cwd,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          // Report artifacts must not become paths in subsequent fixture commits.
-          E2E_SHADOW_PATH: join(cwd, ".git", "e2e-shadow.json"),
-          ...env,
-        },
-      }).stdout,
-    );
+  const execute = (env, argv = []) =>
+    spawnSync(process.execPath, [script, ...argv], {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        E2E_SELECTION_MODE: undefined,
+        // Reports must not become paths in subsequent fixture commits.
+        E2E_SHADOW_PATH: join(cwd, ".git", "e2e-shadow.json"),
+        ...env,
+      },
+    });
+  const run = (env, argv) => {
+    const result = execute(env, argv);
+    assert.equal(result.status, 0, result.stderr);
+    return parse(result.stdout);
+  };
   const ids = (value) => JSON.parse(value).include.map(({ suite }) => suite);
   const requiredIds = (value) => JSON.parse(value).suites.map(({ suite }) => suite);
 
@@ -643,7 +547,6 @@ test("effective gate and required manifest stay identical in every mode and even
     git("add", ".");
     git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "seed");
     const appBase = git("rev-parse", "HEAD");
-    mkdirSync(join(cwd, "apps/web/src/pages/Workbench/state"), { recursive: true });
     writeFileSync(
       join(cwd, "apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx"),
       "changed\n",
@@ -663,12 +566,18 @@ test("effective gate and required manifest stay identical in every mode and even
       const env = { GITHUB_EVENT_NAME: "push" };
       if (mode !== undefined) env.E2E_SELECTION_MODE = mode;
       const out = run(env);
-      assert.deepEqual(
-        ids(out.matrix),
-        requiredIds(out.required),
-        `push mode=${JSON.stringify(mode)}`,
-      );
+      const expected = mode === "legacy" ? [...functional, "layout-stress"] : broadened;
+      assert.equal(out.run_suites, "true");
+      assert.deepEqual(ids(out.matrix), expected, `push mode=${JSON.stringify(mode)}`);
+      assert.deepEqual(requiredIds(out.required), expected);
+      if (mode !== "legacy") {
+        const smoke = JSON.parse(out.required).suites.find(({ suite }) => suite === "smoke");
+        assert.equal(smoke.flakyPolicy, "forbid");
+      }
     }
+    const invalid = execute({ GITHUB_EVENT_NAME: "push", E2E_SELECTION_MODE: "sideways" });
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /Invalid E2E selection mode: sideways/);
 
     // PR app code, both modes, with the empty env value GitHub renders for an
     // unset repository variable.
@@ -708,7 +617,11 @@ test("effective gate and required manifest stay identical in every mode and even
     ]);
     assert.deepEqual(ids(docsPlanned.matrix), []);
     assert.equal(docsPlanned.run_suites, "false");
-    assert.equal(JSON.parse(docsPlanned.required).classification, "docs-only");
+    const docsManifest = JSON.parse(docsPlanned.required);
+    assert.equal(docsManifest.classification, "docs-only");
+    assert.deepEqual(docsManifest.suites, []);
+    assert.ok(docsManifest.reason.trim());
+    assert.deepEqual(ids(docsPlanned.legacy), functional);
     const docsLegacy = run({ GITHUB_EVENT_NAME: "pull_request", E2E_SELECTION_MODE: "legacy" }, [
       docsBase,
     ]);
@@ -716,22 +629,6 @@ test("effective gate and required manifest stay identical in every mode and even
     // Docs-only paths do not affect the extended checks in the frozen gate.
     assert.deepEqual(ids(docsLegacy.matrix), [...functional]);
     assert.deepEqual(ids(docsLegacy.matrix), requiredIds(docsLegacy.required));
-
-    // Core-flaky policy only applies to suites actually selected.
-    assert.equal(
-      JSON.parse(docsPlanned.required).suites.some(({ flakyPolicy }) => flakyPolicy),
-      false,
-    );
-    const plannedApp = run({ GITHUB_EVENT_NAME: "push", E2E_SELECTION_MODE: "" });
-    assert.equal(
-      JSON.parse(plannedApp.required).suites.find(({ suite }) => suite === "smoke").flakyPolicy,
-      "forbid",
-    );
-    const legacyApp = run({ GITHUB_EVENT_NAME: "push", E2E_SELECTION_MODE: "legacy" });
-    assert.equal(
-      JSON.parse(legacyApp.required).suites.some(({ suite }) => suite === "smoke"),
-      false,
-    );
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

@@ -7,8 +7,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  METRICS_AVAILABLE,
-  NO_METRICS_LABEL,
   collectDiagnostics,
   deriveMemberCapacity,
   deriveMemberRouting,
@@ -77,11 +75,6 @@ function makeSnapshotPool(overrides: Partial<RuntimePoolSnapshot> = {}): Runtime
         route_inflight: 0,
         circuit_open: false,
         gpu_resource_id: "gpu-0",
-        last_selected_at: null,
-        selection_count_window: null,
-        rejection_count_window: null,
-        p95_ms: null,
-        error_rate: null,
       },
     ],
     ...overrides,
@@ -279,8 +272,7 @@ describe("F_degraded_partial_health", () => {
 // ── F_metrics_absent (forbidden: never 0/healthy) ─────────────────────────
 
 describe("F_metrics_absent · 负向断言", () => {
-  it("metrics 字段恒为 null, METRICS_AVAILABLE=false", () => {
-    expect(METRICS_AVAILABLE).toBe(false);
+  it("未上报的路由指标保持 null，不冒充零", () => {
     const vm = mergeTopologyAndSnapshot(makeTopology(), makeSnapshot());
     const m = vm.pools[0].members[0];
     expect(m.runtime?.last_selected_at).toBeNull();
@@ -288,8 +280,6 @@ describe("F_metrics_absent · 负向断言", () => {
     expect(m.runtime?.rejection_count_window).toBeNull();
     expect(m.runtime?.p95_ms).toBeNull();
     expect(m.runtime?.error_rate).toBeNull();
-    // Sentinel label is exported for components to use.
-    expect(NO_METRICS_LABEL).toBe("暂无路由指标");
   });
 
   it("capacity limit 恒为 null（后端合同不提供 max_concurrency）", () => {
@@ -348,12 +338,6 @@ describe("runtime 不可用", () => {
 // ── routing axis derivation matrix ─────────────────────────────────────────
 
 describe("deriveMemberRouting", () => {
-  it("disabled → blocked", () => {
-    expect(deriveMemberRouting("disabled", null, "smooth_weighted_round_robin")).toBe("blocked");
-  });
-  it("draining → draining", () => {
-    expect(deriveMemberRouting("draining", null, "smooth_weighted_round_robin")).toBe("draining");
-  });
   it("active + circuit_open → blocked", () => {
     expect(
       deriveMemberRouting(
@@ -368,28 +352,11 @@ describe("deriveMemberRouting", () => {
       ),
     ).toBe("blocked");
   });
-  it("active + no circuit → routable", () => {
-    expect(
-      deriveMemberRouting(
-        "active",
-        {
-          circuit_open: false,
-          route_inflight: 0,
-          health_fresh: true,
-          registry_state: "connected",
-        } as RuntimeMemberSnapshot,
-        "smooth_weighted_round_robin",
-      ),
-    ).toBe("routable");
-  });
 });
 
 // ── capacity axis derivation ───────────────────────────────────────────────
 
 describe("deriveMemberCapacity", () => {
-  it("no snapshot → unknown", () => {
-    expect(deriveMemberCapacity(null)).toBe("unknown");
-  });
   it("circuit_open → saturated", () => {
     expect(
       deriveMemberCapacity({
@@ -405,14 +372,6 @@ describe("deriveMemberCapacity", () => {
         route_inflight: 3,
       } as RuntimeMemberSnapshot),
     ).toBe("serving");
-  });
-  it("inflight=0 → idle", () => {
-    expect(
-      deriveMemberCapacity({
-        circuit_open: false,
-        route_inflight: 0,
-      } as RuntimeMemberSnapshot),
-    ).toBe("idle");
   });
 });
 

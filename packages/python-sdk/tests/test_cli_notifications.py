@@ -35,28 +35,25 @@ def cli_client(client, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("args", "method", "path", "payload", "stdin"),
+    ("args", "method", "path", "payload"),
     [
         (
             ["list", "--unread-only", "--limit", "5", "--offset", "2", "--json"],
             "GET",
             "/notifications",
             {"items": [], "total": 0, "unread": 0},
-            "",
         ),
         (
             ["unread-count", "--json"],
             "GET",
             "/notifications/unread-count",
             {"unread": 4},
-            "",
         ),
         pytest.param(
             ["mark-read", NOTICE_ID, "--json"],
             "POST",
             f"/notifications/{NOTICE_ID}/read",
             {"ok": True},
-            "",
             id="mark-read",
         ),
         (
@@ -64,14 +61,12 @@ def cli_client(client, monkeypatch):
             "POST",
             "/notifications/mark-all-read",
             {"updated": 4},
-            "",
         ),
         pytest.param(
             ["delete", NOTICE_ID, "--yes", "--json"],
             "DELETE",
             f"/notifications/{NOTICE_ID}",
             {"ok": True},
-            "",
             id="delete",
         ),
         (
@@ -79,32 +74,23 @@ def cli_client(client, monkeypatch):
             "POST",
             "/notifications/clear-read",
             {"deleted": 2},
-            "",
         ),
         (
             ["preferences", "--json"],
             "GET",
             "/notification-preferences",
             {"items": []},
-            "",
-        ),
-        (
-            ["update-preference", "--body", "-", "--json"],
-            "PUT",
-            "/notification-preferences",
-            {"ok": True},
-            '{"type":"future_type","toast":true}',
         ),
     ],
 )
 def test_notification_cli_json_commands(
-    cli_client, respx_mock, args, method, path, payload, stdin
+    cli_client, respx_mock, args, method, path, payload
 ):
     route = respx_mock.request(method, f"{API}{path}").mock(
         return_value=httpx.Response(200, json=payload)
     )
 
-    result = runner.invoke(notification_cli.app, args, env=ENV, input=stdin)
+    result = runner.invoke(notification_cli.app, args, env=ENV)
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == payload

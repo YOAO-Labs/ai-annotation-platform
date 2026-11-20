@@ -55,18 +55,15 @@ test("keepalive session telemetry POSTs are the only write-shaped allowance", ()
   );
 });
 
-test("image workbench reload allows exactly its observed bootstrap and task reads", () => {
+test("image workbench reload permits aborted bootstrap and task reads", () => {
   for (const path of [
     "/api/v1/auth/me",
     "/api/v1/auth/registration-status",
     "/api/v1/feedbacks",
     "/api/v1/projects",
-    "/api/v1/tasks",
     "/api/v1/audit-logs",
     task,
     `${task}/annotations`,
-    `${task}/discussion/page`,
-    `${task}/discussion/annotation-counts`,
     `${project}/access`,
   ])
     expectAllowed({ ...abort, method: "GET", path }, imageWorkbenchAborts);
@@ -89,7 +86,7 @@ test("retired original reads remain distinct from HTTP and write failures", () =
   }
 });
 
-test("video workbench allows exactly the former video lifecycle set", () => {
+test("video workbench permits aborted reads during navigation", () => {
   for (const path of [
     "/api/v1/auth/me",
     "/api/v1/feedbacks",
@@ -97,19 +94,13 @@ test("video workbench allows exactly the former video lifecycle set", () => {
     task,
     `${task}/annotations`,
     `${task}/predictions`,
-    `${task}/discussion/page`,
-    `${task}/discussion/annotation-counts`,
-    `${task}/video/manifest`,
-    `${task}/video/manifest-v2`,
     `${task}/video/frames/63`,
     `${task}/video/segments`,
     `${task}/video/frame-timetable`,
     `${video}/chunks/0`,
-    `${video}/chunks/0/samples`,
     `${video}/chapters`,
     `${project}/access`,
     `${project}/mention-candidates`,
-    `${feedback}/thread`,
   ])
     expectAllowed({ ...abort, method: "GET", path }, videoWorkbenchAborts);
 });

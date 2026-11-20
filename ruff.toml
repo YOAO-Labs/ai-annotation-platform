@@ -8,6 +8,9 @@ extend-exclude = [
     "vendor",
 ]
 
+[lint]
+extend-select = ["PT014"]
+
 [per-file-target-version]
 "apps/api/**" = "py311"
 "apps/assets-media/**" = "py311"

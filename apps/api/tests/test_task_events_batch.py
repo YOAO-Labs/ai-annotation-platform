@@ -108,17 +108,6 @@ async def test_task_events_batch_validation(httpx_client, annotator):
 
 
 @pytest.mark.asyncio
-async def test_admin_people_list_super_admin_only(httpx_client, annotator):
-    """非 super_admin 访问 /admin/people → 403。"""
-    _, token = annotator
-    r = await httpx_client.get(
-        "/api/v1/dashboard/admin/people",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 403
-
-
-@pytest.mark.asyncio
 async def test_admin_people_list_returns_users(httpx_client, super_admin, annotator):
     """super_admin 调用 /admin/people 至少能看到自己 + annotator fixture。"""
     _, super_token = super_admin

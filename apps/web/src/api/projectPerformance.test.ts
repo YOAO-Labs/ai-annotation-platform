@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { projectPerformanceApi, projectPerformanceQueryString } from "./projectPerformance";
+import { http, HttpResponse } from "msw";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { server } from "@/mocks/server";
+import { resetAuthUser, seedAuthUser } from "@/test/auth";
+import { projectPerformanceApi } from "./projectPerformance";
 
 const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 
@@ -7,21 +10,11 @@ vi.mock("./client", () => ({
   apiClient: { get },
 }));
 
-const authState = {
-  token: "token-1",
-  user: { id: "owner-1" },
-};
-
-vi.mock("@/stores/authStore", () => ({
-  useAuthStore: { getState: () => authState },
-  isCurrentAuthOwner: () => true,
-}));
-
 describe("project performance API", () => {
   beforeEach(() => {
     get.mockReset();
-    global.fetch = vi.fn();
   });
+  afterEach(resetAuthUser);
 
   it("encodes the shared scope and sort direction for list requests", async () => {
     const signal = new AbortController().signal;
@@ -69,19 +62,48 @@ describe("project performance API", () => {
     );
   });
 
-  it("exposes query encoding independently for CSV parity", () => {
-    expect(
-      projectPerformanceQueryString({
+  it("downloads the filtered CSV with the requested ordering, not just the visible page", async () => {
+    seedAuthUser();
+    const requests: Request[] = [];
+    const csv = "name,review_decisions\nAda & Grace,4\n";
+    server.use(
+      http.get("*/api/v1/projects/:project/performance/export", ({ request }) => {
+        requests.push(request);
+        return new HttpResponse(csv, {
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": "attachment; filename*=UTF-8''review%20decisions.csv",
+          },
+        });
+      }),
+    );
+    const result = await projectPerformanceApi.exportMembers("project/1", {
+      from: "2026-09-01",
+      to: "2026-09-08",
+      timezone: "UTC",
+      work_type: "review",
+      account_status: "all",
+      include_historical: false,
+      q: "Ada & Grace",
+      sort: "+review_decisions",
+      cursor: null,
+    });
+    expect(requests).toHaveLength(1);
+    const url = new URL(requests[0].url);
+    expect(url.pathname).toBe("/api/v1/projects/project%2F1/performance/export");
+    expect([...url.searchParams].sort()).toEqual(
+      Object.entries({
         from: "2026-09-01",
         to: "2026-09-08",
         timezone: "UTC",
-        work_type: "annotation",
+        work_type: "review",
         account_status: "all",
-        include_historical: false,
-        sort: "+name",
-      }),
-    ).toBe(
-      "from=2026-09-01&to=2026-09-08&timezone=UTC&work_type=annotation&account_status=all&include_historical=false&sort=%2Bname",
+        include_historical: "false",
+        q: "Ada & Grace",
+        sort: "+review_decisions",
+      }).sort(),
     );
+    expect(result.filename).toBe("review decisions.csv");
+    expect(await result.blob.text()).toBe(csv);
   });
 });

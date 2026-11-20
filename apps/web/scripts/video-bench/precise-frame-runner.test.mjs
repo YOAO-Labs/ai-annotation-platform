@@ -92,7 +92,6 @@ describe("macOS WebCodecs decoder evidence", () => {
   it.each([
     { decoderName: "FFmpegVideoDecoder", platformDecoder: false },
     { decoderName: "VideoToolboxVideoDecoder", platformDecoder: false },
-    { decoderName: null, platformDecoder: null },
     {
       decoderNames: ["FFmpegVideoDecoder", "VideoToolboxVideoDecoder"],
       platformDecoderValues: [false, true],

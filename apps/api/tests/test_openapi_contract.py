@@ -13,8 +13,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from app.main import app
 
 SNAPSHOT_PATH = Path(__file__).resolve().parents[1] / "openapi.snapshot.json"
@@ -24,16 +22,11 @@ def _normalize(schema: dict) -> str:
     return json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False).strip()
 
 
-def test_openapi_snapshot_exists() -> None:
+def test_openapi_snapshot_matches_runtime() -> None:
     assert SNAPSHOT_PATH.exists(), (
         f"openapi.snapshot.json 不存在于 {SNAPSHOT_PATH}。\n"
         "首次运行：cd apps/api && uv run python ../../scripts/export_openapi.py"
     )
-
-
-def test_openapi_snapshot_matches_runtime() -> None:
-    if not SNAPSHOT_PATH.exists():
-        pytest.skip("snapshot 不存在，先跑 export_openapi.py")
 
     expected = SNAPSHOT_PATH.read_text(encoding="utf-8").strip()
     current = _normalize(app.openapi())

@@ -95,6 +95,7 @@
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/eslint-plugin": "1.5.4",
     "@webgpu/types": "^0.1.71",
     "eslint": "^9.16.0",
     "eslint-plugin-react-hooks": "^5.1.0",

@@ -131,7 +131,7 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 
 确认操作、破坏性操作、多选分支与必填原因输入统一使用 `@/components/ui/decisionDialog`（`confirmDialog` / `choiceDialog` / `inputDialog` / `alertDialog`），由全局唯一的 `<DecisionDialogHost />` 渲染。该宿主同时挂载在 `App.tsx` 的两个 `ToastRack` 旁，确保脱离 `AppShell` 的全屏工作台路由也能正常弹出。内容型弹窗（表单、预览、多区块面板）继续使用 `components/ui/Modal`；浏览器原生 `beforeunload` 因必须同步阻塞而保留原生实现。
 
-- **单一视觉语言与 ESLint 门禁**：`apps/web/src` 已通过 ESLint `no-restricted-properties` 规则严禁直接调用 `window.confirm`、`window.alert` 与 `window.prompt`（测试文件除外）。
+- **ESLint 门禁**：`apps/web/src` 的产品代码不能直接使用全局 `confirm`、`alert`、`prompt`，也不能通过 `window` 或 `globalThis` 读取这些原生对话框。改用上面的应用内弹窗。局部同名的操作函数、测试替身和 `beforeunload` 不受这一门禁限制。
 - **文案与焦点规范**：采用“动词 + 对象 + 后果”三段式表达——标题写明动作与对象（如 `删除数据集`），描述说明影响范围与不可逆后果，确认按钮使用明确动词。危险操作采用克制的语义色（`text-status-danger bg-status-danger-soft` 图标容器），默认聚焦“取消”按钮；普通确认默认聚焦“确认”按钮，`Esc` 与点击遮罩均视为取消。
 
 <span id="filter-presentation" aria-hidden="true"></span>

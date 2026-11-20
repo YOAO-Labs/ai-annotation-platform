@@ -15,10 +15,15 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("@/api/users", () => ({ usersApi: api }));
 vi.mock("@/hooks/useProjects", () => ({
-  useProjects: () => ({ data: [{ id: "p1", name: "Target project" }] }),
+  useProjects: () => ({
+    data: [
+      { id: "p1", name: "First project" },
+      { id: "p2", name: "Review project" },
+    ],
+  }),
 }));
 vi.mock("@/hooks/useGroups", () => ({
-  useGroups: () => ({ data: [{ id: "g1", name: "Target group" }] }),
+  useGroups: () => ({ data: [{ id: "g1", name: "Review group" }] }),
 }));
 function wrapper({ children }: { children: ReactNode }) {
   return (
@@ -46,7 +51,7 @@ beforeEach(() => {
   });
 });
 
-it("previews invitations on the server and preserves successes when retrying only failed items", async () => {
+it("previews the selected project and group, commits approved invitations and retries only failures", async () => {
   api.previewBulkInvite.mockResolvedValue({
     preview: true,
     succeeded: 2,
@@ -89,29 +94,34 @@ it("previews invitations on the server and preserves successes when retrying onl
   fireEvent.change(screen.getByLabelText("邮箱清单"), {
     target: { value: "A@test.local\nb@test.local\nbad\na@test.local" },
   });
-  fireEvent.change(screen.getByLabelText("目标项目"), { target: { value: "p1" } });
+  fireEvent.change(screen.getByLabelText("目标项目"), { target: { value: "p2" } });
+  fireEvent.change(screen.getByLabelText("项目职责"), { target: { value: "reviewer" } });
+  fireEvent.change(screen.getByLabelText("数据组（可选）"), { target: { value: "Review group" } });
   fireEvent.click(screen.getByRole("button", { name: "预览邀请" }));
   await screen.findByText("邮箱格式不正确");
+  const recipients = ["a@test.local", "b@test.local", "bad"].map((email) => ({
+    email,
+    role: "employee",
+    project_id: "p2",
+    project_member_role: "reviewer",
+    group_name: "Review group",
+  }));
+  expect(api.previewBulkInvite.mock.calls).toEqual([[recipients]]);
   expect(api.bulkInvite).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "确认邀请 2 人" }));
   await screen.findByRole("button", { name: "仅重试失败项" });
-  expect(api.bulkInvite.mock.calls[0][0]).toEqual([
-    { email: "a@test.local", role: "employee", project_id: "p1", project_member_role: "annotator" },
-    { email: "b@test.local", role: "employee", project_id: "p1", project_member_role: "annotator" },
-  ]);
+  expect(api.bulkInvite.mock.calls).toEqual([[recipients.slice(0, 2)]]);
   fireEvent.click(screen.getByRole("button", { name: "仅重试失败项" }));
   await screen.findByDisplayValue("https://example.test/b");
   expect(screen.getByDisplayValue("https://example.test/a")).toBeVisible();
   expect(screen.getByText("邮箱格式不正确")).toBeVisible();
-  expect(api.bulkInvite.mock.calls[1][0]).toEqual([
-    { email: "b@test.local", role: "employee", project_id: "p1", project_member_role: "annotator" },
-  ]);
+  expect(api.bulkInvite.mock.calls).toEqual([[recipients.slice(0, 2)], [[recipients[1]]]]);
   expect(screen.getByText("成功 2 条 · 失败 1 条")).toBeVisible();
 });
 
 it("keeps blocked members and earlier successes in the group result after retry", async () => {
   api.previewBulkGroup.mockResolvedValue({
-    group_id: "g1",
+    group_id: "g2",
     group_name: "Target",
     applicable: 2,
     blocked: 1,
@@ -140,18 +150,33 @@ it("keeps blocked members and earlier successes in the group result after retry"
       open
       users={[{ id: "a" }, { id: "b" }, { id: "c" }] as UserResponse[]}
       groups={[
-        { id: "g1", name: "Target", description: "", member_count: 0, created_at: "2026-09-09" },
+        {
+          id: "g1",
+          name: "First group",
+          description: "",
+          member_count: 0,
+          created_at: "2026-09-09",
+        },
+        { id: "g2", name: "Target", description: "", member_count: 0, created_at: "2026-09-09" },
       ]}
       onClose={vi.fn()}
     />,
     { wrapper },
   );
-  fireEvent.change(screen.getByLabelText("目标数据组"), { target: { value: "g1" } });
+  fireEvent.change(screen.getByLabelText("目标数据组"), { target: { value: "g2" } });
   fireEvent.click(screen.getByRole("button", { name: "预览变更" }));
-  fireEvent.click(await screen.findByRole("button", { name: "确认变更 2 人" }));
-  fireEvent.click(await screen.findByRole("button", { name: "仅重试失败项" }));
+  const confirm = await screen.findByRole("button", { name: "确认变更 2 人" });
+  expect(api.previewBulkGroup.mock.calls).toEqual([
+    [{ user_ids: ["a", "b", "c"], group_id: "g2" }],
+  ]);
+  expect(api.bulkGroup).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  const retry = await screen.findByRole("button", { name: "仅重试失败项" });
+  const approved = { user_ids: ["a", "b"], group_id: "g2" };
+  expect(api.bulkGroup.mock.calls).toEqual([[approved]]);
+  fireEvent.click(retry);
   await waitFor(() => expect(screen.getByText("成功 2 条 · 失败 1 条")).toBeVisible());
-  expect(api.bulkGroup.mock.calls[1][0]).toEqual({ user_ids: ["b"], group_id: "g1" });
+  expect(api.bulkGroup.mock.calls).toEqual([[approved], [{ user_ids: ["b"], group_id: "g2" }]]);
   expect(screen.getByText("不在管理范围内")).toBeVisible();
 });
 

@@ -108,11 +108,6 @@ beforeEach(() => {
 });
 
 describe("ClassesSection 跨工具单位批量重命名", () => {
-  it("多个启用单位存在同名类时, 渲染批量开关", () => {
-    renderUI(makeProject(sharedBindings));
-    expect(screen.getByTestId("rename-all-units-switch")).toBeInTheDocument();
-  });
-
   it("默认关闭: 重命名仅改当前工具单位 (传 tool_unit_id)", () => {
     renderUI(makeProject(sharedBindings));
     renameFirstPersonTo("human");

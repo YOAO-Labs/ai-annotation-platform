@@ -51,8 +51,14 @@ def absent():
 
 class PredictionInputFixtureContracts(unittest.IsolatedAsyncioTestCase):
     def test_case_owner_ids_are_stable_and_separate(self):
-        self.assertEqual(owner_identifier("verified"), owner_identifier("verified"))
-        self.assertNotEqual(owner_identifier("verified"), owner_identifier("planned"))
+        self.assertEqual(
+            owner_identifier("verified"),
+            uuid.UUID("b5cb3bb7-5358-5017-a677-49f3de0c4058"),
+        )
+        self.assertEqual(
+            owner_identifier("planned"),
+            uuid.UUID("9538a599-8bf3-5f7a-bfba-4e59b5551b78"),
+        )
         with self.assertRaises(AssertionError):
             owner_identifier("legacy")
 

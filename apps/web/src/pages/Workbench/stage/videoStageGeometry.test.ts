@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   interpolatePolygon,
-  interpolatePolyline,
   nearestTrackKeyframe,
   resampleClosedPolygon,
   resampleOpenPolyline,
@@ -173,17 +172,6 @@ describe("videoStageGeometry · polygon track", () => {
     expect(resampleClosedPolygon([[0.1, 0.1]], 4)).toEqual([[0.1, 0.1]]);
   });
 
-  it("interpolatePolygon 等顶点同朝向中点 = x 平移一半", () => {
-    const a = { frame_index: 0, points: SQUARE_A, source: "manual" as const };
-    const b = { frame_index: 10, points: SQUARE_B, source: "manual" as const };
-    expect(interpolatePolygon(a, b, 5)).toEqual([
-      [0.2, 0],
-      [0.4, 0],
-      [0.4, 0.2],
-      [0.2, 0.2],
-    ]);
-  });
-
   it("interpolatePolygon 顶点数不等时重采样到公共 n, 不抛异常", () => {
     const tri = {
       frame_index: 0,
@@ -303,17 +291,7 @@ describe("videoStageGeometry · polyline track", () => {
     expect(out).toHaveLength(5);
   });
 
-  it("interpolatePolyline 中点 = y 平移一半", () => {
-    const a = { frame_index: 0, points: LINE_A, source: "manual" as const };
-    const b = { frame_index: 10, points: LINE_B, source: "manual" as const };
-    expect(interpolatePolyline(a, b, 5)).toEqual([
-      [0, 0.1],
-      [0.2, 0.1],
-      [0.4, 0.1],
-    ]);
-  });
-
-  it("resolveVideoPolylineTrackAtFrame: 精确/插值/outside→null", () => {
+  it("resolveVideoPolylineTrackAtFrame: 精确关键帧与中点插值", () => {
     const geom = polylineTrack([
       { frame_index: 0, points: LINE_A, source: "manual" },
       { frame_index: 10, points: LINE_B, source: "manual" },

@@ -129,13 +129,6 @@ def test_fetch_frames_script_extracts_only_selected_frames(tmp_path):
     ]
 
 
-def test_strips_dataset_prefix():
-    assert (
-        relative_path_from_file_path("mydataset/animals/cat/001.jpg", "mydataset")
-        == "animals/cat/001.jpg"
-    )
-
-
 def test_managed_identity_is_not_exported_as_directory():
     from app.services.dataset_storage_keys import managed_dataset_key
 
@@ -146,11 +139,10 @@ def test_managed_identity_is_not_exported_as_directory():
 
 
 def test_same_leaf_different_dir_stay_distinct():
-    a = relative_path_from_file_path("ds/animals/cat/001.jpg", "ds")
-    b = relative_path_from_file_path("ds/animals/dog/001.jpg", "ds")
+    a = relative_path_from_file_path("mydataset/animals/cat/001.jpg", "mydataset")
+    b = relative_path_from_file_path("mydataset/animals/dog/001.jpg", "mydataset")
     assert a == "animals/cat/001.jpg"
     assert b == "animals/dog/001.jpg"
-    assert a != b
 
 
 def test_prefix_mismatch_returns_path_unchanged():

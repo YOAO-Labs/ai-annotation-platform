@@ -1,4 +1,4 @@
-import type { APIResponse } from "@playwright/test";
+import { json, waitForApiWrite } from "../helpers/api-response";
 import { expect, test } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
@@ -22,15 +22,6 @@ interface ConversionSummary {
   result_count: number;
   materialized_held_frames: number;
   lossy_count: number;
-}
-
-async function json<T>(response: APIResponse): Promise<T> {
-  if (!response.ok()) {
-    throw new Error(
-      `${response.request().method()} ${response.url()} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return (await response.json()) as T;
 }
 
 test.describe("annotation conversion center", () => {
@@ -83,23 +74,14 @@ test.describe("annotation conversion center", () => {
 
     const dialog = page.getByRole("dialog", { name: "标注转换中心" });
     await expect(dialog).toContainText("Polygon · 1 个对象");
-    const dryRun = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotation-conversions:dry-run`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
-    );
+    const dryRun = waitForApiWrite(page, "POST", `/tasks/${taskId}/annotation-conversions:dry-run`);
     await dialog.getByRole("button", { name: "生成预览" }).click();
     const copyPreview = await json<{ summary: ConversionSummary }>(await dryRun);
     await expect(dialog.getByLabel("转换预览报告")).toContainText("polygon");
     await expect(dialog.getByLabel("转换预览报告")).toContainText("raster_mask");
 
-    const copyExecute = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotation-conversions:execute`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
-    );
+    const executePath = `/tasks/${taskId}/annotation-conversions:execute` as const;
+    const copyExecute = waitForApiWrite(page, "POST", executePath);
     await dialog.getByRole("button", { name: "执行转换" }).click();
     const copyResult = await json<{
       created_annotations: AnnotationDto[];
@@ -159,12 +141,7 @@ test.describe("annotation conversion center", () => {
     confirm = page.getByRole("alertdialog");
     await expect(confirm).toContainText("来源对象会被替换");
 
-    const replaceExecute = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotation-conversions:execute`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
-    );
+    const replaceExecute = waitForApiWrite(page, "POST", executePath);
     await confirm.getByRole("button", { name: "确认执行" }).click();
     const replaceResult = await json<{
       updated_annotations: AnnotationDto[];
@@ -245,11 +222,10 @@ test.describe("annotation conversion center", () => {
     await expect(report).toContainText("帧 0, 10");
     await expect(report.getByText("物化帧").locator("..")).toContainText("0");
 
-    const executed = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotation-conversions:execute`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
+    const executed = waitForApiWrite(
+      page,
+      "POST",
+      `/tasks/${taskId}/annotation-conversions:execute`,
     );
     await dialog.getByRole("button", { name: "执行转换" }).click();
     const keyframeResult = await json<{
@@ -320,11 +296,10 @@ test.describe("annotation conversion center", () => {
     await dialog.getByRole("button", { name: "执行转换" }).click();
     const confirm = page.getByRole("alertdialog");
     await expect(confirm).toContainText("会改变像素真值");
-    const executed = page.waitForResponse(
-      (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotation-conversions:execute`) &&
-        response.request().method() === "POST" &&
-        response.ok(),
+    const executed = waitForApiWrite(
+      page,
+      "POST",
+      `/tasks/${taskId}/annotation-conversions:execute`,
     );
     await confirm.getByRole("button", { name: "确认执行" }).click();
     const result = await json<{ created_annotations: AnnotationDto[] }>(await executed);

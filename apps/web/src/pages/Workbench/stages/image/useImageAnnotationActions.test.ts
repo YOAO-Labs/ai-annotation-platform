@@ -501,10 +501,6 @@ describe("ordinary prediction decisions", () => {
 });
 
 describe("useImageAnnotationActions module", () => {
-  it("exports the hook", () => {
-    expect(typeof useImageAnnotationActions).toBe("function");
-  });
-
   it("resets prediction source visibility when the project changes", () => {
     const view = decisionHarness();
     view.args.predictionsData = [

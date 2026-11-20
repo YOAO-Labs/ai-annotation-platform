@@ -43,7 +43,6 @@ describe("HotkeyCheatSheet", () => {
   it("renders the eight purpose categories and the type filter", () => {
     mount();
     const tabs = screen.getByRole("tablist", { name: "快捷键分类" });
-    expect(tabs).toBeTruthy();
     for (const label of [
       "常用",
       "绘制与工具",
@@ -54,10 +53,10 @@ describe("HotkeyCheatSheet", () => {
       "任务与系统",
       "鼠标操作",
     ]) {
-      expect(screen.getAllByRole("tab", { name: label }).length).toBeGreaterThan(0);
+      expect(within(tabs).getByRole("tab", { name: label })).toBeVisible();
     }
-    expect(screen.getByRole("radio", { name: "当前工作台（图片）" }));
-    expect(screen.getByRole("radio", { name: "全部类型" }));
+    expect(screen.getByRole("radio", { name: "当前工作台（图片）" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "全部类型" })).not.toBeChecked();
   });
 
   it("reserves a secondary tier on both fixed and editable rows to keep row rhythm uniform", () => {

@@ -45,13 +45,6 @@ function makeDonut(w = 40, h = 40): MaskBuffer {
 }
 
 describe("maskToPolygon", () => {
-  it("空 mask → 空 points", () => {
-    const m = new MaskBuffer({ width: 20, height: 20 });
-    const out = maskToPolygon(m);
-    expect(out.points).toEqual([]);
-    expect(out.multipleComponents).toBe(false);
-  });
-
   it("矩形 mask → polygon 形状贴近", () => {
     const m = makeRect(50, 50, 10, 10, 30, 30);
     const out = maskToPolygon(m, { simplifyEpsilon: 0.5 });
@@ -73,29 +66,6 @@ describe("maskToPolygon", () => {
     // 半径 20 圆周 ≈ 125 像素；简化后应 < 60
     expect(out.points.length).toBeGreaterThan(8);
     expect(out.points.length).toBeLessThan(60);
-  });
-
-  it("两个分量 → 取面积更大的；multipleComponents=true", () => {
-    const m = new MaskBuffer({ width: 60, height: 60 });
-    // 大方块 20x20
-    m.fromPolygon([
-      [5, 5],
-      [25, 5],
-      [25, 25],
-      [5, 25],
-    ]);
-    // 小方块 5x5
-    m.fromPolygon([
-      [40, 40],
-      [45, 40],
-      [45, 45],
-      [40, 45],
-    ]);
-    const out = maskToPolygon(m, { simplifyEpsilon: 0.5 });
-    expect(out.multipleComponents).toBe(true);
-    // 取的应该是大方块（x 范围在 0..30）
-    const xs = out.points.map((p) => p[0]);
-    expect(Math.max(...xs)).toBeLessThan(30);
   });
 
   it("输出顶点无连续重复", () => {
@@ -148,10 +118,10 @@ describe("maskToPolygon · lossy 显式报告", () => {
     expect(out.multipleComponents).toBe(true);
     expect(out.lossy).toBe(true);
     expect(out.droppedComponents).toBe(1); // 2 个分量 - 1 个主分量 = 丢弃 1 个。
-    expect(out.lossyReason).toBeTruthy();
     expect(out.lossyReason).toContain("多个连通分量");
     // 仍返回最大外环 (不破现有调用方), 但调用方必须先检查 lossy。
     expect(out.points.length).toBeGreaterThanOrEqual(3);
+    expect(Math.max(...out.points.map(([x]) => x))).toBeLessThan(30);
   });
 
   it("test_mask_to_polygon_lossless_on_single_component: 单分量 → lossy=false, droppedComponents=undefined", () => {

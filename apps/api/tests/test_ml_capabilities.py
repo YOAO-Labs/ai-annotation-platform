@@ -14,27 +14,6 @@ from app.schemas.ml_backend import BackendCapabilities
 from app.services.inference_limits import capability_limits_from_settings
 
 
-def test_extract_none_returns_none():
-    assert extract_capabilities(None) is None
-    assert extract_capabilities({}) is None
-
-
-def test_extract_preserves_only_strict_managed_lifecycle_capability():
-    payload = ManagedLifecycleCapabilities().model_dump(mode="json")
-    caps = extract_capabilities(
-        {
-            "name": "managed-backend",
-            "managed_lifecycle": payload,
-            "supported_prompts": ["none"],
-        }
-    )
-
-    assert caps["managed_lifecycle"] == payload
-    assert not any(
-        warning["field"] == "managed_lifecycle" for warning in caps["warnings"]
-    )
-
-
 def test_extract_does_not_upgrade_missing_or_malformed_managed_lifecycle():
     missing = extract_capabilities(
         {"name": "legacy-backend", "supported_prompts": ["none"]}

@@ -203,6 +203,22 @@ describe("模型目录分组与详情", () => {
     );
   });
 
+  it("逐字输入模型名时保留词间空格，并按该名称查询所选项目", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const search = screen.getByRole("textbox", { name: "搜索模型" });
+    await user.type(search, "SAM ");
+    expect(search).toHaveValue("SAM ");
+    await user.type(search, "2");
+    await waitFor(() =>
+      expect(modelCatalogApi.list).toHaveBeenCalledWith(
+        expect.objectContaining({ q: "SAM 2", project_id: "project" }),
+        undefined,
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
   it("空结果与失败状态保持可见", async () => {
     vi.mocked(modelCatalogApi.list).mockResolvedValue(response([]));
     renderPanel();
