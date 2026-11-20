@@ -832,6 +832,8 @@ OpenAPI 快照和 Python SDK 操作目录从源码重新生成；与清理前逐
 
 **J1。** 在 `feat/product-language-n7` 的实施基线 `d2a6bda31` 核对祖先：原生格式 `24a109c3d`、三类草稿 `38e3ce262`／`6a86e7987`／`f7df93b55`／`ec897f30b`、技能 `d4fc25259`、N5 最终数据库切换 `254fe2a54` 及 N7 邮件与文件入口 `ee0f3248db` 均已进入本分支。资格来自上述切片实际记录与本次组合验收，不来自分支名或其他计划的通过数。
 
+测试优化分支的 J1 普通 worker 矩阵分开使用提交和观察凭据。合并候选上的[同一 API key 对照](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#j1同一-api-key-轮询与导出授权竞争)已定位到轮询认证与导出 worker 的凭据行锁竞争，尚未修复；分开凭据的结果不证明普通单凭据用法通过。
+
 **N6-S／J2。** PostgreSQL 从有实际旧导出责任的 `bo0475` 升至 `bo0476`。已登记的全局 S3 只把新 export 分配到 `_yoao_managed/export/`；保存的 `_aap_managed/export/` 仍按原 location、键、版本及租约读取和结算。切换后为旧媒体补建的配套 ZIP 仍在旧根。两代均写入后，恢复数据库和带版本的对象存储，沿原端点下载 10 个对象版本；回收六个确切媒体版本和两个配套 ZIP，不碰两个独立 ZIP 或相邻同内容对象。见[部署与恢复边界](../../docs-site/ops/deploy/storage-recovery.md#导出用途切换的部署顺序)。
 
 **N6-E／J2。** 匹配旧工具精确退役非空旧模式；新 manifest、`YOAO_WORKTREE_MODE`、`YOAO_WORKTREE_RESOURCE_ROOT` 和新 owner 只管新建的模式。真实 API 和两个队列 worker 启动，普通队列完成实际任务。旧／混合身份、外部 owner、错误确认值和活跃数据库连接均被拒绝。新工具没有复制、改签或接管旧资源；[工作树指南](../../docs-site/dev/how-to/worktree-environments.md)区分切换和重建。

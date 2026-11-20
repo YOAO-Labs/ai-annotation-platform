@@ -1,0 +1,1258 @@
+{
+  "baseline": {
+    "candidate": "f6e349674370fc5bfe94636cedd530950c750c83",
+    "run": "t1-t2-prereqs-f6e349674-1",
+    "status": "failed",
+    "collected": 3337,
+    "outcomes": {
+      "passed": 3241,
+      "not_run": 92,
+      "error": 3,
+      "skipped": 1
+    },
+    "sha256": {
+      "verdict": "5dcf73349d087a98ca57d668c87857942df091ac04d09edb069e98358f57f71c",
+      "report": "fa98e8bd75e0a248a8539b50862fccac56d9f9cd1a6e5daa363e873bcda57c9d",
+      "default_collection": "a31441fe4761f551641ea9b69ae0a02e0b482454d07a7ddc00b39401ca1edd12",
+      "ordinary_collection": "90b82d8df0ed33145ed63820d2a1943b9eb3a2bb8bf6d55e6fdf9119d1d3d2a7",
+      "ordinary_junit": "e8159d2530de173efad49b6e9cc22c06594009994d5e9e589b6440b9e5c63f89"
+    }
+  },
+  "current_collection": {
+    "candidate": "599a727ddbe8a2e0d51cbe233b3d9ed13f15a3ad",
+    "mode": "pytest --collect-only on verify_module_data_boundary.TEST_FILES; no suite execution",
+    "nodes": 3338,
+    "added": [
+      "tests/test_screenshot_seed_catalog.py::test_screenshot_reader_reuses_origin_only_after_retirement"
+    ],
+    "removed": [],
+    "unrun_nodeids_unchanged": 92,
+    "unchanged_profiles": 24,
+    "sha256": "649a376fd2c9523409d0e21fdae734b0a788eaac3a78872cf27a827c34fcaf15"
+  },
+  "accounting": {
+    "scope": "All rows were not_run in the baseline default. A collected node is not an executed test. Missing evidence means absent in the inventoried corpus, not never executed.",
+    "sources": "Canonical JUnit testcase + collection + module-data report in .orca-dag/20261104-074930-788/runtime-private; both adjacent topic worktrees’ .artifacts JUnit were also searched. Paths in sources are relative to runtime-private. A missing candidate SHA is explicit. Archived duplicates are not separate runs.",
+    "selection": "Latest matching result for each node in directed and prior default runs. When later directed evidence is unsettled, the earlier settled pass is recorded separately. Settled requires a passed verifier, complete pass-only JUnit and verified environment cleanup. Older default rows came from failed runs and do not qualify the current candidate.",
+    "prior_directed": {
+      "no_directed_observation": 36,
+      "only_unsettled_directed": 1,
+      "settled_at_known_candidate": 54,
+      "settled_without_candidate_sha": 1
+    },
+    "prior_default": {
+      "no_older_default_observation": 43,
+      "older_default_junit": 49
+    },
+    "t2_unrun": 2,
+    "deferred_kernel_unrun": 1
+  },
+  "sources": {
+    "candidate-image-import-owned-after4": {
+      "scope": "directed",
+      "candidate": "612fd31db96ffad781a6e704176510828dcac48c",
+      "started_at": "2026-11-11T14:40:57.311263+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "candidate-image-import-owned-after4.json",
+      "provenance": "candidate-image-import-owned-after4-bootstrap.json",
+      "sha256": {
+        "report": "ce2ce86829426b490afd5fb64190083d029b98a2315b1b0df9a8bbb630c666ec",
+        "provenance": "fccdda93449b28abc6849b73773df83ae76fb9fb7dfcd7e80bd0b0281eef7de0",
+        "junit": "2f240bdacb4da81afb316cebc7856d5f667ace1bed408551903cd0c1265c7757",
+        "collection": "22228fc4111c3eefeb05b0245551cfe36393b24dbf8fcf0106b2992d8f00f63d",
+        "input_index": "804a6cb0a4f94081fb4011df12a231e0b28afbd26196b9c212ffc84e1bc59332"
+      },
+      "input_index": "candidate-atomic-restore-normal-index.json"
+    },
+    "candidate-physical-lost-ack-owned-after2": {
+      "scope": "directed",
+      "candidate": "612fd31db96ffad781a6e704176510828dcac48c",
+      "started_at": "2026-11-11T15:04:43.122854+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "candidate-physical-lost-ack-owned-after2.json",
+      "provenance": "candidate-physical-lost-ack-owned-after2-bootstrap.json",
+      "sha256": {
+        "report": "ad26ab3c3d9e96e050fdc866a5377b22c68f29bb12e48ea969ea3819855bb323",
+        "provenance": "287db29dc047c579dd648bd4ac4c7cc4266f5e8b6822ec578c78f4643223c0f8",
+        "junit": "d9a2eb925cbf2796fd055ff5e0204c3168fd768f25ec3e44e11ad507b1f6933c",
+        "collection": "22228fc4111c3eefeb05b0245551cfe36393b24dbf8fcf0106b2992d8f00f63d",
+        "input_index": "804a6cb0a4f94081fb4011df12a231e0b28afbd26196b9c212ffc84e1bc59332"
+      },
+      "input_index": "candidate-atomic-restore-normal-index.json",
+      "note": "Intentional lost-ack retirement fault; both test bodies passed, but the verifier did not settle."
+    },
+    "cold-cli-original-reader-attempt28": {
+      "scope": "directed",
+      "candidate": null,
+      "started_at": "2026-11-05T13:11:02.059059+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "cold-cli-original-reader-attempt28.json",
+      "provenance": "cold-cli-bootstrap-attempt28-owner.json",
+      "sha256": {
+        "report": "b754882eeae9ed9bbca7747cf5d06ec4ac5a5d7b5d9df549603433e005c25cc4",
+        "provenance": "78c2cbcc3dc72cd6ad35db99c9331e813ea74bcbe94ed752509c3d94bb4cde14",
+        "junit": "32c86ada43f293c97f337749c28196ab0e71e608e0bd0b95e3a2d44cec3a191b",
+        "collection": "b56899629ee252e89c67732b41ef51f0e7a178aff6410b7262f307689d4164a0"
+      },
+      "candidate_note": "The original integration checkout was not pinned to a full Git SHA in the run or its owner receipt."
+    },
+    "cold-cli-original-reader-attempt32": {
+      "scope": "directed",
+      "candidate": null,
+      "started_at": "2026-11-05T14:33:01.943830+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "cold-cli-original-reader-attempt32.json",
+      "provenance": "cold-cli-bootstrap-attempt32-owner.json",
+      "sha256": {
+        "report": "0cb533038d1320b1703d6e65aadbce3d06979d68b890639bb486fb2535065581",
+        "provenance": "db6133f338b360ec5143be2e0ad5b2879a6dbd8b87f8f2ae8c62fb35aefb3789",
+        "junit": "88ed7ce5870b751347a9bbd1f74fe0467115d6f5b97f424ef92317896e120b6b",
+        "collection": "427cf9738df96c0e7b25a2f8643edc11bc7e7e037d41ab659e1687a7b70edc27"
+      },
+      "candidate_note": "The original integration checkout was not pinned to a full Git SHA in the run or its owner receipt."
+    },
+    "joint-contracts-20261120-1/mask-gc-fences": {
+      "scope": "directed",
+      "candidate": "946e9944012483ab1f28e9f7f16b024460a818a0",
+      "started_at": "2026-11-19T17:52:53.079741+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-contracts-20261120-1/mask-gc-fences/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-contracts-20261120-1/mask-gc-fences/verdict.json",
+      "sha256": {
+        "report": "386e9ef57b21d26dac3e7e1cd097958cb96eabb23bc7e657af11077998af4713",
+        "provenance": "55c0c845a12871ffb009e87357a9071ae5a13fb2973636802b77d9d5723e4beb",
+        "junit": "2922ed2e33d9676d1af90d8e30af1ed09faec81d425e81511924cbfc081d506f",
+        "collection": "01bb082c1bf7680903d4f41104bc9c989c62a7a71c54883eff2fe2f9f6ea3753"
+      }
+    },
+    "joint-contracts-20261120-1/pre-retry-migration": {
+      "scope": "directed",
+      "candidate": "946e9944012483ab1f28e9f7f16b024460a818a0",
+      "started_at": "2026-11-19T17:52:52.548989+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-contracts-20261120-1/pre-retry-migration/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-contracts-20261120-1/pre-retry-migration/verdict.json",
+      "sha256": {
+        "report": "9a490c02d6440e8156217e9c81edbf63c548991c9325a11319aa67b5ea272495",
+        "provenance": "297d1dfd829d9acef9d8cb0c672b8d479bdcccfcb2657ff65e6b2ce45876391b",
+        "junit": "1354db8144d07b72e7a7d2b306d4713618f77ce51f10792c83133ca94d5cf193",
+        "collection": "e5c0fc754093e25c58bdf9022fa3537435a2bce377bfc36ce430e20524246033"
+      }
+    },
+    "joint-contracts-20261120-1/video-input-lanes": {
+      "scope": "directed",
+      "candidate": "946e9944012483ab1f28e9f7f16b024460a818a0",
+      "started_at": "2026-11-19T17:52:52.823803+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-contracts-20261120-1/video-input-lanes/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-contracts-20261120-1/video-input-lanes/verdict.json",
+      "sha256": {
+        "report": "6d6e6afeb7395c846537f535d58972ed1e03fb0e100372aa6fb642dcd35d4162",
+        "provenance": "240f87f2087881b49f8eeefc44b14be2f6f274ed51cdb6ec5f0567c59592b5cf",
+        "junit": "f650dcbcabf3aac7adc5b6b8eef0dd7cf39125b9ed7ac660fadfc0906a608937",
+        "collection": "c448cd1d0da54ea962d47dbd19344f66295b74c689d45506fbcbde3e030cc32e"
+      }
+    },
+    "joint-prereqs-2206f0722-1/role-audit": {
+      "scope": "directed",
+      "candidate": "d6bb9c4f4fe16a805f8fe2ed2aa33e5b56454270",
+      "started_at": "2026-11-19T03:16:25.509684+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-prereqs-2206f0722-1/role-audit/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-prereqs-2206f0722-1/role-audit/verdict.json",
+      "sha256": {
+        "report": "27e172b732d041432a7fea79a941b0ebbe242246fcbcd9e0247cd751f751592d",
+        "provenance": "85f38e44ac19864474110adf8643a4a50fe14a0f983db95b13ae34d88cfbf432",
+        "junit": "348bb1b5a5f1e1722f5b126b51e8cc975fb19339fc9aff53563020f9fda54df7",
+        "collection": "4decd50dc2aa5d6b3b91bf2f274b9c2e666180b8a74792c7e373139e4a120400"
+      }
+    },
+    "joint-prereqs-2206f0722-1/t2-identity-e2e": {
+      "scope": "directed",
+      "candidate": "2206f072291d1a4afda05f8b08b86d7a711f9294",
+      "started_at": "2026-11-19T02:57:10.692296+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-prereqs-2206f0722-1/t2-identity-e2e/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-prereqs-2206f0722-1/t2-identity-e2e/verdict.json",
+      "sha256": {
+        "report": "4d15989db6d8fbf93d737e542e1b27e746c4864cb4f8a536ca67703c5774fc4d",
+        "provenance": "c80013a65a74850b210e1b7c631ca0c35ab5ae08a6be972ca030bedf72472a5e",
+        "junit": "79ffdd0838d5806605b31f27dd3a5c133ba3d2c4b6b73ff830657a1c6287c014",
+        "collection": "63274aa9ade95b39d3b6728c2db00de8724bc9ad3726743c93848e170d92f9b1"
+      }
+    },
+    "joint-prereqs-2206f0722-1/t2-scale-seed": {
+      "scope": "directed",
+      "candidate": "2206f072291d1a4afda05f8b08b86d7a711f9294",
+      "started_at": "2026-11-19T03:07:26.206741+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-prereqs-2206f0722-1/t2-scale-seed/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-prereqs-2206f0722-1/t2-scale-seed/verdict.json",
+      "sha256": {
+        "report": "4d5486c4faae591c968049c3dd3350d93aa91c42abe67fec94e61700dc0c46e5",
+        "provenance": "41e3d0ebdbeab52010f6e04b7e3ab60512bbada63691c19ea24bcbb8d4439b6a",
+        "junit": "061e3da24d5f01fc2a0d5085054694a0562b698012d1e3306ee5f5954a1d32c0",
+        "collection": "6074efd1f721ece95f0e11417c4b1967132889e5f86d19ed8902492f5f4cb2df"
+      }
+    },
+    "joint-repair-d8552d686-1/deletion-http-run": {
+      "scope": "directed",
+      "candidate": "d8552d686547a7b1ba43f84a5b1081ba83772219",
+      "started_at": "2026-11-19T09:37:47.954345+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/joint-repair-d8552d686-1/deletion-http-run/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/joint-repair-d8552d686-1/deletion-http-run/verdict.json",
+      "sha256": {
+        "report": "20cf547fcba95ea4fd17910b577f3b2c19780f75feb071b3d7a84e9b2fdc9085",
+        "provenance": "7ec2728749cbb808f5aacaa0c8cb32d77df5ae7d839f50ed8aa34f779acca5fe",
+        "junit": "b2dce6ce66149fb3fd58de05efc3d389dfc363fc8ca2cbab7173f5a7664aaba2",
+        "collection": "c533261f5f622f46add7b326517a1506bd54e0d45bca09d24a8adb06df07e197"
+      }
+    },
+    "native-lifecycle-isolated-8a8b61477-1": {
+      "scope": "directed",
+      "candidate": "8a8b614770ed570929054b5935e3f5fb00c9fcb8",
+      "started_at": "2026-11-17T09:25:46.226501+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/native-lifecycle-isolated-8a8b61477-1.json",
+      "provenance": "stage-f-20261112/t1-gate/native-lifecycle-isolated-8a8b61477-1-bootstrap.json",
+      "sha256": {
+        "report": "c58eca28ed515f88e5b5f5059698fa691d9a44695dcee24d9c25710643415090",
+        "provenance": "39046bac8a7101ee54653401bf58103edcab209e380619601bf01c6be5fe98ca",
+        "junit": "9acd0bf35be6b1db21aad71aff9dd179ab511c899da4519ee86c7f9b13d58568",
+        "collection": "1d6891779c0e93f6f7f1636603ab20aa1dc7fd804b1de963175df320e2616a6b"
+      }
+    },
+    "prediction-lifecycle-a1f84a8f4-1/notifications": {
+      "scope": "directed",
+      "candidate": "a1f84a8f45200ea7cf3beb6e19261cf2c8dac4aa",
+      "started_at": "2026-11-19T15:25:42.541888+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/prediction-lifecycle-a1f84a8f4-1/notifications/module-data.json",
+      "provenance": "stage-f-20261112/t1-gate/prediction-lifecycle-a1f84a8f4-1/notifications/verdict.json",
+      "sha256": {
+        "report": "87961248008763b6ad3d84e32ff61439d5c52015a8d0db80b4358c2e9a6e5f20",
+        "provenance": "4a3a29efe7618b8fb6b80e2d99cc2e1afbee03e52beae6a186abcea6962b4818",
+        "junit": "7d6c79906131dd405c250e70677c3cc802d39002ca7e0e853dc5973d3af622b8",
+        "collection": "3de6fbfcecada250d091116eededfe94a9b5735f81475be623b12a959b7843f1"
+      }
+    },
+    "t1-corrections-gc-collection-1": {
+      "scope": "directed",
+      "candidate": "6022eb9b6f750058ff06a6ea7cec2f69a1a76bdf",
+      "started_at": "2026-11-16T02:59:12.047561+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/t1-corrections-gc-collection-1.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-corrections-gc-collection-1-gate.json",
+      "sha256": {
+        "report": "24605609d6517aa4a093062a81b39374777a1bbe8cb52dc430b3ccc895c565dc",
+        "provenance": "318366a714d3f81d74cf1bfe8f79a788a4918cf7428cb304d7aa0f8659f087b5",
+        "junit": "cea1156c087d50714a769fecb7855ae1d97fb99a793c70539cbe567e3b8c4b34",
+        "collection": "014fadac191289eb2e1efac570ded7709a312f0c039c61d7f35ae1017a181395"
+      }
+    },
+    "t1-corrections-gc-runtime-1": {
+      "scope": "directed",
+      "candidate": "6022eb9b6f750058ff06a6ea7cec2f69a1a76bdf",
+      "started_at": "2026-11-16T02:59:11.779975+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "stage-f-20261112/t1-gate/t1-corrections-gc-runtime-1.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-corrections-gc-runtime-1-gate.json",
+      "sha256": {
+        "report": "830cc574e62568497aa48b183061f815b3c72ed3da3cee4e90ba58d2430035cf",
+        "provenance": "8e39b06f7f418412d2791e4d8cca69262ad54df28373fa72e0b327c1815c4b99",
+        "junit": "7cb62175f1c21ded0e03d9e5bd49ad6a70127ad9e695eded98637df5ae926237",
+        "collection": "643ac38b8e77bb30412d1dbf510554160ed7801e0b5d9be7776fded6aac2a9ac"
+      }
+    },
+    "t1-gate-1": {
+      "scope": "older_default",
+      "candidate": "bf1a3854361636bb0319eb59133fb3deba6ea031",
+      "started_at": "2026-11-13T07:36:14.808828+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "stage-f-20261112/t1-gate/t1-gate-1-profiles-5gvxbbr8/ordinary.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-gate-1-gate.json",
+      "sha256": {
+        "report": "c218e01e1210f6bd7d37c146f4f16df23db027ad1d298b1751973de354e708a3",
+        "provenance": "013e161c46c888ef9edda49c41477d87b0aa4c4916498a10be7e3148d6a58b25",
+        "junit": "25a016c4583d552f286fa10440ea03d68d4286a8f2b97e264d3cc192ac820736",
+        "collection": "cf3aa61da86a38b8496157ccb302841f01cc13e79515b86be98ff4e7b12fda9b"
+      }
+    },
+    "t1-recording-88bfc8f62-1": {
+      "scope": "directed",
+      "candidate": "88bfc8f621e318a120e6d1f633331f379de92183",
+      "started_at": "2026-11-18T04:31:17.581534+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/t1-recording-88bfc8f62-1.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-recording-88bfc8f62-1-gate.json",
+      "sha256": {
+        "report": "2fab86637ed161cfd6bbdd2a4f3214cf91a9874978f5dd358cc095288d777ccc",
+        "provenance": "3d57d6adac3b8809376b0c131080a60caec8c9fc42bf0ba18984a00654c75f96",
+        "junit": "80e4fad77fab2b7f76a104a4682129ba46879d9ef4c0ca45ab03f0066e8e1753",
+        "collection": "53879c854078e0f834e5ab421588434ef5448eef7c9db6716bb7ad3bc478e6d6"
+      }
+    },
+    "t1-t2-joint-ff860a543-3": {
+      "scope": "older_default",
+      "candidate": "ff860a543cb75fb24ce01c3454b619bd333654cd",
+      "started_at": "2026-11-18T14:19:58.207613+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "stage-f-20261112/t1-gate/t1-t2-joint-ff860a543-3-profiles-1kyuqbu7/ordinary.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-t2-joint-ff860a543-3-gate.json",
+      "sha256": {
+        "report": "b3f0a735d4bdb99ef03ecfffd645616cdcb8dd116aac5938cd05a311808afb1d",
+        "provenance": "c1defd47cf3941aaa60bfffa84325446b573cbe59702abfd4c66a59745f73156",
+        "junit": "a814247a665f56332beb7afdae7f7a9906f9d9f216406aef4e48fc102e32abbe",
+        "collection": "6b7ec5fdcc39cf9ea6e800e79dacc83994ffcea07408256fab97ebeb5d3f81e4"
+      }
+    },
+    "t1-t2-prereqs-3d45da957-1": {
+      "scope": "older_default",
+      "candidate": "3d45da957d948db70951047efe55618e7f74f18b",
+      "started_at": "2026-11-19T05:34:16.943014+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "stage-f-20261112/t1-gate/t1-t2-prereqs-3d45da957-1-profiles-klz85sqa/ordinary.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-t2-prereqs-3d45da957-1-gate.json",
+      "sha256": {
+        "report": "f60be99c75df5dd08283cfed5a4be70031b7b598cfbe3bbfa28d9f799c756bfc",
+        "provenance": "1c48d7512ae8d558aa84ff1e46688e48011a0e2b6d7bc3bb4a3f5183d845c42d",
+        "junit": "cbea11ba5cdb9b0ddc77d05928783c3a078e9d4b21eb1efdd3489620375a1928",
+        "collection": "b387d3c660ab95ecc18120402cc3594a49346abf851f447b401cd030b51f9def"
+      }
+    },
+    "t1-t2-prereqs-d8552d686-1": {
+      "scope": "older_default",
+      "candidate": "d8552d686547a7b1ba43f84a5b1081ba83772219",
+      "started_at": "2026-11-19T10:53:56.050813+00:00",
+      "report_status": "failed",
+      "settled": false,
+      "report": "stage-f-20261112/t1-gate/t1-t2-prereqs-d8552d686-1-profiles-7po87amj/ordinary.json",
+      "provenance": "stage-f-20261112/t1-gate/t1-t2-prereqs-d8552d686-1-gate.json",
+      "sha256": {
+        "report": "b502968ef1947cbf06b983e6abf3a303b6f06d183947db84fca528339e85a604",
+        "provenance": "9005e67e83e7a3f657571385d281f7d6d7a17ff5632fddc33ca710e1e791cea9",
+        "junit": "96dc78be897513ff1b748e27ec37c2f067c2454247478a516bbe1d7b412f5391",
+        "collection": "4e7d0b914dfb8379a48068f1e3fe4e257ec0df710cf217c5b43412042e23dbb3"
+      }
+    },
+    "tracker-isolation-0df0e3357-1": {
+      "scope": "directed",
+      "candidate": "0df0e3357f8511798acd64bb0fb5b4edaa4cbba3",
+      "started_at": "2026-11-19T02:14:15.022406+00:00",
+      "report_status": "passed",
+      "settled": true,
+      "report": "stage-f-20261112/t1-gate/tracker-isolation-0df0e3357-1.json",
+      "provenance": "stage-f-20261112/t1-gate/tracker-isolation-0df0e3357-1-gate.json",
+      "sha256": {
+        "report": "54cb7f06d938cfdaa673fabe19b88feddfd6742998a6ed8a0c03ec07bd1308f7",
+        "provenance": "b9ebe6835a693298a65352af1ef95e00c0b10b6d560284ae7acc4db52316f05c",
+        "junit": "8facad2fd378347c512f3f2dcf44511db8339aa55ad3d7e0055813c722779085",
+        "collection": "1cfe57059623312e1b37f1dd42ad6f066cdc4cec9705eb40eaadb4c50ff142aa"
+      }
+    }
+  },
+  "cases": [
+    {
+      "nodeid": "tests/test_audit_consumers_cold.py::test_current_cold_audit_api_worker_queries_exports_and_restore",
+      "profile": "audit-consumers-cold",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_audit_maintenance_consumers_cold.py::test_installed_beat_maintenance_consumers_recover_archive_after_restore",
+      "profile": "audit-maintenance-consumers-cold",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_audit_maintenance_module_live.py::test_cold_archive_process_loss_orphan_takeover_and_full_restore",
+      "profile": "audit-maintenance-module",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_audit_maintenance_native.py::test_maintenance_login_snapshots_exact_json_and_serializes_competing_drop",
+      "profile": "audit-maintenance-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_audit_maintenance_native.py::test_maintenance_preserves_partition_identity_lock_and_caller_rollback",
+      "profile": "audit-maintenance-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_fixture_auxiliary_retirement.py::test_fixture_auxiliary_retirement_rolls_back_and_reclaims_only_its_run",
+      "profile": "fixture-auxiliary-retirement",
+      "latest_directed": {
+        "source": "cold-cli-original-reader-attempt32",
+        "outcome": "passed"
+      },
+      "older_default": null,
+      "last_settled_directed_pass": {
+        "source": "cold-cli-original-reader-attempt28",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_identity_e2e_live.py::test_installed_api_consumes_owner_prepared_project_roles",
+      "profile": "identity-e2e",
+      "latest_directed": {
+        "source": "joint-prereqs-2206f0722-1/t2-identity-e2e",
+        "outcome": "passed"
+      },
+      "older_default": null,
+      "t2": true
+    },
+    {
+      "nodeid": "tests/test_image_import_identity_profile.py::test_image_import_identity_behavior",
+      "profile": "identity-image-import",
+      "latest_directed": {
+        "source": "candidate-physical-lost-ack-owned-after2",
+        "outcome": "passed"
+      },
+      "older_default": null,
+      "last_settled_directed_pass": {
+        "source": "candidate-image-import-owned-after4",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_image_import_identity_profile.py::test_local_image_import_uses_native_rows_and_retains_uploads_on_sql_failure",
+      "profile": "identity-image-import",
+      "latest_directed": {
+        "source": "candidate-physical-lost-ack-owned-after2",
+        "outcome": "passed"
+      },
+      "older_default": null,
+      "last_settled_directed_pass": {
+        "source": "candidate-image-import-owned-after4",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_identity_role_audit_live.py::test_installed_role_audit_current_workspace_denial_and_recovery",
+      "profile": "identity-role-audit",
+      "latest_directed": {
+        "source": "joint-prereqs-2206f0722-1/role-audit",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-joint-ff860a543-3",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_identity_role_audit_live.py::test_installed_role_audit_uses_owned_identity_views_on_real_0171",
+      "profile": "identity-role-audit",
+      "latest_directed": {
+        "source": "joint-prereqs-2206f0722-1/role-audit",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-joint-ff860a543-3",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_collection_live.py::test_business_collector_previews_without_mutation_and_reconciles_bounded_deletes",
+      "profile": "mask-gc-collection",
+      "latest_directed": {
+        "source": "t1-corrections-gc-collection-1",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-gate-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_live.py::test_late_http_delete_keeps_durable_fence_until_exact_receipt",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_live.py::test_s3_reply_loss_survives_restart_without_repeating_payload_delete[delete]",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_live.py::test_s3_reply_loss_survives_restart_without_repeating_payload_delete[receipt]",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_active_fence_rejects_root_and_preflight_before_payload_io",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_backfill_uses_whole_rows_when_a_source_column_shadows_the_alias",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_begin_write_grace_protects_old_immutable_object_after_commit",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_epoch_gate_keeps_completed_epoch_and_advances_scan_after_skips",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_native_roots_cover_retained_mask_sources_and_expiry_rules",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_prediction_root_backfill_and_triggers_share_utc_identity",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_prediction_root_identity_is_stable_across_session_timezones",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_stage_checks_epoch_headroom_before_staging_any_intent",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_stage_replays_exact_page_after_completion_and_lease_expiry",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_stage_validates_all_timestamps_before_staging_any_intent",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_native.py::test_terminal_epoch_rejects_stale_root_and_allows_live_root_copy",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_protocol_native.py::test_failed_first_thousand_keys_do_not_starve_next_inventory_page",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_protocol_native.py::test_gc_login_has_only_cleanup_functions_and_no_write_permits",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_protocol_native.py::test_legacy_runtime_can_use_write_gates_in_its_own_transaction",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_protocol_native.py::test_released_and_superseded_claims_cannot_clear_an_uncertain_fence[indeterminate]",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_protocol_native.py::test_released_and_superseded_claims_cannot_clear_an_uncertain_fence[pending]",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_protocol_native.py::test_released_and_superseded_claims_cannot_clear_an_uncertain_fence[unavailable]",
+      "profile": "mask-gc-fences",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/mask-gc-fences",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_mask_gc_runtime_image.py::test_installed_gc_progresses_past_retained_prefix_with_independent_budgets",
+      "profile": "mask-gc-runtime",
+      "latest_directed": {
+        "source": "t1-corrections-gc-runtime-1",
+        "outcome": "failure"
+      },
+      "older_default": {
+        "source": "t1-gate-1",
+        "outcome": "failure"
+      },
+      "deferred_kernel_peak": true
+    },
+    {
+      "nodeid": "tests/test_media_seed_identity_live.py::test_media_seed_identity_consumers_use_owned_identity_capabilities",
+      "profile": "media-seed",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_native_pyramid_lifecycle_live.py::test_native_saved_output_lifecycle_across_binding_switch",
+      "profile": "native-lifecycle",
+      "latest_directed": {
+        "source": "native-lifecycle-isolated-8a8b61477-1",
+        "outcome": "passed"
+      },
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_notifications_module_assembly_live.py::test_notifications_module_cold_composition_and_full_restore[retain_history]",
+      "profile": "notifications-restore",
+      "latest_directed": {
+        "source": "prediction-lifecycle-a1f84a8f4-1/notifications",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_live.py::test_seed_parent_helpers_run_with_operator_only_capabilities",
+      "profile": "parent-seed",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[changed]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[dirty_noop]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[dirty_repair_back]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[partial_expiry]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_membership_cache[stale_cached]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[create-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[create-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[duplicate_new-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[duplicate_new-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[equal-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[equal-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_assigner-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_assigner-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_persona-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_persona-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_project-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[missing_project-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[repair-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[repair-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[roundtrip_existing-False]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_memberships[roundtrip_existing-True]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_capture_parent_accounts",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[before_read-invalid_reply]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[before_read-stale]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[commit-invalid_reply]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_failed_seed_flush_cannot_commit_partial_native_work[commit-stale]",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_seed_parent_operator_native.py::test_node_seed_producer_uses_both_owner_protocols",
+      "profile": "parent-seed-native",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_prediction_retry_legacy_migration.py::test_legacy_reclamation_refuses_active_jobs_and_requires_drain_ack",
+      "profile": "pre-retry-migration",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/pre-retry-migration",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_identity_recording_live.py::test_installed_recording_consumers_use_fenced_identity_capabilities",
+      "profile": "recording",
+      "latest_directed": {
+        "source": "t1-recording-88bfc8f62-1",
+        "outcome": "passed"
+      },
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_identity_seed_selection_live.py::test_installed_identity_seed_selection_consumers",
+      "profile": "scale-seed",
+      "latest_directed": {
+        "source": "joint-prereqs-2206f0722-1/t2-scale-seed",
+        "outcome": "passed"
+      },
+      "older_default": null,
+      "t2": true
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_cancelled_unretired_execution_blocks_and_retries_after_retirement[project]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_cancelled_unretired_execution_blocks_and_retries_after_retirement[unlink]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_terminal_job_with_unretired_current_journal_still_blocks_http_deletion[completed-project]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_terminal_job_with_unretired_current_journal_still_blocks_http_deletion[completed-unlink]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_terminal_job_with_unretired_current_journal_still_blocks_http_deletion[failed-project]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_terminal_job_with_unretired_current_journal_still_blocks_http_deletion[failed-unlink]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_unbound_execution_can_be_deleted_after_native_retirement_with_live_lease[project]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_deletion_retirement_http_native.py::test_unbound_execution_can_be_deleted_after_native_retirement_with_live_lease[unlink]",
+      "profile": "video-deletion-http",
+      "latest_directed": {
+        "source": "joint-repair-d8552d686-1/deletion-http-run",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-3d45da957-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_correction_input_fences_source_mask_and_keeps_runtime_routing_mutable",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_finish_rejects_measured_video_shorter_than_admitted_tracker_range",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_manifest_and_tracker_claimers_progress_only_their_owner_lane",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "failure"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_partial_review_uses_current_reviewer_without_rebinding_tracker_plan",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[False-3-1-10-19-True]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[False-3-1-9-21-False]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[True-1000000000000000000000000000000-1-0-29-True]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[True-3-0-0-11-True]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[True-3-1-8-22-False]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[True-3-1-9-21-True]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_stage_and_review_apply_current_segment_context_and_lock[True-3-2-19-29-True]",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_tracker_lease_takeover_preserves_staged_replay_and_fences_old_token",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_video_tracker_input_lifecycle.py::test_tracker_pins_follow_late_attachment_reparenting_and_job_deletion",
+      "profile": "video-input-lanes",
+      "latest_directed": {
+        "source": "joint-contracts-20261120-1/video-input-lanes",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-prereqs-d8552d686-1",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_workspace_import_cli_live.py::test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabilities",
+      "profile": "workspace-import",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_workspace_seed_operator_live.py::test_seed_entrypoints_run_through_the_fenced_api_image",
+      "profile": "workspace-seed",
+      "latest_directed": null,
+      "older_default": null
+    },
+    {
+      "nodeid": "tests/test_workspace_video_tracker_worker_live.py::test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_retirement",
+      "profile": "workspace-video-tracker",
+      "latest_directed": {
+        "source": "tracker-isolation-0df0e3357-1",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-joint-ff860a543-3",
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_workspace_video_tracker_worker_live.py::test_tracker_revocation_http_prerequisites",
+      "profile": "workspace-video-tracker",
+      "latest_directed": {
+        "source": "tracker-isolation-0df0e3357-1",
+        "outcome": "passed"
+      },
+      "older_default": {
+        "source": "t1-t2-joint-ff860a543-3",
+        "outcome": "passed"
+      }
+    }
+  ]
+}

@@ -771,3 +771,43 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 仓库回归 `test_screenshot_reader_reuses_origin_only_after_retirement` 在同一库通过，未跳过。前向迁移、定向验证、回归及清退共 43 秒；一次更早的探针在读取数据库 OID 时取错回执字段，在迁移前结束并已清退，不计为通过。
 
 回执：`proxy-reuse-bo0478-1/observations.json`（SHA256 `51ddd011e72566b92a9a4065b6899b834b7eb26df517c86147073831713997ad`）、同目录 `regression.xml` 和 `verdict.json`。数据库、容器、卷和临时根均已删除。本次验证的是导致截图准备失败的地址登记，不是原三项完整截图用例、浏览器渲染或 T1／T2 全量验收。
+
+## 原三项截图夹具复验
+
+`599a727dd`／`bo0478` 用同一次 module-data 验证器运行 `tests/test_screenshot_seed_catalog.py` 中上轮准备失败的三个原始 node ID。使用独占数据库与 MinIO、截图源缓存和 nuScenes mini 离线归档；没有改用缩小的夹具或端口探针。
+
+| 原用例                                                   | JUnit 结果 |       用时 |
+| -------------------------------------------------------- | ---------- | ---------: |
+| `test_final_timestamps_preserve_later_seed_updates`      | 通过       | 335.461 秒 |
+| `test_nuscenes_storage_resolves_only_its_dataset`        | 通过       | 285.663 秒 |
+| `test_screenshot_retirement_preserves_another_owned_run` | 通过       | 609.284 秒 |
+
+验证器退出 0，JUnit 无失败、错误或跳过。从启动到清退共 26 分 26 秒；数据库无保留项，PostgreSQL 容器、临时根以及引导 MinIO 容器、卷和网络均已清退，零清理错误。两份夹具归属回执已单独留存。原件：`t1-gate/screenshot-trio-599a727dd-1/` 下 `gate.junit.xml`（SHA256 `186c77856e9d1a9df92a2bc1cd0a1b7477e7744150b2e21a407442a7c238639c`）、`gate.collection.json`、`gate.json`、`run.json`。此结果关闭原三项夹具的定向复验，不是浏览器视觉验收，也不改写默认轮。
+
+## G7：默认轮未运行节点对账
+
+[逐节点清单](g7-unrun-f6e349674.json)以 `f6e349674` 的完整 collection 减去普通组实际 JUnit 节点（含错误和跳过），得到 92 个未运行项。`599a727dd` 只运行同一验证器默认选择器的 `pytest --collect-only`，实际得到 3,338 个唯一节点：原 3,337 个均在，仅新增截图读取身份退役后复用地址的回归。92 个 node ID 均未改名，全部仍归原来的 24 个执行组。原三个截图错误与已跳过的空间峰值用例不在这 92 项内。
+
+| 92 项的历史定向证据                | 数量 | 限定                                                                                             |
+| ---------------------------------- | ---: | ------------------------------------------------------------------------------------------------ |
+| 定向执行及清退通过，可定位候选提交 |   54 | 包括原默认 T2 未运行的 Identity 双运行和 scale；两者均在 `2206f0722` 定向通过。                  |
+| 定向执行及清退通过，无精确源码提交 |    1 | 辅助原件退役在 `cold-cli-original-reader-attempt28` 通过；保留实际结果，不猜测集成工作树的 SHA。 |
+| 只有未通过的定向记录               |    1 | `mask-gc-runtime` 的独立预算用例；严格内核峰值继续延期。                                         |
+| 所查 JUnit 中没有该节点的执行结果  |   36 | 其中 27 项在 `parent-seed-native`，其余 9 项分属 8 组；它们均已在当前候选实际收集。              |
+
+清单逐行给出当前组、最近的定向结果和更早默认轮的观察，引用的报告、collection、JUnit 均附摘要。历史故障注入或整组未通过时，节点通过与整组成功分列。**没有把任何一项登记为 `599a727dd` 默认通过。** 本次完成的是 G7 的 92 项对账，不是 G7 全部退出门。若要优先补没有证据的范围，从 `parent-seed-native` 的 27 项开始；不必为对账重跑全套。
+
+## J1：同一 API key 轮询与导出授权竞争
+
+首轮 `matrix-7-verdict.json` 中，`image_project` 作业 `064a676e-3f42-4c17-b978-03c5729435a4` 已受理，最终为 `failed: dbapi`。同一 Job 的 GET 先返回 503，后返回 200。`native-uri-runtime.log` 的 worker 栈落在图片源复制前的 `object_guard` → `_reauthorize_export_final_write` → `output_authority.validate` → `read_accepted_api_key_facts`，异常明确指向 `public.api_keys`，不是 Jobs 行。原日志没有持锁后端 PID，不能认定某一次历史 GET 就是当时的锁主。
+
+在 `599a727dd` 的独占 PostgreSQL 16.14／`bo0478` 中，用同一用户的两把有效测试 key、同一份真实捕获的导出授权回执和两个独立的非 superuser 连接对照。请求经过真实 `GET /api/v1/async-jobs/{id}`；只在正常认证即将提交时设屏障，以确定先后顺序，没有另发 SQL 人为锁行。观察连接确认轮询事务已执行 `confirm_api_key_principal`、尚未提交并持 `api_keys` 的写锁。`get_current_principal` 在读取 Job 前就提交认证事务；不是整个轮询都持有该锁。
+
+| 先取得锁的事务                                   | 同一把 key                                                          | 同用户另一把 key 轮询         |
+| ------------------------------------------------ | ------------------------------------------------------------------- | ----------------------------- |
+| 轮询认证：`FOR UPDATE NOWAIT`，写 `last_used_at` | worker 复核立即报 `55P03`；轮询提交后返回 200，同一回执随后复核通过 | worker 复核通过，轮询返回 200 |
+| worker 原请求授权复核：`FOR SHARE NOWAIT`        | 轮询返回 503                                                        | 轮询返回 200                  |
+
+撤销原 key 后，GET 返回 401，worker 仍以 `export_output_authority_changed` 拒绝。诊断在不到 37 秒内完成，清退前库内无客户端会话，库、容器、卷与临时根均已删除。脱敏观察：`t1-gate/g7-j1-599a727dd-1/j1-observations.json`（SHA256 `de9941538b014987b185a1f05c3092e85066887f0591af3bd064e5bf67968033`）及 `j1-run.json`；历史 worker 日志 SHA256 `80ee78cb0bce458530b87f5d2c381ef7992dd19aa7e2c4af68934a37539da955`。
+
+**归因已复现，产品未修复。** 不是重复提交、Jobs 行锁或撤权；分开凭据只是验收隔离。本次重现的是轮询和 worker 的真实授权边界，未重跑完整导出。修复应让普通轮询记录最近使用时间时不独占 worker 必须复核的凭据行，并保留撤销、轮换、过期及 scope 变更的即时拒绝。验收要用同一把 key 提交、轮询并取得实际导出物；不能靠换 key、增加重试或放松最终授权检查。
