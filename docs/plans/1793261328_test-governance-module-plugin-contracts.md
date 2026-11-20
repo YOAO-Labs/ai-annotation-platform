@@ -477,7 +477,7 @@ CPU 套件可以并行；真实数据库／对象存储先证明资源隔离；�
 | `test_identity_actor_context_gateway.py`／`test_project_member_profiles.py` 的局部名称检查 | DELETE／REWRITE      | 真实身份调用、受限 DB 角色、成员响应和越权拒绝                         | G3     |
 | `test_identity_e2e_native.py`／`test_workspace_e2e_native.py` 等测试互调                   | MOVE                 | 场景 helper 显式依赖，保留不同角色／绑定的真实消费者覆盖               | G2     |
 | `raster_mask_isolation.py` 的事务归属登记及其他资源清理                                    | REWRITE              | 准确资源所有权、提交／回滚边界和邻居安全，不靠随机 ID 推断归属         | G2     |
-| `AuditArchiveBindingChangeButton.test.tsx`／`StorageBindingChangeButton.test.tsx`          | REWRITE／MERGE       | 各用途真实错误码、清空选择与重新选择，保留专属权限                     | G1／G6 |
+| `StorageBindingChangeButton.test.tsx`／`StorageBindingRecovery.test.tsx`                   | REWRITE／MERGE       | 一套对话框验证陈旧预览和确认；各用途验证错误码、历史数据与实际请求     | G1／G6 |
 | `filterCoverage.test.ts`／Overlay CSS 文字／Shell 假节点断言                               | DELETE／明确静态归属 | 页面交互、实际几何／可见性和真正状态回调；不保留 mock 回声             | G6     |
 | `mask-editor.spec.ts`                                                                      | MERGE／REWRITE       | 复用 native 强创建场景；保留 AI 精修 lineage 与持久内容                | G6     |
 | `workbench-video-media-smoke.spec.ts`                                                      | DELETE               | 删除过期旧栈规格；现行精确帧／真实像素合同继续保留                     | G6     |

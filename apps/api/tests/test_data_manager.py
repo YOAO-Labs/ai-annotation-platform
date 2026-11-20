@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.prediction import (
     INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
@@ -330,6 +333,94 @@ async def test_summary_uses_real_annotation_and_pending_shape_counts(
     assert matches.json()["total"] == 2
 
 
+async def test_task_feedback_filters_and_last_activity_are_task_scoped(
+    httpx_client: httpx.AsyncClient,
+    project_admin,
+    db_session: AsyncSession,
+):
+    owner, token = project_admin
+    project = await create_project(db_session, owner_id=owner.id, type_key="image-det")
+    foreign_project = await create_project(
+        db_session, owner_id=owner.id, type_key="image-det"
+    )
+    info_task, warn_task, history_task, quiet_task = [
+        await create_task(db_session, project_id=project.id) for _ in range(4)
+    ]
+    foreign_task = await create_task(db_session, project_id=foreign_project.id)
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for day, task in enumerate(
+        (info_task, warn_task, history_task, quiet_task, foreign_task), start=1
+    ):
+        task.created_at = start - timedelta(days=day)
+        task.updated_at = start
+    quiet_task.updated_at = start + timedelta(hours=1)
+    records = [
+        (info_task, "issue", "open", "info", True, 2),
+        (warn_task, "issue", "open", "warn", True, 5),
+        (warn_task, "issue", "resolved", "warn", False, 1),
+        (history_task, "comment", "open", None, True, 3),
+        (history_task, "issue", "resolved", "warn", True, 4),
+        (history_task, "issue", "open", "warn", False, 1),
+        (foreign_task, "issue", "open", "warn", True, 6),
+    ]
+    db_session.add_all(
+        AnnotationFeedback(
+            task_id=task.id,
+            project_id=task.project_id,
+            anchor_type="task",
+            author_id=owner.id,
+            body="Task query regression",
+            kind=kind,
+            status=status,
+            severity=severity,
+            is_active=active,
+            created_at=start,
+            updated_at=start + timedelta(hours=hour),
+        )
+        for task, kind, status, severity, active, hour in records
+    )
+    await db_session.flush()
+
+    async def query(**payload):
+        response = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/tasks/query",
+            headers={"Authorization": f"Bearer {token}"},
+            json=payload,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    for field, value, expected in [
+        ("feedback.kind", "issue", (info_task, warn_task)),
+        ("feedback.status", "resolved", (history_task,)),
+        ("feedback.severity", "warn", (warn_task,)),
+    ]:
+        body = await query(
+            filter_json={"field": field, "op": "eq", "value": value},
+            columns_json=["display_id"],
+        )
+        assert body["total"] == len(expected), field
+        assert sorted(row["id"] for row in body["items"]) == sorted(
+            str(task.id) for task in expected
+        ), field
+
+    body = await query(
+        columns_json=["last_activity_at"],
+        sort_json=[{"field": "last_activity_at", "direction": "desc"}],
+    )
+    assert body["total"] == 4
+    assert [
+        (row["id"], datetime.fromisoformat(row["last_activity_at"]))
+        for row in body["items"]
+    ] == [
+        (str(warn_task.id), start + timedelta(hours=5)),
+        (str(history_task.id), start + timedelta(hours=4)),
+        (str(info_task.id), start + timedelta(hours=2)),
+        (str(quiet_task.id), start + timedelta(hours=1)),
+    ]
+
+
 async def test_keyword_search_matches_task_id_and_file_name(
     httpx_client: httpx.AsyncClient,
     project_admin,
@@ -541,14 +632,24 @@ async def test_annotation_conditions_in_same_and_group_match_one_object(
         headers={"Authorization": f"Bearer {token}"},
         json={
             "filter_json": {
-                "op": "and",
+                "op": "or",
                 "rules": [
-                    {"field": "annotation.class_name", "op": "eq", "value": "car"},
                     {
-                        "field": "annotation.source",
-                        "op": "eq",
-                        "value": "prediction_based",
+                        "op": "and",
+                        "rules": [
+                            {
+                                "field": "annotation.class_name",
+                                "op": "eq",
+                                "value": "car",
+                            },
+                            {
+                                "field": "annotation.source",
+                                "op": "eq",
+                                "value": "prediction_based",
+                            },
+                        ],
                     },
+                    {"field": "task.status", "op": "eq", "value": "review"},
                 ],
             }
         },

@@ -96,34 +96,71 @@ async def test_issue_filter_keeps_annotation_grain_and_complete_scene_tracks(
                 track_id="has_issue",
             )
         )
+        # A legacy issue anchored to an annotation on another task is not a
+        # valid root for that annotation, even within the same project.
+        db_session.add(
+            AnnotationFeedback(
+                project_id=project.id,
+                task_id=second_task.id,
+                annotation_id=annotations[1].id,
+                author_id=owner.id,
+                kind="issue",
+                anchor_type="annotation",
+                status="open",
+                body="Mismatched task and annotation",
+            )
+        )
     await db_session.flush()
 
     scope = "objects" if grain == "objects" else "tracks"
     for operator, index in [("gt", 0), ("eq", 1)]:
+        rule = {"field": field, "op": operator, "value": 0}
+        filter_json = rule
+        if operator == "gt":
+            filter_json = {
+                "op": "and",
+                "rules": [
+                    {"field": "annotation.class_name", "op": "eq", "value": "car"},
+                    {
+                        "op": "or",
+                        "rules": [
+                            rule,
+                            {
+                                "field": "annotation.source",
+                                "op": "eq",
+                                "value": "prediction_based",
+                            },
+                        ],
+                    },
+                ],
+            }
         response = await httpx_client.post(
             f"/api/v1/projects/{project.id}/data-manager/{scope}/query",
             headers=_auth(token),
-            json={"filter_json": {"field": field, "op": operator, "value": 0}},
+            json={"filter_json": filter_json},
         )
         assert response.status_code == 200, response.text
         body = response.json()
-        if grain == "scene_tracks" and operator == "eq":
-            # A Scene track matches when any member matches; its second,
-            # issue-free occurrence can therefore match eq=0 as well.
-            assert {item["track_id"] for item in body["items"]} == {
-                "has_issue",
-                "no_issue",
-            }
+        if grain == "scene_tracks":
+            # A scene track matches when any member matches. Compare complete
+            # occurrence counts even when its issue-free member matches eq=0.
+            expected = {"has_issue": 2}
+            if operator == "eq":
+                expected["no_issue"] = 1
+            assert body["total"] == len(expected)
+            assert sorted(
+                (item["track_id"], item["occurrence_count"]) for item in body["items"]
+            ) == sorted(expected.items())
             continue
-        assert body["total"] == 1
+        assert body["total"] == len(body["items"]) == 1
         row = body["items"][0]
         if grain == "objects":
             assert row["annotation_id"] == str(annotations[index].id)
             assert row["unresolved_feedback_count"] == (1 if index == 0 else 0)
         else:
             assert row["track_id"] == annotations[index].track_id
-            if grain == "scene_tracks":
-                assert row["occurrence_count"] == 2
+            assert row["compact_annotation_id"] == str(annotations[index].id)
+            assert row["occurrence_count"] == 1
 
 
 async def test_object_query_uses_annotation_grain_cursor_and_location(

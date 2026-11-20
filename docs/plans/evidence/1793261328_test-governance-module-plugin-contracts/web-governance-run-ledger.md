@@ -2,6 +2,11 @@
 
 原始日志与 JUnit 位于当前工作树 `.artifacts/test-results/web-governance/`；本账本只记录不依赖 T1／T2 的本地证据。
 
+## 2026-11-20：合并存储绑定对话框的重复场景
+
+- 前次四个文件的 87 项收敛为两个文件、49 项。候选翻页、会话或目标变更、预览失效、焦点恢复、重复确认都走共享组件；头像仍拒绝缺少存储位置的历史上传，审计归档仍显示永久保留。三个用途分别用各自的目标缺失码切换到新位置，并核对最终 HTTP 请求没有带上旧目标、修订或令牌。
+- 本地 Vitest／jsdom 和 MSW 实跑：`.artifacts/test-results/behavioral-cleanup-765f8ec779/bindings.xml`。这不是浏览器布局、实际 S3 操作或服务端鉴权的证据。未新增截图、录屏或采集脚本。
+
 ## 2026-11-19：录制与媒体工具的 Linux CI 入口
 
 - 基线 `fef2aace8`：三个 `screenshots:*:test` 命令可手动运行，但 `Frontend verification` 的 Vitest 排除了这十个 Node 测试文件；仓库／文档脚本 CI 也不选择它们。包体积和精确帧基准测试原本由 Vitest 收集，不迁移或重复运行。

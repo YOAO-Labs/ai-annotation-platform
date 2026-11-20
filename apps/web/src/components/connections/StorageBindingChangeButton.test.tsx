@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
   BugAttachmentBindingPreview,
@@ -12,10 +13,12 @@ import type {
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { ApiError } from "@/api/client";
+import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { createTestQueryClient } from "@/test/queryClient";
 import { StorageBindingChangeButton } from "./StorageBindingChangeButton";
 
-const auth = vi.hoisted(() => ({ revision: 1 }));
+type Purpose = ComponentProps<typeof StorageBindingChangeButton>["purpose"];
+
 const pushToast = vi.hoisted(() => vi.fn());
 const api = vi.hoisted(() => ({
   bindingCandidates: vi.fn(),
@@ -27,22 +30,18 @@ vi.mock("@/components/ui/Toast", () => ({
   useToastStore: (select: (state: { push: typeof pushToast }) => unknown) =>
     select({ push: pushToast }),
 }));
-vi.mock("@/hooks/useSessionGuard", async (original) => ({
-  ...(await original<typeof import("@/hooks/useSessionGuard")>()),
-  useSessionRevision: () => auth.revision,
-}));
 const binding: StorageBindingOut = {
   purpose: "bug-reports",
   location_id: "old-location",
   generation: 2,
   location_config_revision: 3,
-  bucket: "old-avatar-bucket",
+  bucket: "old-bug-attachments-bucket",
   state: "configured",
   read_policy: "consumer_owned_compatibility",
   write_policy: "current_binding",
   change_policy: "reviewed_bug_attachment_switch",
 };
-const target = { location_id: "new-location", name: "新报告附件存储", config_revision: 7 };
+const target = { location_id: "new-location", name: "新存储位置", config_revision: 7 };
 function reviewed(
   overrides: Partial<BugAttachmentBindingPreview> = {},
 ): BugAttachmentBindingPreview {
@@ -52,28 +51,27 @@ function reviewed(
     target: {
       ...target,
       connection_revision: 4,
-      bucket: "new-avatar-bucket",
-      key_prefix: "managed/avatars/",
+      bucket: "new-bug-attachments-bucket",
+      key_prefix: "managed/bug-reports/",
     },
     history: { pending: 2, ready: 4, retired: 3 },
     capabilities: { conditional_write: true, full_read: true, delete: true },
     can_apply: true,
     measured_at: new Date().toISOString(),
     expires_at: new Date(Date.now() + 300_000).toISOString(),
-    impact_token: "reviewed-avatar-switch",
+    impact_token: "reviewed-bug-attachment-switch",
     ...overrides,
   };
 }
-const clients: ReturnType<typeof createTestQueryClient>[] = [];
-function mount() {
+const clients: QueryClient[] = [];
+function mount(currentBinding = binding, purpose: Purpose = "bug-reports") {
   const client = createTestQueryClient();
   clients.push(client);
-  let currentBinding = binding;
   const onApplied = vi.fn().mockResolvedValue(undefined);
   const tree = () => (
     <QueryClientProvider client={client}>
       <StorageBindingChangeButton
-        purpose="bug-reports"
+        purpose={purpose}
         binding={currentBinding}
         onApplied={onApplied}
       />
@@ -89,24 +87,38 @@ function mount() {
     },
   };
 }
-async function open() {
-  fireEvent.click(screen.getByRole("button", { name: "切换报告附件位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换报告附件存储位置" });
+async function open(label = "报告附件", dialogName = `切换${label}存储位置`) {
+  fireEvent.click(screen.getByRole("button", { name: `切换${label}位置` }));
+  const dialog = screen.getByRole("dialog", { name: dialogName });
   await within(dialog).findByRole("option", { name: target.name });
   return dialog;
 }
-async function preview() {
-  const dialog = await open();
+function requestPreview(dialog: HTMLElement) {
   fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
     target: { value: target.location_id },
   });
   fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+}
+async function preview() {
+  const dialog = await open();
+  requestPreview(dialog);
   await within(dialog).findByRole("region", { name: "报告附件绑定变更预览" });
   return dialog;
 }
+async function previewPurpose(
+  purpose: Purpose,
+  currentBinding: StorageBindingOut,
+  label: string,
+  dialogName?: string,
+) {
+  const { onApplied } = mount(currentBinding, purpose);
+  const dialog = await open(label, dialogName);
+  await act(async () => requestPreview(dialog));
+  return { dialog, onApplied };
+}
 beforeEach(() => {
   vi.resetAllMocks();
-  auth.revision = 1;
+  seedAuthUser(createTestUser({ role: "super_admin" }));
   api.bindingCandidates.mockResolvedValue({ items: [target], total: 21 });
   api.previewBinding.mockImplementation(async () => reviewed());
   api.applyBinding.mockResolvedValue({
@@ -116,21 +128,20 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  cleanup();
+  resetAuthUser();
   clients.splice(0).forEach((client) => client.clear());
   vi.useRealTimers();
 });
 
-it("loads candidates only on opening and keeps label and muted hint outside the selected value", async () => {
+it("loads candidates only on opening and exposes the probe hint as a description, not an option", async () => {
   mount();
   expect(api.bindingCandidates).not.toHaveBeenCalled();
   const dialog = await open();
   expect(api.bindingCandidates).toHaveBeenCalledWith("bug-reports", 0, expect.any(AbortSignal), 20);
   const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
   expect(select).toHaveValue("");
-  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
-  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
-  expect(hint).toHaveTextContent("实际写入、完整读回并删除");
-  expect(within(select).getByRole("option", { name: target.name })).toHaveTextContent(target.name);
+  expect(select).toHaveAccessibleDescription(/实际写入、完整读回并删除/);
   expect(within(select).queryByText(/验证将/)).not.toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
 });
@@ -157,7 +168,7 @@ it("previews fixed mapping facts and applies only after explicit confirmation", 
     expected_generation: 2,
     target_location_id: target.location_id,
     target_config_revision: 7,
-    impact_token: "reviewed-avatar-switch",
+    impact_token: "reviewed-bug-attachment-switch",
   });
   expect(pushToast).toHaveBeenCalledTimes(1);
 });
@@ -246,6 +257,7 @@ it("drops an old review when the selected target changes", async () => {
     within(dialog).queryByRole("region", { name: "报告附件绑定变更预览" }),
   ).not.toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
 });
 
 it("retires a pending old target response after selection changes", async () => {
@@ -261,10 +273,7 @@ it("retires a pending old target response after selection changes", async () => 
   );
   mount();
   const dialog = await open();
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  requestPreview(dialog);
   fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
     target: { value: "other" },
   });
@@ -272,36 +281,40 @@ it("retires a pending old target response after selection changes", async () => 
   expect(
     within(dialog).queryByRole("region", { name: "报告附件绑定变更预览" }),
   ).not.toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
   expect(api.applyBinding).not.toHaveBeenCalled();
 });
 
-it.each(["generation", "location", "revision", "session"])(
-  "retires a review after %s changes",
-  async (transition) => {
-    const view = mount();
-    await preview();
-    if (transition === "generation") view.refresh({ ...binding, generation: 3 });
-    else if (transition === "location") view.refresh({ ...binding, location_id: "changed" });
-    else if (transition === "revision") view.refresh({ ...binding, location_config_revision: 4 });
-    else {
-      auth.revision++;
-      view.refresh();
-    }
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(api.applyBinding).not.toHaveBeenCalled();
-  },
-);
-
-it("invalidates a review if candidate refresh reports a new target revision", async () => {
+it.each([
+  ["generation", { generation: 3 }],
+  ["location", { location_id: "changed" }],
+  ["revision", { location_config_revision: 4 }],
+] as const)("retires a review after %s changes", async (_field, change) => {
   const view = mount();
   await preview();
+  view.refresh({ ...binding, ...change });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+it("retires a review after the session changes", async () => {
+  mount();
+  await preview();
+  act(() => {
+    seedAuthUser(createTestUser({ id: "another-admin", role: "super_admin" }));
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(api.applyBinding).not.toHaveBeenCalled();
+});
+
+it("invalidates a review if candidate refresh reports a new target revision", async () => {
+  mount();
+  const dialog = await preview();
   api.bindingCandidates.mockResolvedValueOnce({
     items: [{ ...target, config_revision: 8 }],
     total: 1,
   });
-  await act(async () =>
-    view.client.invalidateQueries({ queryKey: ["bug-attachment-binding-candidates"] }),
-  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "刷新位置" }));
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "报告附件绑定变更预览" })).not.toBeInTheDocument(),
   );
@@ -330,6 +343,22 @@ it("invalidates a rejected apply and permits a new reviewed token", async () => 
   expect(api.applyBinding.mock.calls[1][1].impact_token).toBe("fresh");
 });
 
+it("disables confirmation when the backend rejects the reviewed token", async () => {
+  api.applyBinding.mockRejectedValueOnce(
+    new ApiError(409, "Conflict", { code: "storage_binding_preview_invalid" }),
+  );
+  const { onApplied } = mount();
+  const dialog = await preview();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("确认凭证无效");
+  const confirm = within(dialog).getByRole("button", { name: "确认切换" });
+  expect(confirm).toBeDisabled();
+  fireEvent.click(confirm);
+  expect(api.applyBinding).toHaveBeenCalledTimes(1);
+  expect(onApplied).not.toHaveBeenCalled();
+  expect(pushToast).not.toHaveBeenCalled();
+});
+
 it("does not acknowledge an application completed for an old session", async () => {
   let complete!: () => void;
   api.applyBinding.mockReturnValueOnce(
@@ -340,28 +369,26 @@ it("does not acknowledge an application completed for an old session", async () 
   const view = mount();
   await preview();
   fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
-  auth.revision++;
-  view.refresh();
+  act(() => resetAuthUser());
   await act(async () => complete());
   expect(pushToast).not.toHaveBeenCalled();
   expect(view.onApplied).not.toHaveBeenCalled();
 });
 
-it("rejects a response describing a different target instead of opening its confirmation", async () => {
-  api.previewBinding.mockResolvedValueOnce(
-    reviewed({ target: { ...reviewed().target, location_id: "another-target" } }),
-  );
+it.each([
+  ["another target", { target: { ...reviewed().target, location_id: "another-target" } }],
+  ["another purpose", { purpose: "export" }],
+  ["a previous binding for another purpose", { previous: { ...binding, purpose: "export" } }],
+  ["an invalid expiry", { expires_at: "not-a-timestamp" }],
+] as const)("rejects a preview with %s without opening confirmation", async (_case, patch) => {
+  api.previewBinding.mockResolvedValueOnce({ ...reviewed(), ...patch });
   mount();
   const dialog = await open();
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
+  requestPreview(dialog);
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(
-    within(dialog).queryByRole("region", { name: "报告附件绑定变更预览" }),
-  ).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("region")).not.toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
 });
 
 it("settles an in-flight apply after target refresh without trapping the dialog", async () => {
@@ -372,15 +399,15 @@ it("settles an in-flight apply after target refresh without trapping the dialog"
     }),
   );
   const view = mount();
-  await preview();
-  fireEvent.click(screen.getByRole("button", { name: "确认切换" }));
+  const dialog = await preview();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
+  expect(within(dialog).getByRole("button", { name: "取消" })).toBeDisabled();
   api.bindingCandidates.mockResolvedValueOnce({
-    items: [{ ...target, config_revision: 8 }],
+    items: [{ ...target, name: "刷新后的存储位置", config_revision: 8 }],
     total: 1,
   });
-  await act(async () =>
-    view.client.invalidateQueries({ queryKey: ["bug-attachment-binding-candidates"] }),
-  );
+  await act(async () => view.client.invalidateQueries());
+  await within(dialog).findByRole("option", { name: "刷新后的存储位置" });
   await act(async () =>
     reject(new ApiError(409, "Conflict", { code: "storage_binding_preview_changed" })),
   );
@@ -413,35 +440,10 @@ function exportReview(): ExportBindingPreview {
     },
   };
 }
-function mountExport() {
-  const client = createTestQueryClient();
-  clients.push(client);
-  const onApplied = vi.fn().mockResolvedValue(undefined);
-  render(
-    <QueryClientProvider client={client}>
-      <StorageBindingChangeButton
-        purpose="export"
-        binding={exportReview().previous}
-        onApplied={onApplied}
-      />
-    </QueryClientProvider>,
-  );
-  return onApplied;
-}
-async function openExport() {
-  fireEvent.click(screen.getByRole("button", { name: "切换导出位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换导出存储位置" });
-  await within(dialog).findByRole("option", { name: target.name });
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  return dialog;
-}
 it("reviews both export owners and listing capabilities before confirming the export route", async () => {
-  api.previewBinding.mockResolvedValueOnce(exportReview());
-  const onApplied = mountExport();
-  const dialog = await openExport();
+  const review = exportReview();
+  api.previewBinding.mockResolvedValueOnce(review);
+  const { dialog, onApplied } = await previewPurpose("export", review.previous, "导出");
   await within(dialog).findByRole("region", { name: "导出绑定变更预览" });
   expect(api.bindingCandidates).toHaveBeenCalledWith("export", 0, expect.any(AbortSignal), 20);
   expect(api.previewBinding).toHaveBeenCalledWith("export", {
@@ -455,35 +457,27 @@ it("reviews both export owners and listing capabilities before confirming the ex
   ).toBeInTheDocument();
   expect(within(dialog).getByText(/配套 ZIP 使用媒体包分配时的位置/)).toBeInTheDocument();
   expect(within(dialog).getByText(/对象列举通过 · 版本列举通过/)).toBeInTheDocument();
-  expect(within(dialog).getByText(/外部端点须供浏览器及下载脚本访问/)).toHaveClass(
-    "text-muted-foreground",
-  );
+  expect(
+    within(dialog).getByRole("combobox", { name: "目标存储位置" }),
+  ).toHaveAccessibleDescription(/外部端点须供浏览器及下载脚本访问/);
   fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
   await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
   expect(api.applyBinding).toHaveBeenCalledWith("export", {
     expected_generation: 2,
     target_location_id: target.location_id,
     target_config_revision: 7,
-    impact_token: exportReview().impact_token,
+    impact_token: review.impact_token,
   });
-});
-it("rejects another purpose's preview for an export switch", async () => {
-  api.previewBinding.mockResolvedValueOnce(reviewed());
-  mountExport();
-  const dialog = await openExport();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(within(dialog).queryByRole("region")).not.toBeInTheDocument();
 });
 it("resets an export target that disappears during verification", async () => {
   api.previewBinding.mockRejectedValueOnce(
     new ApiError(404, "Not found", { code: "export_binding_target_missing" }),
   );
-  mountExport();
-  const dialog = await openExport();
+  const { dialog } = await previewPurpose("export", exportReview().previous, "导出");
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
   expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
 });
 
 function importReview(): ImportBindingPreview {
@@ -514,35 +508,15 @@ function importReview(): ImportBindingPreview {
     impact_token: "reviewed-import-switch",
   };
 }
-function mountImport() {
-  const client = createTestQueryClient();
-  clients.push(client);
-  const onApplied = vi.fn().mockResolvedValue(undefined);
-  render(
-    <QueryClientProvider client={client}>
-      <StorageBindingChangeButton
-        purpose="import"
-        binding={importReview().previous}
-        onApplied={onApplied}
-      />
-    </QueryClientProvider>,
-  );
-  return onApplied;
-}
-async function openImport() {
-  fireEvent.click(screen.getByRole("button", { name: "切换导入暂存位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换导入暂存位置" });
-  await within(dialog).findByRole("option", { name: target.name });
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  return dialog;
-}
 it("reviews all import owners without promising staging deletion and applies the import route", async () => {
-  api.previewBinding.mockResolvedValueOnce(importReview());
-  const onApplied = mountImport();
-  const dialog = await openImport();
+  const review = importReview();
+  api.previewBinding.mockResolvedValueOnce(review);
+  const { dialog, onApplied } = await previewPurpose(
+    "import",
+    review.previous,
+    "导入暂存",
+    "切换导入暂存位置",
+  );
   await within(dialog).findByRole("region", { name: "导入暂存绑定变更预览" });
   expect(api.bindingCandidates).toHaveBeenCalledWith("import", 0, expect.any(AbortSignal), 20);
   expect(api.previewBinding).toHaveBeenCalledWith("import", {
@@ -557,10 +531,9 @@ it("reviews all import owners without promising staging deletion and applies the
   expect(within(dialog).getByText(/格式导入：已分配上传 5 · 批次 6/)).toBeInTheDocument();
   expect(within(dialog).getByText(/直传和格式导入暂存不自动删除/)).toBeInTheDocument();
   expect(within(dialog).getByText(/最终原件位置不变/)).toBeInTheDocument();
-  expect(within(dialog).getByText(/外部端点须供浏览器与模型服务访问/)).toHaveClass(
-    "text-xs",
-    "text-muted-foreground",
-  );
+  expect(
+    within(dialog).getByRole("combobox", { name: "目标存储位置" }),
+  ).toHaveAccessibleDescription(/外部端点须供浏览器与模型服务访问/);
   expect(api.applyBinding).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
   await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
@@ -571,20 +544,16 @@ it("reviews all import owners without promising staging deletion and applies the
     impact_token: "reviewed-import-switch",
   });
 });
-it("rejects a preview belonging to another purpose for import", async () => {
-  api.previewBinding.mockResolvedValueOnce(exportReview());
-  mountImport();
-  const dialog = await openImport();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
 it("explains the input version requirement when an import probe rejects it", async () => {
   api.previewBinding.mockRejectedValueOnce(
     new ApiError(409, "Unavailable", { code: "import_storage_versioning_required" }),
   );
-  mountImport();
-  const dialog = await openImport();
+  const { dialog } = await previewPurpose(
+    "import",
+    importReview().previous,
+    "导入暂存",
+    "切换导入暂存位置",
+  );
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("启用目标桶版本控制");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
   expect(api.applyBinding).not.toHaveBeenCalled();
@@ -593,11 +562,16 @@ it("clears an import target that disappeared before its probe completed", async 
   api.previewBinding.mockRejectedValueOnce(
     new ApiError(404, "Missing", { code: "import_binding_target_missing" }),
   );
-  mountImport();
-  const dialog = await openImport();
+  const { dialog } = await previewPurpose(
+    "import",
+    importReview().previous,
+    "导入暂存",
+    "切换导入暂存位置",
+  );
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标位置已不存在");
   expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
   expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+  expect(api.applyBinding).not.toHaveBeenCalled();
 });
 
 function datasetReview(): DatasetBindingPreview {
@@ -632,36 +606,10 @@ function datasetReview(): DatasetBindingPreview {
     impact_token: "reviewed-dataset-switch",
   };
 }
-function mountDataset() {
-  const client = createTestQueryClient();
-  clients.push(client);
-  const onApplied = vi.fn().mockResolvedValue(undefined);
-  render(
-    <QueryClientProvider client={client}>
-      <StorageBindingChangeButton
-        purpose="datasets"
-        binding={datasetReview().previous}
-        onApplied={onApplied}
-      />
-    </QueryClientProvider>,
-  );
-  return onApplied;
-}
-async function openDataset() {
-  fireEvent.click(screen.getByRole("button", { name: "切换数据集原件位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换数据集原件存储位置" });
-  await within(dialog).findByRole("option", { name: target.name });
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  return dialog;
-}
-
 it("reviews dataset allocation and saved owners before explicitly switching new originals", async () => {
-  api.previewBinding.mockResolvedValueOnce(datasetReview());
-  const onApplied = mountDataset();
-  const dialog = await openDataset();
+  const review = datasetReview();
+  api.previewBinding.mockResolvedValueOnce(review);
+  const { dialog, onApplied } = await previewPurpose("datasets", review.previous, "数据集原件");
   await within(dialog).findByRole("region", { name: "数据集原件绑定变更预览" });
   expect(api.bindingCandidates).toHaveBeenCalledWith("datasets", 0, expect.any(AbortSignal), 20);
   expect(api.previewBinding).toHaveBeenCalledWith("datasets", {
@@ -677,9 +625,7 @@ it("reviews dataset allocation and saved owners before explicitly switching new 
   expect(within(dialog).getByText(/切换不会搬迁文件/)).toBeInTheDocument();
   expect(within(dialog).getByText(/空文件通过 · 分段上传通过/)).toBeInTheDocument();
   const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
-  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
-  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
-  expect(hint).toHaveTextContent("空文件和分段上传的条件写入");
+  expect(select).toHaveAccessibleDescription(/空文件和分段上传的条件写入/);
   expect(within(select).queryByText(/条件写入/)).not.toBeInTheDocument();
   expect(api.applyBinding).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
@@ -695,30 +641,21 @@ it("reviews dataset allocation and saved owners before explicitly switching new 
     kind: "success",
   });
 });
-
-it("rejects another purpose's preview when switching dataset originals", async () => {
-  api.previewBinding.mockResolvedValueOnce(importReview());
-  mountDataset();
-  const dialog = await openDataset();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
-
 it.each([
-  ["dataset_binding_target_missing", "目标位置已不存在"],
-  ["dataset_storage_conditions_unsupported", "目标不支持条件写入"],
-  ["dataset_storage_unavailable", "检查连接、读写权限及分段上传能力"],
-])("keeps dataset confirmation disabled after %s", async (code, message) => {
-  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
-  mountDataset();
-  const dialog = await openDataset();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
-  if (code === "dataset_binding_target_missing")
-    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
+  ["dataset_binding_target_missing", 404, "目标位置已不存在", ""],
+  ["dataset_storage_conditions_unsupported", 409, "目标不支持条件写入", target.location_id],
+  ["dataset_storage_unavailable", 503, "检查连接、读写权限及分段上传能力", target.location_id],
+] as const)(
+  "keeps dataset confirmation disabled after %s",
+  async (code, status, message, selected) => {
+    api.previewBinding.mockRejectedValueOnce(new ApiError(status, "Unavailable", { code }));
+    const { dialog } = await previewPurpose("datasets", datasetReview().previous, "数据集原件");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue(selected);
+    expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+    expect(api.applyBinding).not.toHaveBeenCalled();
+  },
+);
 
 function mediaCacheReview(): MediaCacheBindingPreview {
   return {
@@ -749,35 +686,10 @@ function mediaCacheReview(): MediaCacheBindingPreview {
     impact_token: "reviewed-media-cache-switch",
   };
 }
-function mountMediaCache() {
-  const client = createTestQueryClient();
-  clients.push(client);
-  const onApplied = vi.fn().mockResolvedValue(undefined);
-  render(
-    <QueryClientProvider client={client}>
-      <StorageBindingChangeButton
-        purpose="media-cache"
-        binding={mediaCacheReview().previous}
-        onApplied={onApplied}
-      />
-    </QueryClientProvider>,
-  );
-  return onApplied;
-}
-async function openMediaCache() {
-  fireEvent.click(screen.getByRole("button", { name: "切换媒体缓存位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换媒体缓存存储位置" });
-  await within(dialog).findByRole("option", { name: target.name });
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  return dialog;
-}
 it("reviews six separate media-cache history counts and switches only new allocations", async () => {
-  api.previewBinding.mockResolvedValueOnce(mediaCacheReview());
-  const onApplied = mountMediaCache();
-  const dialog = await openMediaCache();
+  const review = mediaCacheReview();
+  api.previewBinding.mockResolvedValueOnce(review);
+  const { dialog, onApplied } = await previewPurpose("media-cache", review.previous, "媒体缓存");
   await within(dialog).findByRole("region", { name: "媒体缓存绑定变更预览" });
   expect(api.bindingCandidates).toHaveBeenCalledWith("media-cache", 0, expect.any(AbortSignal), 20);
   expect(api.previewBinding).toHaveBeenCalledWith("media-cache", {
@@ -795,9 +707,7 @@ it("reviews six separate media-cache history counts and switches only new alloca
   expect(within(dialog).getByText(/前缀列举通过/)).toBeInTheDocument();
   expect(within(dialog).queryByText(/空文件通过|分段上传通过|版本列举/)).not.toBeInTheDocument();
   const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
-  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
-  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
-  expect(hint).toHaveTextContent("条件写入、完整读回、准确删除和前缀列举");
+  expect(select).toHaveAccessibleDescription(/条件写入、完整读回、准确删除和前缀列举/);
   expect(within(select).queryByText(/条件写入|前缀列举/)).not.toBeInTheDocument();
   expect(api.applyBinding).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
@@ -813,30 +723,28 @@ it("reviews six separate media-cache history counts and switches only new alloca
     kind: "success",
   });
 });
-it("rejects another purpose's preview for a media-cache switch", async () => {
-  api.previewBinding.mockResolvedValueOnce(datasetReview());
-  mountMediaCache();
-  const dialog = await openMediaCache();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
 it.each([
-  ["media_cache_binding_target_missing", "目标位置已不存在"],
-  ["media_cache_storage_conditions_unsupported", "目标不支持条件写入"],
-  ["media_cache_storage_unavailable", "条件写入、读取、删除和前缀列举权限"],
-  ["media_cache_storage_probe_cleanup_unproven", "验证操作尚未确认收尾"],
-  ["media_cache_storage_binding_unproven", "用途绑定或目标配置无法确认"],
-])("keeps media-cache confirmation disabled after %s", async (code, message) => {
-  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
-  mountMediaCache();
-  const dialog = await openMediaCache();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
-  if (code === "media_cache_binding_target_missing")
-    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
+  ["media_cache_binding_target_missing", 404, "目标位置已不存在", ""],
+  ["media_cache_storage_conditions_unsupported", 409, "目标不支持条件写入", target.location_id],
+  [
+    "media_cache_storage_unavailable",
+    503,
+    "条件写入、读取、删除和前缀列举权限",
+    target.location_id,
+  ],
+  ["media_cache_storage_probe_cleanup_unproven", 409, "验证操作尚未确认收尾", target.location_id],
+  ["media_cache_storage_binding_unproven", 409, "用途绑定或目标配置无法确认", target.location_id],
+] as const)(
+  "keeps media-cache confirmation disabled after %s",
+  async (code, status, message, selected) => {
+    api.previewBinding.mockRejectedValueOnce(new ApiError(status, "Unavailable", { code }));
+    const { dialog } = await previewPurpose("media-cache", mediaCacheReview().previous, "媒体缓存");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue(selected);
+    expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+    expect(api.applyBinding).not.toHaveBeenCalled();
+  },
+);
 
 function annotationsReview(): AnnotationsBindingPreview {
   return {
@@ -871,36 +779,10 @@ function annotationsReview(): AnnotationsBindingPreview {
     impact_token: "reviewed-annotations-switch",
   };
 }
-function mountAnnotations() {
-  const client = createTestQueryClient();
-  clients.push(client);
-  const onApplied = vi.fn().mockResolvedValue(undefined);
-  render(
-    <QueryClientProvider client={client}>
-      <StorageBindingChangeButton
-        purpose="annotations"
-        binding={annotationsReview().previous}
-        onApplied={onApplied}
-      />
-    </QueryClientProvider>,
-  );
-  return onApplied;
-}
-async function openAnnotations() {
-  fireEvent.click(screen.getByRole("button", { name: "切换标注文件位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换标注文件存储位置" });
-  await within(dialog).findByRole("option", { name: target.name });
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  return dialog;
-}
-
-it("reviews annotations allocation and saved owners before explicitly switching new originals", async () => {
-  api.previewBinding.mockResolvedValueOnce(annotationsReview());
-  const onApplied = mountAnnotations();
-  const dialog = await openAnnotations();
+it("reviews saved annotation owners and probes before switching new annotation files", async () => {
+  const review = annotationsReview();
+  api.previewBinding.mockResolvedValueOnce(review);
+  const { dialog, onApplied } = await previewPurpose("annotations", review.previous, "标注文件");
   await within(dialog).findByRole("region", { name: "标注文件绑定变更预览" });
   expect(api.bindingCandidates).toHaveBeenCalledWith("annotations", 0, expect.any(AbortSignal), 20);
   expect(api.previewBinding).toHaveBeenCalledWith("annotations", {
@@ -916,9 +798,7 @@ it("reviews annotations allocation and saved owners before explicitly switching 
   expect(within(dialog).getByText(/不相加作为对象总数/)).toBeInTheDocument();
   expect(within(dialog).getByText(/空文件通过 · 分段上传通过/)).toBeInTheDocument();
   const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
-  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
-  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
-  expect(hint).toHaveTextContent("空文件和分段上传的条件写入");
+  expect(select).toHaveAccessibleDescription(/空文件和分段上传的条件写入/);
   expect(within(select).queryByText(/条件写入/)).not.toBeInTheDocument();
   expect(api.applyBinding).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
@@ -934,30 +814,25 @@ it("reviews annotations allocation and saved owners before explicitly switching 
     kind: "success",
   });
 });
-
-it("rejects another purpose's preview when switching annotations originals", async () => {
-  api.previewBinding.mockResolvedValueOnce(importReview());
-  mountAnnotations();
-  const dialog = await openAnnotations();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
-
 it.each([
-  ["annotations_binding_target_missing", "目标位置已不存在"],
-  ["annotations_storage_conditions_unsupported", "目标不支持条件写入"],
-  ["annotations_storage_unavailable", "检查连接、读写权限及分段上传能力"],
-])("keeps annotations confirmation disabled after %s", async (code, message) => {
-  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
-  mountAnnotations();
-  const dialog = await openAnnotations();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
-  if (code === "annotations_binding_target_missing")
-    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
+  ["annotations_binding_target_missing", 404, "目标位置已不存在", ""],
+  ["annotations_storage_conditions_unsupported", 409, "目标不支持条件写入", target.location_id],
+  ["annotations_storage_unavailable", 503, "检查连接、读写权限及分段上传能力", target.location_id],
+] as const)(
+  "keeps annotations confirmation disabled after %s",
+  async (code, status, message, selected) => {
+    api.previewBinding.mockRejectedValueOnce(new ApiError(status, "Unavailable", { code }));
+    const { dialog } = await previewPurpose(
+      "annotations",
+      annotationsReview().previous,
+      "标注文件",
+    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue(selected);
+    expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+    expect(api.applyBinding).not.toHaveBeenCalled();
+  },
+);
 
 function trainingReview(): TrainingBindingPreview {
   return {
@@ -993,36 +868,10 @@ function trainingReview(): TrainingBindingPreview {
     impact_token: "reviewed-training-switch",
   };
 }
-function mountTraining() {
-  const client = createTestQueryClient();
-  clients.push(client);
-  const onApplied = vi.fn().mockResolvedValue(undefined);
-  render(
-    <QueryClientProvider client={client}>
-      <StorageBindingChangeButton
-        purpose="training"
-        binding={trainingReview().previous}
-        onApplied={onApplied}
-      />
-    </QueryClientProvider>,
-  );
-  return onApplied;
-}
-async function openTraining() {
-  fireEvent.click(screen.getByRole("button", { name: "切换训练文件位置" }));
-  const dialog = screen.getByRole("dialog", { name: "切换训练文件存储位置" });
-  await within(dialog).findByRole("option", { name: target.name });
-  fireEvent.change(within(dialog).getByRole("combobox", { name: "目标存储位置" }), {
-    target: { value: target.location_id },
-  });
-  fireEvent.click(within(dialog).getByRole("button", { name: "验证并预览" }));
-  return dialog;
-}
-
-it("reviews training allocation and saved owners before explicitly switching new originals", async () => {
-  api.previewBinding.mockResolvedValueOnce(trainingReview());
-  const onApplied = mountTraining();
-  const dialog = await openTraining();
+it("reviews saved training owners and probes before switching new training files", async () => {
+  const review = trainingReview();
+  api.previewBinding.mockResolvedValueOnce(review);
+  const { dialog, onApplied } = await previewPurpose("training", review.previous, "训练文件");
   await within(dialog).findByRole("region", { name: "训练文件绑定变更预览" });
   expect(api.bindingCandidates).toHaveBeenCalledWith("training", 0, expect.any(AbortSignal), 20);
   expect(api.previewBinding).toHaveBeenCalledWith("training", {
@@ -1034,13 +883,12 @@ it("reviews training allocation and saved owners before explicitly switching new
     "已有及在途文件保留原位置，重试、续训及清理沿保存地址，内容和首次期限不变",
   );
   expect(within(dialog).getByText(/训练版本 1 · 训练实验 2/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/训练预览 3 · 逐样本评估 4/)).toBeInTheDocument();
   expect(within(dialog).getByText(/主动学习轮次 5 · 删除意图 6/)).toBeInTheDocument();
   expect(within(dialog).getByText(/不相加作为对象总数/)).toBeInTheDocument();
   expect(within(dialog).getByText(/普通写入通过/)).toBeInTheDocument();
   const select = within(dialog).getByRole("combobox", { name: "目标存储位置" });
-  const hint = document.getElementById(select.getAttribute("aria-describedby")!);
-  expect(hint).toHaveClass("text-xs", "text-muted-foreground");
-  expect(hint).toHaveTextContent("普通写入、非空分段上传");
+  expect(select).toHaveAccessibleDescription(/普通写入、非空分段上传/);
   expect(within(select).queryByText(/条件写入/)).not.toBeInTheDocument();
   expect(api.applyBinding).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "确认切换" }));
@@ -1056,27 +904,18 @@ it("reviews training allocation and saved owners before explicitly switching new
     kind: "success",
   });
 });
-
-it("rejects another purpose's preview when switching training originals", async () => {
-  api.previewBinding.mockResolvedValueOnce(importReview());
-  mountTraining();
-  const dialog = await openTraining();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent("用途绑定或目标配置已变化");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
-
 it.each([
-  ["training_binding_target_missing", "目标位置已不存在"],
-  ["storage_operation_unsettled", "验证操作尚未确认收尾"],
-  ["training_storage_unavailable", "检查连接、普通写入、分段上传"],
-])("keeps training confirmation disabled after %s", async (code, message) => {
-  api.previewBinding.mockRejectedValueOnce(new ApiError(409, "Unavailable", { code }));
-  mountTraining();
-  const dialog = await openTraining();
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
-  if (code === "training_binding_target_missing")
-    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue("");
-  expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
-  expect(api.applyBinding).not.toHaveBeenCalled();
-});
+  ["training_binding_target_missing", 404, "目标位置已不存在", ""],
+  ["storage_operation_unsettled", 503, "验证操作尚未确认收尾", target.location_id],
+  ["training_storage_unavailable", 503, "检查连接、普通写入、分段上传", target.location_id],
+] as const)(
+  "keeps training confirmation disabled after %s",
+  async (code, status, message, selected) => {
+    api.previewBinding.mockRejectedValueOnce(new ApiError(status, "Unavailable", { code }));
+    const { dialog } = await previewPurpose("training", trainingReview().previous, "训练文件");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+    expect(within(dialog).getByRole("combobox", { name: "目标存储位置" })).toHaveValue(selected);
+    expect(within(dialog).getByRole("button", { name: "确认切换" })).toBeDisabled();
+    expect(api.applyBinding).not.toHaveBeenCalled();
+  },
+);

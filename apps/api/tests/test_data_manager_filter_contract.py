@@ -8,9 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.dialects import postgresql
-from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import Alias, TableClause
+from sqlalchemy.sql.util import find_tables
 
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
@@ -31,11 +30,7 @@ from app.services.data_management.views import (
     builtin_views,
     invalid_filter_fields,
 )
-from app.services.labeling_core_read_relations import (
-    alias_core_row,
-    annotation_row,
-    task_row,
-)
+from app.services.labeling_core_read_relations import annotation_row
 
 
 def _project(*, data_type: str = "image", scene_mode: bool = False) -> Project:
@@ -78,66 +73,36 @@ def _assert_422(callable_, *args, **kwargs) -> None:
     assert exc.value.status_code == 422
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("feedback.kind", "issue"),
-        ("feedback.status", "open"),
-        ("feedback.severity", "warning"),
-    ],
-)
-def test_feedback_filter_correlates_to_the_public_task_row(field, value):
-    statement = select(task_row.id).where(
-        compile_filter({"field": field, "op": "eq", "value": value})
-    )
-    sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "FROM yoao_labeling_v1.annotation_feedback_facts" in sql
-    assert "annotation_feedback_facts.task_id = yoao_labeling_v1.task_rows.id" in sql
-    assert "FROM yoao_labeling_v1.annotation_feedback_facts, " not in sql
-    assert "public.annotation_feedbacks" not in sql
-
-
-def test_activity_feedback_read_correlates_to_the_public_task_row():
-    statement = select(task_row.id, _last_activity_at_expr())
-    sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "annotation_feedback_facts.task_id = yoao_labeling_v1.task_rows.id" in sql
-    assert "FROM yoao_labeling_v1.annotation_feedback_facts, " not in sql
-    assert "public.annotation_feedbacks" not in sql
-
-
-def test_root_rule_and_nested_groups_compile_for_task_and_entity_grains():
+def test_data_manager_feedback_reads_use_published_facts():
+    # Guard the relation boundary, independent of how SQL renders correlation.
     project = _project()
-    rule = {"field": "annotation.class_name", "op": "eq", "value": "car"}
-    nested = {"op": "and", "rules": [{"op": "or", "rules": [rule]}]}
+    reads = {
+        field: compile_filter(
+            {"field": field, "op": "eq", "value": value}, project=project
+        )
+        for field, value in (
+            ("feedback.kind", "issue"),
+            ("feedback.status", "resolved"),
+            ("feedback.severity", "warn"),
+        )
+    }
+    for field in ("feedback.unresolved_count", "issue.unresolved_count"):
+        reads[field] = compile_entity_filter(
+            {"field": field, "op": "gt", "value": 0}, annotation_row, project=project
+        )
+    reads["last_activity_at"] = _last_activity_at_expr()
 
-    assert isinstance(compile_filter(rule, project=project), ColumnElement)
-    assert isinstance(compile_filter(nested, project=project), ColumnElement)
-    assert isinstance(
-        compile_entity_filter(nested, Annotation, project=project), ColumnElement
-    )
-
-
-@pytest.mark.parametrize(
-    "field", ["feedback.unresolved_count", "issue.unresolved_count"]
-)
-@pytest.mark.parametrize("use_alias", [False, True])
-def test_issue_filter_correlates_to_the_current_annotation(field, use_alias):
-    entity = (
-        alias_core_row(annotation_row, name="candidate")
-        if use_alias
-        else annotation_row
-    )
-    condition = compile_entity_filter(
-        {"field": field, "op": "gt", "value": 0}, entity, project=_project()
-    )
-    sql = str(select(entity.id).where(condition).compile(dialect=postgresql.dialect()))
-    table = "candidate" if use_alias else "yoao_labeling_v1.annotation_rows"
-    assert f"annotation_feedback_facts.annotation_id = {table}.id" in sql
-    assert "FROM yoao_labeling_v1.annotation_rows" in sql
-    assert "FROM yoao_labeling_v1.annotation_feedback_facts" in sql
-    assert (
-        "annotation_feedback_facts.task_id = yoao_labeling_v1.task_rows.id" not in sql
-    )
+    for field, expression in reads.items():
+        sources = set()
+        for relation in find_tables(expression, check_columns=True):
+            while isinstance(relation, Alias):
+                relation = relation.element
+            if isinstance(relation, TableClause) and relation.name in {
+                "annotation_feedbacks",
+                "annotation_feedback_facts",
+            }:
+                sources.add(relation.fullname)
+        assert sources == {"yoao_labeling_v1.annotation_feedback_facts"}, field
 
 
 @pytest.mark.parametrize("compiler", [compile_filter, compile_entity_filter])
@@ -246,14 +211,8 @@ def test_schema_advertises_effective_annotation_and_numeric_attribute_operators(
     ]
 
 
-def test_attribute_keys_with_dots_and_invalid_saved_tree_are_observable():
+def test_malformed_saved_filter_tree_is_reported():
     project = _project()
-    rule = {
-        "field": "annotation.attribute.bbox.color.name",
-        "op": "eq",
-        "value": "red",
-    }
-    assert isinstance(compile_filter(rule, project=project), ColumnElement)
     malformed = {
         "op": "and",
         "rules": [{"field": "task.status", "op": "eq", "value": "pending"}, 1],
@@ -318,7 +277,8 @@ def test_project_capabilities_reject_incompatible_saved_task_fields():
     )
 
 
-def test_nullable_uuid_datetime_and_finite_numeric_values_are_normalized():
+def test_datetime_uuid_and_finite_numeric_filter_values():
+    assignee_id = uuid.UUID(int=1)
     date_clause = compile_filter(
         {
             "field": "task.created_at",
@@ -329,17 +289,9 @@ def test_nullable_uuid_datetime_and_finite_numeric_values_are_normalized():
     assert date_clause.right.value == datetime(2026, 9, 1, tzinfo=timezone.utc)
 
     uuid_clause = compile_filter(
-        {"field": "task.assignee", "op": "eq", "value": str(uuid.uuid4())}
+        {"field": "task.assignee", "op": "eq", "value": str(assignee_id)}
     )
-    assert isinstance(uuid_clause.right.value, uuid.UUID)
-    assert isinstance(
-        compile_filter({"field": "task.assignee", "op": "eq", "value": None}),
-        ColumnElement,
-    )
-    assert isinstance(
-        compile_filter({"field": "task.assignee", "op": "ne", "value": None}),
-        ColumnElement,
-    )
+    assert uuid_clause.right.value == assignee_id
 
     _assert_422(
         compile_filter,

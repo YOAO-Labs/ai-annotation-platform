@@ -1,6 +1,7 @@
 """Pure retirement fences and isolated-database recovery without live providers."""
 
 import asyncio
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import threading
@@ -9,7 +10,6 @@ import uuid
 
 import pytest
 from sqlalchemy import func, select, text
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.async_job import AsyncJob
@@ -21,7 +21,6 @@ from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services import export_outputs, export_storage
-from app.services.content_snapshot import ContentError
 from tests import test_export_media_bundle_models as model_tests
 from tests.test_export_media_storage import Client
 
@@ -46,17 +45,16 @@ def owner(**changes):
 class PolicyDB:
     def __init__(self, job=None, replacement=None):
         self.job, self.replacement = job, replacement
-        self.statements, self.commits = [], []
+        self.committed = False
 
     async def get(self, *args, **kwargs):
         return self.job
 
     async def execute(self, statement, params=None):
-        self.statements.append(statement)
         return SimpleNamespace(one_or_none=lambda: self.replacement)
 
     async def commit(self):
-        self.commits.append(True)
+        self.committed = True
 
 
 @pytest.mark.parametrize("state", ["building", "ready", "retiring"])
@@ -88,24 +86,7 @@ async def test_unpublished_attempt_end_is_explicit_and_never_a_job_age_timeout(s
     assert await retirement.attempt_ended(PolicyDB(job), row)
 
 
-@pytest.mark.parametrize(
-    "fault",
-    [
-        None,
-        "foreign_project",
-        "foreign_job",
-        "digest",
-        "schema",
-        "extra",
-        "missing",
-        "same",
-        "input_schema",
-        "proof_kind",
-        "both",
-    ],
-)
-@pytest.mark.parametrize("schema", [1, 2, 3])
-async def test_replacement_requires_an_existing_exact_new_bundle_proof(fault, schema):
+def replacement_claim(key, schema):
     row = owner()
     replacement = SimpleNamespace(
         id=uuid.uuid4(),
@@ -119,6 +100,54 @@ async def test_replacement_requires_an_existing_exact_new_bundle_proof(fault, sc
         "bundle_id": str(replacement.id),
         "input_digest": replacement.input_digest,
     }
+    job = SimpleNamespace(
+        kind="export",
+        status="running",
+        project_id=row.project_id,
+        payload={key: proof},
+    )
+    return row, job, replacement
+
+
+@pytest.mark.parametrize(
+    ("key", "schema", "accepted"),
+    [
+        ("lidar_media", 1, True),
+        ("lidar_media", 2, True),
+        ("lidar_media", 3, False),
+        ("lidar_media", 4, False),
+        ("image_media", 1, False),
+        ("image_media", 2, False),
+        ("image_media", 3, True),
+        ("image_media", 4, False),
+        ("video_media", 1, False),
+        ("video_media", 2, False),
+        ("video_media", 3, False),
+        ("video_media", 4, True),
+    ],
+)
+async def test_replacement_must_match_its_media_protocol(key, schema, accepted):
+    row, job, replacement = replacement_claim(key, schema)
+    assert await retirement.attempt_ended(PolicyDB(job, replacement), row) is accepted
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "foreign_project",
+        "foreign_job",
+        "digest",
+        "schema",
+        "extra",
+        "missing",
+        "same",
+        "input_schema",
+        "both",
+    ],
+)
+async def test_unproven_replacement_does_not_retire_bundle(fault):
+    row, job, replacement = replacement_claim("lidar_media", 1)
+    proof = job.payload["lidar_media"]
     if fault == "foreign_project":
         replacement.project_id = uuid.uuid4()
     elif fault == "foreign_job":
@@ -132,39 +161,12 @@ async def test_replacement_requires_an_existing_exact_new_bundle_proof(fault, sc
     elif fault == "same":
         proof["bundle_id"] = str(row.id)
     elif fault == "input_schema":
-        replacement.input_schema = 2 if schema == 3 else 3
-    key = "image_media" if schema == 3 else "lidar_media"
-    if fault == "proof_kind":
-        key = "lidar_media" if key == "image_media" else "image_media"
-    payload = {key: proof}
-    if fault == "both":
-        payload["lidar_media" if key == "image_media" else "image_media"] = proof
-    job = SimpleNamespace(
-        kind="export",
-        status="running",
-        project_id=row.project_id,
-        payload=payload,
-    )
-    db = PolicyDB(job, None if fault == "missing" else replacement)
-    assert await retirement.attempt_ended(db, row) is (fault is None)
-
-
-async def test_candidate_excludes_all_operation_ages_and_locations_before_limit():
-    query = (
-        select(Bundle.id)
-        .where(retirement.candidate_predicate(datetime.now(timezone.utc)))
-        .limit(3)
-        .with_for_update(skip_locked=True)
-    )
-    compiled = query.compile(dialect=postgresql.dialect())
-    sql = str(compiled)
-    assert "storage_operations.purpose IN" in sql and "NOT (EXISTS" in sql
-    assert "storage_operations.started_at" not in sql
-    assert "storage_operations.location_id" not in sql
-    assert "SKIP LOCKED" in sql and "LIMIT" in sql
-    assert {"export_media_", "export_write_", "export_read_"} <= {
-        value for value in compiled.params.values() if isinstance(value, str)
-    }
+        replacement.input_schema = 2
+    elif fault == "both":
+        job.payload["image_media"] = proof
+    elif fault == "missing":
+        replacement = None
+    assert not await retirement.attempt_ended(PolicyDB(job, replacement), row)
 
 
 @pytest.mark.parametrize("unknown_close", [False, True])
@@ -254,33 +256,6 @@ async def test_cancelled_delete_drains_before_closing_client_and_permit(monkeypa
             await pending
     assert client.close_count == 1
     settled.assert_awaited_once_with(permit)
-
-
-async def test_failure_keeps_committed_retiring_inventory_and_retry_leaves_tombstone(
-    monkeypatch,
-):
-    row = owner()
-    db = PolicyDB()
-    original = row.inventory.copy()
-    monkeypatch.setattr(retirement, "lock_owner", AsyncMock(return_value=row))
-    monkeypatch.setattr(retirement, "has_operations", AsyncMock(return_value=False))
-
-    async def failure(db, receipt):
-        assert db.commits and row.state == "retiring" and row.retired_at is not None
-        raise ContentError("known_delete_failed")
-
-    monkeypatch.setattr(retirement, "_physical_delete", failure)
-    with pytest.raises(ContentError, match="known_delete_failed"):
-        await retirement._cleanup_one(db, row.id)
-    assert row.state == "retiring" and row.inventory == original
-    retired = row.retired_at
-    monkeypatch.setattr(retirement, "_physical_delete", AsyncMock())
-    assert await retirement._cleanup_one(db, row.id)
-    assert (
-        row.state == "deleted"
-        and row.retired_at == retired
-        and row.inventory == original
-    )
 
 
 async def test_private_fixture_inventory_requires_owner_before_physical_deletion(
@@ -413,7 +388,7 @@ async def test_pending_zip_has_its_own_retirement_and_preserves_legacy_pending(
     )
 
     async def delete_zip(db, expected_owner, receipt):
-        assert output.state == "retired" and db.commits
+        assert output.state == "retired" and db.committed
         assert expected_owner is bundle and receipt.id == output.id
         assert bundle.state == "building" and bundle.inventory
 
@@ -468,33 +443,48 @@ def objects(monkeypatch, *rows):
     return client
 
 
-async def test_database_unknown_operations_do_not_starve_next_candidate_before_limit(
-    gc_db, monkeypatch
-):
-    db = gc_db
-    protected = [await database_owner(db) for _ in range(3)]
-    for index, row in enumerate(protected[:2]):
-        db.add(
+@pytest.fixture
+async def retirement_queue(gc_db):
+    start = datetime.now(timezone.utc) - timedelta(hours=1)
+    media, write, read, first, later = [
+        await database_owner(gc_db, created_at=start + timedelta(minutes=i))
+        for i in range(5)
+    ]
+    for purpose in (
+        f"export_media_{media.id.hex}",
+        f"export_write_{write.zip_output_id.hex}",
+        f"export_read_{read.zip_output_id.hex}",
+    ):
+        gc_db.add(
             StorageOperation(
                 id=uuid.uuid4(),
                 location_id=uuid.uuid4(),
                 revision=1,
-                purpose=retirement.purposes(row)[index],
-                node_id="unknown",
-                started_at=datetime.now(timezone.utc) - timedelta(days=100),
+                purpose=purpose,
+                node_id="unknown-close",
+                started_at=start - timedelta(days=100),
             )
         )
-    await db.commit()
-    client = objects(monkeypatch, *protected)
-    counts = await retirement.cleanup(db, limit=1)
+    await gc_db.commit()
+    return (media, write, read), first, later
+
+
+async def test_database_unknown_operations_do_not_starve_next_candidate_before_limit(
+    gc_db, retirement_queue, monkeypatch
+):
+    protected, first, later = retirement_queue
+    client = objects(monkeypatch, *protected, first, later)
+    counts = await retirement.cleanup(gc_db, limit=1)
     assert counts == {"deleted": 1, "retained": 0, "failed": 0}
-    assert (await db.get(Bundle, protected[2].id)).state == "deleted"
-    for row in protected[:2]:
-        assert (await db.get(Bundle, row.id)).state == "building"
-    assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 2
+    states = dict((await gc_db.execute(select(Bundle.id, Bundle.state))).all())
+    assert states == {
+        **{row.id: "building" for row in (*protected, later)},
+        first.id: "deleted",
+    }
+    assert await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 3
     assert {
         params["Key"] for action, params in client.calls if action == "delete"
-    } <= set(protected[2].inventory["objects"])
+    } == set(first.inventory["objects"])
 
 
 async def test_database_locked_candidate_is_skipped_without_waiting(gc_db, monkeypatch):
@@ -507,6 +497,7 @@ async def test_database_locked_candidate_is_skipped_without_waiting(gc_db, monke
             select(Bundle).where(Bundle.id == first.id).with_for_update()
         )
         try:
+            await db.execute(text("SET LOCAL lock_timeout = '2s'"))
             assert (await retirement.cleanup(db, limit=1))["deleted"] == 1
             assert (await db.get(Bundle, second.id)).state == "deleted"
             assert (await db.get(Bundle, first.id)).state == "building"
@@ -529,22 +520,40 @@ async def test_database_failed_partial_delete_retries_without_dropping_inventory
     row = await database_owner(db, **values)
     await db.commit()
     client = objects(monkeypatch, row)
+    expected_inventory = deepcopy(row.inventory)
     original = client.delete_object
+    entered, release = threading.Event(), threading.Event()
 
     def fail_after_delete(**kwargs):
+        entered.set()
+        assert release.wait(5)
         original(**kwargs)
         raise OSError("partial delete failed")
 
     client.delete_object = fail_after_delete
-    assert (await retirement.cleanup(db))["failed"] == 1
-    await db.refresh(row)
-    assert row.state == "retiring" and row.inventory
+    cleanup = asyncio.create_task(retirement.cleanup(db))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        async with async_sessionmaker(db.bind)() as observer:
+            durable = await observer.get(Bundle, row.id)
+            assert durable.state == "retiring" and durable.retired_at is not None
+            assert durable.inventory == expected_inventory
+            retired_at = durable.retired_at
+    finally:
+        release.set()
+        counts = await cleanup
+    assert counts["failed"] == 1
     assert sum(bool(versions) for versions in client.rows.values()) == 1
     assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 0
     client.delete_object = original
     assert (await retirement.cleanup(db))["deleted"] == 1
     await db.refresh(row)
-    assert row.state == "deleted" and row.inventory
+    assert (row.state, row.retired_at, row.inventory) == (
+        "deleted",
+        retired_at,
+        expected_inventory,
+    )
+    assert not any(client.rows.values())
 
 
 async def test_database_unknown_close_keeps_operation_and_retiring_owner(
@@ -629,41 +638,31 @@ async def test_database_pending_zip_and_media_retire_independently_legacy_pendin
 
 
 async def test_database_zip_cleanup_observes_bundle_reads_at_any_location_before_limit(
-    gc_db, monkeypatch
+    gc_db, retirement_queue, monkeypatch
 ):
     db = gc_db
-    rows = [await database_owner(db) for _ in range(4)]
-    outputs = []
-    for row in rows:
+    protected, first, later = retirement_queue
+    for row in (*protected, first, later):
         ref = {
             key: value for key, value in row.storage_ref.items() if key != "key_prefix"
         }
         ref["object_key"] = export_storage.key_for(
             "image", row.project_id, row.job_id, row.zip_output_id
         )
-        outputs.append(
-            await model_tests._zip(db, row, created_at=row.created_at, storage_ref=ref)
-        )
-    for index, row in enumerate(rows[:3]):
-        db.add(
-            StorageOperation(
-                id=uuid.uuid4(),
-                location_id=uuid.uuid4(),
-                revision=1,
-                purpose=retirement.purposes(row)[index],
-                node_id="unknown-close",
-                started_at=datetime.now(timezone.utc) - timedelta(days=100),
-            )
-        )
+        await model_tests._zip(db, row, created_at=row.created_at, storage_ref=ref)
     await db.commit()
     deleted = []
     monkeypatch.setattr(
         export_storage, "delete", lambda receipt, **kwargs: deleted.append(receipt.id)
     )
     result = await export_outputs.cleanup(db, limit=1)
-    assert result["outputs_deleted"] == 1 and deleted == [outputs[3].id]
-    for row in outputs[:3]:
-        assert (await db.get(ExportOutput, row.id)).state == "pending"
-        counters = {"removed": 0}
-        assert not await export_outputs._cleanup_one(db, row.id, counters)
+    assert result["outputs_deleted"] == 1 and deleted == [first.zip_output_id]
+    remaining = dict(
+        (await db.execute(select(ExportOutput.id, ExportOutput.state))).all()
+    )
+    assert remaining == {row.zip_output_id: "pending" for row in (*protected, later)}
+    for row in protected:
+        assert not await export_outputs._cleanup_one(
+            db, row.zip_output_id, {"removed": 0}
+        )
     assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 3
