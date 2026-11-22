@@ -15,12 +15,16 @@ import uuid
 
 from celery import Celery
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 from app.config import settings
+from app.db.models.audit_archive_output import AuditArchiveOutput
+from app.services.audit_archive_partitions import catalog, next_month, partition_name
 from tests import test_labeling_module_api_cold as cold
+from tests.conftest import _create_user
 from tests.notifications_publisher_acceptance_helpers import (
     connect_owned_dependency,
     disconnect_owned_dependency,
@@ -60,11 +64,8 @@ async def _worker(test_engine, directory, sender, record_property, *, database=N
     cold._verify_image(image, image_id, artifact)
     for name, digest in artifact["source_manifest"].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest
-    host_url = cold._role_url(
-        "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
-        "identity_api_consumer",
-        test_engine,
-    )
+    host_url = test_engine.url
+    assert host_url.username == "owner" and host_url.password and not host_url.query
     _verify_postgres(host_url)
     resources = _verified_resource_manifest(test_engine, host_url)
     redis, owner, broker = cold._redis_dependency(resources, test_engine)
@@ -84,7 +85,7 @@ async def _worker(test_engine, directory, sender, record_property, *, database=N
         ) and database.endswith("_test")
         assert marker and marker.startswith("identity-module-restore:")
     database_url = host_url.set(host=cold._POSTGRES_ALIAS, port=5432, database=database)
-    key, secret = _credentials("WRITE")
+    key, secret = _credentials("PLATFORM")
     assert key != cold._plain(settings.minio_access_key) and secret != cold._plain(
         settings.minio_secret_key
     )
@@ -213,45 +214,29 @@ celery_app.worker_main(sys.argv[1:])
             ):
                 await asyncio.sleep(0.2)
         probe = """
-import asyncio,importlib,json,os,sysconfig
+import asyncio,importlib,inspect,json,os,sysconfig
 from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.exc import DBAPIError
 from app.workers.audit_partition import ensure_future_audit_partitions,archive_old_audit_partitions
 from app.workers.cleanup import refresh_audit_bi_mv
 async def main():
  engine=create_async_engine(os.environ['DATABASE_URL'],hide_parameters=True)
  try:
   async with engine.connect() as db:
-   row=(await db.execute(text("SELECT current_user,current_database(),has_table_privilege(current_user,'public.audit_logs','SELECT'),has_table_privilege(current_user,'public.audit_logs','INSERT'),has_table_privilege(current_user,'public.async_jobs','SELECT'),has_table_privilege(current_user,'public.async_jobs','INSERT'),has_table_privilege(current_user,'public.notifications','SELECT'),has_function_privilege(current_user,'yoao_audit_v1.maintenance_command(jsonb)','EXECUTE')"))).one()
-   try:
-    await db.execute(text('ALTER TABLE public.audit_logs ADD COLUMN audit_consumer_forbidden integer'))
-    raise AssertionError('worker can alter Audit storage')
-   except DBAPIError as error:assert error.orig.sqlstate=='42501'
-   finally:await db.rollback()
+   role,database=(await db.execute(text("SELECT current_user,current_database()"))).one()
   installed=Path(importlib.import_module('yoao_audit.maintenance_postgres').__file__).resolve().is_relative_to(Path(sysconfig.get_paths()['purelib']))
-  tasks=[ensure_future_audit_partitions,archive_old_audit_partitions,refresh_audit_bi_mv]
-  assert not any(t.acks_late for t in tasks)
-  print(json.dumps(dict(role=row[0],database=row[1],audit_select=row[2],audit_insert=row[3],jobs_select=row[4],jobs_insert=row[5],notifications_select=row[6],maintenance_command=row[7],audit_alter_denied=True,installed=installed,early_ack=True)))
+  ensure,archive,refresh=(inspect.signature(task.run) for task in (ensure_future_audit_partitions,archive_old_audit_partitions,refresh_audit_bi_mv))
+  assert list(ensure.parameters)==['months_ahead'] and ensure.parameters['months_ahead'].default==3
+  assert not archive.parameters and not refresh.parameters
+  assert not any(task.acks_late for task in (ensure_future_audit_partitions,archive_old_audit_partitions,refresh_audit_bi_mv))
+  print(json.dumps(dict(role=role,database=database,installed=installed,early_ack=True,default_signatures=True)))
  finally:await engine.dispose()
 asyncio.run(main())
 """
         proof = json.loads(_docker("exec", worker, "python", "-c", probe))
-        assert (
-            proof["role"] == "identity_api_consumer" and proof["database"] == database
-        )
-        assert proof["installed"] and proof["maintenance_command"]
-        assert not any(
-            proof[k]
-            for k in [
-                "audit_select",
-                "audit_insert",
-                "jobs_select",
-                "jobs_insert",
-                "notifications_select",
-            ]
-        )
+        assert proof["role"] == host_url.username and proof["database"] == database
+        assert proof["installed"] and proof["default_signatures"] and proof["early_ack"]
         yield {
             "worker": worker,
             "node_name": node_name,
@@ -259,6 +244,10 @@ asyncio.run(main())
             "common": common,
             "containers": containers,
             "broker_file": broker_file,
+            "broker_env": broker_env,
+            "minio": minio,
+            "buckets": resources["buckets"],
+            "redacted": redacted,
             "proof": proof,
             "dispatches": [],
         }
@@ -297,6 +286,89 @@ asyncio.run(main())
         assert not errors, errors
 
 
+async def _restored_archive_api(test_engine, stack, admin_id, month):
+    """Use the same installed API image and endpoint, with the ordinary role."""
+    database = stack["proof"]["database"]
+    api_url = cold._role_url(
+        "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
+        "identity_api_consumer",
+        test_engine,
+        internal_network=True,
+    ).set(database=database)
+    auth_url = cold._role_url(
+        "AAP_MODULE_DATA_IDENTITY_AUTH_URL",
+        "yoao_identity_auth_client",
+        test_engine,
+        internal_network=True,
+    ).set(database=database)
+    access, secret = _credentials("READ")
+    assert (access, secret) != _credentials("PLATFORM")
+    minio = stack["minio"]
+    env = {
+        **stack["broker_env"],
+        **stack["buckets"],
+        "DATABASE_URL": api_url.render_as_string(hide_password=False),
+        "IDENTITY_AUTH_DATABASE_URL": auth_url.render_as_string(hide_password=False),
+        "MINIO_ENDPOINT": minio["endpoint"],
+        "MINIO_USE_SSL": "true" if minio["ssl"] else "false",
+        "MINIO_ACCESS_KEY": access,
+        "MINIO_SECRET_KEY": secret,
+    }
+    stack["redacted"].extend(
+        (
+            access,
+            secret,
+            api_url.password,
+            auth_url.password,
+            env["DATABASE_URL"],
+            env["IDENTITY_AUTH_DATABASE_URL"],
+        )
+    )
+    env_file = stack["broker_file"].with_name("archive-api.env")
+    program = """
+import asyncio,json,sys
+import httpx
+from sqlalchemy import text
+from app.core.security import create_access_token
+from app.db.base import async_session
+from app.main import app
+async def main():
+ database,admin,year,month=sys.argv[1:]
+ async with async_session() as db:
+  assert (await db.execute(text("SELECT current_user,current_database()"))).one()==("identity_api_consumer",database)
+ headers={"Authorization":"Bearer "+create_access_token(subject=admin,role="super_admin")}
+ async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
+  url="/api/v1/audit-logs/archives"
+  listing=await client.get(url,headers=headers)
+  rows=await client.get(f"{url}/{year}/{month}",headers=headers)
+  assert listing.status_code==200 and rows.status_code==200,(listing.text,rows.text)
+  print(json.dumps({"listing":listing.json(),"rows":rows.json()}))
+asyncio.run(main())
+"""
+    _write_environment(env_file, env)
+    try:
+        container = _docker(
+            "create",
+            *stack["common"],
+            "--env-file",
+            str(env_file),
+            "--entrypoint=python",
+            stack["image_id"],
+            "-c",
+            program,
+            database,
+            str(admin_id),
+            str(month.year),
+            str(month.month),
+        )
+        stack["containers"].append(container)
+        output = await asyncio.to_thread(_docker, "start", "--attach", container)
+        assert _inspect_docker(container)["State"]["ExitCode"] == 0
+        return json.loads(output.splitlines()[-1])
+    finally:
+        env_file.unlink(missing_ok=True)
+
+
 async def _dispatch(stack, *names):
     """Evaluate real Beat ticks, shortening only the selected schedules in this fixture."""
     task_ids = {name: str(uuid.uuid4()) for name in names}
@@ -310,6 +382,7 @@ selected={}
 for name,task_id in TASK_IDS.items():
  entry=celery_app.conf.beat_schedule[name]
  assert entry['task']==ENTRIES[name]
+ assert not entry.get('args') and not entry.get('kwargs')
  route=celery_app.amqp.router.route({},entry['task'])
  assert route['queue'].name=='maintenance'
  report[name]={'task_id':task_id,'task':entry['task'],'queue':route['queue'].name,'original_schedule':str(entry['schedule'])}
@@ -369,20 +442,27 @@ async def _verify_daily(engine, action, yesterday):
         assert rows == [(yesterday.date(), 1)]
 
 
-async def _verify_archive_job(engine, task_id, result, notification_count):
+async def _verify_archive_job(engine, task_id, notification_count, *, result=None):
     async with engine.connect() as db:
         row = (
             await db.execute(
                 text(
-                    "SELECT id,status,user_id,project_id,payload,result FROM public.async_jobs WHERE celery_task_id=:id AND kind='audit_archive'"
+                    "SELECT id,status,user_id,project_id,payload,result,started_at,"
+                    "completed_at,progress_pct FROM public.async_jobs "
+                    "WHERE celery_task_id=:id AND kind='audit_archive'"
                 ),
                 {"id": task_id},
             )
         ).one()
-        assert (
-            row.status == "completed" and row.user_id is None and row.project_id is None
-        )
-        assert row.payload == {"retain_months": 12} and row.result == result
+        assert row.user_id is None and row.project_id is None
+        assert row.payload == {"retain_months": 12} and row.started_at is not None
+        if result is None:
+            assert row.status == "running" and row.completed_at is None
+            assert row.progress_pct == 0 and row.result == {}
+        else:
+            assert row.status == "completed" and row.completed_at is not None
+            assert row.progress_pct == 100
+            assert result == {**row.result, "job_id": str(row.id), "status": row.status}
         assert (
             await db.scalar(text("SELECT count(*) FROM public.notifications"))
             == notification_count
@@ -394,57 +474,104 @@ async def _verify_archive_job(engine, task_id, result, notification_count):
             )
             == 0
         )
+        return row.id
+
+
+async def _verify_runtime_denials(test_engine, database):
+    url = cold._role_url(
+        "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
+        "identity_api_consumer",
+        test_engine,
+    ).set(database=database)
+    engine = create_async_engine(url, hide_parameters=True)
+    try:
+        async with engine.connect() as db:
+            assert (
+                await db.execute(text("SELECT current_user,current_database()"))
+            ).one() == ("identity_api_consumer", database)
+            privileges = (
+                await db.execute(
+                    text(
+                        "SELECT has_table_privilege('public.audit_logs','INSERT'),"
+                        "has_table_privilege('public.async_jobs','INSERT'),"
+                        "has_table_privilege('public.notifications','SELECT'),"
+                        "has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
+                    )
+                )
+            ).one()
+            assert privileges == (False, False, False, True)
+            with pytest.raises(DBAPIError) as denied:
+                await db.execute(
+                    text(
+                        "ALTER TABLE public.audit_logs "
+                        "ADD COLUMN audit_consumer_forbidden integer"
+                    )
+                )
+            assert denied.value.orig.sqlstate == "42501"
+    finally:
+        await engine.dispose()
+
+
+async def _archive_outputs(db, partition):
+    table = AuditArchiveOutput.__table__
+    result = await db.execute(select(table).where(table.c.source_table == partition))
+    return result.mappings().all()
+
+
+async def _archive_events(db, partition):
+    return (
+        await db.scalars(
+            text(
+                "SELECT detail_json FROM yoao_audit_v1.audit_events "
+                "WHERE action='audit.archive' AND target_id=:name"
+            ),
+            {"name": partition},
+        )
+    ).all()
+
+
+def _stored_archive(reader, bucket, receipt):
+    ref = receipt["storage_ref"]
+    assert ref["bucket"] == bucket
+    expected_key = f"{receipt['year']}/{receipt['month']:02d}/{receipt['id']}.jsonl.gz"
+    assert ref["object_key"] == expected_key
+    body = reader.get_object(Bucket=bucket, Key=expected_key)["Body"]
+    try:
+        compressed = body.read()
+    finally:
+        body.close()
+    assert len(compressed) == receipt["size_bytes"]
+    assert hashlib.sha256(compressed).hexdigest() == receipt["sha256"]
+    return compressed
 
 
 async def test_installed_beat_maintenance_consumers_recover_archive_after_restore(
     test_engine, tmp_path, record_property
 ):
     _verify_postgres(test_engine.url)
-    now = datetime.now(timezone.utc)
-    yesterday = now.replace(hour=0, minute=10, second=0, microsecond=0) - timedelta(
-        days=1
-    )
+    await _verify_runtime_denials(test_engine, test_engine.url.database)
     old_action, daily_action = ["audit.cold." + uuid.uuid4().hex for _ in range(2)]
-    partition = "audit_logs_y2001m02"
-    object_key = "2001/02.jsonl.gz"
+    month = date(2001, 2, 1)
+    partition = partition_name(month)
+    detail = [None, True, 9007199254740993, "文本"]
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as db:
-        await AuditMaintenancePostgresData(db).ensure_partition(date(2001, 2, 1))
+        await AuditMaintenancePostgresData(db).ensure_partition(month)
         await db.execute(
             text(
                 "INSERT INTO public.audit_logs(id,action,created_at,detail_json) VALUES (9223372036854775807,:action,'2001-02-02T03:04:05Z',CAST(:detail AS jsonb))"
             ),
             {
                 "action": old_action,
-                "detail": json.dumps([None, True, 9007199254740993, "文本"]),
+                "detail": json.dumps(detail),
             },
-        )
-        for event_id, created in [
-            (9007199254740993, yesterday),
-            (9007199254740994, now),
-        ]:
-            await db.execute(
-                text(
-                    "INSERT INTO public.audit_logs(id,action,created_at) VALUES (:id,:action,:created)"
-                ),
-                {"id": event_id, "action": daily_action, "created": created},
-            )
-        await db.execute(
-            text(
-                "REVOKE SELECT ON public.audit_logs,public.async_jobs FROM identity_api_consumer"
-            )
-        )
-        assert await db.scalar(
-            text(
-                "SELECT has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
-            )
         )
         notification_count = await db.scalar(
             text("SELECT count(*) FROM public.notifications")
         )
     resources = _verified_resource_manifest(test_engine, test_engine.url)
     bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
-    writer = _local_s3_client(settings, *_credentials("WRITE"))
+    writer = _local_s3_client(settings, *_credentials("PLATFORM"))
     reader = _local_s3_client(settings, *_credentials("READ"))
     sender = Celery(
         "audit-maintenance-consumers",
@@ -467,37 +594,74 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
             test_engine, tmp_path / "original", sender, record_property
         ) as stack:
             proofs.append(stack["proof"])
+            now = datetime.now(timezone.utc)
+            yesterday = now.replace(
+                hour=0, minute=10, second=0, microsecond=0
+            ) - timedelta(days=1)
+            retained_month = date(now.year - 1, now.month, 1)
+            retained_partition = partition_name(retained_month)
+            future_months = [now.date().replace(day=1)]
+            for _ in range(3):
+                future_months.append(next_month(future_months[-1]))
+            async with maker.begin() as db:
+                data = AuditMaintenancePostgresData(db)
+                await data.ensure_partition(retained_month)
+                if yesterday.month != now.month:
+                    await data.ensure_partition(yesterday.date().replace(day=1))
+                for event_id, created in [
+                    (9007199254740993, yesterday),
+                    (9007199254740994, now),
+                ]:
+                    await db.execute(
+                        text(
+                            "INSERT INTO public.audit_logs(id,action,created_at) "
+                            "VALUES (:id,:action,:created)"
+                        ),
+                        {"id": event_id, "action": daily_action, "created": created},
+                    )
+                existing = {source.name for source in await catalog(db)}
+            expected_created = [
+                name
+                for month_start in future_months
+                if (name := partition_name(month_start)) not in existing
+            ]
             ids = await _dispatch(
                 stack, "ensure-future-audit-partitions", "refresh-audit-bi-mv"
             )
             ensured = await _result(
                 sender, ids["ensure-future-audit-partitions"], deliveries
             )
-            assert isinstance(ensured["created"], list)
+            assert ensured == {"created": expected_created}
             assert await _result(sender, ids["refresh-audit-bi-mv"], deliveries) == {
                 "refreshed": True
             }
             await _verify_daily(test_engine, daily_action, yesterday)
-            async with test_engine.connect() as db:
-                current = now.date().replace(day=1)
-                for _ in range(4):
-                    name = f"audit_logs_y{current.year}m{current.month:02d}"
-                    assert (
-                        await db.scalar(
-                            text(
-                                "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid=to_regclass(:name)"
-                            ),
-                            {"name": "public." + name},
-                        )
-                        == "audit_code"
-                    )
-                    current = (current.replace(day=28) + timedelta(days=4)).replace(
-                        day=1
-                    )
+            async with maker() as db:
+                bounds = {
+                    source.month_start: source.month_end for source in await catalog(db)
+                }
+                assert all(
+                    bounds.get(start) == next_month(start) for start in future_months
+                )
             async with test_engine.begin() as db:
                 await db.execute(
                     text(
-                        f"CREATE FUNCTION public.{trigger}() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $pause$ BEGIN IF EXISTS (SELECT FROM pg_event_trigger_dropped_objects() WHERE object_type='table' AND schema_name='public' AND object_name='{partition}') THEN PERFORM pg_advisory_xact_lock({lock}); END IF; END $pause$"
+                        f"""
+                        CREATE FUNCTION public.{trigger}() RETURNS event_trigger
+                        LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp
+                        AS $pause$ BEGIN
+                            IF EXISTS (
+                                SELECT FROM pg_event_trigger_dropped_objects()
+                                WHERE object_type='table' AND schema_name='public'
+                                  AND object_name='{partition}'
+                            ) THEN
+                                PERFORM set_config('application_name', '{trigger}', true);
+                                WHILE NOT pg_try_advisory_xact_lock({lock}) LOOP
+                                    PERFORM pg_sleep(0.05);
+                                END LOOP;
+                            END IF;
+                        END $pause$
+                        """
                     )
                 )
                 await db.execute(
@@ -516,21 +680,31 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                 lost_id = (await _dispatch(stack, "archive-old-audit-partitions"))[
                     "archive-old-audit-partitions"
                 ]
-                async with asyncio.timeout(25):
-                    while True:
-                        await control.execute(text("SELECT pg_stat_clear_snapshot()"))
-                        if await control.scalar(
-                            text(
-                                "SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND NOT l.granted AND l.classid=:high AND l.objid=:low AND a.usename='identity_api_consumer'"
-                            ),
-                            {"high": lock >> 32, "low": lock & 0xFFFFFFFF},
-                        ):
-                            break
-                        await asyncio.sleep(0.1)
-                assert (
-                    reader.head_object(Bucket=bucket, Key=object_key)["ContentLength"]
-                    > 0
-                )
+                loss = sender.AsyncResult(lost_id)
+                deliveries.append(loss)
+                try:
+                    async with asyncio.timeout(25):
+                        while True:
+                            await control.execute(
+                                text("SELECT pg_stat_clear_snapshot()")
+                            )
+                            if await control.scalar(
+                                text(
+                                    "SELECT EXISTS (SELECT FROM pg_stat_activity "
+                                    "WHERE datname=current_database() AND usename=:role "
+                                    "AND application_name=:mark AND wait_event='PgSleep')"
+                                ),
+                                {"role": stack["proof"]["role"], "mark": trigger},
+                            ):
+                                break
+                            await asyncio.sleep(0.1)
+                except TimeoutError:
+                    if await asyncio.to_thread(loss.ready):
+                        await asyncio.to_thread(loss.get)
+                    raise
+                (pending,) = await _archive_outputs(control, partition)
+                assert pending["state"] == "pending" and pending["published_at"] is None
+                pending_bytes = _stored_archive(reader, bucket, pending)
                 assert await asyncio.to_thread(
                     _broker_state, sender, "maintenance"
                 ) == {"queue_size": 0, "unacknowledged": 0}
@@ -577,38 +751,21 @@ while True:
                 assert await db.scalar(
                     text("SELECT to_regclass(:name)"), {"name": "public." + partition}
                 )
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT count(*) FROM yoao_audit_v1.audit_events WHERE action='audit.archive' AND target_id=:name"
-                        ),
-                        {"name": partition},
-                    )
-                    == 0
-                )
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT count(*) FROM public.async_jobs WHERE celery_task_id=:id"
-                        ),
-                        {"id": lost_id},
-                    )
-                    == 0
-                )
-                assert (
-                    await db.scalar(text("SELECT count(*) FROM public.notifications"))
-                    == notification_count
-                )
+                assert not await _archive_events(db, partition)
+                assert await _archive_outputs(db, partition) == [pending]
+            lost_job = await _verify_archive_job(
+                test_engine, lost_id, notification_count
+            )
+            assert lost_job == pending["job_id"]
             assert await asyncio.to_thread(_broker_state, sender, "maintenance") == {
                 "queue_size": 0,
                 "unacknowledged": 0,
             }
-            deliveries.append(sender.AsyncResult(lost_id))
             dispatches.extend(stack["dispatches"])
-        _expect_s3_denied(lambda: writer.get_object(Bucket=bucket, Key=object_key))
-        _expect_s3_denied(lambda: writer.delete_object(Bucket=bucket, Key=object_key))
+        pending_key = pending["storage_ref"]["object_key"]
+        _expect_s3_denied(lambda: writer.delete_object(Bucket=bucket, Key=pending_key))
         _expect_s3_denied(
-            lambda: reader.put_object(Bucket=bucket, Key=object_key, Body=b"forbidden")
+            lambda: reader.put_object(Bucket=bucket, Key=pending_key, Body=b"forbidden")
         )
         dump = tmp_path / "audit-maintenance-consumers.dump"
         dump.write_bytes(
@@ -623,6 +780,20 @@ while True:
                 test_engine.url.set(database=clone), hide_parameters=True
             )
             try:
+                await _verify_runtime_denials(test_engine, clone)
+                async with engine.connect() as db:
+                    assert await db.scalar(text("SELECT current_database()")) == clone
+                    assert await _archive_outputs(db, partition) == [pending]
+                    restored_source_oid = await db.scalar(
+                        text("SELECT to_regclass(:name)::oid::bigint"),
+                        {"name": "public." + partition},
+                    )
+                    assert restored_source_oid
+                    assert restored_source_oid != pending["source_oid"]
+                assert (
+                    await _verify_archive_job(engine, lost_id, notification_count)
+                    == lost_job
+                )
                 async with _worker(
                     test_engine,
                     tmp_path / "restored",
@@ -632,25 +803,22 @@ while True:
                 ) as stack:
                     proofs.append(stack["proof"])
                     ids = await _dispatch(stack, *ENTRIES)
-                    await _result(
+                    assert await _result(
                         sender, ids["ensure-future-audit-partitions"], deliveries
-                    )
+                    ) == {"created": []}
                     assert await _result(
                         sender, ids["refresh-audit-bi-mv"], deliveries
                     ) == {"refreshed": True}
                     result = await _result(
                         sender, ids["archive-old-audit-partitions"], deliveries
                     )
-                    assert (
-                        partition in result["archived_partitions"]
-                        and object_key in result["archive_keys"]
-                        and result["total_rows"] == 1
-                    )
-                    await _verify_archive_job(
+                    assert result["archived_partitions"] == [partition]
+                    assert result["total_rows"] == 1
+                    restored_job = await _verify_archive_job(
                         engine,
                         ids["archive-old-audit-partitions"],
-                        result,
                         notification_count,
+                        result=result,
                     )
                     await _verify_daily(engine, daily_action, yesterday)
                     async with engine.connect() as db:
@@ -661,52 +829,91 @@ while True:
                             )
                             is None
                         )
-                        assert (
-                            await db.scalar(
-                                text(
-                                    "SELECT count(*) FROM yoao_audit_v1.audit_events WHERE action='audit.archive' AND target_id=:name"
-                                ),
-                                {"name": partition},
-                            )
-                            == 1
-                        )
                         assert await db.scalar(
-                            text(
-                                "SELECT has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
-                            )
+                            text("SELECT to_regclass(:name)"),
+                            {"name": "public." + retained_partition},
                         )
+                        outputs = await _archive_outputs(db, partition)
+                        assert len(outputs) == 2 and pending in outputs
+                        ready = next(row for row in outputs if row["state"] == "ready")
+                        assert ready["published_at"] is not None
+                        assert ready["source_oid"] == restored_source_oid
+                        assert ready["job_id"] == restored_job != lost_job
+                        object_key = ready["storage_ref"]["object_key"]
+                        assert object_key != pending_key
+                        assert result["archive_keys"] == [object_key]
+                        assert result["output_ids"] == [str(ready["id"])]
+                        events = await _archive_events(db, partition)
+                        assert events == [
+                            {
+                                "partition": partition,
+                                "archive_output_id": str(ready["id"]),
+                                "archive_key": object_key,
+                                "row_count": 1,
+                                "source_sha256": ready["source_sha256"],
+                                "from": month.isoformat(),
+                            }
+                        ]
                     ids = await _dispatch(stack, "archive-old-audit-partitions")
                     repeat = await _result(
                         sender, ids["archive-old-audit-partitions"], deliveries
                     )
-                    assert repeat == {
-                        "archived_partitions": [],
-                        "archive_keys": [],
-                        "total_rows": 0,
-                    }
+                    assert repeat["archived_partitions"] == []
+                    assert repeat["archive_keys"] == []
+                    assert repeat["output_ids"] == []
+                    assert repeat["total_rows"] == 0
                     await _verify_archive_job(
                         engine,
                         ids["archive-old-audit-partitions"],
-                        repeat,
                         notification_count,
+                        result=repeat,
                     )
+                    async with engine.connect() as db:
+                        assert await _archive_events(db, partition) == events
+                        outputs = await _archive_outputs(db, partition)
+                        assert len(outputs) == 2
+                        assert pending in outputs and ready in outputs
+                    assert _stored_archive(reader, bucket, pending) == pending_bytes
+                    source, trailer = gzip.decompress(
+                        _stored_archive(reader, bucket, ready)
+                    ).splitlines(keepends=True)
+                    assert hashlib.sha256(source).hexdigest() == ready["source_sha256"]
+                    assert len(source) == ready["source_size_bytes"]
+                    row, metadata = json.loads(source), json.loads(trailer)
+                    assert row["action"] == old_action
+                    assert row["id"] == 9223372036854775807
+                    assert row["detail_json"] == detail
+                    assert metadata["_partition_meta"]["archive_id"] == str(ready["id"])
+                    async with async_sessionmaker(engine).begin() as db:
+                        admin, _ = await _create_user(
+                            db,
+                            "super_admin",
+                            "audit-archive-reader@test.local",
+                            "Audit Reader",
+                        )
+                        admin_id = admin.id
+                    api = await _restored_archive_api(
+                        test_engine, stack, admin_id, month
+                    )
+                    listed = [
+                        item
+                        for item in api["listing"]
+                        if (item["year"], item["month"]) == (month.year, month.month)
+                    ]
+                    assert listed == [
+                        {
+                            "year": month.year,
+                            "month": month.month,
+                            "object_key": object_key,
+                            "size_bytes": ready["size_bytes"],
+                            "archived_at": ready["published_at"].isoformat(),
+                        }
+                    ]
+                    assert api["rows"]["items"] == [row, metadata]
+                    assert api["rows"]["total"] == 2
                     dispatches.extend(stack["dispatches"])
             finally:
                 await engine.dispose()
-        body = reader.get_object(Bucket=bucket, Key=object_key)["Body"]
-        try:
-            rows = [
-                json.loads(line) for line in gzip.decompress(body.read()).splitlines()
-            ]
-        finally:
-            body.close()
-        row = next(r for r in rows if r["action"] == old_action)
-        assert row["id"] == 9223372036854775807 and row["detail_json"] == [
-            None,
-            True,
-            9007199254740993,
-            "文本",
-        ]
         record_property(
             "audit_maintenance_consumers",
             json.dumps(
@@ -719,13 +926,16 @@ while True:
                     "completed_utc_day_only": True,
                     "prefork_sigkill_after_put_and_db_rollback": True,
                     "child_exit_observed_before_unblocking": True,
-                    "uncommitted_job_rolled_back": True,
+                    "durable_running_job_and_pending_output_survived_loss": True,
                     "whole_database_restore_then_explicit_redrive": True,
                     "jobs_completed_and_system_no_recipient_preserved": True,
                     "repeat_archive_no_duplicate_partition_event": True,
+                    "distinct_ready_key_and_unmodified_pending_bytes": True,
+                    "restored_api_reads_only_published_output": True,
+                    "retention_cutoff_month_stayed_online": True,
                     "scoped_archive_writer_and_reader": True,
                     "dump_sha256": hashlib.sha256(dump.read_bytes()).hexdigest(),
-                    "migration_credentials_used": False,
+                    "worker_uses_configured_platform_maintenance_role": True,
                     "default_maintenance_cutover": False,
                 }
             ),

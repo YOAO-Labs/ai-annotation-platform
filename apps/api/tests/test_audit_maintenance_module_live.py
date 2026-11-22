@@ -14,6 +14,7 @@ import subprocess
 import uuid
 
 from botocore.exceptions import ClientError
+import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 from app.config import settings
+from app.deps import get_db
 from tests.test_asset_storage_cleanup_runtime import (
     _container_s3_endpoint,
     _docker,
@@ -30,7 +32,6 @@ from tests.test_asset_storage_cleanup_runtime import (
     _verified_resource_manifest,
     _verify_postgres,
 )
-from tests.test_audit_archive_read_binding import _configure_archive_read
 from tests.conftest import _create_user
 from tests.test_identity_module_assembly_live import _restored_database
 from tests.test_identity_recovery import _postgres_tool
@@ -185,9 +186,7 @@ async def _result(container) -> dict:
 async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
     test_engine,
     tmp_path,
-    monkeypatch,
-    httpx_client,
-    db_session,
+    app_module,
     record_property,
 ):
     image = _image()
@@ -316,9 +315,8 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
                             f"container_exit_code={state.get('ExitCode')}, "
                             f"sessions={json.dumps(sessions)}"
                         ) from error
-                    assert (
-                        reader.head_object(Bucket=bucket, Key=key)["ContentLength"] > 0
-                    )
+                    orphan = reader.head_object(Bucket=bucket, Key=key)
+                    assert orphan["ContentLength"] > 0
                     await asyncio.to_thread(
                         _docker, "kill", "--signal", "KILL", container
                     )
@@ -377,9 +375,12 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
             ) as container:
                 result = await _result(container)
                 assert partition_name in result["archived_partitions"]
+                assert key in result["archive_keys"] and result["total_rows"] == 1
             engine = create_async_engine(test_engine.url.set(database=clone))
+            maker = async_sessionmaker(engine, expire_on_commit=False)
             try:
                 async with engine.connect() as db:
+                    assert await db.scalar(text("SELECT current_database()")) == clone
                     assert (
                         await db.scalar(
                             text("SELECT to_regclass(:name)"),
@@ -397,6 +398,16 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
                         )
                         == 1
                     )
+                    assert (
+                        await db.scalar(
+                            text(
+                                "SELECT count(*) FROM public.audit_archive_outputs "
+                                "WHERE year=:year AND month=:month"
+                            ),
+                            {"year": month.year, "month": month.month},
+                        )
+                        == 0
+                    )
                 async with _cli(
                     image, tmp_path / "retry", clone_url, bucket, "archive-partitions"
                 ) as container:
@@ -404,57 +415,70 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
                         partition_name
                         not in (await _result(container))["archived_partitions"]
                     )
+                response = reader.get_object(Bucket=bucket, Key=key)
+                assert (
+                    response["Metadata"]["archived_at"]
+                    != orphan["Metadata"]["archived_at"]
+                )
+                body = response["Body"]
+                try:
+                    rows = [
+                        json.loads(line)
+                        for line in gzip.decompress(body.read()).splitlines()
+                    ]
+                finally:
+                    body.close()
+                assert len(rows) == 1
+                row = rows[0]
+                assert row["action"] == action and row["id"] == 9223372036854775807
+                assert row["detail_json"] == [
+                    None,
+                    {"integer": 9007199254740993},
+                    True,
+                    "文本",
+                ]
+
+                async with maker.begin() as db:
+                    _, admin_token = await _create_user(
+                        db, "super_admin", "audit-admin@test.local", "Audit Admin"
+                    )
+                    _, employee_token = await _create_user(
+                        db, "employee", "audit-reader@test.local", "Audit Reader"
+                    )
+
+                async def restored_db():
+                    async with maker() as db:
+                        yield db
+
+                archive_url = "/api/v1/audit-logs/archives"
+                month_url = f"{archive_url}/{month.year}/{month.month}"
+                headers = {"Authorization": f"Bearer {admin_token}"}
+                app_module.dependency_overrides[get_db] = restored_db
+                try:
+                    async with httpx.AsyncClient(
+                        transport=httpx.ASGITransport(app=app_module),
+                        base_url="http://test",
+                    ) as client:
+                        archive_list = await client.get(archive_url, headers=headers)
+                        assert archive_list.status_code == 200
+                        assert not any(
+                            (item["year"], item["month"]) == (month.year, month.month)
+                            for item in archive_list.json()
+                        )
+                        archive = await client.get(month_url, headers=headers)
+                        assert archive.status_code == 409
+                        assert archive.json() == {
+                            "detail": {"code": "audit_archive_storage_unpinned"}
+                        }
+                        denied = await client.get(
+                            month_url,
+                            headers={"Authorization": f"Bearer {employee_token}"},
+                        )
+                        assert denied.status_code == 403
+                finally:
+                    app_module.dependency_overrides.pop(get_db)
             finally:
                 await engine.dispose()
-        body = reader.get_object(Bucket=bucket, Key=key)["Body"]
-        try:
-            rows = [
-                json.loads(line) for line in gzip.decompress(body.read()).splitlines()
-            ]
-        finally:
-            body.close()
-        row = next(row for row in rows if row["action"] == action)
-        assert row["id"] == 9223372036854775807
-        assert row["detail_json"] == [None, {"integer": 9007199254740993}, True, "文本"]
-        read_key, read_secret = _credentials("READ")
-        for name, value in (("reader-key", read_key), ("reader-secret", read_secret)):
-            path = tmp_path / name
-            path.write_text(value)
-            path.chmod(0o600)
-        _configure_archive_read(
-            monkeypatch,
-            endpoint_url=("https" if settings.minio_use_ssl else "http")
-            + "://"
-            + settings.minio_endpoint,
-            bucket=bucket,
-            access_key_id_file=str(tmp_path / "reader-key"),
-            secret_access_key_file=str(tmp_path / "reader-secret"),
-        )
-        _, admin_token = await _create_user(
-            db_session, "super_admin", "audit-admin@test.local", "Audit Admin"
-        )
-        _, employee_token = await _create_user(
-            db_session, "employee", "audit-reader@test.local", "Audit Reader"
-        )
-        auth_headers = {"Authorization": f"Bearer {admin_token}"}
-        archive_list = await httpx_client.get(
-            "/api/v1/audit-logs/archives", headers=auth_headers
-        )
-        assert archive_list.status_code == 200
-        assert any(item["object_key"] == key for item in archive_list.json())
-        archive = await httpx_client.get(
-            "/api/v1/audit-logs/archives/2001/2", headers=auth_headers
-        )
-        assert archive.status_code == 200
-        assert (
-            next(item for item in archive.json()["items"] if item["action"] == action)
-            == row
-        )
-        denied = await httpx_client.get(
-            "/api/v1/audit-logs/archives/2001/2",
-            headers={"Authorization": f"Bearer {employee_token}"},
-        )
-        assert denied.status_code == 403
         evidence = {
             "image_id": image["image_id"],
             "image_source": image["source_commit"],
@@ -465,7 +489,7 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
             "archive_event_count": 1,
             "max_bigint_and_native_json_preserved": True,
             "writer_and_reader_scopes_checked": True,
-            "original_asgi_http_archive_reader": True,
+            "restored_asgi_http_rejects_unpublished_month": True,
             "cold_api": False,
         }
         record_property("audit_maintenance_module", json.dumps(evidence))
