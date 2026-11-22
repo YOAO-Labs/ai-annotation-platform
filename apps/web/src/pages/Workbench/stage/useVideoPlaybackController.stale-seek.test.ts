@@ -1,5 +1,5 @@
 import { act, fireEvent, renderHook } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const videoHookMocks = vi.hoisted(() => ({
@@ -101,9 +101,14 @@ vi.mock("@/utils/imageBitmapToJpeg", () => ({
   videoElementToJpeg: vi.fn().mockResolvedValue(null),
 }));
 
-import { useVideoPlaybackController } from "./useVideoPlaybackController";
+import {
+  useVideoPlaybackController,
+  type UseVideoPlaybackControllerOptions,
+  type UseVideoPlaybackControllerResult,
+} from "./useVideoPlaybackController";
 import { frameToSeekTime } from "./frameTimebase";
 import type { TaskVideoFrameTimetableResponse } from "@/types";
+import type { VideoFrameSeekResult } from "./videoStageControls";
 
 const FPS = 30;
 const FRAME_COUNT = 200;
@@ -167,7 +172,8 @@ function mediaElement() {
 
 function setupHost(
   video: HTMLVideoElement,
-  overrides: Partial<Parameters<typeof useVideoPlaybackController>[0]> = {},
+  overrides: Partial<UseVideoPlaybackControllerOptions> = {},
+  onCommit?: (controller: UseVideoPlaybackControllerResult) => void,
 ) {
   const writes: number[] = [];
   const utils = renderHook(() => {
@@ -193,6 +199,7 @@ function setupHost(
       onUpdate: vi.fn(),
       ...overrides,
     });
+    useLayoutEffect(() => onCommit?.(controller));
     return controller;
   });
   return { ...utils, writes };
@@ -208,6 +215,45 @@ describe("useVideoPlaybackController × useFrameClock stale-seek 交错", () => 
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("keeps a checked seek pending when the preceding frame commits", async () => {
+    const native = mediaElement();
+    let pending: Promise<VideoFrameSeekResult> | undefined;
+    let outcome: VideoFrameSeekResult | undefined;
+    const { result, rerender } = setupHost(native.video, {}, (controller) => {
+      if (pending || controller.frameSource !== "video-bitmap") return;
+      pending = controller.controls.seekToFrameReady(143);
+      void pending.then((value) => {
+        outcome = value;
+      });
+    });
+    expect(result.current.frameIndex).toBe(0);
+
+    videoHookMocks.activeBitmap = {
+      frameIndex: 0,
+      bitmap: { width: 640, height: 360 } as ImageBitmap,
+      width: 640,
+      height: 360,
+    };
+    await act(async () => rerender());
+    expect(result.current.frameIndex).toBe(143);
+    expect(outcome).toBeUndefined();
+
+    act(() => native.present(143));
+    const presentation = result.current.framePresentation!;
+    expect(presentation).toMatchObject({
+      frameIndex: 143,
+      source: "video-element",
+      image: native.video,
+    });
+    expect(outcome).toBeUndefined();
+    act(() => result.current.markFramePresented(presentation));
+    await expect(pending).resolves.toEqual({
+      status: "ready",
+      frameIndex: 143,
+      source: "video-element",
+    });
   });
 
   it("点击帧未呈现期间连续步进：pending 超时后迟到的点击帧 seeked/rVFC 不得回写帧号", async () => {
