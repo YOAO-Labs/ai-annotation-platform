@@ -3576,7 +3576,16 @@ def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
         raise RuntimeError("The owned image source bucket is not versioned")
 
 
-async def _retire_image_import_preparation(backend, birth_oid, user_id, project_id):
+async def _retire_notification_preparation(
+    backend,
+    birth_oid,
+    user_id,
+    project_id,
+    member_id,
+    notification_ids,
+    *,
+    require_empty,
+):
     """Retire only this verifier's completed cross-module probes."""
     import asyncpg
 
@@ -3592,8 +3601,9 @@ async def _retire_image_import_preparation(backend, birth_oid, user_id, project_
         or backend.url.username != "owner"
         or backend.url.database != resources["database"]
     ):
-        raise RuntimeError("Image-import preparation birth identity is unproven")
-    user_id, project_id = UUID(user_id), UUID(project_id)
+        raise RuntimeError("Notifications preparation birth identity is unproven")
+    user_id, project_id, member_id = map(UUID, (user_id, project_id, member_id))
+    notification_ids = [UUID(value) for value in notification_ids]
     connection = await asyncpg.connect(
         backend.url.set(drivername="postgresql").render_as_string(hide_password=False),
         timeout=5,
@@ -3615,11 +3625,14 @@ async def _retire_image_import_preparation(backend, birth_oid, user_id, project_
                 "owner",
                 "owner",
             ):
-                raise RuntimeError("Image-import preparation database identity changed")
+                raise RuntimeError(
+                    "Notifications preparation database identity changed"
+                )
             await connection.execute("SET LOCAL lock_timeout = '5s'")
             await connection.execute(
-                "LOCK TABLE public.users, public.projects, public.datasets "
-                "IN ACCESS EXCLUSIVE MODE"
+                "LOCK TABLE public.users, public.projects, public.project_members, "
+                "public.notifications, public.notification_delivery_outbox, "
+                "public.notification_preferences IN ACCESS EXCLUSIVE MODE"
             )
             if await connection.fetchval(
                 "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
@@ -3628,83 +3641,153 @@ async def _retire_image_import_preparation(backend, birth_oid, user_id, project_
                 "AND backend_type='client backend' AND pid<>pg_backend_pid())"
             ):
                 raise RuntimeError(
-                    "Image-import preparation has other database clients"
+                    "Notifications preparation has other database clients"
                 )
-            users = await connection.fetch(
-                "SELECT id,email,name,password_hash,role,is_active FROM public.users"
+            user = await connection.fetchrow(
+                "SELECT email,name,password_hash,role,is_active FROM public.users "
+                "WHERE id=$1",
+                user_id,
             )
-            projects = await connection.fetch(
-                "SELECT id,owner_id,name FROM public.projects"
+            project = await connection.fetchrow(
+                "SELECT owner_id,name FROM public.projects WHERE id=$1", project_id
             )
-            members = await connection.fetch(
-                "SELECT project_id,user_id,role,assigned_by FROM public.project_members"
+            member = await connection.fetchrow(
+                "SELECT project_id,user_id,role,assigned_by FROM public.project_members "
+                "WHERE id=$1",
+                member_id,
+            )
+            notifications = await connection.fetch(
+                "SELECT id FROM public.notifications WHERE user_id=$1", user_id
             )
             if (
-                [tuple(row) for row in users]
-                != [
-                    (
-                        user_id,
-                        f"notification-preference-{user_id}@test.invalid",
-                        "Preference owner fixture",
-                        "module-data-fixture",
-                        "employee",
-                        True,
-                    )
-                ]
-                or [tuple(row) for row in projects]
-                != [(project_id, user_id, "Delivery read Node fixture")]
-                or [tuple(row) for row in members]
-                != [(project_id, user_id, "reviewer", user_id)]
-                or await connection.fetchval(
-                    "SELECT EXISTS (SELECT 1 FROM public.datasets)"
+                user is None
+                or tuple(user)
+                != (
+                    f"notification-preference-{user_id}@test.invalid",
+                    "Preference owner fixture",
+                    "module-data-fixture",
+                    "employee",
+                    True,
                 )
+                or project is None
+                or tuple(project) != (user_id, "Delivery read Node fixture")
+                or member is None
+                or tuple(member) != (project_id, user_id, "reviewer", user_id)
+                or {row["id"] for row in notifications} != set(notification_ids)
             ):
-                raise RuntimeError("Image-import preparation contains unexpected rows")
-            allowed = {
-                ("public", "users"),
-                ("public", "projects"),
-                ("public", "project_members"),
-                ("public", "notifications"),
-                ("public", "notification_preferences"),
-                ("public", "identity_account_presence"),
-                ("public", "identity_account_preferences"),
+                raise RuntimeError("Notifications preparation probe rows changed")
+            preferences = await connection.fetch(
+                "SELECT type,channels FROM public.notification_preferences "
+                "WHERE user_id=$1",
+                user_id,
+            )
+            if (
+                len(preferences) != 1
+                or preferences[0]["type"] != "task.rejected"
+                or json.loads(preferences[0]["channels"])
+                != {"in_app": False, "email": False, "toast": False}
+            ):
+                raise RuntimeError("Notifications preparation probe preference changed")
+            outbox = await connection.fetchrow(
+                """
+SELECT count(*) FILTER (WHERE notice.target_type='async_job') AS expected,
+       count(delivery.notification_id) AS actual,
+       count(*) FILTER (
+           WHERE notice.target_type='async_job'
+             AND delivery.operation_id=notice.target_id
+             AND delivery.recipient_id=notice.user_id
+             AND delivery.notification_type=notice.type
+             AND delivery.state='pending' AND delivery.attempt=0
+             AND delivery.worker_id IS NULL AND delivery.delivered_at IS NULL
+       ) AS untouched
+FROM public.notifications AS notice
+LEFT JOIN public.notification_delivery_outbox AS delivery
+  ON delivery.notification_id=notice.id
+WHERE notice.id=ANY($1::uuid[])
+""",
+                notification_ids,
+            )
+            if not outbox["expected"] or not (
+                outbox["expected"] == outbox["actual"] == outbox["untouched"]
+            ):
+                raise RuntimeError("Notifications preparation probe outbox changed")
+            parent_ids = {
+                "users": [user_id],
+                "projects": [project_id],
+                "project_members": [member_id],
+                "notifications": notification_ids,
+            }
+            account_children = {
+                ("public", "identity_account_presence", "user_id"),
+                ("public", "identity_account_preferences", "user_id"),
+                ("public", "notification_preferences", "user_id"),
             }
             references = await connection.fetch(
-                "SELECT n.nspname, c.relname, "
-                "pg_catalog.quote_ident(n.nspname) AS schema_name, "
-                "pg_catalog.quote_ident(c.relname) AS table_name, "
+                "SELECT ns.nspname, child.relname, a.attname, parent.relname AS parent, "
+                "pg_catalog.format('%I.%I', ns.nspname, child.relname) AS relation, "
                 "pg_catalog.quote_ident(a.attname) AS column_name, "
-                "fk.confrelid='public.users'::regclass AS is_user, "
                 "array_length(fk.conkey,1) AS child_columns, "
-                "array_length(fk.confkey,1) AS parent_columns, parent.attname AS parent_column "
+                "array_length(fk.confkey,1) AS parent_columns, key.attname AS parent_column "
                 "FROM pg_catalog.pg_constraint fk "
-                "JOIN pg_catalog.pg_class c ON c.oid=fk.conrelid "
-                "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
-                "JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum=fk.conkey[1] "
-                "JOIN pg_catalog.pg_attribute parent ON parent.attrelid=fk.confrelid "
-                "AND parent.attnum=fk.confkey[1] "
+                "JOIN pg_catalog.pg_class child ON child.oid=fk.conrelid "
+                "JOIN pg_catalog.pg_class parent ON parent.oid=fk.confrelid "
+                "JOIN pg_catalog.pg_namespace ns ON ns.oid=child.relnamespace "
+                "JOIN pg_catalog.pg_attribute a ON a.attrelid=child.oid AND a.attnum=fk.conkey[1] "
+                "JOIN pg_catalog.pg_attribute key ON key.attrelid=parent.oid AND key.attnum=fk.confkey[1] "
                 "WHERE fk.contype='f' AND fk.confdeltype IN ('c','n','d') "
-                "AND fk.confrelid IN ('public.users'::regclass,'public.projects'::regclass)"
+                "AND fk.confrelid IN ('public.users'::regclass,'public.projects'::regclass, "
+                "'public.project_members'::regclass,'public.notifications'::regclass)"
             )
             for ref in references:
-                if (ref["nspname"], ref["relname"]) in allowed:
-                    continue
                 if (
                     ref["child_columns"] != 1
                     or ref["parent_columns"] != 1
                     or ref["parent_column"] != "id"
                 ):
                     raise RuntimeError(
-                        "Image-import preparation has an unknown cascading reference"
+                        "Notifications preparation has an unknown cascading reference"
                     )
+                child = (ref["nspname"], ref["relname"], ref["attname"])
+                if ref["parent"] == "users" and child in account_children:
+                    continue
+                if ref["parent"] == "notifications" and child == (
+                    "public",
+                    "notification_delivery_outbox",
+                    "notification_id",
+                ):
+                    continue
+                owned_children = (
+                    parent_ids.get(ref["relname"], [])
+                    if ref["nspname"] == "public"
+                    and ref["relname"] in {"notifications", "project_members"}
+                    and ref["parent"] in {"users", "projects"}
+                    else []
+                )
                 if await connection.fetchval(
-                    f"SELECT EXISTS (SELECT 1 FROM {ref['schema_name']}.{ref['table_name']} "
-                    f"WHERE {ref['column_name']}=$1)",
-                    user_id if ref["is_user"] else project_id,
+                    f"SELECT EXISTS (SELECT 1 FROM {ref['relation']} "
+                    f"WHERE {ref['column_name']}=ANY($1::uuid[])"
+                    + (" AND id<>ALL($2::uuid[])" if owned_children else "")
+                    + ")",
+                    parent_ids[ref["parent"]],
+                    *([owned_children] if owned_children else []),
                 ):
                     raise RuntimeError(
-                        "Image-import preparation has an unexpected dependent"
+                        "Notifications preparation has an unexpected dependent"
                     )
+            if (
+                await connection.execute(
+                    "DELETE FROM public.notifications WHERE user_id=$1 "
+                    "AND id=ANY($2::uuid[])",
+                    user_id,
+                    notification_ids,
+                )
+                != f"DELETE {len(notification_ids)}"
+                or await connection.execute(
+                    "DELETE FROM public.project_members WHERE id=$1", member_id
+                )
+                != "DELETE 1"
+            ):
+                raise RuntimeError("Notifications preparation child retirement failed")
             if (
                 await connection.execute(
                     "DELETE FROM public.projects WHERE id=$1 AND owner_id=$2",
@@ -3713,15 +3796,17 @@ async def _retire_image_import_preparation(backend, birth_oid, user_id, project_
                 )
                 != "DELETE 1"
             ):
-                raise RuntimeError("Image-import preparation project retirement failed")
+                raise RuntimeError(
+                    "Notifications preparation project retirement failed"
+                )
             if (
                 await connection.execute(
                     "DELETE FROM public.users WHERE id=$1", user_id
                 )
                 != "DELETE 1"
             ):
-                raise RuntimeError("Image-import preparation user retirement failed")
-            if await connection.fetchval(
+                raise RuntimeError("Notifications preparation user retirement failed")
+            if require_empty and await connection.fetchval(
                 "SELECT EXISTS (SELECT 1 FROM public.users) "
                 "OR EXISTS (SELECT 1 FROM public.projects) "
                 "OR EXISTS (SELECT 1 FROM public.datasets)"
@@ -3736,9 +3821,12 @@ async def _retire_image_import_preparation(backend, birth_oid, user_id, project_
         "owner_marker": resources["owner"],
         "user_id": str(user_id),
         "project_id": str(project_id),
+        "member_id": str(member_id),
+        "notification_ids": [str(value) for value in notification_ids],
+        "pending_terminal_deliveries_retired": outbox["untouched"],
         "completed_probe_retired": True,
         "other_clients_absent": True,
-        "account_project_dataset_empty": True,
+        **({"account_project_dataset_empty": True} if require_empty else {}),
     }
 
 
@@ -10615,7 +10703,7 @@ def main(
 
         phase = "verify-notification-delivery-read-node"
 
-        async def seed_delivery_project() -> str:
+        async def seed_delivery_project() -> tuple[str, str]:
             from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
             from tests.factory import create_membership, create_project
@@ -10637,19 +10725,20 @@ def main(
                         session, owner_id=actor_id, name="Delivery read Node fixture"
                     )
                     project_id = project.id
-                    await create_membership(
+                    member = await create_membership(
                         session,
                         project_id=project_id,
                         user_id=actor_id,
                         role="reviewer",
                         assigned_by=actor_id,
                     )
+                    member_id = member.id
                     await session.commit()
-                    return str(project_id)
+                    return str(project_id), str(member_id)
             finally:
                 await engine.dispose()
 
-        delivery_project_id = asyncio.run(seed_delivery_project())
+        delivery_project_id, delivery_member_id = asyncio.run(seed_delivery_project())
         delivery_node_environment = os.environ.copy()
         delivery_node_environment.update(
             {
@@ -10674,6 +10763,25 @@ def main(
             node_diagnostic = _node_failure_diagnostic(phase, delivery_node_result)
             raise RuntimeError("Node Notifications delivery-read check failed")
         evidence["notification_delivery_read"]["node_contract_check"] = True
+        probe_notification_ids = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=(
+                    "SELECT jsonb_agg(id ORDER BY id) FROM public.notifications "
+                    "WHERE user_id=:'probe_user_id'::uuid;"
+                ),
+                variables={"probe_user_id": notification_preference_user_id},
+            )
+        )
+        if not probe_notification_ids or (
+            read_relation_notification_id not in probe_notification_ids
+        ):
+            raise RuntimeError("Notifications preparation missed its read probe")
 
         phase = "retire-jobs-notification-probe"
         retired_probe = _psql(
@@ -13215,24 +13323,29 @@ SELECT EXISTS (
                     )
                 )
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
-                if not collect_only and physical_retirement_profile:
-                    phase = "retire-image-import-preparation"
-                    _container_details(
-                        container_id,
-                        container_name,
-                        container_identity,
-                        require_running=True,
+                phase = "retire-notification-preparation"
+                _container_details(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    require_running=True,
+                )
+                evidence[
+                    "image_import_preparation_retirement"
+                    if not collect_only and physical_retirement_profile
+                    else "notification_preparation_retirement"
+                ] = asyncio.run(
+                    _retire_notification_preparation(
+                        backend,
+                        database_oid,
+                        notification_preference_user_id,
+                        delivery_project_id,
+                        delivery_member_id,
+                        probe_notification_ids,
+                        require_empty=not collect_only and physical_retirement_profile,
                     )
-                    evidence["image_import_preparation_retirement"] = asyncio.run(
-                        _retire_image_import_preparation(
-                            backend,
-                            database_oid,
-                            notification_preference_user_id,
-                            delivery_project_id,
-                        )
-                    )
-                    phase = "pytest"
-                evidence["phase"] = "pytest-collection" if collect_only else "pytest"
+                )
+                phase = "pytest-collection" if collect_only else "pytest"
                 _write_evidence(output, evidence)
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
