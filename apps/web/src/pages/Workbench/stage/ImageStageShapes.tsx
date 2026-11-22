@@ -126,6 +126,8 @@ export function KonvaBox({
   const labelFontSize = visual.labelFontSize / scale;
   const isUserSelected = selected && !isAi && editable;
   const labelText = shapeLabelText(b, isAi, visual.labelContent);
+  const opacity = faded ? fadedOpacity : occluded ? 0.5 : 1;
+  const needsOpacityBuffer = opacity !== 1;
 
   return (
     <Group id={annotationId}>
@@ -138,7 +140,8 @@ export function KonvaBox({
         strokeWidth={sw}
         dash={isAi || occluded ? [4 / scale, 3 / scale] : undefined}
         fill={hexToRgba(color, fillAlpha(selected, visual))}
-        opacity={faded ? fadedOpacity : occluded ? 0.5 : 1}
+        opacity={opacity}
+        perfectDrawEnabled={needsOpacityBuffer}
         shadowEnabled={selected && !faded}
         shadowColor={color}
         shadowBlur={8 / scale}

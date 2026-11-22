@@ -217,7 +217,7 @@ export function MaskRepairSheet({
         else close();
       }}
     >
-      <SheetContent side="right" className="w-full sm:max-w-md">
+      <SheetContent side="right" closeButtonLabel="关闭批量修复预览" className="w-full sm:max-w-md">
         <SheetHeader className="border-b border-border">
           <SheetTitle>批量修复预览</SheetTitle>
           <SheetDescription>

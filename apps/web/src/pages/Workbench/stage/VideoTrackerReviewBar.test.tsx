@@ -389,32 +389,62 @@ describe("VideoTrackerReviewBar", () => {
     expect(replacementDecide).not.toHaveBeenCalled();
   });
 
-  it("展示 Mask 纠错窗口、种子和 fallback lineage", () => {
-    render(
-      <VideoTrackerReviewBar
-        {...props()}
-        review={review(
-          {},
-          {
-            ...preview,
-            job_kind: "correction",
-            correction_frame: 12,
-            direction: "backward",
-            from_frame: 2,
-            to_frame: 12,
-            seed_mode: "bbox",
-            fallback_reason: "mask_prompt_unsupported",
-            protect_manual: true,
+  it.each([
+    {
+      seedMode: "bbox",
+      seedLabel: "外接框起点",
+      fallbackReason: "mask_prompt_unsupported",
+    },
+    {
+      seedMode: "native_mask",
+      seedLabel: "原生 Mask 起点",
+      fallbackReason: null,
+    },
+  ] as const)("区分 $seedMode 的纠错来源", ({ seedMode, seedLabel, fallbackReason }) => {
+    const correctionPreview: VideoTrackerJobPreview = {
+      ...preview,
+      job_kind: "correction",
+      correction_frame: 12,
+      direction: "backward",
+      from_frame: 2,
+      to_frame: 12,
+      seed_mode: seedMode,
+      fallback_reason: fallbackReason,
+      protect_manual: true,
+      output_geometry: "mask",
+      results: preview.results.map((result) => ({
+        ...result,
+        geometry: {
+          type: "mask",
+          mask: {
+            encoding: "coco_rle_ref",
+            size: [16, 16],
+            object_key: "mask-content",
+            sha256: "a".repeat(64),
+            runs: 3,
+            bytes: 8,
           },
-        )}
-      />,
-    );
-    expect(screen.getByText("Mask 纠错传播候选")).toBeInTheDocument();
-    expect(screen.getByTestId("tracker-review-correction-summary")).toHaveTextContent(
-      "F12 人工纠错帧 · 窗口 F2–F12 · 向更早帧 · bbox seed 降级 · 保护人工帧",
-    );
-    expect(screen.getByTestId("tracker-review-fallback-warning")).toHaveTextContent(
-      "mask_prompt_unsupported",
-    );
+        },
+      })),
+    };
+    render(<VideoTrackerReviewBar {...props()} review={review({}, correctionPreview)} />);
+
+    expect(screen.getByRole("heading", { name: "Mask 纠错传播候选" })).toBeInTheDocument();
+    const summary = screen.getByTestId("tracker-review-correction-summary");
+    expect(summary).toHaveTextContent(/\bF12\s+人工纠错帧/);
+    expect(summary).toHaveTextContent("F2–F12");
+    expect(summary).toHaveTextContent("向更早帧");
+    expect(summary).toHaveTextContent(seedLabel);
+    expect(summary).toHaveTextContent("保护人工帧");
+
+    if (fallbackReason) {
+      expect(summary).toHaveTextContent("降级");
+      const warning = screen.getByTestId("tracker-review-fallback-warning");
+      expect(warning).toHaveTextContent(fallbackReason);
+      expect(warning).toHaveTextContent("输出仍为 Mask");
+    } else {
+      expect(summary).not.toHaveTextContent("降级");
+      expect(screen.queryByTestId("tracker-review-fallback-warning")).not.toBeInTheDocument();
+    }
   });
 });
