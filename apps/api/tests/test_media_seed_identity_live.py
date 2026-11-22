@@ -48,6 +48,9 @@ _IDENTITY_OPERATOR_FUNCTIONS = {
     _READ_PROVISIONING,
     _CREATE_PERSONA,
 }
+_CREATE_MEDIA_PROJECT = (
+    "yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)"
+)
 _LARGE_PROJECT_DISPLAY_ID = "P-LARGE-IMG"
 _LARGE_DATASET_DISPLAY_ID = "DS-LARGE-IMG"
 _NULL_USER_FIELDS = (
@@ -154,20 +157,35 @@ async def _assert_media_identity_profile(test_engine) -> None:
                     "'yoao_identity_v1.account_profiles', 'SELECT')"
                 )
             )
-            assert not await db.scalar(
+            assert await db.scalar(
                 text(
-                    "SELECT pg_catalog.has_table_privilege(current_user,'public.users',"
-                    "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')"
+                    "SELECT pg_catalog.has_table_privilege(current_user, "
+                    "'yoao_workspace_v1.project_facts', 'SELECT')"
                 )
             )
-            assert not await db.scalar(
+            assert await db.scalar(
                 text(
-                    "SELECT pg_catalog.has_any_column_privilege(current_user,'public.users',"
-                    "'SELECT,INSERT,UPDATE,REFERENCES')"
-                )
+                    "SELECT pg_catalog.has_function_privilege(current_user, "
+                    "CAST(:signature AS regprocedure), 'EXECUTE')"
+                ),
+                {"signature": _CREATE_MEDIA_PROJECT},
             )
+            for relation in ("public.users", "public.projects"):
+                assert not await db.scalar(
+                    text(
+                        "SELECT pg_catalog.has_table_privilege(current_user, :relation, "
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')"
+                    ),
+                    {"relation": relation},
+                ), relation
+                assert not await db.scalar(
+                    text(
+                        "SELECT pg_catalog.has_any_column_privilege(current_user, :relation, "
+                        "'SELECT,INSERT,UPDATE,REFERENCES')"
+                    ),
+                    {"relation": relation},
+                ), relation
             for table in (
-                "public.projects",
                 "public.datasets",
                 "public.project_datasets",
             ):
@@ -186,7 +204,7 @@ async def _assert_media_identity_profile(test_engine) -> None:
         assert await _function_set(
             db, "identity_api_consumer", "yoao_identity_v1"
         ) == set(_IDENTITY_CONSUMER_FUNCTIONS)
-        for signature in (_READ_PROVISIONING, _CREATE_PERSONA):
+        for signature in (_READ_PROVISIONING, _CREATE_PERSONA, _CREATE_MEDIA_PROJECT):
             assert not await db.scalar(
                 text(
                     "SELECT pg_catalog.has_function_privilege('identity_api_consumer', "

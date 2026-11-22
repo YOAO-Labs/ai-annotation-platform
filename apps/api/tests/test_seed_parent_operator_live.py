@@ -61,12 +61,15 @@ _MEMBERS = {
     "viewer": "viewer",
 }
 _IDENTITY_SEED_FUNCTION = "yoao_identity_v1.create_seed_persona_account(jsonb)"
+_WRITE_MEMBERS = "yoao_workspace_v1.write_seed_members(jsonb)"
 _WORKSPACE_SEED_FUNCTIONS = (
     "yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",
     "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)",
-    "yoao_workspace_v1.write_seed_members(jsonb)",
+    _WRITE_MEMBERS,
+    "yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)",
+    "yoao_workspace_v1.write_seed_project_projection(uuid,jsonb)",
+    "yoao_workspace_v1.pin_seed_member_assignment(uuid,timestamp with time zone)",
 )
-_WRITE_MEMBERS = _WORKSPACE_SEED_FUNCTIONS[-1]
 _PRIVATE_TABLES = ("users", "projects", "project_members", "project_templates")
 _OLD = datetime(2000, 1, 1, tzinfo=UTC)
 
@@ -153,22 +156,23 @@ async def _assert_parent_operator_profile(test_engine) -> None:
                 _IDENTITY_SEED_FUNCTION,
             }
 
-            workspace_functions = set(
-                (
-                    await db.scalars(
-                        text(
-                            "SELECT ns.nspname || '.' || proc.proname || '(' || "
-                            "replace(pg_catalog.oidvectortypes(proc.proargtypes), ' ', '') || ')' "
-                            "FROM pg_catalog.pg_proc AS proc "
-                            "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                            "WHERE ns.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' "
-                            "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
-                        )
+            workspace_grant_delta = (
+                await db.execute(
+                    text(
+                        "SELECT ns.nspname || '.' || proc.proname || '(' || "
+                        "replace(pg_catalog.oidvectortypes(proc.proargtypes), ', ', ',') || ')', "
+                        "pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE') "
+                        "FROM pg_catalog.pg_proc AS proc "
+                        "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
+                        "WHERE ns.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$' "
+                        "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE') "
+                        "<> pg_catalog.has_function_privilege('identity_api_consumer', proc.oid, 'EXECUTE')"
                     )
-                ).all()
+                )
+            ).all()
+            assert dict(workspace_grant_delta) == dict.fromkeys(
+                _WORKSPACE_SEED_FUNCTIONS, True
             )
-            assert len(workspace_functions) == 35
-            assert set(_WORKSPACE_SEED_FUNCTIONS) <= workspace_functions
             assert await db.scalar(
                 text(
                     "SELECT pg_catalog.has_table_privilege(current_user, "
