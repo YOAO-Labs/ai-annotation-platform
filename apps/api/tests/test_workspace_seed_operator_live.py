@@ -26,11 +26,12 @@ from tests.test_import_nuscenes_lite import _write_fake_nuscenes
 from tests.test_workspace_import_cli_live import (
     _assert_empty_owned_rows,
     _assert_operational_role,
+    _assert_managed_writer_scope,
+    _assert_new_managed_versions,
     _assert_real_object_bytes,
     _create_datasets_storage_scope,
     _get_object,
-    _object_keys,
-    _object_snapshot,
+    _object_versions,
     _read_import_state,
 )
 from tests.workspace_import_cli_helpers import WorkspaceImportCli
@@ -57,6 +58,9 @@ _SEED_TABLES = (
     "project_members",
     "datasets",
     "dataset_items",
+    "dataset_assets",
+    "dataset_asset_locations",
+    "dataset_auxiliary_originals",
     "scenes",
     "scene_frame_poses",
     "project_datasets",
@@ -194,12 +198,13 @@ async def _seed_table_counts(test_engine) -> dict[str, int]:
         }
 
 
-async def _insert_legacy_seed(test_engine, owner_s3, bucket: str, owner_id) -> dict:
+async def _insert_legacy_seed(
+    test_engine, owner_s3, bucket: str, owner_id, old_key: str
+) -> str:
     project_id = uuid.uuid4()
     dataset_id = uuid.uuid4()
     item_id = uuid.uuid4()
     link_id = uuid.uuid4()
-    old_key = f"__aap_trusted_nuscenes__-{uuid.uuid4().hex}/legacy/old.pcd"
     async with test_engine.begin() as db:
         admin_id = await db.scalar(
             text("SELECT id FROM public.users WHERE email='admin'")
@@ -246,13 +251,7 @@ async def _insert_legacy_seed(test_engine, owner_s3, bucket: str, owner_id) -> d
                 "sha256": hashlib.sha256(_OLD_PCD).hexdigest(),
             },
         )
-    owner_s3.put_object(Bucket=bucket, Key=old_key, Body=_OLD_PCD)
-    return {
-        "project_id": project_id,
-        "dataset_id": dataset_id,
-        "item_id": item_id,
-        "old_key": old_key,
-    }
+    return owner_s3.put_object(Bucket=bucket, Key=old_key, Body=_OLD_PCD)["VersionId"]
 
 
 async def _seed_rows(test_engine) -> dict:
@@ -322,7 +321,7 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
     resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     _verify_bucket_owner(owner_s3, bucket, resources["owner"])
-    assert not await _object_keys(owner_s3, bucket)
+    assert not _object_versions(owner_s3, bucket)
 
     source_root = tmp_path / "workspace-seed-source"
     source_root.mkdir()
@@ -343,11 +342,21 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
     authority_host = (
         f"[{endpoint.hostname}]" if ":" in endpoint.hostname else endpoint.hostname
     )
+    directory_name = f"__aap_trusted_nuscenes__-seed-{uuid.uuid4().hex[:8]}"
+    directory_key = f"{directory_name}/lidar/000000.pcd"
+    old_key = f"__aap_trusted_nuscenes__-{uuid.uuid4().hex}/legacy/old.pcd"
     scope, destroy_scope = _create_datasets_storage_scope(
-        resources, owner_s3, bucket, settings
+        resources,
+        owner_s3,
+        bucket,
+        settings,
+        managed_originals=True,
+        directory_key=directory_key,
+        retired_key=old_key,
     )
     cli = None
     try:
+        _assert_managed_writer_scope(settings, resources, owner_s3, scope)
         cli = WorkspaceImportCli(
             test_engine,
             tmp_path,
@@ -357,6 +366,7 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
             minio_use_ssl=endpoint.scheme == "https",
             s3_access_key=scope["access_key"],
             s3_secret_key=scope["secret_key"],
+            managed_original_writer=True,
         )
         await asyncio.to_thread(cli.start)
         await _assert_operational_role(test_engine)
@@ -367,7 +377,6 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
                 command = (*command, argument)
             return await asyncio.to_thread(cli.run_command, command)
 
-        directory_name = f"__aap_trusted_nuscenes__-seed-{uuid.uuid4().hex[:8]}"
         directory_run = await run_probe("directory", directory_name)
         record_property("workspace_seed_directory", directory_run.evidence)
         assert directory_run.exit_code == 0, directory_run.stderr
@@ -398,26 +407,28 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
         assert project["scene_mode"] is False
         assert project["prefer_same_scene_continuation"] is False
         assert dataset_id is not None and tasks == 1
-        directory_key = f"{directory_name}/lidar/000000.pcd"
-        assert directory_key in await _object_keys(owner_s3, bucket)
-        assert (
-            hashlib.sha256(_get_object(owner_s3, bucket, directory_key)).hexdigest()
-            == hashlib.sha256(_OLD_PCD).hexdigest()
-        )
+        directory_versions = _object_versions(owner_s3, bucket)
+        (directory_identity,) = directory_versions
+        assert directory_identity[0] == directory_key
+        assert directory_versions[directory_identity] == (True, False)
+        assert _get_object(owner_s3, bucket, *directory_identity) == _OLD_PCD
 
-        legacy = await _insert_legacy_seed(
-            test_engine, owner_s3, bucket, uuid.UUID(directory["owner_id"])
+        old_version = await _insert_legacy_seed(
+            test_engine, owner_s3, bucket, uuid.UUID(directory["owner_id"]), old_key
         )
         legacy_before = await _legacy_snapshot(test_engine)
         rows_before_failure = await _seed_table_counts(test_engine)
-        keys_before_failure = await _object_keys(owner_s3, bucket)
+        versions_before_failure = _object_versions(owner_s3, bucket)
+        assert versions_before_failure == directory_versions | {
+            (old_key, old_version): (True, False)
+        }
         signature = _SEED_FUNCTIONS[1]
         async with test_engine.begin() as owner:
             await owner.execute(
                 text(f"REVOKE EXECUTE ON FUNCTION {signature} FROM legacy_runtime")
             )
         try:
-            missing = await run_probe("rollback", legacy["old_key"])
+            missing = await run_probe("rollback", old_key)
             record_property(
                 "workspace_seed_missing_defaults_capability", missing.evidence
             )
@@ -428,12 +439,15 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
             ), missing.stderr
             assert await _legacy_snapshot(test_engine) == legacy_before
             assert await _seed_table_counts(test_engine) == rows_before_failure
-            keys_after_failure = await _object_keys(owner_s3, bucket)
-            assert legacy["old_key"] in keys_after_failure
-            assert _get_object(owner_s3, bucket, legacy["old_key"]) == _OLD_PCD
-            assert keys_after_failure - keys_before_failure, (
-                "late failure should retain staged S3 objects"
+            versions_after_failure = _object_versions(owner_s3, bucket)
+            await _assert_new_managed_versions(
+                test_engine,
+                owner_s3,
+                bucket,
+                versions_before_failure,
+                versions_after_failure,
             )
+            assert _get_object(owner_s3, bucket, old_key, old_version) == _OLD_PCD
         finally:
             async with test_engine.begin() as owner:
                 await owner.execute(
@@ -441,55 +455,81 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
                 )
         await _assert_seed_privileges(test_engine)
 
-        keys_before_rollback = await _object_keys(owner_s3, bucket)
-        rollback = await run_probe("rollback", legacy["old_key"])
+        rollback = await run_probe("rollback", old_key)
         record_property("workspace_seed_outer_rollback", rollback.evidence)
         assert rollback.exit_code == 0, rollback.stderr
         rolled_back = _probe_result(rollback)
         assert rolled_back["info"]["total_items"] == 3
-        assert rolled_back["old_keys"] == [legacy["old_key"]]
+        assert rolled_back["old_keys"] == [old_key]
         assert rolled_back["old_keys_before_rollback"] == [True]
         assert rolled_back["old_keys_after_rollback"] == [True]
         assert rolled_back["cleanup_called"] is False
         assert await _legacy_snapshot(test_engine) == legacy_before
         assert await _seed_table_counts(test_engine) == rows_before_failure
-        keys_after_rollback = await _object_keys(owner_s3, bucket)
-        assert keys_after_rollback >= keys_before_rollback
-        assert _get_object(owner_s3, bucket, legacy["old_key"]) == _OLD_PCD
-        source_key = next(
-            key
-            for key in keys_after_rollback
-            if "__aap_auxiliary_originals__/" in key and key.endswith("/payload")
+        versions_after_rollback = _object_versions(owner_s3, bucket)
+        rolled_back_payloads = await _assert_new_managed_versions(
+            test_engine,
+            owner_s3,
+            bucket,
+            versions_after_failure,
+            versions_after_rollback,
         )
-        assert (
-            _get_object(owner_s3, bucket, source_key)
-            == (cache / "content" / "samples/LIDAR_TOP/lidar.pcd.bin").read_bytes()
+        assert _get_object(owner_s3, bucket, old_key, old_version) == _OLD_PCD
+        assert (cache / "content/samples/LIDAR_TOP/lidar.pcd.bin").read_bytes() in (
+            rolled_back_payloads.values()
         )
         assert any(
-            (payload := _get_object(owner_s3, bucket, key)).startswith(b"# .PCD v0.7")
-            and b"DATA binary" in payload
-            for key in keys_after_rollback
-            if key not in {legacy["old_key"], directory_key}
+            payload.startswith(b"# .PCD v0.7") and b"DATA binary" in payload
+            for payload in rolled_back_payloads.values()
         )
 
-        success = await run_probe("replace", legacy["old_key"])
+        success = await run_probe("replace", old_key)
         record_property("workspace_seed_legacy_replacement", success.evidence)
         assert success.exit_code == 0, success.stderr
         replaced = _probe_result(success)
         info = replaced["info"]
         assert info["total_items"] == 3 and info["batches"] == 1
         assert info["replaced_legacy"] is True
-        assert replaced["old_keys"] == [legacy["old_key"]]
+        assert replaced["old_keys"] == [old_key]
         assert replaced["old_keys_before_commit"] == [True]
         assert replaced["old_keys_after_commit_before_cleanup"] == [True]
-        assert replaced["old_keys_after_cleanup"] == [False]
         assert replaced["cleanup_called"] is True
-        assert legacy["old_key"] not in await _object_keys(owner_s3, bucket)
+        success_versions = _object_versions(owner_s3, bucket)
+        ((marker_key, marker_version),) = [
+            identity
+            for identity, facts in success_versions.items()
+            if facts == (True, True)
+        ]
+        assert marker_key == old_key and marker_version not in {"", "null", old_version}
+        assert success_versions[(old_key, old_version)] == (False, False)
+        assert _get_object(owner_s3, bucket, old_key, old_version) == _OLD_PCD
+        assert _get_object(owner_s3, bucket, *directory_identity) == _OLD_PCD
+        record_property(
+            "workspace_seed_legacy_delete_marker",
+            json.dumps(
+                {
+                    "key": old_key,
+                    "prior_version": old_version,
+                    "delete_marker": marker_version,
+                }
+            ),
+        )
 
         project_id = uuid.UUID(info["project_id"])
         dataset_id = uuid.UUID(info["dataset_id"])
         state = await _read_import_state(test_engine, dataset_id, project_id)
-        _assert_real_object_bytes(owner_s3, bucket, cache / "content", state)
+        published_versions = await _assert_real_object_bytes(
+            test_engine, owner_s3, bucket, cache / "content", state
+        )
+        assert published_versions.isdisjoint(versions_after_rollback)
+        assert success_versions == (
+            versions_after_rollback
+            | dict.fromkeys(published_versions, (True, False))
+            | {
+                (old_key, old_version): (False, False),
+                (marker_key, marker_version): (True, True),
+            }
+        )
         assert state["project"]["display_id"] == "P-PC-DEV"
         assert state["project"]["name"] == NUSCENES_PROJECT_NAME
         assert state["project"]["tool_bindings"] == POINTCLOUD_TOOL_BINDINGS
@@ -516,9 +556,6 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
                 ),
                 {"id": project_id},
             )
-        before_replay_keys = _object_snapshot(
-            owner_s3, bucket, "__aap_trusted_nuscenes__-"
-        )
         replay = await run_probe("replay")
         record_property("workspace_seed_existing_project_replay", replay.evidence)
         assert replay.exit_code == 0, replay.stderr
@@ -546,10 +583,14 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
             row["id"] for row in state["scenes"]
         ]
         assert await _batch_rows(test_engine, project_id) == batches
+        assert current["auxiliary"] == state["auxiliary"]
         assert (
-            _object_snapshot(owner_s3, bucket, "__aap_trusted_nuscenes__-")
-            == before_replay_keys
+            await _assert_real_object_bytes(
+                test_engine, owner_s3, bucket, cache / "content", current
+            )
+            == published_versions
         )
+        assert _object_versions(owner_s3, bucket) == success_versions
         await _assert_seed_privileges(test_engine)
     finally:
         try:

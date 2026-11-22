@@ -82,9 +82,6 @@ async def _run(operation: str, argument: str | None) -> None:
         old_keys_after_commit = [_object_exists(key) for key in old_keys]
         if operation == "replace":
             seed.cleanup_legacy_dev_seed_objects(old_keys)
-            cleaned = [_object_exists(key) for key in old_keys]
-        else:
-            cleaned = old_keys_after_commit
         _emit(
             {
                 "operation": operation,
@@ -93,7 +90,6 @@ async def _run(operation: str, argument: str | None) -> None:
                 "old_keys": old_keys,
                 "old_keys_before_commit": old_key_checks,
                 "old_keys_after_commit_before_cleanup": old_keys_after_commit,
-                "old_keys_after_cleanup": cleaned,
                 "cleanup_called": operation == "replace",
             }
         )

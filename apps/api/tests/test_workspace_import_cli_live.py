@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
 
+from botocore.exceptions import ClientError
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -24,6 +26,7 @@ from tests.project_guide_asset_owner_helpers import (
     endpoint_url,
 )
 from tests.test_asset_storage_cleanup_runtime import (
+    _local_s3_client,
     _verify_bucket_owner,
     _verify_postgres,
 )
@@ -38,6 +41,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 ROOT = Path(__file__).resolve().parents[3]
+_MANAGED_DATASETS = "__aap_managed_datasets__"
+_AUXILIARY_ORIGINALS = "__aap_auxiliary_originals__"
 _PROVISIONING_FUNCTIONS = (
     "yoao_identity_v1.read_provisioning_account(text)",
     "yoao_identity_v1.create_provisioning_account(jsonb)",
@@ -71,6 +76,9 @@ _EMPTY_TABLES = (
     "project_templates",
     "datasets",
     "dataset_items",
+    "dataset_assets",
+    "dataset_asset_locations",
+    "dataset_auxiliary_originals",
     "scenes",
     "scene_frame_poses",
     "project_datasets",
@@ -84,8 +92,17 @@ _EMPTY_TABLES = (
 )
 
 
-def _create_datasets_storage_scope(resources, owner_s3, bucket: str, settings):
-    """Create a worker principal limited to the reserved nuScenes key prefix."""
+def _create_datasets_storage_scope(
+    resources,
+    owner_s3,
+    bucket: str,
+    settings,
+    *,
+    managed_originals: bool = False,
+    directory_key: str | None = None,
+    retired_key: str | None = None,
+):
+    """Grant the CLI only its managed writes and any exact legacy seed keys."""
     sys.path.insert(0, str(ROOT / "scripts"))
     from verify_module_data_boundary import (
         _cleanup_mc,
@@ -98,22 +115,41 @@ def _create_datasets_storage_scope(resources, owner_s3, bucket: str, settings):
     )
     scope["bucket"] = bucket
     scope["policy"] = f"aap-nuscenes-{secrets.token_hex(8)}"
-    prefix_arn = f"arn:aws:s3:::{bucket}/__aap_trusted_nuscenes__-*/*"
-    policy = {
-        "Version": "2012-10-17",
-        "Statement": [
+    arn = f"arn:aws:s3:::{bucket}"
+    statements = []
+    if managed_originals:
+        statements.append(
             {
                 "Effect": "Allow",
                 "Action": [
                     "s3:GetObject",
                     "s3:GetObjectVersion",
                     "s3:PutObject",
-                    "s3:DeleteObject",
+                    "s3:AbortMultipartUpload",
                 ],
-                "Resource": [prefix_arn],
+                "Resource": [
+                    f"{arn}/{_MANAGED_DATASETS}/*/_objects/*",
+                    f"{arn}/{_AUXILIARY_ORIGINALS}/*/*/payload",
+                ],
             }
-        ],
-    }
+        )
+    if directory_key is not None:
+        statements.append(
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject"],
+                "Resource": [f"{arn}/{directory_key}"],
+            }
+        )
+    if retired_key is not None:
+        statements.append(
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:DeleteObject"],
+                "Resource": [f"{arn}/{retired_key}"],
+            }
+        )
+    policy = {"Version": "2012-10-17", "Statement": statements}
     try:
         _cleanup_mc(
             scope,
@@ -127,6 +163,8 @@ def _create_datasets_storage_scope(resources, owner_s3, bucket: str, settings):
             ],
         )
         scope["user_created"] = True
+        if not statements:
+            return scope, _destroy_cleanup_storage_scope
         _cleanup_mc(
             scope,
             ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
@@ -149,6 +187,41 @@ def _create_datasets_storage_scope(resources, owner_s3, bucket: str, settings):
     except BaseException:
         _destroy_cleanup_storage_scope(scope)
         raise
+
+
+def _assert_storage_denied(operation):
+    with pytest.raises(ClientError) as denial:
+        operation()
+    assert denial.value.response["Error"]["Code"] in {"AccessDenied", "403"}
+
+
+def _assert_managed_writer_scope(settings, resources, owner_s3, scope):
+    datasets = resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    unrelated = resources["buckets"]["MINIO_BUCKET"]
+    assert unrelated != datasets
+    _verify_bucket_owner(owner_s3, unrelated, resources["owner"])
+    probe_id = uuid.uuid4()
+    with closing(
+        _local_s3_client(settings, scope["access_key"], scope["secret_key"])
+    ) as client:
+        assert scope["access_key"] != settings.minio_access_key
+        assert scope["secret_key"] != settings.minio_secret_key
+        for bucket, key in (
+            (datasets, f"unrelated/{probe_id}"),
+            (datasets, f"__aap_trusted_nuscenes__-{probe_id}/legacy/old.pcd"),
+            (unrelated, f"{_MANAGED_DATASETS}/{probe_id}/_objects/{probe_id}/probe"),
+            (unrelated, f"{_AUXILIARY_ORIGINALS}/{probe_id}/{probe_id}/payload"),
+        ):
+            _assert_storage_denied(
+                lambda: client.put_object(Bucket=bucket, Key=key, Body=b"out of scope")
+            )
+        _assert_storage_denied(lambda: client.list_object_versions(Bucket=datasets))
+        _assert_storage_denied(
+            lambda: client.delete_object(
+                Bucket=datasets,
+                Key=f"{_AUXILIARY_ORIGINALS}/{probe_id}/{probe_id}/payload",
+            )
+        )
 
 
 async def _assert_operational_role(test_engine) -> None:
@@ -268,21 +341,55 @@ async def _assert_empty_owned_rows(test_engine, audit_baseline=None):
     return audits
 
 
-async def _object_keys(owner_s3, bucket: str) -> set[str]:
-    page = owner_s3.list_objects_v2(
-        Bucket=bucket,
-        Prefix="__aap_trusted_nuscenes__-",
-    )
-    return {item["Key"] for item in page.get("Contents", [])}
-
-
-def _object_snapshot(owner_s3, bucket: str, prefix: str) -> dict[str, str]:
-    page = owner_s3.list_objects_v2(Bucket=bucket, Prefix=prefix.rstrip("/") + "/")
+def _object_versions(owner_s3, bucket: str) -> dict[tuple[str, str], tuple[bool, bool]]:
+    assert owner_s3.get_bucket_versioning(Bucket=bucket)["Status"] == "Enabled"
     return {
-        item["Key"]: hashlib.sha256(
-            _get_object(owner_s3, bucket, item["Key"])
-        ).hexdigest()
-        for item in page.get("Contents", [])
+        (entry["Key"], entry["VersionId"]): (entry["IsLatest"], is_marker)
+        for page in owner_s3.get_paginator("list_object_versions").paginate(
+            Bucket=bucket
+        )
+        for group, is_marker in (("Versions", False), ("DeleteMarkers", True))
+        for entry in page.get(group, ())
+    }
+
+
+async def _managed_originals(test_engine, bucket: str, keys: set[str]) -> dict:
+    async with test_engine.connect() as db:
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id,dataset_id,owner_kind,object_key,logical_path,version_id,"
+                        "etag,sha256,size_bytes,status,receipt "
+                        "FROM public.managed_original_creations "
+                        "WHERE bucket=:bucket AND object_key=ANY(CAST(:keys AS text[])) "
+                        "AND status='verified'"
+                    ),
+                    {"bucket": bucket, "keys": sorted(keys)},
+                )
+            )
+            .mappings()
+            .all()
+        )
+    originals = {row["object_key"]: dict(row) for row in rows}
+    assert len(rows) == len(originals) and originals.keys() == keys
+    return originals
+
+
+async def _assert_new_managed_versions(test_engine, owner_s3, bucket, before, after):
+    assert all(after.get(identity) == state for identity, state in before.items())
+    added = after.keys() - before.keys()
+    assert added and all(after[identity] == (True, False) for identity in added)
+    originals = await _managed_originals(test_engine, bucket, {key for key, _ in added})
+    assert added == {(key, row["version_id"]) for key, row in originals.items()}
+    assert {row["owner_kind"] for row in originals.values()} == {
+        "dataset",
+        "dataset_auxiliary",
+    }
+    assert len({row["dataset_id"] for row in originals.values()}) == 1
+    return {
+        key: _read_verified_original(owner_s3, bucket, row)
+        for key, row in originals.items()
     }
 
 
@@ -329,7 +436,7 @@ async def _read_import_state(test_engine, dataset_id, project_id) -> dict:
             (
                 await db.execute(
                     text(
-                        "SELECT id, name, source_format, source_metadata "
+                        "SELECT id, name, source_format, source_metadata, nuscenes_map_original_id "
                         "FROM public.scenes WHERE dataset_id=:id ORDER BY name"
                     ),
                     {"id": dataset_id},
@@ -342,9 +449,27 @@ async def _read_import_state(test_engine, dataset_id, project_id) -> dict:
             (
                 await db.execute(
                     text(
-                        "SELECT id, file_path, file_type, file_size, content_hash, "
-                        "scene_id, frame_index, metadata FROM public.dataset_items "
-                        "WHERE dataset_id=:id ORDER BY file_path"
+                        "SELECT i.id,i.file_path,i.file_type,i.file_size,i.content_hash,"
+                        "i.scene_id,i.frame_index,i.metadata,i.nuscenes_raw_original_id,"
+                        "l.creation_id,l.bucket AS original_bucket,l.object_key AS original_key "
+                        "FROM public.dataset_items AS i "
+                        "LEFT JOIN public.dataset_assets AS a ON a.dataset_item_id=i.id "
+                        "LEFT JOIN public.dataset_asset_locations AS l ON l.asset_id=a.id "
+                        "AND l.role='managed_original' AND l.reference_state='present' "
+                        "WHERE i.dataset_id=:id ORDER BY i.file_path"
+                    ),
+                    {"id": dataset_id},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        auxiliary = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id,kind,bucket,object_key,version_id,sha256,size_bytes "
+                        "FROM public.dataset_auxiliary_originals WHERE dataset_id=:id"
                     ),
                     {"id": dataset_id},
                 )
@@ -418,6 +543,7 @@ async def _read_import_state(test_engine, dataset_id, project_id) -> dict:
         "project": dict(project),
         "scenes": [dict(scene) for scene in scenes],
         "items": [dict(item) for item in items],
+        "auxiliary": {row["id"]: dict(row) for row in auxiliary},
         "tasks": [dict(task) for task in tasks],
         "poses": [dict(pose) for pose in poses],
         "links": links,
@@ -495,9 +621,6 @@ def _assert_success_state(state: dict, *, dataset_name: str, project_id, dataset
             evidence = item["metadata"]["nuscenes_export"]
             assert len(evidence["source_sha256"]) == 64
             assert evidence["source_file_size"] > 0
-            assert evidence["source_storage_key"].startswith(
-                state["dataset"]["metadata"]["source"]["storage_root"]
-            )
     for scene_id in {pose["scene_id"] for pose in state["poses"]}:
         trajectory = [pose for pose in state["poses"] if pose["scene_id"] == scene_id]
         assert [pose["frame_index"] for pose in trajectory] == [0, 1]
@@ -508,51 +631,102 @@ def _assert_success_state(state: dict, *, dataset_name: str, project_id, dataset
         assert all(pose["ego_rotation"] == [1.0, 0.0, 0.0, 0.0] for pose in trajectory)
 
 
-def _get_object(owner_s3, bucket: str, key: str) -> bytes:
-    response = owner_s3.get_object(Bucket=bucket, Key=key)
-    body = response["Body"]
-    try:
-        return body.read()
-    finally:
-        body.close()
+def _get_object(owner_s3, bucket: str, key: str, version_id: str) -> bytes:
+    assert version_id not in {None, "", "null"}
+    response = owner_s3.get_object(Bucket=bucket, Key=key, VersionId=version_id)
+    with closing(response["Body"]) as body:
+        assert response["VersionId"] == version_id
+        payload = body.read()
+    assert response["ContentLength"] == len(payload)
+    return payload
 
 
-def _assert_real_object_bytes(
-    owner_s3, bucket: str, source_root: Path, state: dict
-) -> None:
-    pcd = next(item for item in state["items"] if item["file_type"] == "point_cloud")
-    pcd_bytes = _get_object(owner_s3, bucket, pcd["file_path"])
-    assert pcd_bytes.startswith(b"# .PCD v0.7")
-    assert hashlib.sha256(pcd_bytes).hexdigest() == pcd["content_hash"]
-    assert (
-        owner_s3.head_object(Bucket=bucket, Key=pcd["file_path"])["ContentLength"]
-        == pcd["file_size"]
+def _read_verified_original(owner_s3, bucket: str, row: dict) -> bytes:
+    dataset_id, creation_id = row["dataset_id"], row["id"]
+    if row["owner_kind"] == "dataset":
+        expected_key = f"{_MANAGED_DATASETS}/{dataset_id}/_objects/{creation_id}/{row['logical_path']}"
+    else:
+        assert row["owner_kind"] == "dataset_auxiliary"
+        expected_key = f"{_AUXILIARY_ORIGINALS}/{dataset_id}/{creation_id}/payload"
+    assert row["object_key"] == expected_key
+    assert row["receipt"]["version_id"] == row["version_id"]
+    assert row["receipt"]["etag"] == row["etag"]
+    payload = _get_object(owner_s3, bucket, expected_key, row["version_id"])
+    assert len(payload) == row["size_bytes"]
+    assert hashlib.sha256(payload).hexdigest() == row["sha256"]
+    return payload
+
+
+async def _assert_real_object_bytes(
+    test_engine, owner_s3, bucket: str, source_root: Path, state: dict
+) -> set[tuple[str, str]]:
+    dataset_id = state["dataset"]["id"]
+    auxiliary_ids = {
+        item["nuscenes_raw_original_id"]
+        for item in state["items"]
+        if item["file_type"] == "point_cloud"
+    } | {scene["nuscenes_map_original_id"] for scene in state["scenes"]}
+    assert None not in auxiliary_ids
+    auxiliary = {key: state["auxiliary"][key] for key in auxiliary_ids}
+    originals = await _managed_originals(
+        test_engine,
+        bucket,
+        {item["file_path"] for item in state["items"]}
+        | {row["object_key"] for row in auxiliary.values()},
     )
+    assert all(row["dataset_id"] == dataset_id for row in originals.values())
+    payloads = {
+        key: _read_verified_original(owner_s3, bucket, row)
+        for key, row in originals.items()
+    }
+    for aux in auxiliary.values():
+        row = originals[aux["object_key"]]
+        assert row["owner_kind"] == "dataset_auxiliary" and aux["bucket"] == bucket
+        assert row["id"] == aux["id"] and row["version_id"] == aux["version_id"]
+        assert row["sha256"] == aux["sha256"] and row["size_bytes"] == aux["size_bytes"]
 
-    source_record = pcd["metadata"]["nuscenes_export"]
-    source_bytes = _get_object(owner_s3, bucket, source_record["source_storage_key"])
-    expected_lidar = (source_root / "samples/LIDAR_TOP/lidar.pcd.bin").read_bytes()
-    assert source_bytes == expected_lidar
-    assert hashlib.sha256(source_bytes).hexdigest() == source_record["source_sha256"]
+    for item in state["items"]:
+        key = item["file_path"]
+        row = originals[key]
+        assert item["original_bucket"] == bucket and item["original_key"] == key
+        assert item["creation_id"] == row["id"] and row["owner_kind"] == "dataset"
+        assert item["file_size"] == row["size_bytes"]
+        assert item["content_hash"] == row["sha256"]
+        assert item["metadata"]["storage_relative_path"] == row["logical_path"]
+        payload = payloads[key]
+        if item["file_type"] == "other":
+            calibration = json.loads(payload)
+            assert len(calibration["intrinsic"]) == 9
+            assert len(calibration["extrinsic"]) == 16
+            continue
+        source = item["metadata"]["nuscenes_export"]
+        raw_key = key
+        if item["file_type"] == "point_cloud":
+            assert payload.startswith(b"# .PCD v0.7") and b"DATA binary" in payload
+            raw = auxiliary[item["nuscenes_raw_original_id"]]
+            assert raw["kind"] == "raw_lidar"
+            raw_key = raw["object_key"]
+        else:
+            assert item["file_type"] == "image" and payload.startswith(b"\xff\xd8")
+        assert source["source_storage_key"] == raw_key
+        assert source["source_sha256"] == originals[raw_key]["sha256"]
+        assert source["source_file_size"] == originals[raw_key]["size_bytes"]
+        assert (
+            payloads[raw_key]
+            == (source_root / source["sample_data"]["filename"]).read_bytes()
+        )
 
-    camera = next(item for item in state["items"] if item["file_type"] == "image")
-    camera_bytes = _get_object(owner_s3, bucket, camera["file_path"])
-    expected_camera = (source_root / "samples/CAM_FRONT/cam.jpg").read_bytes()
-    assert camera_bytes == expected_camera and camera_bytes.startswith(b"\xff\xd8")
-    assert hashlib.sha256(camera_bytes).hexdigest() == camera["content_hash"]
-
-    calibration = next(item for item in state["items"] if item["file_type"] == "other")
-    calibration_document = json.loads(
-        _get_object(owner_s3, bucket, calibration["file_path"])
-    )
-    assert len(calibration_document["intrinsic"]) == 9
-    assert len(calibration_document["extrinsic"]) == 16
-
-    scene = state["scenes"][0]
-    export = scene["source_metadata"]["nuscenes_export"]
-    map_bytes = _get_object(owner_s3, bucket, export["map_storage_key"])
-    assert map_bytes == (source_root / "maps/map-0.png").read_bytes()
-    assert hashlib.sha256(map_bytes).hexdigest() == export["map_sha256"]
+    for scene in state["scenes"]:
+        export = scene["source_metadata"]["nuscenes_export"]
+        aux = auxiliary[scene["nuscenes_map_original_id"]]
+        assert aux["kind"] == "map" and export["map_storage_key"] == aux["object_key"]
+        assert export["map_sha256"] == aux["sha256"]
+        assert export["map_file_size"] == aux["size_bytes"]
+        assert (
+            payloads[aux["object_key"]]
+            == (source_root / export["map"]["filename"]).read_bytes()
+        )
+    return {(key, row["version_id"]) for key, row in originals.items()}
 
 
 async def _install_task_trigger(
@@ -661,8 +835,8 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
     resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     _verify_bucket_owner(owner_s3, datasets_bucket, resources["owner"])
-    initial_keys = await _object_keys(owner_s3, datasets_bucket)
-    assert not initial_keys, (
+    initial_versions = _object_versions(owner_s3, datasets_bucket)
+    assert not initial_versions, (
         "owned dataset bucket must be empty before the CLI acceptance"
     )
 
@@ -679,12 +853,11 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
         and not endpoint.fragment
     )
     scope, destroy_scope = _create_datasets_storage_scope(
-        resources, owner_s3, datasets_bucket, settings
+        resources, owner_s3, datasets_bucket, settings, managed_originals=True
     )
     cli = None
     try:
-        assert scope["access_key"] != settings.minio_access_key
-        assert scope["secret_key"] != settings.minio_secret_key
+        _assert_managed_writer_scope(settings, resources, owner_s3, scope)
         authority_host = (
             f"[{endpoint.hostname}]" if ":" in endpoint.hostname else endpoint.hostname
         )
@@ -697,6 +870,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             minio_use_ssl=endpoint.scheme == "https",
             s3_access_key=scope["access_key"],
             s3_secret_key=scope["secret_key"],
+            managed_original_writer=True,
         )
         await asyncio.to_thread(cli.start)
         await _assert_operational_role(test_engine)
@@ -736,9 +910,12 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
                 in missing_capability.stderr.lower()
             ), missing_capability.stderr
             await _assert_reimport_transaction_rolled_back(test_engine, audit_baseline)
-            missing_keys = await _object_keys(owner_s3, datasets_bucket)
-            assert missing_keys, (
-                "failed import must retain its staged S3 source objects"
+            await _assert_new_managed_versions(
+                test_engine,
+                owner_s3,
+                datasets_bucket,
+                initial_versions,
+                _object_versions(owner_s3, datasets_bucket),
             )
         finally:
             if revoked:
@@ -752,7 +929,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
         trigger_name = "workspace-import-trigger-" + uuid.uuid4().hex[:8]
         trigger_marker = "workspace_import_cli_late_task_" + uuid.uuid4().hex[:12]
         function, trigger = await _install_task_trigger(test_engine, trigger_marker)
-        keys_before_trigger = await _object_keys(owner_s3, datasets_bucket)
+        versions_before_trigger = _object_versions(owner_s3, datasets_bucket)
         try:
             late_failure = await asyncio.to_thread(cli.run, dataset_name=trigger_name)
             record_property("workspace_import_late_task_failure", late_failure.evidence)
@@ -760,16 +937,18 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             assert late_failure.exit_code != 0, late_failure.stdout
             assert trigger_marker in late_failure.stderr, late_failure.stderr
             await _assert_reimport_transaction_rolled_back(test_engine, audit_baseline)
-            keys_after_trigger = await _object_keys(owner_s3, datasets_bucket)
-            assert keys_after_trigger - keys_before_trigger, (
-                "late task failure should retain newly staged S3 objects"
+            await _assert_new_managed_versions(
+                test_engine,
+                owner_s3,
+                datasets_bucket,
+                versions_before_trigger,
+                _object_versions(owner_s3, datasets_bucket),
             )
-            assert keys_before_trigger <= keys_after_trigger
         finally:
             await _drop_task_trigger(test_engine, function, trigger)
 
         function, trigger = await _install_task_trigger(test_engine)
-        keys_before_cancel = await _object_keys(owner_s3, datasets_bucket)
+        versions_before_cancel = _object_versions(owner_s3, datasets_bucket)
         dataset_name = "workspace-import-recovery-" + uuid.uuid4().hex[:8]
         pending = asyncio.create_task(
             asyncio.to_thread(cli.run, dataset_name=dataset_name)
@@ -781,8 +960,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             )
             record_property("workspace_import_cancel_paused_session", paused_session)
             await _assert_empty_owned_rows(test_engine, audit_baseline)
-            keys_during_cancel = await _object_keys(owner_s3, datasets_bucket)
-            assert keys_during_cancel - keys_before_cancel
+            versions_during_cancel = _object_versions(owner_s3, datasets_bucket)
             assert await asyncio.to_thread(cli.stop_current_container)
             cancelled = await pending
             record_property("workspace_import_cancelled", cancelled.evidence)
@@ -790,7 +968,14 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             assert cancelled.externally_stopped and not cancelled.timed_out
             await _wait_for_import_disconnect(test_engine)
             await _assert_reimport_transaction_rolled_back(test_engine, audit_baseline)
-            assert keys_during_cancel == await _object_keys(owner_s3, datasets_bucket)
+            assert versions_during_cancel == _object_versions(owner_s3, datasets_bucket)
+            await _assert_new_managed_versions(
+                test_engine,
+                owner_s3,
+                datasets_bucket,
+                versions_before_cancel,
+                versions_during_cancel,
+            )
         finally:
             try:
                 if not pending.done():
@@ -811,7 +996,14 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             project_id=project_id,
             dataset_id=dataset_id,
         )
-        _assert_real_object_bytes(owner_s3, datasets_bucket, source_root, state)
+        published_versions = await _assert_real_object_bytes(
+            test_engine, owner_s3, datasets_bucket, source_root, state
+        )
+        success_versions = _object_versions(owner_s3, datasets_bucket)
+        assert success_versions == versions_during_cancel | dict.fromkeys(
+            published_versions, (True, False)
+        )
+        assert published_versions.isdisjoint(versions_during_cancel)
 
         replay = await asyncio.to_thread(cli.run, dataset_name=dataset_name)
         record_property("workspace_import_replay", replay.evidence)
@@ -841,10 +1033,14 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             item["content_hash"] for item in state["items"]
         ]
         assert replay_state["admin"] == state["admin"]
-        _assert_real_object_bytes(owner_s3, datasets_bucket, source_root, replay_state)
-
-        storage_root = state["dataset"]["metadata"]["source"]["storage_root"]
-        objects_before_drift = _object_snapshot(owner_s3, datasets_bucket, storage_root)
+        assert replay_state["auxiliary"] == state["auxiliary"]
+        assert (
+            await _assert_real_object_bytes(
+                test_engine, owner_s3, datasets_bucket, source_root, replay_state
+            )
+            == published_versions
+        )
+        assert _object_versions(owner_s3, datasets_bucket) == success_versions
         raw_lidar = source_root / "samples/LIDAR_TOP/lidar.pcd.bin"
         original_lidar = raw_lidar.read_bytes()
         raw_lidar.write_bytes(original_lidar + b"\x00source-drift")
@@ -861,10 +1057,8 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
         assert stale_state["tasks"] == state["tasks"]
         assert stale_state["poses"] == state["poses"]
         assert stale_state["admin"] == state["admin"]
-        assert (
-            _object_snapshot(owner_s3, datasets_bucket, storage_root)
-            == objects_before_drift
-        )
+        assert stale_state["auxiliary"] == state["auxiliary"]
+        assert _object_versions(owner_s3, datasets_bucket) == success_versions
     finally:
         try:
             if cli is not None:
