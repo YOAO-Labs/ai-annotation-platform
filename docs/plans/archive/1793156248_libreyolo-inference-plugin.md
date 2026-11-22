@@ -1,12 +1,14 @@
 # LibreYOLO 推理插件：原生训练回流与低门槛开发
 
+> 归档（2026-11-23）：本切片已完成；剩余事项由[平台插件化计划](../1795366269_platform-pluginization.md) §5.2 承接。以下为归档时的原文。
+>
 > 状态：本切片实施及单卡 GPU 验收完成（2026-10-29）。按用户授权使用 omp 原生子代理，在隔离工作树修改后统一集成；验收证据及明确未覆盖的范围见 Outcome，不据此退役整体后端重构计划。
 >
 > 创建日期：2026-10-28。
 >
 > 目标：利用现有 Inference 契约，将 LibreYOLO 的原生训练结果交给独立的 LibreYOLO 推理插件，首期只开放 YOLOv9 检测，**必须支持 NVIDIA CUDA GPU 推理**；同时交付外部开发者可以独立使用的真实示例、开发工具和安装闭环。
 >
-> 依据：[插件边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)。本计划是首个纵向切片，不是[旧后端重构计划](1792160873_backend-module-decoupling.md)的整体替代，也不批准取消其未完成目标。模块剩余工作的权威台账仍为[模块部署与边界](../../docs-site/dev/concepts/module-deployment.md)。
+> 依据：[插件边界与生态研究](../../research/51-plugin-capability-boundaries-and-ecosystem.md)。本计划是首个纵向切片，不是[旧后端重构计划](1792160873_backend-module-decoupling.md)的整体替代，也不批准取消其未完成目标。模块剩余工作的权威台账仍为[模块部署与边界](../../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 后续范围：[统一插件契约与 YOAO-Plugins 拆仓规划](1793184138_inference-plugins-repository-extraction.md)。本切片仍是第一道实际验收门；后续迁移五个现有后端，不把当前检测 SDK 扩张为通用插件框架，前端扩展仅在出现具体联合插件需求后增加。
 
@@ -31,16 +33,16 @@ GPU 已由用户明确要求，属于本切片完成门槛，不得用 CPU-only 
 
 | 已核对的事实                                                                                                                                                                                                 | 对计划的约束                                                                                   |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| [共享原生 loader](../../apps/_shared/libreyolo_native/src/libreyolo_native/__init__.py) 承接原适配器的严格 metadata、类别顺序、完整主模型张量及输出校验                                                      | 复用这份实现，不重写一个宽松 loader，也不保留跨应用兼容别名                                    |
+| [共享原生 loader](../../../apps/_shared/libreyolo_native/src/libreyolo_native/__init__.py) 承接原适配器的严格 metadata、类别顺序、完整主模型张量及输出校验                                                      | 复用这份实现，不重写一个宽松 loader，也不保留跨应用兼容别名                                    |
 | [官方 YOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/yolo)与 [LibreYOLO 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/libreyolo)分离模型实现 | 不以相同身份混用不同执行器                                                                     |
-| [`model_return.py`](../../apps/_shared/training_contract/training_contract/model_return.py) 固定 LibreYOLO `1.6.0`、原生格式和 CPU 来源资格                                                                  | 旧身份不能改写；新增 GPU 部署资格必须与不可变训练产物分开，并扩展现有 `inference_runtime` 验证 |
+| [`model_return.py`](../../../apps/_shared/training_contract/training_contract/model_return.py) 固定 LibreYOLO `1.6.0`、原生格式和 CPU 来源资格                                                                  | 旧身份不能改写；新增 GPU 部署资格必须与不可变训练产物分开，并扩展现有 `inference_runtime` 验证 |
 | [LibreYOLO 资产清单](https://github.com/YOAO-Labs/YOAO-Plugins/blob/main/plugins/inference/libreyolo/aap_libreyolo_plugin/controlled-model-assets.json)记录四个 LibreYOLO9 规格                              | 沿用资产单一来源；不得再维护一份手抄摘要表                                                     |
-| [`aap-protocol-v2`](../../apps/_shared/protocol_v2/README.md) 已提供请求／响应公共模型与受控词表                                                                                                             | 保留既有 HTTP 协议；不发明“插件推理协议 3”                                                     |
-| [`aap-backend-runtime`](../../apps/_shared/backend_runtime/README.md) 已提供受借用／取消保护的模型池和叶子工具                                                                                               | 组合现有组件，不能为了 SDK 再实现一套池和资源账本                                              |
-| [模型服务接入、路由与认证](../../docs-site/dev/concepts/ml-backend-routing-and-auth.md)已区分实例、服务池、项目启用、候选模型、发布及固定实例路由                                                            | 插件安装不是自动启用所有项目；新实例不能接管旧任务的冻结身份                                   |
-| [ML Backend 教程](../../docs-site/dev/tutorials/ml-backend-starter.md)已有 echo 示例，但开发者仍需自己编写 HTTP、下载、结果转换等代码                                                                        | 真实 LibreYOLO 插件应成为推荐开发路径；echo 仅保留为协议教学示例                               |
-| [`ai-annotation-sdk`](../../packages/python-sdk/README.md)已有 Registry、项目 ML、模型服务池等客户端入口                                                                                                     | 运维 CLI 复用已有客户端，不把模型依赖塞进平台客户端 SDK                                        |
-| [ADR-0038](../adr/archive/0038-defer-ml-backend-base-class.md)曾选择共享 schema 与模板，不引入统一后端基类                                                                                                   | 本次先记录窄检测适配层的架构决定；不强迫现有五种 backend 迁移到一个万能父类                    |
+| [`aap-protocol-v2`](../../../apps/_shared/protocol_v2/README.md) 已提供请求／响应公共模型与受控词表                                                                                                             | 保留既有 HTTP 协议；不发明“插件推理协议 3”                                                     |
+| [`aap-backend-runtime`](../../../apps/_shared/backend_runtime/README.md) 已提供受借用／取消保护的模型池和叶子工具                                                                                               | 组合现有组件，不能为了 SDK 再实现一套池和资源账本                                              |
+| [模型服务接入、路由与认证](../../../docs-site/dev/concepts/ml-backend-routing-and-auth.md)已区分实例、服务池、项目启用、候选模型、发布及固定实例路由                                                            | 插件安装不是自动启用所有项目；新实例不能接管旧任务的冻结身份                                   |
+| [ML Backend 教程](../../../docs-site/dev/tutorials/ml-backend-starter.md)已有 echo 示例，但开发者仍需自己编写 HTTP、下载、结果转换等代码                                                                        | 真实 LibreYOLO 插件应成为推荐开发路径；echo 仅保留为协议教学示例                               |
+| [`ai-annotation-sdk`](../../../packages/python-sdk/README.md)已有 Registry、项目 ML、模型服务池等客户端入口                                                                                                     | 运维 CLI 复用已有客户端，不把模型依赖塞进平台客户端 SDK                                        |
+| [ADR-0038](../../adr/archive/0038-defer-ml-backend-base-class.md)曾选择共享 schema 与模板，不引入统一后端基类                                                                                                   | 本次先记录窄检测适配层的架构决定；不强迫现有五种 backend 迁移到一个万能父类                    |
 
 真正缺口是：可独立分发的检测开发外壳、原生 LibreYOLO 服务的独立归属、安装身份与能力发现的绑定、训练回流目标的能力匹配，以及旧实例的安全退出。增加 manifest 本身不能证明这些问题已解决。
 
@@ -148,7 +150,7 @@ LibreYOLO 插件不依赖 Ultralytics，也不导入 YOLO 插件。YOLO 插件�
 
 ### 5.4 GPU 运行时资格与资源生命周期
 
-**产物身份不等于执行设备。** 保持现有 checkpoint、SHA、类别与训练来源不变，在已有 [`inference_runtime.py`](../../apps/_shared/training_contract/training_contract/inference_runtime.py) 中扩展显式、受控的 CUDA profile 与兼容关系，而不是新建一份模型记录或第三套推理协议。
+**产物身份不等于执行设备。** 保持现有 checkpoint、SHA、类别与训练来源不变，在已有 [`inference_runtime.py`](../../../apps/_shared/training_contract/training_contract/inference_runtime.py) 中扩展显式、受控的 CUDA profile 与兼容关系，而不是新建一份模型记录或第三套推理协议。
 
 1. **冻结来源、单独验证部署。** `expected_receipt` 继续校验不可变来源；部署的 `inference_runtime` 记录取得资格的执行 profile。CUDA profile 必须由核心允许的兼容集合验证，不能信任插件自报一个任意字典。CPU 历史 profile 和新 GPU profile 都保持精确校验，不能以框架版本相同代替设备资格。
 2. **旧任务绝不换设备。** 已冻结的 CPU `inference_runtime`、收据、部署与发布快照不改写；同一模型在 GPU 插件上重新安装、试用并形成新部署后才能发布。对缺少 `inference_runtime` 的旧引用也明确保留原 CPU 语义，不能因为两边版本都是 `1.6.0` 就接受 GPU 结果。
@@ -247,7 +249,7 @@ SDK 与其依赖必须能从版本化 wheel 集合或包仓库安装，模板也
 
 本切片的安装器运行在明确指定的执行机，由管理员持有部署权限；通过类型化参数启动批准制品，并调用平台公开 API 完成注册。API 不执行第三方 shell，不直接构建任意 Git 仓库，也不接管 Docker socket。
 
-当前 [`ml-backend-runner.py`](../../scripts/ml-backend-runner.py)刻意限制五个内置服务和固定 Compose 文件。不能为了安装插件把这条运维安全边界改成“任何服务名、任何路径、任何命令”。新的插件部署入口只接受 manifest 中经策略批准的制品与受限资源配置。
+当前 [`ml-backend-runner.py`](../../../scripts/ml-backend-runner.py)刻意限制五个内置服务和固定 Compose 文件。不能为了安装插件把这条运维安全边界改成“任何服务名、任何路径、任何命令”。新的插件部署入口只接受 manifest 中经策略批准的制品与受限资源配置。
 
 安装绑定归 Inference 所有，首期复用 Registry 的保留元数据 `extra_params.plugin`，记录安装 ID、插件／制品／manifest 摘要、运行目录身份、状态、操作修订及管理员来源；Registry／服务池引用沿既有记录，不另建模型目录或 Jobs 账本。执行机保存对应部署收据，重连时核对身份，不能依据容器名字接管未知服务。
 
@@ -375,11 +377,11 @@ GPU 验收复用官方 YOLO 插件的生命周期验证器、共享 `lifecycle_e
 
 实施时同步更新：
 
-- [ML Backend 接入教程](../../docs-site/dev/tutorials/ml-backend-starter.md)：真实插件为推荐路径；开发、调试、检查、打包与错误处理。
-- [ML Backend 协议](../../docs-site/dev/reference/ml-backend-protocol.md)：能力与受控模型安装合同的必要增量，保持已有 wire semantics。
-- [模型服务接入、路由与认证](../../docs-site/dev/concepts/ml-backend-routing-and-auth.md)：外部插件身份、安装生命周期和精确部署绑定。
-- [在线学习](../../docs-site/user-guide/online-learning/index.md)：LibreYOLO 原生训练回流目标、试用、发布和迁移。
-- [管理员注册指引](../../docs-site/user-guide/superadmin/ml-backend-registry.md)及实际涉及的 CLI／SDK 文档：安装不等于项目启用或模型发布。
+- [ML Backend 接入教程](../../../docs-site/dev/tutorials/ml-backend-starter.md)：真实插件为推荐路径；开发、调试、检查、打包与错误处理。
+- [ML Backend 协议](../../../docs-site/dev/reference/ml-backend-protocol.md)：能力与受控模型安装合同的必要增量，保持已有 wire semantics。
+- [模型服务接入、路由与认证](../../../docs-site/dev/concepts/ml-backend-routing-and-auth.md)：外部插件身份、安装生命周期和精确部署绑定。
+- [在线学习](../../../docs-site/user-guide/online-learning/index.md)：LibreYOLO 原生训练回流目标、试用、发布和迁移。
+- [管理员注册指引](../../../docs-site/user-guide/superadmin/ml-backend-registry.md)及实际涉及的 CLI／SDK 文档：安装不等于项目启用或模型发布。
 - 受影响的 API 文档、README、生成工件、开发架构记录与 `CHANGELOG.md` Unreleased；不在本计划分配发布版本。
 
 本切片完成只能证明 Inference 插件及所触及边界闭合，不能把 Assets、Learning、Insights 或全模块独立部署自动标记完成。旧计划是否正式 supersede，仍按研究报告的完整目标交接与维护者决策办理。
@@ -387,7 +389,7 @@ GPU 验收复用官方 YOLO 插件的生命周期验证器、共享 `lifecycle_e
 ## Outcome
 
 - 当前进度：本计划约定的 LibreYOLO 推理插件、训练回流及单卡 GPU 生命周期验收已完成。推理运行时、共享生命周期、检测开发 SDK、安装治理和管理员 CLI 已集成；这不代表整个后端重构、双卡隔离、模型质量或生产发布验收完成。
-- 正式文档：[开发者接入与 SDK](../../docs-site/dev/tutorials/ml-backend-starter.md)、[ML Backend 协议](../../docs-site/dev/reference/ml-backend-protocol.md)、[安装与重启](../../docs-site/user-guide/superadmin/ml-backend-registry.md)、[训练模型回流](../../docs-site/user-guide/online-learning/models.md)、[路由与事务边界](../../docs-site/dev/concepts/ml-backend-routing-and-auth.md)及 [ADR-0180](../adr/0180-installable-inference-plugins.md)；`CHANGELOG.md` Unreleased 已记录功能与可见修复。
+- 正式文档：[开发者接入与 SDK](../../../docs-site/dev/tutorials/ml-backend-starter.md)、[ML Backend 协议](../../../docs-site/dev/reference/ml-backend-protocol.md)、[安装与重启](../../../docs-site/user-guide/superadmin/ml-backend-registry.md)、[训练模型回流](../../../docs-site/user-guide/online-learning/models.md)、[路由与事务边界](../../../docs-site/dev/concepts/ml-backend-routing-and-auth.md)及 [ADR-0180](../../adr/0180-installable-inference-plugins.md)；`CHANGELOG.md` Unreleased 已记录功能与可见修复。
 - 原生与训练证据：受控 t/s/m/c 资产已核验摘要和字节数，独立 CUDA 加载、真实推理与原生输出对照已执行。GPU1 上完成 YOLOv9t 三轮真实训练、评估与权重上传；checkpoint 为 36,698,917 字节，SHA-256 为 `1bb0eb804545a754b84e254207436c8f0afe6403eaee2e28fa3bf8556440b060`。这是训练回流冒烟，不是模型质量评估。R6 对同权重、同样本的原生 CPU／CUDA FP32 比较已通过预先声明的坐标 0.1 px、分数 0.0001 容差；四规格均保留五个目标与正常空结果，未放宽既有同设备 HTTP golden 门槛。
 - 产品闭环证据：训练产物完成 GPU 受控安装、固定样本试用及浏览器人工发布。当前任务由标注员在实际工作台执行并显示两条可审核候选；批量两项成功；显式 `input.mode="crop"` 的管线完成根阶段两条、裁剪阶段六条结果并持久化。公开查询的已存预测包含训练身份及 CUDA runtime provenance；试用没有自动发布，候选没有自动写成正式标注。
 - CPU 冻结与安全切换：旧 CPU 批量及真实裁剪作业在切换 GPU 发布后仍按原冻结 CPU 收据执行，未重定向到 GPU；原磁盘收据摘要不变。三个 CPU 部署均经公共退役接口退役，项目启用已关闭，容器已停止，历史记录仍可读取。旧 YOLO LibreYOLO 适配分支已删除；普通 YOLO 不再声明 LibreYOLO 运行依赖。
@@ -409,3 +411,4 @@ GPU 验收复用官方 YOLO 插件的生命周期验证器、共享 `lifecycle_e
 - 检查限制：同步托管图片的整组隔离权限回归在 1,200 秒后超时，不计为通过，独立测试数据库保留。已定位的 `test_setup_key_revocation_never_dispatches_inference[interactive]` 返回 403，但 setup 中撤销凭据后仍调用交互模型；此交互路径失败未在检测插件切片中修复。独立环境另观察到 `GET /api/v1/datasets?limit=100` 返回 500，未在本切片诊断或修改数据集目录。错误投影另有真实 TCP 回归通过，覆盖重新编码的响应长度、结构化 503 与 Retry-After；不据定向通过宣称完整套件全绿。GPU0 主环境未被用于验收，封存环境的数据库、Redis、备份和历史继续保留。
 - 用户新增的多后端与独立仓库规划已承接；目标 `YOAO-Labs/YOAO-Plugins` 已创建为私有仓库，未推送代码。统一契约、按运行环境提供 SDK；本期仍只推进推理与 Python 开发体验。
 - 旧后端核心重构计划未退役；本切片及后续拆仓不取消其他领域的剩余目标，不据局部实测宣称生产资格。
+- 归档交接（2026-11-23）：旧后端核心重构计划已由 `docs/plans/1795366269_platform-pluginization.md` 替代；本切片的范围外问题按独立缺陷处理，不随归档关闭。

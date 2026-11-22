@@ -311,4 +311,4 @@ Negative:
   independently in ADR-0124 and ADR-0123; their evidence is not counted as
   platform-role qualification.
 - The overall backend module-decoupling goal remains active in
-  `docs/plans/1792160873_backend-module-decoupling.md`.
+  `docs/plans/archive/1792160873_backend-module-decoupling.md`.

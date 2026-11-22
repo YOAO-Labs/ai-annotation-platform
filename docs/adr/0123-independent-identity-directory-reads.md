@@ -239,4 +239,4 @@ checks. None of those historical counts are attributed to Directory reads.
 - Current module gaps remain in
   [module deployment status](../../docs-site/dev/concepts/module-deployment.md).
 - Full backend progress is tracked in
-  `docs/plans/1792160873_backend-module-decoupling.md`.
+  `docs/plans/archive/1792160873_backend-module-decoupling.md`.

@@ -147,7 +147,7 @@ Video has passed isolated local HTTP/S3/FFmpeg and bounded container acceptance
 with separate restricted identities. Image runtime integration does not itself
 qualify database migrations, production S3 permissions or sustained image
 capacity. The broader ownership and remaining work are tracked in the
-[backend module plan](../../docs/plans/1792160873_backend-module-decoupling.md),
+[backend module plan](../../docs/plans/archive/1792160873_backend-module-decoupling.md),
 [ADR-0105](../../docs/adr/0105-independent-video-media-owner.md) and
 [ADR-0106](../../docs/adr/0106-independent-image-media-owner.md). Accepted-input
 consumer integration and its required local qualification remain tracked in

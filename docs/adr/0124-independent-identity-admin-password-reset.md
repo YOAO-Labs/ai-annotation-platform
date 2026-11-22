@@ -246,4 +246,4 @@ Negative:
   38-case evidence remains separate; the current 42-case selection includes
   the explicitly listed Directory compatibility checks.
 - Full module progress is tracked in
-  `docs/plans/1792160873_backend-module-decoupling.md`.
+  `docs/plans/archive/1792160873_backend-module-decoupling.md`.

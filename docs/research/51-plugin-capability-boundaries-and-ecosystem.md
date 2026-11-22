@@ -28,7 +28,7 @@
 核对了以下入口：
 
 - [模块部署与解耦台账](../../docs-site/dev/concepts/module-deployment.md)：区分源码实现、消费者迁移、独立运行、历史环境采用及插件资格。
-- [原后端业务模块解耦计划](../plans/1792160873_backend-module-decoupling.md)：目标、事务约束、全模块独立运行要求及 A–E 阶段。
+- [原后端业务模块解耦计划](../plans/archive/1792160873_backend-module-decoupling.md)：目标、事务约束、全模块独立运行要求及 A–E 阶段。
 - [Inference 运行边界](../../apps/inference/README.md)、[Assets Source 运行边界](../../apps/assets-source/README.md)、[Jobs 所有权](../../apps/jobs/README.md)。
 - [在线学习架构](../../docs-site/dev/concepts/training-datasets.md)、[存储位置与连接器](../../docs-site/dev/concepts/storage-connections.md)。
 - [API 静态装配](../../apps/api/app/api/v1/router.py)、[Celery 静态装配](../../apps/api/app/workers/celery_app.py)。
@@ -194,7 +194,7 @@ Supervisely 的公开 App 发布要求声明 `instance_version` 与 `docker_imag
 
 ### 8.1 为什么不是“先做完旧计划”
 
-[旧计划](../plans/1792160873_backend-module-decoupling.md)第 1、7、8 节明确要求完整模块的语言无关契约、独立运行及所选替换实现的验证；第 9 节 E 阶段仍是逐模块独立运行和替换。它不只是“按规范整理代码”。
+[旧计划](../plans/archive/1792160873_backend-module-decoupling.md)第 1、7、8 节明确要求完整模块的语言无关契约、独立运行及所选替换实现的验证；第 9 节 E 阶段仍是逐模块独立运行和替换。它不只是“按规范整理代码”。
 
 新目标增加了统一插件装配、安装管理、扩展隔离和开发者体验。即使把旧计划所有独立部署工作做完，这些能力也不会自动出现。把 E 阶段全部完成作为新目标的前置门，会推迟真正的插件安装闭环。
 
@@ -238,7 +238,9 @@ Supervisely 的公开 App 发布要求声明 `instance_version` 与 `docker_imag
 4. 旧计划补充替代说明与 Outcome 交接，保留已实现成果、证据和未取得的资格。
 5. 再移动到 `docs/plans/archive/`，保持原文件名，同时更新所有 Markdown 引用。
 
-旧计划尚未完成上述交接，仍保持原状态与位置。后续已形成并推进[LibreYOLO 推理插件实施规划](../plans/1793156248_libreyolo-inference-plugin.md)，以“现有 LibreYOLO 训练 → 原生权重回流 → 独立 LibreYOLO GPU 推理 → 人工发布与项目使用”为首个切片，并包含低门槛开发路径及首期 GPU 验收要求；实际完成情况和剩余门槛以该计划的 Outcome 为准。它不是覆盖全部旧目标的替代计划。
+旧计划尚未完成上述交接，仍保持原状态与位置。后续已形成并推进[LibreYOLO 推理插件实施规划](../plans/archive/1793156248_libreyolo-inference-plugin.md)，以“现有 LibreYOLO 训练 → 原生权重回流 → 独立 LibreYOLO GPU 推理 → 人工发布与项目使用”为首个切片，并包含低门槛开发路径及首期 GPU 验收要求；实际完成情况和剩余门槛以该计划的 Outcome 为准。它不是覆盖全部旧目标的替代计划。
+
+> 后续（2026-11-23）：维护者确认调整目标后，旧计划已按上述条件由[平台插件化计划](../plans/1795366269_platform-pluginization.md)替代并归档，架构决定见 [ADR-0186](../adr/0186-modular-monolith-and-on-demand-extraction.md)。本节保留调研时的判断。
 
 ## 9. 建议的实施组织方式
 

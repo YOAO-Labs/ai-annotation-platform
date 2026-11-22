@@ -76,7 +76,7 @@ per request and four direct caller-transaction probes. The frozen fixture is
 `apps/api/tests/fixtures/workspace_owner_transfer_legacy.json`. API SQLAlchemy
 statement counts exclude SQL executed inside Native functions and are not
 capacity measurements. Current implementation qualification is recorded in
-`docs/plans/1792160873_backend-module-decoupling.md`; legacy capture alone does
+`docs/plans/archive/1792160873_backend-module-decoupling.md`; legacy capture alone does
 not qualify the new implementation.
 
 The scoped final union passed 66 distinct selected cases: 59 database/process

@@ -136,7 +136,7 @@ Negative:
 - Deployment details: [Identity private runtime protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期)
   and the repository's `docker-compose.identity.yml`.
 - Full-module progress remains in
-  `docs/plans/1792160873_backend-module-decoupling.md`.
+  `docs/plans/archive/1792160873_backend-module-decoupling.md`.
 
 ## Local qualification
 

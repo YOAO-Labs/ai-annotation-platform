@@ -1,12 +1,14 @@
 # 推理后端插件化、Plugin-SDK 与官方插件独立仓库规划
 
+> 归档（2026-11-23）：阶段 A–G 已完成；剩余事项由[平台插件化计划](../1795366269_platform-pluginization.md) §5.3 承接。以下为归档时的原文。
+>
 > 状态：阶段 C、C2、D、E、F、G 的限定本机交付已完成。Jobs／Tracker 终态幂等、鉴权／观测合同与本阶段最小权限缺陷已修复；17 个历史 scope 仍缺少权威物理退役证明并保持拒绝放行，不扩大既有 GPU、模型许可或生产容量资格。
 >
 > 日期：规划于 2026-10-28，实施记录更新于 2026-11-01。公开仓库：[YOAO-Labs/Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 与 [YOAO-Labs/YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)。
 >
 > 授权范围：使用 Orca、OMP `openai-codex/gpt-6.1-terra`／`xhigh` 和独立工作树，由主进程审核并合并提交。用户已授权公开必要第一方制品、补齐既有 MIT 许可，并要求原有 vendor 改为固定 tag／哈希的 Git 子模块；不因此发布应用版本、扩展前端 SDK 或公开未获授权的权重。
 >
-> 前置资料：[能力边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)、[LibreYOLO 试点](1793156248_libreyolo-inference-plugin.md)、[核心模块部署与边界台账](../../docs-site/dev/concepts/module-deployment.md)。
+> 前置资料：[能力边界与生态研究](../../research/51-plugin-capability-boundaries-and-ecosystem.md)、[LibreYOLO 试点](1793156248_libreyolo-inference-plugin.md)、[核心模块部署与边界台账](../../../docs-site/dev/concepts/module-deployment.md)。
 
 ## 1. 决策
 
@@ -25,7 +27,7 @@
 
 ### API SDK 与插件 SDK 的关系
 
-采用 **分包、独立版本、共享必要契约、统一开发流程**，不合并为一个 SDK distribution。API SDK 用于调用平台，插件 SDK 用于实现供平台调用的服务；“管理插件”不等于“开发插件”。正式职责与依赖规则见[API SDK 与插件 SDK](../../docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk)。
+采用 **分包、独立版本、共享必要契约、统一开发流程**，不合并为一个 SDK distribution。API SDK 用于调用平台，插件 SDK 用于实现供平台调用的服务；“管理插件”不等于“开发插件”。正式职责与依赖规则见[API SDK 与插件 SDK](../../../docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk)。
 
 - `ai-annotation-sdk` 及管理员 `aap` CLI 留在平台仓库，负责公开 API 和插件安装治理；插件作者抽象及工具在独立 `Plugin-SDK` 仓库发布，当前推理 distribution 为 `aap-inference-plugin-sdk`，开发命令为 `aap-inference-plugin`。`YOAO-Plugins` 只维护官方插件及模型专属实现。
 - API SDK 核心安装不引入插件服务或模型运行时；插件 SDK 不默认依赖 API SDK。具体插件确有调用平台公开 API 的需求时，可显式依赖 API SDK，使用单独授予的作用域凭据，不继承管理员身份或访问私有应用包。
@@ -344,7 +346,7 @@ GPU 验收按可用且已获授权的独占设备安排，不接管其他人的�
 
 ### 并行工作流与共享门禁
 
-后端 owner 解耦和推理插件化是两条并行交付线，共用一条便携契约前置线；不要按旧目录机械拆成互相改写相同接口的任务。后端完整目标与剩余事项继续以[核心模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)为唯一入口，本计划只列插件交付依赖和当前协调切片。
+后端 owner 解耦和推理插件化是两条并行交付线，共用一条便携契约前置线；不要按旧目录机械拆成互相改写相同接口的任务。后端完整目标与剩余事项继续以[核心模块台账](../../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)为唯一入口，本计划只列插件交付依赖和当前协调切片。
 
 | 首批工作包                   | 独占修改范围                                                  | 依赖与合入门禁                                                                                                            |
 | ---------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -459,7 +461,7 @@ TrackEval 使用保留原裁剪适配层的公开 fork，不把平台调用切�
 - 目标 `YOAO-Labs/YOAO-Plugins` 最初按私有仓库创建；用户现已设为公开，并授权必要第一方制品使用既有 MIT 许可。第三方和权重仍按各自门禁处理。
 - 统一契约／分运行环境 SDK／前端信任分层为采用的目标方向；本期只推进推理与 Python 开发体验，不宣称通用插件框架或前端 SDK 已实现。
 - 正式架构入口：`docs-site/dev/concepts/module-deployment.md`。已实现的依赖边界影响记入 `CHANGELOG.md` 的 Unreleased；不据此指定发布版本或日期。
-- 实施与验收：LibreYOLO 原限定单卡资格，以及第二批 RapidOCR CPU、ONNXTools 多池 CUDA 的限定平台业务与正常退役已通过，细节与边界见[正式架构台账](../../docs-site/dev/concepts/module-deployment.md#inference-plugin-admission)。首次公开拆仓的源码与制品消费切换已合入；匿名干净构建、新镜像独立 GPU 资格及平台训练回流闭环按第四批完成，其余后端完整迁移不在本批范围。
+- 实施与验收：LibreYOLO 原限定单卡资格，以及第二批 RapidOCR CPU、ONNXTools 多池 CUDA 的限定平台业务与正常退役已通过，细节与边界见[正式架构台账](../../../docs-site/dev/concepts/module-deployment.md#inference-plugin-admission)。首次公开拆仓的源码与制品消费切换已合入；匿名干净构建、新镜像独立 GPU 资格及平台训练回流闭环按第四批完成，其余后端完整迁移不在本批范围。
 - 第三批私有候选与生成项目／镜像 CPU 检查的历史证据保留，Learning 样本评估分发已合入。第四批完成阶段 C 的固定公开制品、唯一源码归属和限定运行验收；后续按阶段 D 分后端迁移，分别安排许可、真实模型与治理验收，不将本批通过泛化为其他后端完成。
 - 本地独立插件仓库位于 `plugins/YOAO-plugins/`，平台根 `.gitignore` 忽略整个嵌套仓库；源码由独立仓库提交，不作为平台子模块。原有第三方 vendor 已改为上表所列固定提交子模块，旧复制脚本已移除，许可和必要补丁保留。
 - API SDK 与插件 SDK 保持分包、独立版本及共享必要契约。生命周期纯校验的实现与消费者已在契约提交 `8ddcd65be` 中收口并合入；正式规则见 `docs-site/dev/concepts/module-deployment.md#api-sdk-and-plugin-sdk`。
@@ -470,3 +472,4 @@ TrackEval 使用保留原裁剪适配层的公开 fork，不把平台调用切�
 - 文档全站构建被已确认与首批基线字节相同的 `docs-site/dev/reference/env-vars.md` Vue 标签错误阻断，未扩修无关文件。首批页面校验证据保存在 `.worktree/orca/run_1e86c5259b79/`，第二批七份受影响文档的 Markdown／Vue 编译亦通过；不把已知全站失败记作通过。既有 Labeling 上传 ACL 问题保留为独立边界，不以扩大权限完成插件验收。
 - 前端 API 类型已从当前 snapshot 重新生成。`tsc --noEmit` 仍在 `ProjectModelsPanel.test.tsx` 报告五处 `status` 字符串宽化错误；该测试文件及 `ModelDeploymentOut` schema 与本批基线相同，未扩修或宣称全量类型检查通过。
 - 新增受控流水线四种情形及既有阶段校验、入口冻结／重放检查通过，但同文件的两个既有重试用例仍有旧夹具问题。主进程删除内部派发 kwargs 的精确断言而非重写预期，保留真实重试行为断言；单独隔离数据库中再次执行后，二者在旧 `extra["retry_job_id"]` 预期处失败，清理另报 `job_not_writable`。完整日志与 JUnit 已保留，未为此改动生产重试逻辑或宣称整组全绿。
+- 归档交接（2026-11-23）：正式 PyPI／OCI 渠道转入 `docs/plans/1795366269_platform-pluginization.md` M1b；全扩展点装配与非推理 SDK 转入 M4；17 个历史 scope 的物理退役证明、多卡并发与生产容量、第三方许可仍为独立门槛，不随归档关闭。

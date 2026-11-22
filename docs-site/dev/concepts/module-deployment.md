@@ -7,13 +7,13 @@ last_reviewed: 2026-11-01
 
 # 后端模块解耦、插件化与独立部署
 
-后端重构的目标是让核心能力成为随项目发布的内置插件，扩展能力成为可安装插件，而不只是拆分 Python 包或增加独立进程。当前已有 owner 契约、受限数据能力及部分独立运行工件；LibreYOLO 已完成限定单卡 GPU 托管验收，通用推理准入、RapidOCR CPU 与 ONNXTools 多池 CUDA 已通过限定平台业务链路。面向全部扩展点的统一装配、依赖校验与启停机制仍未交付。独立部署与语言替换是能力边界的验收维度，不等同于插件化完成。本页按源码与运行证据记录进度，不使用百分比推算。
+后端重构的目标是让核心能力成为随项目发布的内置插件，扩展能力成为可安装插件，而不只是拆分 Python 包或增加独立进程。模块以语言无关契约和单一数据 owner 解耦，默认以少量进程的模块化单体部署；边界保持可拆出，只在资源隔离、安全隔离、经实测的扩缩或实际选定的语言替换需要时独立运行，语言替换目前暂缓（[ADR-0186](/dev/adr/0186-modular-monolith-and-on-demand-extraction)）。当前已有 owner 契约、受限数据能力及部分独立运行工件；LibreYOLO 已完成限定单卡 GPU 托管验收，通用推理准入、RapidOCR CPU 与 ONNXTools 多池 CUDA 已通过限定平台业务链路。面向全部扩展点的统一装配、依赖校验与启停机制仍未交付。本页按源码与运行证据记录进度，不使用百分比推算。
 
 ## 范围和判断口径
 
-目标范围包括 `identity`、`workspace`、`assets`、`labeling`、`inference`、`learning`、`insights`，以及 `jobs`、`audit`、`notifications` 三项支撑能力。运行装配、迁移、队列、对象存储和运维入口也必须明确归属，才算模块可以独立构建、部署和维护。
+目标范围包括 `identity`、`workspace`、`assets`、`labeling`、`inference`、`learning`、`insights`，以及 `jobs`、`audit`、`notifications` 三项支撑能力。运行装配、迁移、队列、对象存储和运维入口也必须明确归属，模块才能在需要时被拆出、替换和维护。
 
-路由 tag、Python package、Celery queue 或一个独立 worker 都不等于完整业务模块。一个模块只有同时拥有稳定的语言无关公开协议、独立运行工件、明确数据和凭据范围、完整消费者迁移及故障恢复证据，才算具备独立部署能力。所有公开交互还需证明不依赖提供方的语言运行时；实际选中的语言替换实现须通过相同合同与真实消费者验收。共享 PostgreSQL 实例可以保留，但不能让模块绕过其他所有者的契约读写其表。
+路由 tag、Python package、Celery queue 或一个独立 worker 都不等于完整业务模块。模块解耦以边界**可拆出**为准：稳定的语言无关公开协议、明确的数据和凭据范围、完整消费者迁移，以及不依赖 Python 实现的一致性检查。默认部署不要求每个模块独立运行；实际拆出的模块另需独立运行工件和故障恢复证据，实际选中的语言替换实现须通过相同合同与真实消费者验收。共享 PostgreSQL 实例可以保留，但不能让模块绕过其他所有者的契约读写其表。
 
 使用 `infra/docker/*-grants.sql` 时，仍按脚本头部示例通过 `psql -v` 指定目标数据库、迁移账号和受限账号。脚本只在自己的事务内用 PostgreSQL 自定义设置 `yoao.*` 传递这些参数；工作树授权复用同一组设置。不要在 `postgresql.conf`、`ALTER ROLE` 或连接环境中预设它们。切换脚本不需要迁移数据库，也不会替已部署的账号重新授权。
 
@@ -126,7 +126,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 平台重新采用使用该固定新镜像的独立 GPU 报告，不复用旧镜像资格。两轮实际 CUDA 装卸载、取消计账、忙碌卸载拒绝及代际／重放控制检查通过；释放后 Torch allocated／reserved、原生 wrapper 与借用归零，宿主观测到实际容器 GPU 进程。资格生成通过进程内 ASGI；网络 HTTP 的平台业务单独验证。正式安装器按调用者的非 root 身份运行，不把镜像默认 UID/GID 10001 当作平台安装要求。
 
-真实训练 checkpoint 已经过新镜像受控加载、GPU 试用、人工发布、当前任务及批量预测持久化。取消项目选用后，部署和安装正常排空、卸载、退役，真实 Token 时限后 collector 清零；旧 release、预测及冻结引用不重写，原 CPU 历史和保留环境不变。训练使用已审核的独立 executor，并非声称推理镜像执行训练。此项限定为单卡串行闭环，不证明双卡隔离、并发容量、所有历史路由资格或模型精度；低阈值空图的实际误检也保留在记录中。固定镜像、报告、业务对象及私有证据归档身份见 `docs/plans/1793184138_inference-plugins-repository-extraction.md` 第四批记录。
+真实训练 checkpoint 已经过新镜像受控加载、GPU 试用、人工发布、当前任务及批量预测持久化。取消项目选用后，部署和安装正常排空、卸载、退役，真实 Token 时限后 collector 清零；旧 release、预测及冻结引用不重写，原 CPU 历史和保留环境不变。训练使用已审核的独立 executor，并非声称推理镜像执行训练。此项限定为单卡串行闭环，不证明双卡隔离、并发容量、所有历史路由资格或模型精度；低阈值空图的实际误检也保留在记录中。固定镜像、报告、业务对象及私有证据归档身份见 `docs/plans/archive/1793184138_inference-plugins-repository-extraction.md` 第四批记录。
 
 上述资格描述验收时的实际结果，不表示临时环境仍在线。已完成的插件验收环境按授权归档并拆除，数据库、权限、发布状态和模型资产保留在私有验收归档中；不提供长期在线演示地址，也不以清理环境代替尚缺少的历史物理退役证明。
 
@@ -140,7 +140,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ## 剩余工作台账
 
-这是本计划唯一的剩余工作台账；下文和 ADR 保存历史资格证据，不另行维护待办列表。
+这是平台插件化计划（仓库 `docs/plans/1795366269_platform-pluginization.md`）的唯一实时台账；下文和 ADR 保存历史资格证据，不另行维护待办列表。原后端解耦计划已被该计划替代并归档，其已闭合条目的证据继续有效；按操作拆出的独立服务将按该计划 M2 合并回默认部署档。
 主线在线学习、数据集原件与受控存储纳入后，重构重点从“等待功能落地”转为提取完整 owner 边界：
 Assets 必须统一原件身份、物理 I/O 责任、存储计量、来源保留与业务发布；
 Learning 必须收口数据版本、训练、评估、主动学习和模型发布账本，再撤销跨领域私表读取。
@@ -271,7 +271,7 @@ manifest 的 `models` 是插件完整声明目录的最小安全投影，不是�
 
 有状态插件保持各自运行环境：Grounded-SAM2 使用 Python 3.10、Torch 2.3.1／torchvision 0.18.1 和 CUDA 12.1；SAM3 使用 Python 3.12、Torch 2.7.1 和 CUDA 12.8，推理仅支持 GPU。插件各自发布轻量目录和资产选择，目录展示不构成资产下载、执行或再分发授权。插件不得持有 S3 管理凭据或生命周期签名私钥。
 
-Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同。平台原生 Mask 接纳和 seed 读回已通过真实模型验证，输入、授权与最终提交仍由原 owner 负责。部署模板采用 context 64、window 16；同一明确配置的 48 帧正反向任务已通过三个窗口，并记录持久会话关闭。该资格不自动覆盖扩大窗口／context、其他权重或其他镜像。固定制品及验收范围见仓库计划 `docs/plans/1793184138_inference-plugins-repository-extraction.md` 阶段 E。
+Grounded 实际文本 `output=mask` 是多边形路径，交互点／框／Mask／涂抹的精确原生 Mask 使用独立能力合同。平台原生 Mask 接纳和 seed 读回已通过真实模型验证，输入、授权与最终提交仍由原 owner 负责。部署模板采用 context 64、window 16；同一明确配置的 48 帧正反向任务已通过三个窗口，并记录持久会话关闭。该资格不自动覆盖扩大窗口／context、其他权重或其他镜像。固定制品及验收范围见仓库计划 `docs/plans/archive/1793184138_inference-plugins-repository-extraction.md` 阶段 E。
 
 空闲 tracker 会话归属实际模型池条目，每个命令只在真实执行期间借用该条目；续用不能按相同模型 key 静默重建。驱逐、排空或关闭先使旧上下文失效，再等待归属会话清理，释放模型强引用后才执行分配器缓存清理。清理失败保留资源根和未知驻留状态，不能以请求取消、borrower 归零或池为空代替物理释放证明。每个新窗口仍需独立签名准入与完成计账，持久会话不是重复使用旧授权的凭据。
 
@@ -1804,25 +1804,22 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 1. **完整的公开操作清单。** HTTP、WebSocket、Celery、CLI、定时任务及内部执行器操作均归属唯一 owner，调用方迁移范围可追踪。
 2. **冻结的语言无关协议。** 命令、查询、批量读取、schema 版本、状态、错误码、权限上下文、Blob 引用、幂等/attempt/generation 及兼容策略均有真实 fixture 和契约用例。
-3. **可独立构建与部署。** 有单独工件、依赖、配置、健康/就绪状态、扩缩和运维流程；不导入主 API/Celery 装配，也不继承其他模块的数据库或存储管理凭据。
+3. **边界可拆出。** 公开操作可 wire 序列化，不携带 ORM、`AsyncSession`、`Request` 或异常类型；需要同事务的操作由 owner 固定 SQL 能力承担，并标明拆出时需另定的协调方案。默认部署不要求独立工件；实际拆出的模块须有单独工件、依赖、配置、健康/就绪状态和运维流程，不导入主 API/Celery 装配，也不继承其他模块的数据库或存储管理凭据。
 4. **唯一的数据写入所有者。** 表/字段、schema migration、对象前缀和 Redis 等外部状态都有权限边界。消费者只通过 owner 合同访问数据，不直接查写其他模块的私有 ORM/SQL。
 5. **事务和撤权语义成立。** 每条跨模块强事务有单一事务 owner，或有经验证的可靠协调、收据和重放方案。权限撤销与最终写入保持当前权威串行化；对象存储、数据库和 broker 之间的失败窗口有明确定义。
 6. **故障与切换通过。** 重复、丢响应、断网、迟到响应、取消、进程重启、在途执行、执行权交接、失败恢复和回退都通过隔离数据及真实运行进程验证。切换期间同一数据只有一个权威 writer。
-7. **语言替换有证据。** 每个模块的完整公开合同都有独立运行时的互操作及领域 fixture 验收，消费方只使用本语言的公开客户端/数据绑定，不依赖提供方的私有 Python 实现、ORM、对象或异常。实际选择更换语言的实现通过相同合同、领域行为、真实消费者及切换/回退验收。语言按功能选择，不要求为每个模块永久维护两个业务实现；Go 月报实验不能替其他模块满足这些门槛。
+7. **契约可由第二实现验证。** 公开合同有不依赖提供方 Python 实现、ORM、对象或异常的一致性检查（例如现有 Node peer、冻结 SQL 与 JSON Schema fixture）。语言替换目前暂缓；将来实际选择更换语言时，新实现须通过相同合同、领域行为、真实消费者及切换/回退验收。Go 月报实验不能替其他模块满足这些门槛。
 
 同一进程中的 Python `Protocol`、DTO 序列化测试、目录分层、Celery task registry、单独启动的 health endpoint 或仅能读写共享数据库，都不能单独证明模块达到门槛。
 
 ## 实施顺序
 
-详细依赖和结果写在仓库 `docs/plans/1792160873_backend-module-decoupling.md` 中。当前依赖顺序为：
+实施顺序由仓库计划 `docs/plans/1795366269_platform-pluginization.md` 维护，原解耦计划 `docs/plans/archive/1792160873_backend-module-decoupling.md` 保留历史依赖和结果。当前顺序为：
 
-1. 保持已通过的 media probe 独立运行、消费者和第二语言合同门禁；新增媒体类型或预算时补齐对应实际验收。
-2. 逐项提取 assets 操作，定好 Blob 和引用协议；追加/初始建题、项目删除、Dataset→Project 解绑和连接管理已有选定事务合同，继续提取其余 CRUD、导入和派生写入边界。
-3. 建立 identity/workspace 的远程身份、当前撤权和项目能力合同，再处理会依赖这些许可的写命令。
-4. 定义 jobs、audit、notifications 与领域提交之间的可靠交接，覆盖 attempt/终态、审计原子性和持久通知投递。
-5. 按事务边界提取 inference、learning 与 labeling。先固定 GPU/执行租约、训练来源快照、模型身份、审核写入及在途作业，再迁移生产者/消费者。
-6. 提取 insights 的批量只读输入或可重建投影，固定授权、新鲜度、删除和大结果传输语义。
-7. 为每个逻辑模块单独完成部署、合同互操作、领域行为、故障和回退验收；对选定的语言替换执行同合同第二实现验收，汇总全部公开入口和数据权限后才关闭总目标。
+1. 推理扩展的两档接入与开发者体验（直连／安装）。
+2. 部署收敛：盘点按操作拆出的服务，没有资源、安全或扩缩理由的合并回默认部署档；保留 media probe、推理 GPU 控制面、媒体 worker、训练执行器等有理由的独立运行。
+3. 第二个扩展点：通知渠道。
+4. 由所选扩展点带动的 Assets、Learning、Insights owner 收口，以及内置模块统一装配。
 
 顺序可以根据依赖审查调整，但不能因一个子能力通过就把完整目标标记完成。
 
@@ -1878,7 +1875,7 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 Scene 执行单位和 Learning 首次来源组合尚未迁移。素材转换、Mask 修复批处理及部分视频 Mask 路径还存在持业务锁的对象 I/O，完整 Labeling、Inference 和 Jobs 独立协议也未完成。已有冻结训练包和评估样本继续使用 Learning 自己的保留副本。一般 Blob 生命周期和其余模块继续推进。Go 保持独立实验，没有默认接入或生产部署。
 
-输入保留、当前权限、锁边界和后续完整迁移门槛见[已接受作业的媒体输入](./accepted-media-inputs)。
+输入保留、当前权限、锁边界和后续完整迁移门槛见[已接受作业的媒体输入](accepted-media-inputs)。
 
 ## 专用视频跟踪输入
 
@@ -2008,7 +2005,7 @@ Project-admin query item 的 `is_managed` 表示自身、所管项目成员或 a
 
 Directory 读取 owner 已通过限定的本地资格。Native/role、restore 和 live/API 套件分别有 32、3、3 个数据库／进程用例通过，均无跳过；restore/live 还覆盖既有邀请与 legacy challenge 兼容路径，因此 38 项并非全是新 Directory 用例。非 editable 安装包 398 项检查通过，82 个安装源码文件的 hash 与提交一致。Node consumer 通过 22 项自检，SDK 用户管理／CLI 通过 31 项，OpenAPI contract 通过 14 项，操作目录发现／生成检查通过 21 项；API assembly 通过 348 项，另有 125 条 lazy architecture rule 明确延期。
 
-非 root、只读 Identity image 安装了相同的 82 个文件，并通过真实 runtime/API proof。API image `sha256:12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479` 在禁网、只读、512 MiB 的冷启动检查中核对 82 个 package 文件和 70 个 API/native inputs；Directory 四路由、既有 Identity routes、OpenAPI、迁移 head 0243 与 relay 注册均匹配。OpenAPI 只调整了 users/stats 的描述。540 个用户的样本覆盖超过 500 行及 64 KiB 的 list/export；重放、当前可见性 409、stale-role 403、int64 页码、生命周期引用、credential-generation 围栏与重启检查均通过。环境文档生成检查覆盖 447 个变量和 48 个分组。镜像／源码身份与完整范围见 `docs/plans/1792160873_backend-module-decoupling.md`。
+非 root、只读 Identity image 安装了相同的 82 个文件，并通过真实 runtime/API proof。API image `sha256:12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479` 在禁网、只读、512 MiB 的冷启动检查中核对 82 个 package 文件和 70 个 API/native inputs；Directory 四路由、既有 Identity routes、OpenAPI、迁移 head 0243 与 relay 注册均匹配。OpenAPI 只调整了 users/stats 的描述。540 个用户的样本覆盖超过 500 行及 64 KiB 的 list/export；重放、当前可见性 409、stale-role 403、int64 页码、生命周期引用、credential-generation 围栏与重启检查均通过。环境文档生成检查覆盖 447 个变量和 48 个分组。镜像／源码身份与完整范围见 `docs/plans/archive/1792160873_backend-module-decoupling.md`。
 
 这些结果只覆盖四项 Directory 读取。另一次并发 4 的 12 次 host-process 读取耗时 0.232 秒，p50 为 0.077 秒，p95 为 0.081 秒，包含 Node process 开销；它不等同于 1 CPU／256 MiB Identity 容器预算，也不是生产 SLO。平台角色预览／变更、管理员暂停／恢复／删除／offboarding 与自助注销均有各自独立的限定本地资格，不计入 Directory 证据。UserBrief 批量 owner 另有 64 个 selected cases（59 DB/process、5 pure/static），不能并入 Directory 的 38 例。Bootstrap/import、dashboard analytics、完整 Identity、其他模块门槛与语言替换仍未完成。本次没有切换主身份运行时，也没有建立生产容量结论。管理员临时密码重置已在下节单独限定资格；详见 [Identity 私有运行协议](/api/guides/identity-runtime#用户目录读取)与 [ADR-0123](/dev/adr/0123-independent-identity-directory-reads)。
 

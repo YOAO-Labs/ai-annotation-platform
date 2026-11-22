@@ -9,7 +9,7 @@
 
 [ADR-0038](archive/0038-defer-ml-backend-base-class.md) 选择共享协议与模板，避免用万能父类约束差异很大的后端。现在需要让外部开发者独立交付真实检测模型，并把 LibreYOLO 原生训练产物交回同框架的 GPU 推理插件。复制 YOLO 服务会同时复制模型池、认证、取消与 GPU 生命周期；仅新增 manifest 又不能解决安装身份、项目权限、模型发布和安全卸载。
 
-现有 Inference 已拥有 Registry、服务池、路由和资源准入；Learning 拥有不可变训练产物、部署、试用与发布；Jobs 拥有执行快照与提交围栏。插件不能建立第二套这些账本。具体范围见仓库中的实施计划 `docs/plans/1793156248_libreyolo-inference-plugin.md` 和能力边界研究 `docs/research/51-plugin-capability-boundaries-and-ecosystem.md`；两者不属于文档站页面。
+现有 Inference 已拥有 Registry、服务池、路由和资源准入；Learning 拥有不可变训练产物、部署、试用与发布；Jobs 拥有执行快照与提交围栏。插件不能建立第二套这些账本。具体范围见仓库中的实施计划 `docs/plans/archive/1793156248_libreyolo-inference-plugin.md` 和能力边界研究 `docs/research/51-plugin-capability-boundaries-and-ecosystem.md`；两者不属于文档站页面。
 
 ## Decision
 
@@ -62,4 +62,4 @@
 
 ## Notes
 
-本记录处于实施验收中，尚不宣告 ADR-0038 已被正式替代，也不退役旧后端解耦计划。最终状态取决于独立分发、真实 GPU 训练回流、生命周期和产品操作验收；未触及模块的部署目标继续由原台账管理。
+本记录处于实施验收中，尚不宣告 ADR-0038 已被正式替代。旧后端解耦计划已由 `docs/plans/1795366269_platform-pluginization.md` 替代并归档（见 [ADR-0186](0186-modular-monolith-and-on-demand-extraction.md)），本记录的推理插件决定不变。最终状态取决于独立分发、真实 GPU 训练回流、生命周期和产品操作验收；其余模块的剩余工作继续由模块部署台账管理。

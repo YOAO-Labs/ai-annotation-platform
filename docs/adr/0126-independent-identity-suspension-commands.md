@@ -340,4 +340,4 @@ Negative:
 - The [Identity private runtime guide](../../docs-site/api/guides/identity-runtime#管理员停用与恢复账号)
   documents the private commands and preserved HTTP boundary.
 - Full module progress remains in
-  `docs/plans/1792160873_backend-module-decoupling.md`.
+  `docs/plans/archive/1792160873_backend-module-decoupling.md`.

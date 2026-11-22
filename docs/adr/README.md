@@ -40,6 +40,7 @@
 
 ### 待决（Proposed / Draft）
 
+- [0186](0186-modular-monolith-and-on-demand-extraction.md) — 模块化单体部署、语言无关契约与按需拆出（待维护者审阅计划后接受）
 - [0180](0180-installable-inference-plugins.md) — 可安装推理插件与组合式检测开发包（实施与 GPU 验收中）
 - [0166](0166-workspace-locked-authority-snapshots.md) — Workspace 锁定权限读取与会话快照（限定本地定向验收通过）
 - [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）

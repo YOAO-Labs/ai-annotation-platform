@@ -155,7 +155,7 @@ replacement. The full Workspace and Identity goals, ten-module/seven-gate
 qualification, production capacity validation, and primary cutover remain
 unfinished. See the [Workspace runtime guide](/api/guides/workspace-runtime).
 The repository implementation ledger is
-`docs/plans/1792160873_backend-module-decoupling.md`.
+`docs/plans/archive/1792160873_backend-module-decoupling.md`.
 
 The pre-change legacy baseline separately passed 20 HTTP cases, eight frozen
 preview-digest vectors, and four Audit checks. Those results capture old

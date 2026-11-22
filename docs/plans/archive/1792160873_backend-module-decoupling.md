@@ -1,6 +1,8 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复、Identity 整模块与 Workspace 当前支持协议已完成限定本地功能验收；Workspace 已在本机主部署采用普通API数据库账号与独立运行进程，其他模块／环境及通用旧库退役不据此宣称完成。其余模块先完成实现与调用迁移，再按模块集中验收和采用。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，协调视频恢复仍不切日常主环境。
+> Status: superseded（2026-11-23）。由[平台插件化计划](../1795366269_platform-pluginization.md)替代，架构决定见 [ADR-0186](../../adr/0186-modular-monolith-and-on-demand-extraction.md)：保留语言无关契约与单一 owner 边界，取消“每个模块默认独立部署”，暂缓语言替换。逐项去向见新计划 §5.1 及文末“交接与替代”。以下为归档时的原状态，不再更新。
+>
+> 原状态：进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复、Identity 整模块与 Workspace 当前支持协议已完成限定本地功能验收；Workspace 已在本机主部署采用普通API数据库账号与独立运行进程，其他模块／环境及通用旧库退役不据此宣称完成。其余模块先完成实现与调用迁移，再按模块集中验收和采用。唯一剩余工作台账见[模块部署与语言替换状态](../../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，协调视频恢复仍不切日常主环境。
 >
 > 文档媒体自动化与专用录制夹具已退役；各历史切片中的消费端、授权、失败及验收结论保留原范围，不是当前运行步骤或未来门槛。普通 E2E、媒体／规模种子和通用 owner 约束保持。
 >
@@ -26,22 +28,22 @@
 
 | 事实                                                           | 源码依据                                                                                                                                             | 对设计的约束                                                             |
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| API 装配集中，但业务规则并未全部下沉到服务                     | [路由聚合](../../apps/api/app/api/v1/router.py)、[审核入口](../../apps/api/app/api/v1/tasks/review.py)                                               | 迁移对象包含路由内的规则和事务编排，不能只移动 services                  |
-| 存在 service → API 和 service → worker 的函数内导入            | [最终写入守卫](../../apps/api/app/services/project_write_guard.py)、[Mask 修复派发](../../apps/api/app/services/mask_repair.py)                      | 门禁覆盖函数内与相对导入；通过公开业务接口和注入的派发适配器消除反向依赖 |
-| 任务、标注、批次和审核存在紧密关系，标注还依赖源媒体与标定身份 | [任务模型](../../apps/api/app/db/models/task.py)、[标注模型](../../apps/api/app/db/models/annotation.py)                                             | 先保留标注生产聚合，不把任务、审核、轨迹机械拆成不同服务                 |
-| 预标注在请求路径按设备动态选队列                               | [预标注入口](../../apps/api/app/api/v1/projects.py)、[Celery 配置](../../apps/api/app/workers/celery_app.py)、[消费者配置](../../docker-compose.yml) | 静态 task_routes 不是完整执行契约，迁移必须覆盖动态路由和实际消费者      |
-| 通用作业终态回填直接了解多个领域账本                           | [终态协调](../../apps/api/app/services/async_job_terminal.py)                                                                                        | 作业控制面与领域状态机分开，不能将所有领域终态统一为 failed/cancelled    |
-| 审核通知在事务提交后发布                                       | [审核入口](../../apps/api/app/api/v1/tasks/review.py)、[通知服务](../../apps/api/app/services/notification.py)                                       | 保存提交与投递顺序；现有仓库地图的相关描述需要随该路径实施时纠正         |
-| 训练执行器是独立拉取进程，且并行执行 CPU 预览                  | [执行器入口](../../apps/training-executor/Dockerfile)、[执行循环](../../apps/training-executor/training_executor/worker.py)                          | 不将训练执行归入 Celery worker，不丢失预览、租约及子进程回收语义         |
-| 已有领域 package 和局部架构门禁                                | [后端分层](../../docs-site/dev/concepts/backend-layers.md)、[现有守卫](../../apps/api/tests/test_domain_package_architecture.py)                     | 复用现有实现和 AST 检查能力，不重复拆 GPU、导出等已整理的模块            |
+| API 装配集中，但业务规则并未全部下沉到服务                     | [路由聚合](../../../apps/api/app/api/v1/router.py)、[审核入口](../../../apps/api/app/api/v1/tasks/review.py)                                               | 迁移对象包含路由内的规则和事务编排，不能只移动 services                  |
+| 存在 service → API 和 service → worker 的函数内导入            | [最终写入守卫](../../../apps/api/app/services/project_write_guard.py)、[Mask 修复派发](../../../apps/api/app/services/mask_repair.py)                      | 门禁覆盖函数内与相对导入；通过公开业务接口和注入的派发适配器消除反向依赖 |
+| 任务、标注、批次和审核存在紧密关系，标注还依赖源媒体与标定身份 | [任务模型](../../../apps/api/app/db/models/task.py)、[标注模型](../../../apps/api/app/db/models/annotation.py)                                             | 先保留标注生产聚合，不把任务、审核、轨迹机械拆成不同服务                 |
+| 预标注在请求路径按设备动态选队列                               | [预标注入口](../../../apps/api/app/api/v1/projects.py)、[Celery 配置](../../../apps/api/app/workers/celery_app.py)、[消费者配置](../../../docker-compose.yml) | 静态 task_routes 不是完整执行契约，迁移必须覆盖动态路由和实际消费者      |
+| 通用作业终态回填直接了解多个领域账本                           | [终态协调](../../../apps/api/app/services/async_job_terminal.py)                                                                                        | 作业控制面与领域状态机分开，不能将所有领域终态统一为 failed/cancelled    |
+| 审核通知在事务提交后发布                                       | [审核入口](../../../apps/api/app/api/v1/tasks/review.py)、[通知服务](../../../apps/api/app/services/notification.py)                                       | 保存提交与投递顺序；现有仓库地图的相关描述需要随该路径实施时纠正         |
+| 训练执行器是独立拉取进程，且并行执行 CPU 预览                  | [执行器入口](../../../apps/training-executor/Dockerfile)、[执行循环](../../../apps/training-executor/training_executor/worker.py)                          | 不将训练执行归入 Celery worker，不丢失预览、租约及子进程回收语义         |
+| 已有领域 package 和局部架构门禁                                | [后端分层](../../../docs-site/dev/concepts/backend-layers.md)、[现有守卫](../../../apps/api/tests/test_domain_package_architecture.py)                     | 复用现有实现和 AST 检查能力，不重复拆 GPU、导出等已整理的模块            |
 
-[旧领域化计划](archive/2026-07-15-v0.23.0-api-services-domain-modularization.md)是历史依据，不延续其中保留旧 facade 的迁移策略。
+[旧领域化计划](2026-07-15-v0.23.0-api-services-domain-modularization.md)是历史依据，不延续其中保留旧 facade 的迁移策略。
 
 保留这些既有领域决策：
 
-- [模型版本、部署和发布身份分离](../adr/archive/0076-controlled-trained-model-identity.md)：模型冻结身份及精确部署约束不能因服务切换失效。
-- [项目任务数据集与冻结版本身份分离](../adr/archive/0087-project-task-dataset-streams.md)：管理关联、发行序号和高水位不能参与或改写训练包摘要。
-- [Data Manager 只读模型](../adr/archive/0047-data-manager-entity-read-model.md)：查询视图不获得权威写入权。
+- [模型版本、部署和发布身份分离](../../adr/archive/0076-controlled-trained-model-identity.md)：模型冻结身份及精确部署约束不能因服务切换失效。
+- [项目任务数据集与冻结版本身份分离](../../adr/archive/0087-project-task-dataset-streams.md)：管理关联、发行序号和高水位不能参与或改写训练包摘要。
+- [Data Manager 只读模型](../../adr/archive/0047-data-manager-entity-read-model.md)：查询视图不获得权威写入权。
 
 ## 3. 目标业务模块
 
@@ -234,7 +236,7 @@ flowchart TD
 
 B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加解释成完成百分比。独立性按模块证据逐一确认；数据库仍可共用 PostgreSQL，但每个服务必须仅获得其所有权所需的表和外部能力。
 
-模块状态和完成门槛见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。每个切片还要更新对应的仓库地图、后端分层和领域参考。纯结构迁移不虚构用户可见功能；若实际改变用户行为，则同时更新用户指南和 CHANGELOG。语言按模块证据选择，不预分配发布日期或版本。
+模块状态和完成门槛见[模块部署与语言替换状态](../../../docs-site/dev/concepts/module-deployment.md)。每个切片还要更新对应的仓库地图、后端分层和领域参考。纯结构迁移不虚构用户可见功能；若实际改变用户行为，则同时更新用户指南和 CHANGELOG。语言按模块证据选择，不预分配发布日期或版本。
 
 ## 10. 证据范围
 
@@ -252,7 +254,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 实际运行：在隔离环境启动真实 Uvicorn 和普通/维护 Celery worker；标注创建 201、同幂等键返回同一标注，完成态写入 409。撤销成员后，HTTP 维持 404 隐藏资源存在，最终写入守卫维持 403 `permission_changed`。跨帧作业经实际队列完成，新增 1 条、跳过 1 条，并核对持久化结果。准入模块冷加载不装配 API/worker。
 - 契约与静态检查：OpenAPI snapshot 与当前路由一致；本片 Python Ruff 检查通过。
 - 正式开发文档：`docs-site/dev/concepts/backend-layers.md`、`repository-map.md`、`task-module.md`、`scheduler-and-task-dispatch.md`、`docs-site/dev/reference/ws-protocol.md`。
-- ADR：[0088 — 任务可见性与写入准入由服务层统一持有](../adr/archive/0088-service-owned-task-admission.md)。
+- ADR：[0088 — 任务可见性与写入准入由服务层统一持有](../../adr/archive/0088-service-owned-task-admission.md)。
 - 提交：`eb9fd7623`，实现、回归与正式文档在同一切片提交；发布里程碑：Not yet determined。纯内部结构迁移，未新增用户可见行为，未添加 CHANGELOG 条目。
 
 ### 质量执行派发
@@ -262,7 +264,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 本地回归：主要相关回归 98 passed、11 skipped；视频轨迹真实数据库边界与派发失败回归另有 2 passed。11 项跳过均是未声明 lazy-root 规则的所有者；ZIP 重复成员夹具产生一条预期警告。Ruff 与 OpenAPI 检查通过。
 - 实际运行：隔离测试库、真实 Uvicorn、普通/维护 Celery worker 及 MinIO 下，Mask QC、点云质检和视频轨迹质检完成并保留执行 ID；Mask 修复把面积从 4 改为 3，回滚恢复为 4。回滚夹具先补齐生产所需的原始 Mask 上传归属记录，未弱化生产校验。
 - 导入验证最初暴露独立问题：真实导入已派发并记录执行 ID，但 Worker 以 `format_plan_digest_conflict` 失败。该问题已作为下一独立进度修复，未混入派发解耦；预检夹具暂存对象已纠正到 `import_bucket`。
-- 提交：`70b9ec938`；正式文档为后端分层、仓库地图及 [ADR-0089](../adr/archive/0089-injected-quality-job-dispatch.md)。纯内部结构迁移，未添加 CHANGELOG 条目。
+- 提交：`70b9ec938`；正式文档为后端分层、仓库地图及 [ADR-0089](../../adr/archive/0089-injected-quality-job-dispatch.md)。纯内部结构迁移，未添加 CHANGELOG 条目。
 
 ### 质检执行状态机装配
 
@@ -1638,7 +1640,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 本地独立 PostgreSQL、五个 NOLOGIN owner、受限 LOGIN 调用角色及旧宽权限 runtime 验收共 209 passed、零跳过。覆盖原生 psql 与无主 API/SQLAlchemy/Celery 导入的 asyncpg peer 交接、强制退出/重启、解绑重建、取消、失败提交、点云真实样例与 33,000 项建题。真实 Celery 用受限角色完成发起者停用后的已接受作业，重复投递不建重复 Task。全部冻结 SQL 独立安装/回滚及迁移回退/升级通过，隔离资源清理完成。证据为 `.worktree/task-creation-qualified.json` 与对应 JUnit。
 - 架构守卫 273 passed、111 skipped；跳过均为未声明 lazy-root 规则，业务套件没有跳过。环境脚本单测 42 项通过，固定 Ruff 与 OpenAPI 快照检查通过。
 - 前端类型检查、作业列表 15 项测试、文档构建及提交门禁通过。主 checkout 已应用至 0195，实际 API 的 485 paths/872 schemas 与快照完全一致；源码热重载在约 3.2 秒内更换服务子进程。DB/Redis/MinIO 检查均为 200；日常 Celery 原本未启动，总健康检查相应为 503，本次隔离 worker 已实际验证并清理。主库只运行只读/回滚烟测，未留下建题操作。运行证据保存在 `.worktree/task-creation-main-runtime.json`。
-- 本片只建立选定授权、关联、建题与作业的数据接口；主 API 仍使用宽权限账号，共享 PostgreSQL 仍是前提。项目级删除、完整 owner 凭据/运行工件、对象存储权限和其余模块协议继续推进，总目标保持未完成。Go 月报仍仅为实验。决策见 [ADR-0093](../adr/0093-durable-task-creation-authority.md)。
+- 本片只建立选定授权、关联、建题与作业的数据接口；主 API 仍使用宽权限账号，共享 PostgreSQL 仍是前提。项目级删除、完整 owner 凭据/运行工件、对象存储权限和其余模块协议继续推进，总目标保持未完成。Go 月报仍仅为实验。决策见 [ADR-0093](../../adr/0093-durable-task-creation-authority.md)。
 
 ### 项目删除：各所有者能力、审计与不可变回执
 
@@ -1650,7 +1652,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - 真实独立 PostgreSQL 与十一个 NOLOGIN owner、受限 LOGIN 的整合回归为 432 passed、零跳过，覆盖 owner 清理、学习保留、当前权限、忙锁回滚、外层回滚/提交失败、冻结回执与审计、旧孤立作业持久终态、作业/通知范围、原生 psql 重放和既有建题 Celery/peer 交接。迁移回退、全部冻结 SQL 独立安装/回滚及正常升级通过，临时容器、数据库、Redis 与九个桶均已清理；证据在 `.worktree/project-deletion-qualified.json` 与对应 JUnit。
 - 架构守卫 278 passed、113 个 lazy-root 不适用跳过；严格删除绑定另 11 项通过（已包含在 432 项整合回归中，不重复累计）。环境脚本 42 项通过，44 个变更 Python 文件的固定 Ruff、OpenAPI 快照与最终文档构建（13.55 秒）通过；最终只读复核没有新增具体问题。
 - 主 checkout 本地提交并升级开发库 0195→0200，确认项目删除回执表和作业范围触发器可用；只读事务核对无效命令响应，回滚后新删除回执与保留作业范围均为零，没有播种测试数据。原 LaunchAgent 重启后再次触碰未改内容的源码，实际服务子进程 62433→63084，热重载与健康复核共 5.198 秒。DB/Redis/MinIO 均为 200，公开 OpenAPI 的 485 paths/872 schemas 与快照一致。日常 Celery 仍未启动，因此总健康及 Celery 端点保留原 503；真实隔离 worker 已在上述套件中验证并清理。证据 `.worktree/project-deletion-main-runtime.json`；不授予生产容量、模型/GPU 或远程 CI 资格。
-- 项目删除是同库 owner 事务能力，不代表全模块独立部署；Go 仍仅为实验。项目范围语义见 [ADR-0094](../adr/0094-transactional-project-deletion.md)。
+- 项目删除是同库 owner 事务能力，不代表全模块独立部署；Go 仍仅为实验。项目范围语义见 [ADR-0094](../../adr/0094-transactional-project-deletion.md)。
 
 ### 项目数据集解绑：Workspace 原生事务与派生清理 outbox
 
@@ -1746,7 +1748,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 - Reuse the existing Python Source runtime for the six storage-connection list/read/create/update/delete/test operations; portable config, crypto, host guard and bounded probes remain Assets-owned. Allowlist administration stays with Settings. The separate importer LOGIN keeps seven capabilities.
 - The frozen `aap-assets-connections/v1` contract publishes nine native capabilities and six provider operations, current actor/owner rules, opaque source/policy snapshots and operation-bound credential-intent fingerprints. Migration 0217 adds one immutable receipt table without live-resource foreign keys; Source LOGIN has twenty-three functions, while importer keeps seven and Catalog keeps 29. The ownership ledger has 128 tables, with 26 owned by Assets. Existing migrations through 0216 remain unchanged.
-- Null patch behavior, full config/credential replacement, SFTP auth inference, masked public records, source import fencing and atomic Audit are preserved. Name/null patches need neither a connector key nor network policy. Receipt replay rechecks current authority; creator ownership survives a platform role downgrade. Connector I/O runs without account/source/policy row locks, and final application fences actor disable, changed source and changed host policy. See [ADR-0103](../adr/0103-assets-connection-administration.md).
+- Null patch behavior, full config/credential replacement, SFTP auth inference, masked public records, source import fencing and atomic Audit are preserved. Name/null patches need neither a connector key nor network policy. Receipt replay rechecks current authority; creator ownership survives a platform role downgrade. Connector I/O runs without account/source/policy row locks, and final application fences actor disable, changed source and changed host policy. See [ADR-0103](../../adr/0103-assets-connection-administration.md).
 - Local qualification has 447 distinct passing API/native/consumer cases, zero business failures or skips, and 125 empty/lazy architecture-rule exclusions. The standalone Source package passes 285 cases and SDK/CLI passes 1,122. Later focused outcomes replace earlier attempts for the same case. Real Source HTTP/S3/SFTP covers lost-response replay with one Audit event, restart without a connector key, unknown-host rejection, delete replay, current-role visibility, concurrent source/policy/actor changes and explicit local cutover.
 - The public list preserves complete results across byte- and count-bounded private pages, with one full-scope digest computation per page and checked ordering/count/cursor progress. A 1,033-record fixture, including near-request-limit config values, returns 42,139,197 public bytes through seven pages; the largest private reply is 15,206,907 bytes. Under the declared 0.5 CPU / 512 MiB Source limit, the observed cgroup peak is 149,778,432 bytes and the public list takes 6.24 seconds. These are local acceptance observations, not production capacity or remote CI evidence.
 - Frozen SQL installation/rollback, the four migration phases, installed core wheels without API/server/object SDK dependencies, API image import, removed-facade checks, lockfiles, OpenAPI/catalog freshness and frontend type generation pass locally. Primary development migration and reload are verified separately after integration. Evidence is tracked under `.worktree/assets-connections-verification.json` and `.worktree/assets-connections-runtime-evidence.json` before archival.
@@ -1755,7 +1757,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 
 ## Assets operator source registration — local qualification
 
-- The existing image and nuScenes importers now register Dataset/item state through the frozen `aap-assets-operator/v1` protocol. Its six native capabilities cover image Dataset creation, nuScenes ensure/source metadata, ordered batched append, source-snapshot observation patches, recount and complete paged reads. Migration 0218 adds immutable `dataset_operator_operations` without live-resource foreign keys; existing migrations through 0217 are unchanged. The ownership ledger is 129 ORM tables, including 27 Assets tables. See [ADR-0104](../adr/0104-operator-source-registration.md).
+- The existing image and nuScenes importers now register Dataset/item state through the frozen `aap-assets-operator/v1` protocol. Its six native capabilities cover image Dataset creation, nuScenes ensure/source metadata, ordered batched append, source-snapshot observation patches, recount and complete paged reads. Migration 0218 adds immutable `dataset_operator_operations` without live-resource foreign keys; existing migrations through 0217 are unchanged. The ownership ledger is 129 ORM tables, including 27 Assets tables. See [ADR-0104](../../adr/0104-operator-source-registration.md).
 - The separate `asset_operator_client` LOGIN can execute exactly six functions, with no direct table/column/sequence privileges, foreign owner-schema access, membership or DDL. Source, importer and Catalog remain 23/7/29 functions. Native `psql` executes all six without a Python owner runtime and rolls back Dataset, items, all five operator receipts and composed spatial receipts. Full importer scripts retain their existing composition connection; the source-only login cannot execute their other owners' steps.
 - Shared operator ORM writers are removed from `DatasetService`. Image and nuScenes consumers use typed value results and retain their caller-owned outer transaction. Existing nuScenes Dataset name/kind/creator and unrelated metadata survive re-import, while legacy source-root fallback still follows the requested import name. Existing Dataset reuse retains the actor-before-Dataset Catalog eligibility fence; trusted attribution does not add an active-manager requirement to image registration.
 - Local qualification covers 85 distinct passing native/consumer/gateway/role cases, zero business failures or skips, after replacing earlier outcomes with focused fixes for the same nodes. Source package tests pass 295 cases; architecture checks pass 297 with 122 empty/lazy-rule exclusions; 42 worktree unit checks pass. Frozen SQL independent install/rollback, all four migration phases, installed core wheel without API/ORM/server dependencies, API image cold import at 129 tables/head0218, lockfiles, OpenAPI/catalog freshness, Ruff and documentation build pass locally.
@@ -1766,7 +1768,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 ## Assets video execution and Blob references — local qualification
 
 - The video owner now covers metadata/timetables, playback/posters, lazy frames/chunks, signed references, retry/failure listing, backfill, TTL cleanup, seed/rebuild tools and frame-preannotation. Video REST, Task/Data Manager summaries, dashboard/Catalog references, exports and compatibility Celery registrations consume the owner contract. Accepted tracker/inference jobs still require frozen-source admission before their raw-source reads can move without retargeting accepted input. Image thumbnails/pyramids, general Blob operations, chapter commands and operational reset remain outside this video slice.
-- `apps/assets-media` supplies the frozen `aap-assets-media/v1` schema, HTTP control process and independent polling executor. Its 28 native operations split into 18 control/system and 10 worker capabilities. Migration 0219 adds four Assets ledger tables, bringing the ownership inventory to 133 ORM tables, including 31 Assets tables. Existing migrations through 0218 remain unchanged. Neither restricted login has table/column/sequence, foreign-schema, membership or DDL privileges; the worker imports no API, ORM, Celery or Redis. Native selectors honor the schema defaults without requiring Python normalization. See [ADR-0105](../adr/0105-independent-video-media-owner.md).
+- `apps/assets-media` supplies the frozen `aap-assets-media/v1` schema, HTTP control process and independent polling executor. Its 28 native operations split into 18 control/system and 10 worker capabilities. Migration 0219 adds four Assets ledger tables, bringing the ownership inventory to 133 ORM tables, including 31 Assets tables. Existing migrations through 0218 remain unchanged. Neither restricted login has table/column/sequence, foreign-schema, membership or DDL privileges; the worker imports no API, ORM, Celery or Redis. Native selectors honor the schema defaults without requiring Python normalization. See [ADR-0105](../../adr/0105-independent-video-media-owner.md).
 - Source generation, object identity, job generation, attempt lease and timetable revision fence publication. First HEAD binds identity without changing generation; an unexpected later overwrite marks drift and prevents adoption. Missing cached objects are conditionally invalidated and durably rebuilt; posters have separate durable keys. Retained garbage responsibilities resweep abandoned prefixes to catch late writes. Accepted execution survives initiating-account changes; explicit cancellation and source changes fence subsequent work.
 - Sparse VFR anchors remain UI timing estimates. Exact frame images and transcoded chunks now select original decoded frame ordinals, including CFR millisecond-rounding boundaries and VFR gaps; codec decisions describe original bytes. WebP encoding uses the existing Pillow dependency when host FFmpeg has no encoder. Metadata freshness does not require optional poster/playback/timetable success. Failed timetable probes retain the prior complete index; failed frame/chunk refreshes retain usable output and visible errors. Failed-only retries advance execution once, preserve fallback objects and serialize competing admissions. Frame-preannotation retains inferred results across persistence contention and defers materialization contention without counting a transient busy frame as failed.
 - Local qualification covers 427 distinct API/native/consumer/real-process cases with zero failures or business skips, including three real Celery chord retry/cancel/scope-change cases. The media package passes 84 tests and the affected Catalog package passes 132; architecture/removed-facade checks pass 364 with 126 empty/lazy-rule exclusions. The 1,503-row timetable test rejects incomplete staging atomically and verifies four stable read pages. Frozen SQL install/rollback, migration fresh/reversible/forward/restore phases, dependency locks, OpenAPI artifacts, core-only wheel import, API image cold import and documentation checks pass locally.
@@ -3014,7 +3016,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   operation-bound SHA-256 当前 bcrypt state fingerprint；自助改密、恢复 reset 或后续
   重置均导致旧操作返回 409，而不回传 superseded 密码。Profile/context 变化单独仍可
   还原冻结 email/timestamp。派生向量与 state fingerprint 见
-  [ADR-0124](../adr/0124-independent-identity-admin-password-reset.md)。
+  [ADR-0124](../../adr/0124-independent-identity-admin-password-reset.md)。
 - Migration 0244 创建 `aap_identity_admin_passwords_v1`。无继承
   `identity_admin_password_client` LOGIN 仅有 `admin_password_policy()` 与
   `execute_admin_password_command(jsonb)`。API/runtime 使用可选
@@ -3117,7 +3119,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   但不代表 full Identity、production/primary cutover 或 language replacement。管理员改密
   的 42-case／420-package／467-architecture 证据及 Directory/Invitation 历史数字各按其
   ADR 独立统计；全十模块／七门槛、Go 扩展与 provider replacement 仍未完成。详见
-  [ADR-0125](../adr/0125-independent-identity-platform-role-commands.md)。
+  [ADR-0125](../../adr/0125-independent-identity-platform-role-commands.md)。
 - 平台角色 slice 后，本轮当前实施的 Identity 写入范围是管理员暂停／恢复账号：
   `POST /api/v1/users/{user_id}/deactivate` 与 `/reactivate`。该 slice 保留既有 inactive
   early-return、project-admin scope 差异、credential retirement 与自助注销保留围栏；
@@ -3193,7 +3195,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   新签发 keys 与 reset links 保持有效。上一 platform-role 56-case、admin-reset 42-case 与
   Directory 38-case evidence 各属独立 slice，不合并计数。完整 Identity、十模块／七门槛、
   production/primary cutover 与 provider replacement 仍未完成；详见
-  [ADR-0126](../adr/0126-independent-identity-suspension-commands.md)。
+  [ADR-0126](../../adr/0126-independent-identity-suspension-commands.md)。
 
 - S/R 之后单独推进的最小 Identity 范围是 `DELETE /api/v1/users/{id}`，本计划下节记录其已通过的限定资格。现有 DELETE 不退休凭据，且可能转移 Task assignee、释放 TaskLock；offboarding pair、registration-status settings 和 dashboard hydration 仍是后续独立范围。
 
@@ -3271,7 +3273,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   elapsed, p50 458.037 ms and p95 856.836 ms. It includes Node/HTTP host overhead and is not container
   CPU timing, production capacity or an SLO. Confirmation left 12 receipts and 12 Audit rows unchanged;
   work/locks/Audit/credentials added after acceptance remained untouched by replay. Details and the
-  full closed error table are in [ADR-0127](../adr/0127-independent-identity-deletion-commands.md).
+  full closed error table are in [ADR-0127](../../adr/0127-independent-identity-deletion-commands.md).
 - DELETE 与 offboarding preview/commit owner 均已通过各自限定的本地资格；Registration-status settings、dashboard hydration 与其他跨 owner Identity lifecycle 仍是独立后续范围。十模块／七门槛目标保持 active；完整 Identity、生产切换／容量及 provider-language replacement 均未完成。
 
 ### Identity administrator offboarding preview and commit owner (locally qualified slice)
@@ -3283,7 +3285,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Handoff按原project order和owner→annotator→reviewer顺序；owner仅更新Project owner/updated_at；annotator/reviewer仅转移nonarchived target Batch与四种active-status direct Task。Annotator `assigned_at` 更新，reviewer保留；Task/Batch隐式 `updated_at` 变化和participant projection保持旧语义，完成Task与review evidence不改。Emergency每个present role返回固定 `emergency_suspension_requires_later_handoff`，unresolved计数使用旧scope/count规则。两模式均软停用为inactive/offline，disabled kind分别suspended/emergency_suspended，normalized reason写User，保留self-deactivation reservation；credentials retire发生在状态写之后，TaskLock释放在retirement之后。Audit只记 `mode/reason_present/transfers/unresolved/revoked_api_key_count`，不记raw reason。
 - Native boundary为 `/v1/identity/offboarding/execute`、wire `aap-identity-offboarding/v1`、native prepare/apply `aap-identity-offboarding-native/v1` 与 policy `aap-identity-offboarding-policy/v1`。Identity portable files为 `offboarding_contract.py`、`offboarding_manager.py`、`offboarding_postgres.py` 及两份 canonical schemas。One `OffboardingPostgresData.transaction()` holds a single connection/transaction across prepare→portable digest/scope/CAS→apply→strict wire/native validation→commit；no transaction crosses HTTP, prepare ledger or saga。Raw version/pre-CAS reason不进入prepare JSONB；HMAC包括wire raw version/reason和normal UUIDs，不包括token/Audit context。Migration0248的`identity_offboarding_client`仅执行apply/policy/prepare三函数，owner helpers只提供typed facts/locks/transfers，禁止raw cross-owner grants。Config为 `IDENTITY_OFFBOARDING_DATABASE_URL(_FILE)` 与 Compose `IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE`；API 空 selector 保留 caller-transaction 路径，独立 Identity runtime 空 selector 才停用该 runtime capability，显式 DSN readiness failure 不 fallback。
 - 最新 Root case union 包含 77 个 distinct selected cases：76 DB/process 与 1 static artifact，零跳过；其中 64 个 native/public cases（含两个 owner baseline fixture）和 13 个 live/restore cases。Focused reruns 覆盖了早先夹具失败的结果，不重复累加。Migration 0248 upgrade、frozen SQL install/rollback、downgrade 至 0189、runtime grants 与资源清理均通过，cleanup errors 为空。Source/installed suites 各 523 项通过、109 个安装文件 hash 精确匹配；API assembly 604 项通过、130 条 architecture rules 明确延期，Node 21、SDK 37 项通过。OpenAPI byte-identical；catalog 509 routes/93 modules、environment docs 462 variables/48 sections 通过。
-- Identity owner image `sha256:88d89236acbabc78b660ab5c232dbe4e6d046747af15799014755d45f63e9586` 通过实际 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:ab7d0a5b0e2fc672d0cc8800343f945cb5cb01b5b87455efad9411e4b5940e2b` 在 network-none/read-only、1 CPU/512 MiB 下通过；验证 109 package files 与 46 API/native inputs、2 offboarding routes、18 user routes 无 ORM hydration、migration 0248、当前 OpenAPI、隐藏 SQL 参数与旧路径移除，容器已清理。40.662 秒是 build+offline verification 总时长，不是启动时延。精确构建源、scope 与 hashes 见 [ADR-0128](../adr/0128-independent-identity-offboarding-commands.md)。
+- Identity owner image `sha256:88d89236acbabc78b660ab5c232dbe4e6d046747af15799014755d45f63e9586` 通过实际 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:ab7d0a5b0e2fc672d0cc8800343f945cb5cb01b5b87455efad9411e4b5940e2b` 在 network-none/read-only、1 CPU/512 MiB 下通过；验证 109 package files 与 46 API/native inputs、2 offboarding routes、18 user routes 无 ORM hydration、migration 0248、当前 OpenAPI、隐藏 SQL 参数与旧路径移除，容器已清理。40.662 秒是 build+offline verification 总时长，不是启动时延。精确构建源、scope 与 hashes 见 [ADR-0128](../../adr/0128-independent-identity-offboarding-commands.md)。
 - 两个相同场景形状、但独立生成 fixture 的样本将旧 API preview/commit 的 11/30 与 20/54 SQL calls 降为 owner 的 3/5 与 3/5。两轮 fixture 各自生成新 UUID、timestamps 和数据，因此 benchmark preview hashes 不作跨运行比较；两项固定 legacy state-vector hashes 已由 owner 在 source 与 installed-package tests 中按字节精确复现。单次 instrumented samples 的 peak Python bytes 与 host elapsed、固定 vectors 见 ADR-0128；host timings 不是容器 CPU 时延、生产容量或 SLO。删除、停用与 self-deactivation 仍保留不同副作用。Registration-status settings、dashboard hydration、other-user profile 与其他 Identity lifecycle 仍在后续范围；full Identity、ten modules/seven gates、Go provider、production cutover/capacity 均未完成。
 
 ### Identity batched UserBrief reads owner (locally qualified slice)
@@ -3294,7 +3296,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Migration 0249 依赖 0248，无 receipt/outbox/audit state；`aap_identity_briefs_v1` 只开放 `briefs_policy()`、`execute_briefs_command(jsonb)`。Identity 专用 LOGIN `identity_briefs_client` 只有这两个函数权限，Workspace 仅以 `identity_brief_project_roles(project_id,user_ids)` 批量投影 `(user_id,role)`，不授予原表访问。原生读使用稳定安全函数；无逐用户 RPC 或 cache。
 - API optional DSN 为 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`，Compose selector 为 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。留空使用 caller Session，已有 `IDENTITY_URL` 时优先 private HTTP；独立 runtime 留空只停用 briefs capability。Embedded adapter 不提交/回滚调用方事务，并保留 SQLAlchemy autoflush 与 `no_autoflush` 行为；dedicated asyncpg 自有只读 transaction 并关闭连接，不在选定 remote/DSN 错误后回退。
 - Root 的 latest-case union 通过 64 个 distinct cases（59 DB/process、5 pure/static），零跳过；包括 11 Native、39 caller/API 与 14 live/restore cases。partial caller fixtures 被最终通过结果替换，reruns 不重复计数；live/restore 还覆盖两个 installed owner bindings、三个实际 API bindings、一个 briefs restore 和八个既有 Identity restore/challenge cases。迁移 0249、frozen SQL/grants、downgrade/restore 与 PostgreSQL/Redis/S3/host/container cleanup 均通过，cleanup errors 为空。Source 和 noneditable installed package 各 549 项通过，114 个 hash 精确匹配；API assembly 625 项通过、132 条 architecture rules 显式延期，Node 21、SDK 43 通过。OpenAPI byte-identical；codegen、catalog 509 routes/93 modules、environment docs 464 variables/48 sections 通过。
-- Identity owner image `sha256:c86eba7f5b49ef4424ba0a5eab9751d99f866b74e268f3190bfd06615dd89884` 通过实际 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:f7a80e3a2b41643d33044dfa5eff5fc49510f16fa3563241989262d5841652e7` 在 network-none/read-only、1 CPU/512 MiB 下通过，核对 114 package/45 API-native inputs、六字段 UserBrief、caller transaction 保留、native snapshot byte 相同、当前 OpenAPI/head0249、SQL params 隐藏；容器已清理。41.875 秒是 build+offline verification 总时长，不是启动 latency。Compose disabled/enabled selector 的 configuration-only checks 均通过且没有部署服务。精确 schema/image hashes、baseline 与边界见 [ADR-0129](../adr/0129-identity-batched-user-brief-reads.md)。
+- Identity owner image `sha256:c86eba7f5b49ef4424ba0a5eab9751d99f866b74e268f3190bfd06615dd89884` 通过实际 remote API binding（nonroot/read-only、1 CPU/256 MiB）。Cold API image `sha256:f7a80e3a2b41643d33044dfa5eff5fc49510f16fa3563241989262d5841652e7` 在 network-none/read-only、1 CPU/512 MiB 下通过，核对 114 package/45 API-native inputs、六字段 UserBrief、caller transaction 保留、native snapshot byte 相同、当前 OpenAPI/head0249、SQL params 隐藏；容器已清理。41.875 秒是 build+offline verification 总时长，不是启动 latency。Compose disabled/enabled selector 的 configuration-only checks 均通过且没有部署服务。精确 schema/image hashes、baseline 与边界见 [ADR-0129](../../adr/0129-identity-batched-user-brief-reads.md)。
 - 旧 helper baseline 在 owned 0248 DB 上通过并清理无误：六用户 fixture 覆盖 global/project 与 1,201 IDs，legacy queries 为 empty=0、global=1、project=2、large=1，记录在 `apps/api/tests/fixtures/identity_briefs_legacy.json`。这些数字只描述旧 caller behavior 和单次样本，不是新的性能或容量结论。全 Identity、十模块／七门槛、另一语言 provider、production cutover 与生产容量仍未完成。
 
 ### Projects member-list UserBrief consumer (locally qualified)
@@ -3326,7 +3328,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Root's pre-change baseline passed one owned-state case across 15 scenarios and was captured in `identity-write-fences-legacy.json` and `identity-write-fences-legacy-samples.json`. It remains separate compatibility evidence and must not be rerun against the new implementation or added to qualification counts. The actor-context slice's already-closed 114 selected cases also remain separate.
 - The latest union passed 231 distinct selected cases without effective skips: all three native lock modes, actual waiting/current row versions, raw SQLSTATE/explicit rollback differences, no-autoflush pending work, exact legacy outputs, execute-only Node consumption, both ownership-transfer/platform-role-change orders, eight Identity restores, current per-frame actor facts and error categories, registry-delete authority and rollback, and a fresh Celery process with exact source hashes and three real dispatches. Earlier harness failures/skips are retained and replaced by latest passes, not added again. Local compatibility runtime grants now include the three locks and existing actor status/context operations through the explicit worktree allowlist; AUTH/FENCE permissions remain unchanged.
 - Source and noneditable installed suites each passed 595 checks, with 119 exact package file hashes. A fresh standalone owner image verifies the same installed files without API/heavy runtime dependencies; a fresh network-disabled/read-only API image verifies those 119 package files plus 150 application/native files and migration head 0251. OpenAPI stays byte-identical, codegen and the 509-route/93-module catalog match, and architecture checks pass 316 cases with 132 existing inapplicable rules deferred. Migration/frozen SQL roundtrip, grants and owned-state cleanup passed. Build/offline verification timings are not startup or production capacity measurements.
-- Unlocked Workspace reads and bootstrap/import User writers remain future work. The full ten-module/seven-gate objective stays active, with no production/primary cutover or Go expansion claimed. See [ADR-0131](../adr/0131-identity-transactional-account-locks.md).
+- Unlocked Workspace reads and bootstrap/import User writers remain future work. The full ten-module/seven-gate objective stays active, with no production/primary cutover or Go expansion claimed. See [ADR-0131](../../adr/0131-identity-transactional-account-locks.md).
 
 ### Identity operational provisioning and authority reuse (locally qualified)
 
@@ -3335,7 +3337,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Import looks up exact `admin`, reuses any existing row untouched, and rejects a missing row only when `environment == "production"` exactly, before hashing. Other environments, including staging, keep the old admin/超级管理员/123456 offline-account defaults and no Audit. Import rollback removes a newly created account together with Assets, Workspace and Labeling rows.
 - Migration 0252 adds `read_provisioning_account(text)` and `create_provisioning_account(jsonb)`, plus only the narrow operational `identity_provisioning_client` grants and the fixed Audit capability. The reader respects autoflush/no_autoflush; creates explicitly flush pending caller work even under no_autoflush. There is no new HTTP operation, runtime DSN/setting, credential permission, receipt or schema artifact change outside the additive provisioning schema. The new native functions, narrow grants, frozen SQL roundtrip and migration head 0252 passed in owned disposable databases; no primary or production grants were applied.
 - Nonlocked `project_access.resolve_project_access` reads actor status through the existing `IdentityAccountLockData.read_actor_status`/`read_actor_facts` path; it preserves account → Project refresh → membership order, Project ORM refresh and existing status/error headers, adding no lock or role guard. `task_lock.py`, `batch.py` and `async_job_access.py` replace only authority-only User reads with existing status/lock capabilities, preserving their lock modes/waiting, missing/inactive semantics, return order and policy mapping. Active-only guards remain active-only without extra role checks. This adds no SQL or protocol capability and does not migrate member/task ownership.
-- The account-lock slice's 231 selected cases and actor-context slice's 114 selected cases remain closed, separate qualifications and are not counted for provisioning. The new slice passed 236 distinct selected cases with no effective skips, including restricted Node calls, actual CLI, a fresh Celery worker, eight restores, current authority and caller-transaction checks. A separate actual legacy capture on head 0251 covered ten scenarios before implementation; focused retries replace failed fixture/probe attempts rather than increasing the distinct count. Source and noneditable installed suites each passed 619 checks; owner and restricted API images verify 122 package files, and the API image verifies 61 current-slice application/native inputs and head 0252. Public OpenAPI is byte-identical, codegen and the 509-route/93-module catalog match, and architecture passes 316 cases with 132 existing inapplicable rules explicitly deferred. Audit rejection preserves raw 23514 and aborted transaction state until explicit caller rollback, including unrelated pending work. Full Workspace project/member lifecycle ownership, other Identity consumers, full Identity and the ten-module/seven-gate goal remain open; no production/primary cutover or Go expansion is claimed. See [ADR-0132](../adr/0132-identity-operational-provisioning-and-authority-reads.md).
+- The account-lock slice's 231 selected cases and actor-context slice's 114 selected cases remain closed, separate qualifications and are not counted for provisioning. The new slice passed 236 distinct selected cases with no effective skips, including restricted Node calls, actual CLI, a fresh Celery worker, eight restores, current authority and caller-transaction checks. A separate actual legacy capture on head 0251 covered ten scenarios before implementation; focused retries replace failed fixture/probe attempts rather than increasing the distinct count. Source and noneditable installed suites each passed 619 checks; owner and restricted API images verify 122 package files, and the API image verifies 61 current-slice application/native inputs and head 0252. Public OpenAPI is byte-identical, codegen and the 509-route/93-module catalog match, and architecture passes 316 cases with 132 existing inapplicable rules explicitly deferred. Audit rejection preserves raw 23514 and aborted transaction state until explicit caller rollback, including unrelated pending work. Full Workspace project/member lifecycle ownership, other Identity consumers, full Identity and the ten-module/seven-gate goal remain open; no production/primary cutover or Go expansion is claimed. See [ADR-0132](../../adr/0132-identity-operational-provisioning-and-authority-reads.md).
 
 ### Workspace project membership lifecycle owner (locally qualified slice)
 
@@ -3353,7 +3355,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - The direct public transfer route keeps its admission, DTO, errors and route-owned commit/refresh. Native `aap_workspace_owner_transfer_v1` and the portable `aap-workspace-owner-transfer/v1` contract replace the old property writer; caller-session binding never commits. Current actor/target locks, Project exclusive lock, error precedence, transaction-time updated_at and same-owner no-op behavior remain required.
 - A separate exact-two-RPC LOGIN, immutable no-FK receipt, execution-time policy check and optional DSN/HTTP binding establish this single command's deployment boundary. Matching replay preserves accepted success after supersession without reapplying the owner write. The shared runtime supports membership-only, transfer-only or both; the separate Compose file reuses the control bearer without adding required membership secrets.
 - Before extraction, 17 actual legacy HTTP calls and four caller transaction probes were captured at commit `1a0526a4fc7a67f3867c999465b9623b3dc9094f`. This baseline remains frozen and is not new-implementation qualification. Client SQL statement counts exclude Native internal SQL and do not measure production capacity.
-- Source and noneditable installed suites each passed 85 cases; the installed 14 package files match source and import no API/ORM/Celery dependencies. All four public bindings match the 17 actual legacy responses; four caller transaction probes, restricted Native/role checks, replay/supersession, malformed replies, DML and deferred-commit errors, real transport-loss recovery, installed capability coexistence, and nine affected restore/migration checks have passed. The final union is 66 distinct selected cases (59 DB/process and seven pure/static), with no effective failures or skips; focused successful retries replace fixture/diagnostic failures rather than adding cases. Source and installed package suites remain separate from that union. Python and Node owner images passed actual restricted-role private/public round trips and restart replay. The Python image matches 14 package files; the Node image matches five runtime inputs, runs as UID 1000 and pins pg@8.16.3. A fresh API image matches 136 installed package files and 72 current application/Native inputs, public OpenAPI and head 0254. Its cold proof explicitly uses UID 10001, read-only filesystem, no network and fixed budgets; this does not change the API image default user. Architecture checks separately pass 318 cases with 133 existing inapplicable rules skipped. OpenAPI, codegen and the 509-route/93-module catalog remain unchanged. All three images are based on code commit `5c452b23508901b2317984da32b8d76c2897faab`. The Python owner image is `sha256:12c08b854e27db4ca54718774ea5d305b9b0440f85e94efe6f7b8ed55d4e1932`, Node owner is `sha256:8afc0d9d1b385856a040cb1c2a3c2213e0331d41b4f2ffb32320abe23ca93d67`, and API is `sha256:362072e714d44f69960c17027077a904258fe534f66adf5b0c1b1d4c64bfcd1b`. Node is a local single-command transport conformance provider; Native owns business policy. It is not a full Workspace replacement or production language decision. See [ADR-0134](../adr/0134-workspace-project-owner-transfer.md).
+- Source and noneditable installed suites each passed 85 cases; the installed 14 package files match source and import no API/ORM/Celery dependencies. All four public bindings match the 17 actual legacy responses; four caller transaction probes, restricted Native/role checks, replay/supersession, malformed replies, DML and deferred-commit errors, real transport-loss recovery, installed capability coexistence, and nine affected restore/migration checks have passed. The final union is 66 distinct selected cases (59 DB/process and seven pure/static), with no effective failures or skips; focused successful retries replace fixture/diagnostic failures rather than adding cases. Source and installed package suites remain separate from that union. Python and Node owner images passed actual restricted-role private/public round trips and restart replay. The Python image matches 14 package files; the Node image matches five runtime inputs, runs as UID 1000 and pins pg@8.16.3. A fresh API image matches 136 installed package files and 72 current application/Native inputs, public OpenAPI and head 0254. Its cold proof explicitly uses UID 10001, read-only filesystem, no network and fixed budgets; this does not change the API image default user. Architecture checks separately pass 318 cases with 133 existing inapplicable rules skipped. OpenAPI, codegen and the 509-route/93-module catalog remain unchanged. All three images are based on code commit `5c452b23508901b2317984da32b8d76c2897faab`. The Python owner image is `sha256:12c08b854e27db4ca54718774ea5d305b9b0440f85e94efe6f7b8ed55d4e1932`, Node owner is `sha256:8afc0d9d1b385856a040cb1c2a3c2213e0331d41b4f2ffb32320abe23ca93d67`, and API is `sha256:362072e714d44f69960c17027077a904258fe534f66adf5b0c1b1d4c64bfcd1b`. Node is a local single-command transport conformance provider; Native owns business policy. It is not a full Workspace replacement or production language decision. See [ADR-0134](../../adr/0134-workspace-project-owner-transfer.md).
 - The repository migration validator separately passed fresh head 0254 (254 upgrades), the reversible 0173-to-base path, the 80-step 0254-to-0174 reversible suffix, forward upgrade across irreversible 0174, and backup restore. All four derived databases and dump files were cleaned, with no owned databases left over. This orchestration check is not added to the 66-case feature union.
 - Project creation/configuration/template mutations are the next coherent Workspace boundary because they share caller-owned transactions and template usage counters. Cross-owner authorization, linked dataset checks, Labeling/video blockers and configuration revisions must be captured before extraction. Lists, mentions, nuScenes project creation and remaining consumers follow. Full Workspace, Identity, all ten modules/seven gates, production capacity and primary cutover remain unfinished; Go stays optional experimentation.
 
@@ -3496,7 +3498,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   restore; all four derived databases were cleaned without errors.
 - Final noneditable packages, constrained images and bounded local concurrency
   evidence remain open. Public contracts and OpenAPI are unchanged. Current implementation
-  and scope are documented in [ADR-0136](../adr/0136-workspace-configuration-command-owner.md).
+  and scope are documented in [ADR-0136](../../adr/0136-workspace-configuration-command-owner.md).
 
 ### Workspace configuration command owner: bounded local qualification closed
 
@@ -3566,7 +3568,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Native query RPCs, independent/borrowed adapters and actual public routing
   integration continue. No independent-query deployment, alternate-language
   provider, production capacity or full-module qualification is claimed at this
-  checkpoint. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).
+  checkpoint. See [ADR-0137](../../adr/0137-workspace-template-query-owner.md).
 
 ### Workspace template query owner: public integration
 
@@ -3628,7 +3630,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Primary source, four shared links and four original running containers remain
   preserved. Four clean modifier worktrees/branches were removed after exact
   integrated-patch proof. No push, release, remote CI or primary/production
-  runtime cutover occurred. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).
+  runtime cutover occurred. See [ADR-0137](../../adr/0137-workspace-template-query-owner.md).
 
 ### Project query foundation and portable Workspace access values
 
@@ -3683,7 +3685,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   search Workspace facts and scoped configuration/transfer/class-rename readback
   evidence, then perform provider/fault/package/image qualification. Current
   shared PostgreSQL and trusted coordinator constraints remain explicit.
-  See [ADR-0138](../adr/0138-workspace-project-read-foundation.md).
+  See [ADR-0138](../../adr/0138-workspace-project-read-foundation.md).
 
 ### Project query owner: selected local qualification closed
 
@@ -3727,7 +3729,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   pipeline persistence, import/registry/promotion writes and other cross-domain
   Project consumers remain. Full Workspace, other modules, provider replacement,
   production capacity and primary cutover are unfinished; Go stays experimental.
-  See [ADR-0139](../adr/0139-workspace-project-query-owner.md).
+  See [ADR-0139](../../adr/0139-workspace-project-query-owner.md).
 
 ### Next Workspace boundary: directory reads
 
@@ -3772,7 +3774,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Directory-specific restricted owner/API images and backup/restore remain next
   gates. No primary cutover, production capacity, full Workspace, other-module
   completion or another-language provider is claimed. Go remains experimental.
-  See [ADR-0140](../adr/0140-workspace-directory-query-owner.md).
+  See [ADR-0140](../../adr/0140-workspace-directory-query-owner.md).
 
 ### Directory owner: selected local qualification closed
 
@@ -3850,7 +3852,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   removed. Current restricted images and container execution remain next gates.
   Complete Workspace, other modules, language replacement, primary
   cutover and production capacity remain open; Go stays experimental.
-  See [ADR-0141](../adr/0141-workspace-project-access-query.md).
+  See [ADR-0141](../../adr/0141-workspace-project-access-query.md).
 
 ### Project access response: selected local qualification closed
 
@@ -4040,7 +4042,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   and transaction ownership; changed operations retain commit-before-projection.
   NoOp rolls back only an independent owner's own transaction.
 - Scope, data shape and remaining gates are in
-  [ADR-0143](../adr/0143-workspace-project-class-rename-owner.md). Native268,
+  [ADR-0143](../../adr/0143-workspace-project-class-rename-owner.md). Native268,
   Configuration/API integration, removal of the old writer, three bindings,
   revocation/lock-duration checks and current artifact/recovery gates remain open.
 - Primitive local validation at head 0267: seven pure binding-policy source cases,
@@ -4146,7 +4148,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   and the class-rename 47-case qualification is closed separately. Next are
   Native/Workspace command integration, actual public callers/removal, three
   bindings, revocation/lock/error-phase parity and command artifact/recovery
-  gates under [ADR-0144](../adr/0144-workspace-guide-assets-owner.md). Full module
+  gates under [ADR-0144](../../adr/0144-workspace-guide-assets-owner.md). Full module
   extraction and the ten-module/seven-gate objective remain active; primary,
   production and Go are unchanged.
 
@@ -4296,7 +4298,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   replaces the earlier mixed pure selection's unavailable-default-database error.
 - Canonical evidence is
   `.worktree/workspace-project-access-facts-qualification.json`; design and exact
-  limitations are in [ADR-0145](../adr/0145-workspace-project-access-facts.md).
+  limitations are in [ADR-0145](../../adr/0145-workspace-project-access-facts.md).
   Existing Guide images remain historical artifacts at their qualification
   commit, rather than current-image evidence after package relocation. The
   independent named-pipeline manager, receipt/status protocol, Native writes,
@@ -8691,3 +8693,10 @@ worker archive, migration roundtrip and preserved primary/shared environment.
 - The coordinator ran four focused PostgreSQL cases against the merged source and verified disposable database, with zero skips. Coverage includes the existing active-learning precedent, no private-table/column SELECT, matching execution identities and actual dispatch with a post-flush commit failure: neither ledger persists and no broker publication occurs.
 - A separate actual `maintain`/`claim` smoke uses the ordinary runtime role. An independent owner connection observes both the committed attempt timestamp and matching Job execution ID at publication; first claim succeeds and duplicate claim is fenced. Broker, object storage, legacy transport and unrelated training-storage maintenance are substituted. This is not real inference, training or cold-Celery qualification.
 - The broader worker suite previously timed out after authority/transport failures outside this slice; it is not claimed passing or rerun to reconfirm known failures. Shared Jobs access and full Learning extraction remain open in the canonical module ledger. Daily services, global compatibility SELECT and GPUs remain unchanged.
+
+### 交接与替代（2026-11-23）
+
+- 本计划由 `docs/plans/1795366269_platform-pluginization.md` 替代，架构决定为 [ADR-0186](../../adr/0186-modular-monolith-and-on-demand-extraction.md)（拟议）。维护者确认：保留语言无关契约与单一 owner 边界；取消“每个模块默认独立构建、部署”的目标，已拆出且没有资源、安全或扩缩理由的服务合并回默认部署；暂缓语言替换。
+- 阶段 A、B、C 继承为约束；阶段 D 媒体探测保留为按需拆出与语言替换的样板；阶段 E 中 Assets、Learning、Insights 的 owner 收口转入新计划 M4c，逐模块独立运行转入 M2 合并，语言替换暂缓。完整去向见新计划 §5.1。
+- 通用旧库退役入口、生产容量、其他网络拓扑与替代语言提供方不在新计划范围，按上线或升级门槛单独处理。
+- 本文的历史证据和限定资格保持原范围，不因替代而扩大或撤销。实时状态仍以 `docs-site/dev/concepts/module-deployment.md` 的剩余工作台账为准。
