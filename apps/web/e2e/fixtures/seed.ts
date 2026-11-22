@@ -313,6 +313,7 @@ export interface SeedTaskAnnotation {
 }
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
+const OWNED_SETUP_TIMEOUT = 60_000;
 
 function namespaceForKey(key: string): string {
   const runId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
@@ -498,7 +499,7 @@ export class SeedAPI {
     }
     const res = await this.postOwnedSeed("owned", token, {
       data: { image_canvas: options?.imageCanvas ?? "default" },
-      timeout: 60_000,
+      timeout: OWNED_SETUP_TIMEOUT,
     });
     this.workbenchBuilt.add(token);
     const data = (await res.json()) as SeedData;
@@ -1035,6 +1036,7 @@ export class SeedAPI {
 
 type Fixtures = {
   seed: SeedAPI;
+  owned: SeedData;
 };
 
 export const test = base.extend<Fixtures, { fixtureOwner: void }>({
@@ -1082,6 +1084,12 @@ export const test = base.extend<Fixtures, { fixtureOwner: void }>({
     },
     // Allow the existing 60-second operation budgets for preparation and cleanup.
     { timeout: 120_000 },
+  ],
+  owned: [
+    async ({ seed }, use) => {
+      await use(await seed.owned());
+    },
+    { timeout: OWNED_SETUP_TIMEOUT },
   ],
 });
 
