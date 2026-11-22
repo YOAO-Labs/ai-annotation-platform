@@ -1,11 +1,10 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import { expect, test, type SeedAPI } from "../fixtures/seed";
+import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 type Prediction = { id: string; result: { class_name: string; shape_index: number }[] };
 
-async function seedCandidates(request: APIRequestContext, seed: SeedAPI) {
-  const data = await seed.owned();
+async function seedCandidates(request: APIRequestContext, seed: SeedAPI, data: SeedData) {
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   const token = await seed.accessToken(data.admin_email);
   const headers = { Authorization: `Bearer ${token}` };
@@ -93,8 +92,9 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   page,
   request,
   seed,
+  owned,
 }) => {
-  const data = await seedCandidates(request, seed);
+  const data = await seedCandidates(request, seed, owned);
   await openCandidates(page, seed, data);
   const [first, second, otherFrame] = data.candidates;
   const firstRow = page.getByTestId(`box-list-item-${first.id}`);
@@ -140,13 +140,12 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   expect((await rejected).status()).toBe(204);
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible();
+  const stage = page.getByTestId("video-konva-stage");
+  await expect(stage).toBeVisible();
+  await expect(stage).toHaveAttribute("data-video-frame-index", "0");
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(0);
   for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowRight");
-  await expect(page.getByTestId("video-konva-stage")).toHaveAttribute(
-    "data-video-frame-index",
-    "10",
-  );
+  await expect(stage).toHaveAttribute("data-video-frame-index", "10");
   const otherRow = page.getByTestId(`box-list-item-${otherFrame.id}`);
   await otherRow.click();
   const unmapped = page.waitForResponse(
@@ -189,8 +188,9 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   page,
   request,
   seed,
+  owned,
 }) => {
-  const data = await seedCandidates(request, seed);
+  const data = await seedCandidates(request, seed, owned);
   const [candidate] = data.candidates;
   const { task_id: targetId } = await seed.videoTask(data.project_id);
   await seed.advanceTask({
