@@ -52,7 +52,8 @@ _PERSONAS = {
     "anno2": ("刘洋", "employee", "标注组A"),
     "anno3": ("陈思远", "employee", "标注组B"),
 }
-_PROJECTS = ("P-COCO8", "P-VIDEO-DEV", "P-PC-DEV", "P-PC-MULTI", "P-OCR")
+_DEMO_PROJECTS = ("P-COCO8", "P-VIDEO-DEV", "P-PC-DEV")
+_PROJECTS = (*_DEMO_PROJECTS, "P-PC-MULTI", "P-OCR")
 _MEMBERS = {
     "anno": "annotator",
     "anno2": "annotator",
@@ -664,7 +665,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
                 )
 
         viewer_id = uuid.UUID(account_ids["viewer"])
-        first_project_id = project_ids[_PROJECTS[0]]
+        first_project_id = project_ids[_DEMO_PROJECTS[0]]
         late_names = await _install_member_trigger(
             test_engine,
             user_id=viewer_id,
@@ -757,15 +758,14 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
         record_property("seed_parent_membership_recovery", recovered_run.evidence)
         assert recovered_run.exit_code == 0, recovered_run.stderr
         recovered = _probe_result(recovered_run)
-        assert recovered["changed"] == 25
         assert recovered["commit_attempts"] == 1
         rows = await _membership_rows(test_engine)
         expected_pairs = {
             (display_id, email, role)
-            for display_id in _PROJECTS
+            for display_id in _DEMO_PROJECTS
             for email, role in _MEMBERS.items()
         }
-        assert len(rows) == 25
+        assert recovered["changed"] == len(rows) == len(expected_pairs)
         assert {
             (row["display_id"], row["email"], row["role"]) for row in rows
         } == expected_pairs
@@ -860,7 +860,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
         qa_row = next(
             row
             for row in rows
-            if row["display_id"] == _PROJECTS[0] and row["email"] == "qa"
+            if row["display_id"] == _DEMO_PROJECTS[0] and row["email"] == "qa"
         )
         async with test_engine.begin() as db:
             await db.execute(
@@ -920,7 +920,9 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
         final = _probe_result(final_run)
         assert final["changed"] == 0
         assert final["commit_attempts"] == 0
-        assert len(await _membership_rows(test_engine)) == 25
+        assert [row["id"] for row in await _membership_rows(test_engine)] == [
+            row["id"] for row in rows
+        ]
         assert _bucket_versions(owner_s3, bucket) == bucket_before
         record_property(
             "seed_parent_dataset_bucket_unchanged",

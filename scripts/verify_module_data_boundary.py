@@ -12067,6 +12067,7 @@ SELECT id FROM removed;
             or "tests/test_identity_e2e_live.py" in selected_test_paths
             or "tests/test_scale_seed_workspace_native.py" in selected_test_paths
             or "tests/test_identity_seed_selection_live.py" in selected_test_paths
+            or "tests/test_media_seed_identity_live.py" in selected_test_paths
             or "tests/test_media_seed_workspace_native.py" in selected_test_paths
             or "tests/test_media_seed_workspace_live.py" in selected_test_paths
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
