@@ -546,10 +546,14 @@ export function useVideoPlaybackController({
   }, [cancelPresentation, sourceEpoch]);
 
   useEffect(() => {
-    const request = pendingPresentationRef.current;
-    if (!request) return;
+    const request = presentationRequest;
+    if (!request || pendingPresentationRef.current !== request) return;
     if (isPlaybackActive || request.frameIndex !== frameIndex) {
-      cancelPresentation();
+      settlePresentation(request, {
+        status: "cancelled",
+        frameIndex: request.frameIndex,
+        source: null,
+      });
     } else if (
       !stageModeGuard.canSetupFrame ||
       (videoRef.current?.error &&
@@ -563,12 +567,12 @@ export function useVideoPlaybackController({
       });
     }
   }, [
-    cancelPresentation,
     displayBitmap,
     frameIndex,
     isPlaybackActive,
     playbackError,
     precise.sourceState,
+    presentationRequest,
     settlePresentation,
     stageModeGuard.canSetupFrame,
     videoRef,
