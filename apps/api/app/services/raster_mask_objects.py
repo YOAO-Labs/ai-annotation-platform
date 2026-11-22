@@ -135,6 +135,11 @@ async def _owners(db, identifiers, *, read=False):
     return result
 
 
+async def _lock_ready_write(db, identifier):
+    """Upgrade an exact, validated SHARE lock within the owner session's timeout."""
+    await db.scalar(select(Object.id).where(Object.id == identifier).with_for_update())
+
+
 async def _gate(db, receipt, revision=None):
     return await storage_access.check(
         db, _location(receipt), expected_revision=revision, lock=True
@@ -270,7 +275,7 @@ async def _initial(db, facts, guarded):
         row = await session.scalar(
             select(Object)
             .where(Object.logical_key == facts["logical_key"], Object.state == "ready")
-            .with_for_update(nowait=True)
+            .with_for_update(read=True, nowait=True)
         )
         candidate = row is None
         if candidate:
@@ -279,6 +284,8 @@ async def _initial(db, facts, guarded):
         else:
             _matching_facts(row, facts)
         receipt = physical.snapshot(row)
+        if guarded and not candidate:
+            await _lock_ready_write(session, receipt.id)
         if candidate:
             revision, read_route = await _gate(session, receipt), None
         else:
@@ -359,8 +366,9 @@ async def _io(
 async def _touch(db, receipt, revision, guard=None, *, read_route=None):
     async with _session(db) as session:
         await _publish_lock(session, receipt.logical_key)
-        row = (await _owners(session, [receipt.id])).get(receipt.id)
+        row = (await _owners(session, [receipt.id], read=True)).get(receipt.id)
         _current(row, receipt, "ready")
+        await _lock_ready_write(session, receipt.id)
         await _read_gate(session, receipt, revision, read_route)
         await _require_guard(session, guard)
         row.last_used_at = max(now(), row.last_used_at or row.published_at)
