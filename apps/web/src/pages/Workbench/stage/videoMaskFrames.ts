@@ -3,6 +3,7 @@ import type { AnnotationResponse, CocoRleMaskRef } from "@/types";
 import type { VideoTrackerPreviewResult } from "@/api/videoTracker";
 import { rasterMasksApi } from "@/api/rasterMasks";
 import { videoTrackerApi } from "@/api/videoTracker";
+import { useAuthStore } from "@/stores/authStore";
 import type { AiBox } from "../state/transforms";
 import { decodeCocoRle, type CocoRle } from "./shared/geometry/maskRle";
 import {
@@ -120,6 +121,7 @@ export function useVideoMaskFrames(params: {
     colorForAnnotation,
     colorForPrediction,
   } = params;
+  const authSessionId = useAuthStore((state) => state.sessionId);
   const cacheRef = useRef(new Map<string, CachedMask>());
   const retiredImagesRef = useRef(new Set<CanvasImageSource>());
   const generationRef = useRef(0);
@@ -180,7 +182,8 @@ export function useVideoMaskFrames(params: {
           isTrack: true,
           cachePrefix: `annotation:${annotation.id}:version:${annotation.version ?? 0}`,
           frameKey: resolved.keyframeFrame,
-          load: () => rasterMasksApi.annotationVideoMaskContent(annotation.id, frameIndex),
+          load: () =>
+            rasterMasksApi.annotationVideoMaskContent(annotation, frameIndex, resolved.mask),
         },
       ];
     });
@@ -251,11 +254,15 @@ export function useVideoMaskFrames(params: {
     for (const cached of cacheRef.current.values()) retireImage(cached.image);
     cacheRef.current.clear();
     setRecords((current) => (current.length > 0 ? [] : current));
-  }, [retireImage, taskId]);
+  }, [authSessionId, retireImage, taskId]);
 
   useEffect(() => {
     const generation = ++generationRef.current;
     let cancelled = false;
+    const ownsRead = () =>
+      !cancelled &&
+      generation === generationRef.current &&
+      useAuthStore.getState().sessionId === authSessionId;
     if (descriptors.length === 0) {
       setRecords((current) => (current.length > 0 ? [] : current));
       return () => {
@@ -292,6 +299,7 @@ export function useVideoMaskFrames(params: {
           let cached = cacheRef.current.get(key);
           if (!cached) {
             const rle = await descriptor.load();
+            if (!ownsRead()) return null;
             if (rle.size[0] !== descriptor.ref.size[0] || rle.size[1] !== descriptor.ref.size[1]) {
               throw new Error("mask content size does not match its reference");
             }
@@ -299,7 +307,7 @@ export function useVideoMaskFrames(params: {
             const [height, width] = rle.size;
             const geom = maskAlphaBounds(alpha, width, height);
             const image = await createMaskImage(alpha, width, height, descriptor.color, geom);
-            if (cancelled || generation !== generationRef.current) {
+            if (!ownsRead()) {
               closeImage(image);
               return null;
             }
@@ -325,7 +333,7 @@ export function useVideoMaskFrames(params: {
           } satisfies VideoMaskRenderRecord;
         }),
       );
-      if (cancelled || generation !== generationRef.current) return;
+      if (!ownsRead()) return;
       while (cacheRef.current.size > MAX_CACHED_MASKS) {
         const evictKey = [...cacheRef.current.keys()].find((key) => !activeKeys.has(key));
         if (!evictKey) break;
@@ -337,14 +345,14 @@ export function useVideoMaskFrames(params: {
     };
 
     void resolveRecords().catch(() => {
-      if (!cancelled && generation === generationRef.current) {
+      if (ownsRead()) {
         setRecords((current) => (current.length > 0 ? [] : current));
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [descriptors, retireImage]);
+  }, [authSessionId, descriptors, retireImage]);
 
   useEffect(
     () => () => {

@@ -615,7 +615,7 @@ describe("VideoKonvaStage · konva mock", () => {
       expect(bar.getByTestId("video-track-context-state")).toHaveAttribute("data-state", "held");
       fireEvent.click(bar.getByRole("button", { name: "标记 outside" }));
       expect(toggleCurrentOutside).toHaveBeenCalledWith(held);
-      expect(load).toHaveBeenCalledWith(held.id, 5);
+      expect(load).toHaveBeenCalledWith(held, 5, keyframes[0].mask);
       toggleCurrentOutside.mockClear();
       load.mockClear();
       view.rerender(<VideoKonvaStage {...props} />);
@@ -661,7 +661,7 @@ describe("VideoKonvaStage · konva mock", () => {
       expect(bar.getByTestId("video-track-context-state")).toHaveAttribute("data-state", "held");
       expect(bar.getByTestId("video-track-context-source")).toHaveTextContent("保持自 F0");
       expect(load).toHaveBeenCalledTimes(1);
-      expect(load).toHaveBeenCalledWith(outside.id, 5);
+      expect(load).toHaveBeenCalledWith(restored, 5, keyframes[0].mask);
     } finally {
       load.mockRestore();
     }

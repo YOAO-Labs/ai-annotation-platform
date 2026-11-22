@@ -55,6 +55,7 @@ async function request<T>(
     silent?: boolean;
     responseType?: "blob";
     session?: AuthSessionOwner;
+    expectedEtag?: string;
   },
 ): Promise<T> {
   const token = opts?.session
@@ -99,6 +100,8 @@ async function request<T>(
         current.logout();
     } else if (!opts?.anonymous && !opts?.silent && (res.status === 403 || res.status >= 500)) {
       const { useToastStore } = await import("../components/ui/Toast");
+      if (opts?.session && authSessionToken(opts.session) !== token)
+        throw new DOMException("登录会话已变更", "AbortError");
       if (res.status === 403) {
         useToastStore.getState().push({
           msg: detail || "没有权限执行该操作",
@@ -125,12 +128,21 @@ async function request<T>(
     );
   }
 
+  if (opts?.expectedEtag && res.headers.get("ETag") !== opts.expectedEtag) {
+    throw new ApiError(409, "请求内容已变化，请刷新后重试");
+  }
   if (res.status === 204) return undefined as T;
   return opts?.responseType === "blob" ? (res.blob() as Promise<T>) : res.json();
 }
 
 export const apiClient = {
   get: <T>(path: string, init?: RequestInit) => request<T>(path, init),
+  getForSession: <T>(
+    path: string,
+    init: RequestInit,
+    session: AuthSessionOwner,
+    expectedEtag: string,
+  ) => request<T>(path, init, { session, expectedEtag }),
   getBlob: (path: string, init?: RequestInit) =>
     request<Blob>(path, init, { responseType: "blob" }),
   silentGetBlob: (path: string, init?: RequestInit) =>

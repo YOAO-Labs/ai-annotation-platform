@@ -264,7 +264,8 @@ describe("useVideoMaskFrames", () => {
         type === "video_mask"
           ? apiMocks.annotationRasterMaskContent
           : apiMocks.annotationVideoMaskContent;
-      load.mockImplementation(async (id: string) => {
+      load.mockImplementation(async (input: string | AnnotationResponse) => {
+        const id = typeof input === "string" ? input : input.id;
         if (id === temporaryId) throw new Error("annotation_id must be a UUID");
         return { encoding: "coco_rle", size: [2, 3], counts: [1, 2, 3] };
       });
@@ -287,7 +288,9 @@ describe("useVideoMaskFrames", () => {
       await act(async () => {
         rerender({ ...initial, annotations: [persisted, optimistic], selectedId: temporaryId });
       });
-      expect(load.mock.calls.map(([id]) => id)).not.toContain(temporaryId);
+      expect(
+        load.mock.calls.map(([input]) => (typeof input === "string" ? input : input.id)),
+      ).not.toContain(temporaryId);
       expect(result.current.map((record) => record.id)).toEqual([persisted.id]);
       expect(result.current[0].image).toBe(existingImage);
 
@@ -297,7 +300,7 @@ describe("useVideoMaskFrames", () => {
         expect(result.current.map((record) => record.id)).toEqual([persisted.id, saved.id]),
       );
       expect(load).toHaveBeenCalledWith(
-        ...(type === "video_mask" ? [saved.id] : [saved.id, frameIndex]),
+        ...(type === "video_mask" ? [saved.id] : [saved, frameIndex, mask]),
       );
       expect(result.current[1]).toMatchObject({
         id: saved.id,
