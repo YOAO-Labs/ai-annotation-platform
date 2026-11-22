@@ -5206,7 +5206,7 @@ def _create_mask_content_storage_scope(scope: dict, *, cleanup: bool) -> None:
     )
 
 
-def _create_audit_archive_storage_scope(scope: dict, *, read_only: bool) -> None:
+def _create_audit_archive_storage_scope(scope: dict, *object_actions: str) -> None:
     bucket = f"arn:aws:s3:::{scope['bucket']}"
     policy = {
         "Version": "2012-10-17",
@@ -5214,7 +5214,7 @@ def _create_audit_archive_storage_scope(scope: dict, *, read_only: bool) -> None
             {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [bucket]},
             {
                 "Effect": "Allow",
-                "Action": ["s3:GetObject" if read_only else "s3:PutObject"],
+                "Action": list(object_actions),
                 "Resource": [f"{bucket}/*"],
             },
         ],
@@ -6063,7 +6063,9 @@ def _verify_audit_maintenance_boundary(
     maintenance_password: str,
     maintenance_url: str,
 ) -> dict:
-    for month in ("1999-03-01", "2098-04-01"):
+    current_month = datetime.now(timezone.utc).date().replace(day=1)
+    current_partition = f"audit_logs_y{current_month:%Y}m{current_month:%m}"
+    for month in (current_month.isoformat(), "2098-04-01"):
         request = json.dumps(
             {
                 "schema": "aap-audit-maintenance/v1",
@@ -6145,7 +6147,7 @@ def _verify_audit_maintenance_boundary(
                 "FROM pg_catalog.pg_class AS parent, pg_catalog.pg_class AS current_partition, "
                 "pg_catalog.pg_class AS future_partition, pg_catalog.pg_class AS sequence "
                 "WHERE parent.oid='public.audit_logs'::pg_catalog.regclass "
-                "AND current_partition.oid='public.audit_logs_y1999m03'::pg_catalog.regclass "
+                f"AND current_partition.oid='public.{current_partition}'::pg_catalog.regclass "
                 "AND future_partition.oid='public.audit_logs_y2098m04'::pg_catalog.regclass "
                 "AND sequence.oid=pg_catalog.pg_get_serial_sequence("
                 "'public.audit_logs','id')::pg_catalog.regclass;"
@@ -6173,7 +6175,7 @@ def _verify_audit_maintenance_boundary(
     direct_statements = (
         "INSERT INTO {relation} (id, action, created_at) "
         "SELECT 9223372036854775806, 'probe.audit.denied', "
-        "TIMESTAMPTZ '1999-03-03 00:00:00+00' WHERE false",
+        f"TIMESTAMPTZ '{current_month.isoformat()} 00:00:00+00' WHERE false",
         "UPDATE {relation} SET action=action WHERE false",
         "DELETE FROM {relation} WHERE false",
     )
@@ -6183,7 +6185,7 @@ def _verify_audit_maintenance_boundary(
     ):
         for relation in (
             "public.audit_logs",
-            "public.audit_logs_y1999m03",
+            f"public.{current_partition}",
             "public.audit_logs_y2098m04",
         ):
             for statement in direct_statements:
@@ -6224,7 +6226,7 @@ def _verify_audit_maintenance_boundary(
         "sequence_and_ddl_denied": True,
         "owner_and_future_acl_verified": True,
         "runtime_audit_parent_select_preserved": True,
-        "probe_partitions": ["audit_logs_y1999m03", "audit_logs_y2098m04"],
+        "probe_partitions": [current_partition, "audit_logs_y2098m04"],
         "ownership": ownership,
     }
 
@@ -7518,6 +7520,7 @@ def main(
             "api_bootstrap_storage_identity_removed": None,
             "audit_archive_writer_storage_identity_removed": None,
             "audit_archive_reader_storage_identity_removed": None,
+            "audit_archive_platform_storage_identity_removed": None,
             "mask_content_storage_identity_removed": None,
             "mask_cleanup_storage_identity_removed": None,
             "local_resources_destroyed": False,
@@ -7554,6 +7557,7 @@ def main(
     api_bootstrap_storage = None
     audit_archive_writer_storage = None
     audit_archive_reader_storage = None
+    audit_archive_platform_storage = None
     mask_content_storage = None
     mask_cleanup_storage = None
     resource_root = Path(
@@ -12639,13 +12643,15 @@ SELECT pg_catalog.jsonb_build_object(
                 cleanup_storage,
             )
 
-        if (
+        audit_cli_live = (
             "tests/test_audit_maintenance_module_live.py" in selected_test_paths
             and os.environ.get("AAP_AUDIT_MAINTENANCE_MODULE_ACCEPTANCE") == "1"
-        ) or (
+        )
+        audit_worker_live = (
             "tests/test_audit_maintenance_consumers_cold.py" in selected_test_paths
             and os.environ.get("AAP_AUDIT_MAINTENANCE_CONSUMER_ACCEPTANCE") == "1"
-        ):
+        )
+        if audit_cli_live or audit_worker_live:
             bucket = resources["buckets"]["MINIO_AUDIT_ARCHIVE_BUCKET"]
             tags = backend.s3.get_bucket_tagging(Bucket=bucket)["TagSet"]
             if not any(
@@ -12659,18 +12665,28 @@ SELECT pg_catalog.jsonb_build_object(
                 bucket=bucket, policy="aap-audit-archive-writer-" + secrets.token_hex(8)
             )
             _create_audit_archive_storage_scope(
-                audit_archive_writer_storage, read_only=False
+                audit_archive_writer_storage, "s3:PutObject"
             )
             audit_archive_reader_storage = _cleanup_storage_scope(backend)
             audit_archive_reader_storage.update(
                 bucket=bucket, policy="aap-audit-archive-reader-" + secrets.token_hex(8)
             )
             _create_audit_archive_storage_scope(
-                audit_archive_reader_storage, read_only=True
+                audit_archive_reader_storage, "s3:GetObject"
             )
+            if audit_worker_live:
+                audit_archive_platform_storage = _cleanup_storage_scope(backend)
+                audit_archive_platform_storage.update(
+                    bucket=bucket,
+                    policy="aap-audit-archive-platform-" + secrets.token_hex(8),
+                )
+                _create_audit_archive_storage_scope(
+                    audit_archive_platform_storage, "s3:PutObject", "s3:GetObject"
+                )
             evidence["audit_archive_storage"] = {
                 "bucket": bucket,
                 "separate_writer_and_reader_provisioned": True,
+                "platform_readback_provisioned": audit_worker_live,
             }
         if selected_test_paths & {
             "tests/test_labeling_video_writer_live.py",
@@ -12987,6 +13003,7 @@ SELECT pg_catalog.jsonb_build_object(
         for label, scope in (
             ("WRITE", audit_archive_writer_storage),
             ("READ", audit_archive_reader_storage),
+            ("PLATFORM", audit_archive_platform_storage),
         ):
             if scope is not None:
                 resource_environment.update(
@@ -13491,6 +13508,7 @@ SELECT EXISTS (
         for label, scope in (
             ("audit_archive_writer", audit_archive_writer_storage),
             ("audit_archive_reader", audit_archive_reader_storage),
+            ("audit_archive_platform", audit_archive_platform_storage),
             ("mask_content", mask_content_storage),
             ("mask_cleanup", mask_cleanup_storage),
             ("api_bootstrap", api_bootstrap_storage),
