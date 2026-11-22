@@ -1,7 +1,8 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
-import type { APIRequestContext, APIResponse } from "@playwright/test";
+import type { APIRequestContext, APIResponse, Response } from "@playwright/test";
 
 import { expect, test, type SeedNativeMaskCandidateData } from "../fixtures/seed";
+import { waitForApiWrite } from "../helpers/api-response";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
@@ -44,7 +45,7 @@ async function listAnnotations(
 }
 
 function isKeyframeResponse(
-  response: APIResponse,
+  response: Response,
   taskId: string,
   annotationId: string,
   frameIndex: number,
@@ -59,7 +60,7 @@ function isKeyframeResponse(
   );
 }
 
-function isMutationResponse(response: APIResponse, taskId: string) {
+function isMutationResponse(response: Response, taskId: string) {
   return (
     response.url().endsWith(`/api/v1/tasks/${taskId}/annotations/mask-mutations:commit`) &&
     response.request().method() === "POST"
@@ -145,11 +146,27 @@ test("视频 Mask 关键帧复制、outside、删除撤销与组件拆轨保持�
   const toolbar = page.getByTestId("mask-toolbar");
   await expect(toolbar).toContainText("未保存", { timeout: 15_000 });
   expect(keyframeWrites).toBe(0);
-  const materialized = page.waitForResponse((response) =>
-    isKeyframeResponse(response, taskId, source.id, 1, "PUT"),
-  );
-  await toolbar.getByTestId("mask-primary-action").click();
-  expect((await materialized).status()).toBe(200);
+  const materialized = page
+    .waitForResponse(
+      (response) =>
+        isKeyframeResponse(response, taskId, source.id, 1, "PUT") ||
+        (response.request().method() === "POST" &&
+          response.url().endsWith(`/api/v1/tasks/${taskId}/mask-content`)),
+    )
+    .then((firstWrite) =>
+      firstWrite.request().method() === "POST" && firstWrite.ok()
+        ? waitForApiWrite(
+            page,
+            "PUT",
+            `/tasks/${taskId}/video/tracks/${source.id}/mask-keyframes/1`,
+          )
+        : firstWrite,
+    );
+  const [materializeResponse] = await Promise.all([
+    materialized,
+    toolbar.getByTestId("mask-primary-action").click(),
+  ]);
+  expect(materializeResponse.status(), await materializeResponse.text()).toBe(200);
   await expect(page.getByTestId("mask-tool-capsule")).toHaveCount(0, { timeout: 10_000 });
 
   const copiedAtOne = page.waitForResponse((response) =>
