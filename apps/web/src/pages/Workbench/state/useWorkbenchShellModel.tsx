@@ -3468,6 +3468,7 @@ export function useWorkbenchShellModel({
   const maskGeneration = maskEditor.generation;
   const maskAcceptedSessionId = maskEditor.acceptedSessionId;
   const maskRequestedSessionId = maskEditor.sessionId;
+  const videoMaskAuthSessionId = useAuthStore((state) => (isVideoTask ? state.sessionId : null));
   useEffect(() => {
     if (maskInstanceTransitionInFlightRef.current || maskInstanceTransitionBusy) return;
     if (maskAcceptedSessionId !== maskRequestedSessionId) return;
@@ -3512,18 +3513,27 @@ export function useWorkbenchShellModel({
       return;
     }
     const gen = maskGeneration;
-    const loadMask =
-      selectedVideoMaskForTool.geometry.type === "video_mask"
-        ? rasterMasksApi.annotationRasterMaskContent(selectedVideoMaskForTool.id)
-        : rasterMasksApi.annotationVideoMaskContent(selectedVideoMaskForTool.id, s.videoFrameIndex);
+    let current = true;
+    const ownsLoad = () => current && useAuthStore.getState().sessionId === videoMaskAuthSessionId;
+    const loadMask = heldMaskFrame
+      ? rasterMasksApi.annotationVideoMaskContent(
+          selectedVideoMaskForTool,
+          s.videoFrameIndex,
+          heldMaskFrame.mask,
+        )
+      : rasterMasksApi.annotationRasterMaskContent(selectedVideoMaskForTool.id);
     void loadMask
       .then((rle) => {
-        maskLoadRle(gen, rle);
+        if (ownsLoad()) maskLoadRle(gen, rle);
       })
       .catch((error: unknown) => {
+        if (!ownsLoad()) return;
         maskFailLoad(gen, error);
         pushToast({ msg: "Mask 内容加载失败", sub: String(error), kind: "error" });
       });
+    return () => {
+      current = false;
+    };
   }, [
     heldMaskFrame,
     isVideoTask,
@@ -3549,6 +3559,7 @@ export function useWorkbenchShellModel({
     selectedImageRasterMaskFingerprint,
     selectedVideoMaskForTool,
     selectedVideoMaskFingerprint,
+    videoMaskAuthSessionId,
   ]);
 
   const editingImageRasterMaskId =

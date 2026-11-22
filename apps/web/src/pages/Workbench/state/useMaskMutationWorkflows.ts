@@ -165,10 +165,15 @@ export function useMaskMutationWorkflows({
         return rasterMasksApi.annotationRasterMaskContent(annotation.id);
       }
       if (annotation.geometry.type === "video_track_mask") {
-        if (!resolveVideoMaskTrackAtFrame(annotation.geometry, s.videoFrameIndex)) {
+        const resolved = resolveVideoMaskTrackAtFrame(annotation.geometry, s.videoFrameIndex);
+        if (!resolved) {
           return Promise.reject(new Error("当前帧没有可加载的 Mask"));
         }
-        return rasterMasksApi.annotationVideoMaskContent(annotation.id, s.videoFrameIndex);
+        return rasterMasksApi.annotationVideoMaskContent(
+          annotation,
+          s.videoFrameIndex,
+          resolved.mask,
+        );
       }
       return Promise.reject(new Error("对象不是原生 Mask"));
     },
@@ -512,11 +517,13 @@ export function useMaskMutationWorkflows({
       const token = {};
       videoMaskCopyTokenRef.current = token;
       setVideoMaskCopying(true);
+      const ownsCopy = () =>
+        videoMaskCopyTokenRef.current === token && currentTaskIdRef.current === taskId;
       const sourceVersion = Number(annotation.version);
       void rasterMasksApi
-        .annotationVideoMaskContent(annotation.id, s.videoFrameIndex)
+        .annotationVideoMaskContent(annotation, s.videoFrameIndex, resolved.mask)
         .then((rle) => {
-          if (videoMaskCopyTokenRef.current !== token) return;
+          if (!ownsCopy()) return;
           const source = annotationsRef.current.find((item) => item.id === annotation.id);
           const current =
             source?.geometry.type === "video_track_mask"
@@ -525,7 +532,8 @@ export function useMaskMutationWorkflows({
           if (
             !source ||
             Number(source.version) !== sourceVersion ||
-            current?.mask.sha256 !== resolved.mask.sha256
+            current?.mask.sha256 !== resolved.mask.sha256 ||
+            current?.mask.object_key !== resolved.mask.object_key
           ) {
             pushToast({ msg: "复制来源已更新", sub: "请重新复制当前帧", kind: "warning" });
             return;
@@ -547,14 +555,14 @@ export function useMaskMutationWorkflows({
           });
         })
         .catch((error: unknown) => {
-          if (videoMaskCopyTokenRef.current !== token) return;
+          if (!ownsCopy() || (error instanceof DOMException && error.name === "AbortError")) return;
           pushToast({ msg: "复制 Mask 失败", sub: String(error), kind: "error" });
         })
         .finally(() => {
           if (videoMaskCopyTokenRef.current === token) setVideoMaskCopying(false);
         });
     },
-    [annotationsRef, pushToast, s.videoFrameIndex, taskId],
+    [annotationsRef, currentTaskIdRef, pushToast, s.videoFrameIndex, taskId],
   );
 
   const validateMaskPaste = useCallback(
