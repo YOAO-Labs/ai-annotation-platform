@@ -136,7 +136,6 @@ async def _owners(db, identifiers, *, read=False):
 
 
 async def _lock_ready_write(db, identifier):
-    """Upgrade an exact, validated SHARE lock within the owner session's timeout."""
     await db.scalar(select(Object.id).where(Object.id == identifier).with_for_update())
 
 
