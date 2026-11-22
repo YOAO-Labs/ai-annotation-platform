@@ -768,10 +768,21 @@ def _e2e_child_status(child, descriptor=None):
     return _waitid_exit_code(result)
 
 
+def _matches_supervisor_exit_receipt(descriptor, result):
+    if descriptor is None or result < 0:
+        return False
+    try:
+        return os.read(descriptor, 4) == str(result).encode() and not os.read(
+            descriptor, 1
+        )
+    except BlockingIOError:
+        return False
+
+
 def finish_e2e_direct_children(
-    children, record, record_path, *, orderly, request_stop, deadline
+    children, record, record_path, *, command_exit, request_stop, deadline
 ):
-    """Record exact direct-child exits; only requested, zero-exit workers settle."""
+    """Require an acknowledged supervisor exit and requested, zero-exit workers."""
     entries = {item["pid"]: item for item in record["children"]}
     requested = set()
     failures = []
@@ -831,10 +842,16 @@ def finish_e2e_direct_children(
                 entry["exit_observed"] = True
                 role = entry["role"]
                 if role == "supervisor":
-                    if result != 0:
+                    acknowledged = result == command_exit and child.pid not in requested
+                    entry["command_exit_acknowledged"] = acknowledged
+                    if not acknowledged:
                         failures.append(f"{role}:{result}")
                 elif role in {"worker", "maintenance_worker"}:
-                    if not orderly or child.pid not in requested or result != 0:
+                    if (
+                        command_exit is None
+                        or child.pid not in requested
+                        or result != 0
+                    ):
                         failures.append(f"{role}:{result}")
                 else:
                     failures.append(f"unexpected_role:{role}")
@@ -861,6 +878,8 @@ def run_processes(
     inference = None
     selected_inference = fixture_inference
     exit_code = None
+    supervisor_receipt_fd = None
+    supervisor_receipt_writer = None
     boundary_proven = False
     canonical_e2e = resources["mode"] == "e2e" and options.command in {
         "exec",
@@ -998,7 +1017,13 @@ def run_processes(
             environment["DEBUG"] = "false"
 
         def launch(
-            command, label, cwd, *, child_environment=None, private_environment=None
+            command,
+            label,
+            cwd,
+            *,
+            child_environment=None,
+            private_environment=None,
+            pass_fds=(),
         ):
             if canonical_e2e:
                 record["phase"] = "admitting"
@@ -1009,6 +1034,7 @@ def run_processes(
                 env=environment if child_environment is None else child_environment,
                 stdin=subprocess.PIPE if private_environment is not None else None,
                 start_new_session=True,
+                pass_fds=pass_fds,
             )
             children.append(child)
             # A signal can arrive while Popen is returning, before registration.
@@ -1184,7 +1210,10 @@ def run_processes(
         module = (root / "scripts/dev-worktree.mjs").as_uri()
         ports = {"apiPort": options.api_port, "webPort": options.web_port}
         if canonical_e2e:
-            ports["cooperativeE2e"] = True
+            supervisor_receipt_fd, supervisor_receipt_writer = os.pipe2(
+                os.O_CLOEXEC | os.O_NONBLOCK
+            )
+            ports.update(cooperativeE2e=True, exitReceiptFd=supervisor_receipt_writer)
         if options.command in {"exec", "recover-inference"}:
             expression = f"import {{runIsolatedCommand}} from {json.dumps(module)}; process.exitCode = await runIsolatedCommand({json.dumps(options.execute)}, {json.dumps(ports)});"
             supervisor_environment = environment
@@ -1208,6 +1237,11 @@ def run_processes(
             root,
             child_environment=supervisor_environment,
             private_environment=private_environment,
+            pass_fds=(
+                ()
+                if supervisor_receipt_writer is None
+                else (supervisor_receipt_writer,)
+            ),
         )
         while child_status(supervisor) is None and not stopping:
             if (
@@ -1233,19 +1267,32 @@ def run_processes(
     finally:
         original = sys.exception()
         cleanup_error = None
+        command_exit = None
         try:
+            if supervisor_receipt_writer is not None:
+                os.close(supervisor_receipt_writer)
             if original is not None and record.get("phase") == "prelaunch" and previous:
                 record["prelaunch_failures"].append(type(original).__name__)
                 atomic_json(record_path, record)
-            if canonical_e2e and (original is not None or exit_code not in (None, 0)):
-                retain_consumers("command_failed")
+            if canonical_e2e:
+                if (
+                    original is None
+                    and not stopping
+                    and exit_code is not None
+                    and _matches_supervisor_exit_receipt(
+                        supervisor_receipt_fd, exit_code
+                    )
+                ):
+                    command_exit = exit_code
+                else:
+                    retain_consumers("command_failed")
             deadline = time.monotonic() + 12
             if canonical_e2e:
                 finish_e2e_direct_children(
                     children,
                     record,
                     record_path,
-                    orderly=original is None and exit_code == 0 and not stopping,
+                    command_exit=command_exit,
                     request_stop=not stopping,
                     deadline=deadline,
                 )
@@ -1258,7 +1305,7 @@ def run_processes(
                     except subprocess.TimeoutExpired:
                         os.killpg(child.pid, signal.SIGKILL)
                         child.wait(timeout=5)
-            if canonical_e2e and original is None and exit_code == 0 and not stopping:
+            if canonical_e2e and command_exit is not None and not stopping:
                 lock = (
                     selected_inference._lifecycle_lock
                     if selected_inference
@@ -1291,6 +1338,8 @@ def run_processes(
             cleanup_error = error
         finally:
             try:
+                if supervisor_receipt_fd is not None:
+                    os.close(supervisor_receipt_fd)
                 if canonical_e2e and record.get("unsettled_consumers"):
                     retain_adopted_evidence(record, record_path, selected_inference)
                 if canonical_e2e and (boundary_proven or not children):
