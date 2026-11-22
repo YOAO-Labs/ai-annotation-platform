@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Page, WebSocketRoute } from "@playwright/test";
+import type { APIRequestContext, APIResponse, Page, WebSocketRoute } from "@playwright/test";
 import { test, expect, type SeedAPI } from "../fixtures/seed";
 import { rangeValueForFrame } from "../helpers/video-timeline-seek";
 
@@ -64,6 +64,118 @@ async function polygonDraft(page: Page) {
     await page.waitForTimeout(450);
   }
   await expect(stage(page)).toHaveAttribute("data-video-draft-point-count", "2");
+}
+
+type PlaybackScope = "task" | "item";
+
+type PlaybackViewer = {
+  projectId: string;
+  taskId: string;
+  prepare(sessionId: string): Promise<APIResponse>;
+  open(): Promise<{
+    url: string;
+    expiresAt: number;
+    expectBytes(): Promise<void>;
+    release(): Promise<void>;
+  }>;
+};
+
+async function seedPlaybackViewer(
+  request: APIRequestContext,
+  seed: SeedAPI,
+  namespace: string,
+  scope: PlaybackScope,
+): Promise<PlaybackViewer> {
+  const { project_id: projectId, admin_email: email } = await seed.owned(namespace);
+  const { task_id: taskId } = await seed.videoTask(projectId);
+  const headers = { Authorization: `Bearer ${await seed.accessToken(email)}` };
+  let original = `${API}/api/v1/files/tasks/${taskId}/original`;
+  if (scope === "item") {
+    const datasets = await request.get(`${API}/api/v1/projects/${projectId}/datasets`, { headers });
+    expect(datasets.status(), await datasets.text()).toBe(200);
+    const linked = (await datasets.json()) as { id: string }[];
+    expect(linked).toHaveLength(1);
+    const items = await request.get(`${API}/api/v1/datasets/${linked[0].id}/items`, {
+      headers,
+      params: { media_type: "video" },
+    });
+    expect(items.status(), await items.text()).toBe(200);
+    const page = (await items.json()) as {
+      total: number;
+      items: { id: string; dataset_id: string }[];
+    };
+    expect(page.total).toBe(1);
+    expect(page.items).toHaveLength(1);
+    const [{ id, dataset_id }] = page.items;
+    expect(dataset_id).toBe(linked[0].id);
+    original = `${API}/api/v1/datasets/${dataset_id}/items/${id}/original`;
+  }
+  const describe = await request.get(`${original}-identity`, { headers });
+  expect(describe.status(), await describe.text()).toBe(200);
+  const { content_id, sha256 } = (await describe.json()) as { content_id: string; sha256: string };
+
+  const prepare = (sessionId: string) =>
+    request.post(`${original}-playback`, {
+      headers,
+      data: { content_id, sha256, session_id: sessionId },
+    });
+  return {
+    projectId,
+    taskId,
+    prepare,
+    async open() {
+      const sessionId = randomUUID();
+      const prepared = await prepare(sessionId);
+      expect(prepared.status(), await prepared.text()).toBe(200);
+      const { lease_id, media_path, expires_at } = (await prepared.json()) as {
+        lease_id: string;
+        media_path: string;
+        expires_at: string;
+      };
+      expect(media_path).toMatch(mediaPath);
+      const url = `${API}${media_path}`;
+      return {
+        url,
+        expiresAt: Date.parse(expires_at),
+        async expectBytes() {
+          const response = await request.get(url);
+          expect(response.status()).toBe(200);
+          expect(
+            createHash("sha256")
+              .update(await response.body())
+              .digest("hex"),
+          ).toBe(sha256);
+        },
+        async release() {
+          const response = await request.delete(`${original}-playback/${lease_id}`, {
+            headers,
+            data: { session_id: sessionId },
+          });
+          expect(response.status(), await response.text()).toBe(204);
+          expect((await request.head(url)).status()).toBe(410);
+        },
+      };
+    },
+  };
+}
+
+function playbackCleanupTest(scope: PlaybackScope) {
+  return test.extend<{ viewers: { a: PlaybackViewer; b: PlaybackViewer } }>({
+    viewers: [
+      async ({ request, seed }, use, testInfo) => {
+        testInfo.skip(
+          !process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE ||
+            process.env.PLAYWRIGHT_RASTER_OFFLINE === "1",
+          "requires the supervised worktree API and separate fixture owner",
+        );
+        const a = await seedPlaybackViewer(request, seed, "playbacka", scope);
+        const neighborScope = scope === "task" ? "item" : "task";
+        const b = await seedPlaybackViewer(request, seed, "playbackb", neighborScope);
+        await use({ a, b });
+      },
+      { timeout: 120_000 },
+    ],
+  });
 }
 
 test.describe("verified original native video", () => {
@@ -265,60 +377,49 @@ test.describe("verified original native video", () => {
     await expect(page.getByRole("button", { name: "重新准备视频" })).toBeVisible();
   });
 
-  test("owned fixture cleanup frees only its stage in the supervised API", async ({
-    request,
-    seed,
-  }) => {
-    test.skip(
-      !process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE ||
-        process.env.PLAYWRIGHT_RASTER_OFFLINE === "1",
-      "requires the supervised worktree API and separate fixture owner",
-    );
+  for (const scope of ["task", "item"] as const) {
+    const cleanupTest = playbackCleanupTest(scope);
+    const title =
+      scope === "task"
+        ? "owned fixture cleanup frees only its stage in the supervised API"
+        : "owned item fixture cleanup frees only its stage in the supervised API";
+    cleanupTest(title, async ({ request, seed, viewers: { a, b } }) => {
+      const aLease = await a.open();
+      const bLease = await b.open();
+      expect((await request.head(aLease.url)).status()).toBe(200);
+      expect((await request.head(bLease.url)).status()).toBe(200);
+      const blocked = await b.prepare(randomUUID());
+      expect(blocked.status()).toBe(429);
+      expect(await blocked.json()).toEqual({
+        detail: { code: "video_playback_capacity_exceeded" },
+      });
 
-    const viewer = async (namespace: string) => {
-      const { project_id, admin_email } = await seed.owned(namespace);
-      const { task_id } = await seed.videoTask(project_id);
-      const path = `${API}/api/v1/files/tasks/${task_id}/original`;
-      const headers = { Authorization: `Bearer ${await seed.accessToken(admin_email)}` };
-      const describe = await request.get(`${path}-identity`, { headers });
-      expect(describe.status(), await describe.text()).toBe(200);
-      const { content_id, sha256 } = await describe.json();
-      const prepare = () =>
-        request.post(`${path}-playback`, {
-          headers,
-          data: { content_id, sha256, session_id: randomUUID() },
-        });
-      const prepared = await prepare();
-      expect(prepared.status(), await prepared.text()).toBe(200);
-      const { media_path, expires_at } = await prepared.json();
-      expect(media_path).toMatch(mediaPath);
-      return { url: `${API}${media_path}`, sha256, expiresAt: Date.parse(expires_at), prepare };
-    };
+      await seed.cleanupOwned("playbacka");
+      expect(aLease.expiresAt).toBeGreaterThan(Date.now());
+      expect((await request.head(aLease.url)).status()).toBe(410);
+      await bLease.expectBytes();
 
-    const a = await viewer("playbacka");
-    const b = await viewer("playbackb");
-    expect((await request.head(a.url)).status()).toBe(200);
-    expect((await request.head(b.url)).status()).toBe(200);
-    const blocked = await b.prepare();
-    expect(blocked.status()).toBe(429);
-    expect(await blocked.json()).toEqual({ detail: { code: "video_playback_capacity_exceeded" } });
+      await seed.cleanupOwned("playbacka");
+      expect((await request.head(aLease.url)).status()).toBe(410);
+      await bLease.expectBytes();
 
-    await seed.cleanupOwned("playbacka");
-    expect(a.expiresAt).toBeGreaterThan(Date.now());
+      const rebuilt = await seedPlaybackViewer(request, seed, "playbacka", scope);
+      expect(rebuilt.projectId).not.toBe(a.projectId);
+      expect(rebuilt.taskId).not.toBe(a.taskId);
+      const rebuiltLease = await rebuilt.open();
+      expect(rebuiltLease.url).not.toBe(aLease.url);
+      await rebuiltLease.expectBytes();
+      await seed.cleanupOwned("playbacka");
+      expect(rebuiltLease.expiresAt).toBeGreaterThan(Date.now());
+      expect((await request.head(rebuiltLease.url)).status()).toBe(410);
+      await bLease.expectBytes();
 
-    expect((await request.head(a.url)).status()).toBe(410);
-    const neighbor = await request.get(b.url);
-    expect(neighbor.status()).toBe(200);
-    expect(
-      createHash("sha256")
-        .update(await neighbor.body())
-        .digest("hex"),
-    ).toBe(b.sha256);
-    const reclaimed = await b.prepare();
-    expect(reclaimed.status(), await reclaimed.text()).toBe(200);
-    const replacement = (await reclaimed.json()).media_path;
-    expect(replacement).toMatch(mediaPath);
-    expect(`${API}${replacement}`).not.toBe(b.url);
-    expect((await request.head(`${API}${replacement}`)).status()).toBe(200);
-  });
+      const replacement = await b.open();
+      expect(replacement.url).not.toBe(bLease.url);
+      expect((await request.head(replacement.url)).status()).toBe(200);
+      await replacement.release();
+      await bLease.release();
+      await seed.cleanupOwned("playbackb");
+    });
+  }
 });
