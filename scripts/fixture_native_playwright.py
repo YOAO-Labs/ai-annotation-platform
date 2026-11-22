@@ -27,6 +27,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from fixture_playback_control import (
+    bind_playback_control,
+    retire_playback_control,
+)
 from fixture_suite_coordinator import (
     _settled,
     _settled_thread,
@@ -727,27 +731,11 @@ class NativeSuiteControl:
         atomic_json(self.journal_path, self.journal)
         ready_read, ready_write = os.pipe()
         try:
-            log = _private_log(self.directory / "native-api.log")
-            try:
-                self.api = subprocess.Popen(
-                    [
-                        sys.executable,
-                        str(ROOT / "scripts/raster_api_process.py"),
-                        "--port",
-                        str(port),
-                        "--ready-fd",
-                        str(ready_write),
-                    ],
-                    cwd=ROOT / "apps/api",
-                    env=environment,
-                    stdin=subprocess.DEVNULL,
-                    stdout=log,
-                    stderr=log,
-                    pass_fds=(ready_write,),
-                    start_new_session=True,
+            endpoint, verifier = bind_playback_control(self.directory, self.suite)
+            with endpoint:
+                self._launch_api(
+                    port, ready_write, endpoint.fileno(), verifier, environment
                 )
-            finally:
-                os.close(log)
             os.close(ready_write)
             ready_write = None
             self.journal.update(
@@ -769,10 +757,40 @@ class NativeSuiteControl:
                 os.close(ready_write)
             os.close(ready_read)
 
+    def _launch_api(self, port, ready_fd, playback_fd, verifier, environment):
+        log = _private_log(self.directory / "native-api.log")
+        try:
+            self.api = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/raster_api_process.py"),
+                    "--port",
+                    str(port),
+                    "--ready-fd",
+                    str(ready_fd),
+                    "--playback-fd",
+                    str(playback_fd),
+                    "--playback-suite",
+                    str(self.suite),
+                    "--playback-verifier",
+                    verifier,
+                ],
+                cwd=ROOT / "apps/api",
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+                pass_fds=(ready_fd, playback_fd),
+                start_new_session=True,
+            )
+        finally:
+            os.close(log)
+
     async def _retire_api(self):
         self.journal["state"] = "stopping_api"
         atomic_json(self.journal_path, self.journal)
         await _settled_thread(_drain, self.api, self.api_pidfd)
+        retire_playback_control(self.directory, self.suite)
         self.journal["api_disposition"] = {
             "pid": self.journal["api"]["pid"],
             "start": self.journal["api"]["start"],
