@@ -71,12 +71,11 @@ type PlaybackScope = "task" | "item";
 type PlaybackViewer = {
   projectId: string;
   taskId: string;
-  prepare(sessionId: string): Promise<APIResponse>;
+  prepare(): Promise<APIResponse>;
   open(): Promise<{
     url: string;
     expiresAt: number;
     expectBytes(): Promise<void>;
-    release(): Promise<void>;
   }>;
 };
 
@@ -114,21 +113,19 @@ async function seedPlaybackViewer(
   expect(describe.status(), await describe.text()).toBe(200);
   const { content_id, sha256 } = (await describe.json()) as { content_id: string; sha256: string };
 
-  const prepare = (sessionId: string) =>
+  const prepare = () =>
     request.post(`${original}-playback`, {
       headers,
-      data: { content_id, sha256, session_id: sessionId },
+      data: { content_id, sha256, session_id: randomUUID() },
     });
   return {
     projectId,
     taskId,
     prepare,
     async open() {
-      const sessionId = randomUUID();
-      const prepared = await prepare(sessionId);
+      const prepared = await prepare();
       expect(prepared.status(), await prepared.text()).toBe(200);
-      const { lease_id, media_path, expires_at } = (await prepared.json()) as {
-        lease_id: string;
+      const { media_path, expires_at } = (await prepared.json()) as {
         media_path: string;
         expires_at: string;
       };
@@ -145,14 +142,6 @@ async function seedPlaybackViewer(
               .update(await response.body())
               .digest("hex"),
           ).toBe(sha256);
-        },
-        async release() {
-          const response = await request.delete(`${original}-playback/${lease_id}`, {
-            headers,
-            data: { session_id: sessionId },
-          });
-          expect(response.status(), await response.text()).toBe(204);
-          expect((await request.head(url)).status()).toBe(410);
         },
       };
     },
@@ -388,7 +377,7 @@ test.describe("verified original native video", () => {
       const bLease = await b.open();
       expect((await request.head(aLease.url)).status()).toBe(200);
       expect((await request.head(bLease.url)).status()).toBe(200);
-      const blocked = await b.prepare(randomUUID());
+      const blocked = await b.prepare();
       expect(blocked.status()).toBe(429);
       expect(await blocked.json()).toEqual({
         detail: { code: "video_playback_capacity_exceeded" },
@@ -417,9 +406,10 @@ test.describe("verified original native video", () => {
       const replacement = await b.open();
       expect(replacement.url).not.toBe(bLease.url);
       expect((await request.head(replacement.url)).status()).toBe(200);
-      await replacement.release();
-      await bLease.release();
       await seed.cleanupOwned("playbackb");
+      expect(Math.min(bLease.expiresAt, replacement.expiresAt)).toBeGreaterThan(Date.now());
+      expect((await request.head(bLease.url)).status()).toBe(410);
+      expect((await request.head(replacement.url)).status()).toBe(410);
     });
   }
 });
