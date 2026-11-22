@@ -335,11 +335,20 @@ export function ownedNamespaceFor(testInfo?: TestInfo): string {
   return namespaceForKey(`${testInfo.file}::${testInfo.titlePath.join("::")}`);
 }
 
+type OwnedRun = { id: string; provisional: boolean };
+
+function isUnadmittedScopeRefusal(status: number, body: string): boolean {
+  if (status !== 409) return false;
+  try {
+    return JSON.parse(body)?.detail?.code === "fixture_scope_busy";
+  } catch {
+    return false;
+  }
+}
+
 export class SeedAPI {
-  /** Namespaces built by this test via `owned()`; cleaned up in teardown. */
-  private ownedNamespaces: string[] = [];
   private explicitNamespaces = new Map<string, string>();
-  private ownedRunIds = new Map<string, string>();
+  private ownedRuns = new Map<string, OwnedRun>();
   private retiredRunIds = new Map<string, string>();
   private workbenchBuilt = new Set<string>();
   private projectNamespaces = new Map<string, string>();
@@ -406,10 +415,6 @@ export class SeedAPI {
     }
   }
 
-  /**
-   * Resolve and register this test's namespace. Explicit labels are also
-   * scoped to the current run.
-   */
   private ownedNamespace(explicit?: string): string {
     if (explicit !== undefined && !/^[a-z0-9]{4,12}$/.test(explicit)) {
       throw new Error("Fixture namespace must contain 4–12 lowercase letters or digits");
@@ -423,32 +428,56 @@ export class SeedAPI {
         : defaultToken;
     if (!token) throw new Error("seed.owned() needs a namespace outside a Playwright test");
     if (explicit !== undefined) this.explicitNamespaces.set(explicit, token);
-    if (!this.ownedNamespaces.includes(token)) this.ownedNamespaces.push(token);
-    if (!this.ownedRunIds.has(token)) {
-      this.ownedRunIds.set(token, randomUUID());
-      this.retiredRunIds.delete(token);
-    }
     return token;
   }
 
   private ownedScope(token: string, includeRetired = false) {
     const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
     const runId =
-      this.ownedRunIds.get(token) ?? (includeRetired ? this.retiredRunIds.get(token) : undefined);
+      this.ownedRuns.get(token)?.id ?? (includeRetired ? this.retiredRunIds.get(token) : undefined);
     if (!suiteId || !runId) throw new Error("Fixture suite and run identities are required");
     return { namespace: token, suite_id: suiteId, run_id: runId };
   }
 
+  private async postOwnedSeed(
+    path: "owned" | "owned-prepare" | "project-roles" | "filtering" | "lidar",
+    token: string,
+    { data, timeout }: { data?: Record<string, unknown>; timeout?: number } = {},
+  ): Promise<SeedResponse> {
+    let run = this.ownedRuns.get(token);
+    if (run) {
+      run.provisional = false;
+    } else {
+      run = { id: randomUUID(), provisional: true };
+      this.ownedRuns.set(token, run);
+      this.retiredRunIds.delete(token);
+    }
+    try {
+      const res = await postFixture(`${API_BASE}/api/v1/__test/seed/${path}`, {
+        data: { ...data, ...this.ownedScope(token) },
+        timeout,
+      });
+      if (!res.ok()) {
+        const status = res.status();
+        const body = await res.text();
+        if (
+          run.provisional &&
+          this.ownedRuns.get(token) === run &&
+          isUnadmittedScopeRefusal(status, body)
+        ) {
+          this.ownedRuns.delete(token);
+        }
+        throw new Error(`seed/${path} failed: ${status} ${body}`);
+      }
+      return res;
+    } finally {
+      run.provisional = false;
+    }
+  }
+
   /** Prepare the default owned run's native processes outside the product test budget. */
   async prepareRasterOwned(): Promise<void> {
-    const token = this.ownedNamespace();
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned-prepare`, {
-      data: this.ownedScope(token),
-      timeout: 60_000,
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/owned-prepare failed: ${res.status()} ${await res.text()}`);
-    }
+    await this.postOwnedSeed("owned-prepare", this.ownedNamespace(), { timeout: 60_000 });
   }
 
   /**
@@ -466,17 +495,11 @@ export class SeedAPI {
     const token = this.ownedNamespace(namespace);
     if (this.workbenchBuilt.has(token)) {
       await this.cleanupOwned(token);
-      this.ownedRunIds.set(token, randomUUID());
-      this.retiredRunIds.delete(token);
-      this.ownedNamespaces.push(token);
     }
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned`, {
-      data: { ...this.ownedScope(token), image_canvas: options?.imageCanvas ?? "default" },
+    const res = await this.postOwnedSeed("owned", token, {
+      data: { image_canvas: options?.imageCanvas ?? "default" },
       timeout: 60_000,
     });
-    if (!res.ok()) {
-      throw new Error(`seed/owned failed: ${res.status()} ${await res.text()}`);
-    }
     this.workbenchBuilt.add(token);
     const data = (await res.json()) as SeedData;
     this.projectNamespaces.set(data.project_id, token);
@@ -511,11 +534,10 @@ export class SeedAPI {
         `Raster fault scope verification failed: ${response.status()} ${await response.text()}`,
       );
     }
-    if (this.ownedRunIds.has(entry.namespace)) {
+    if (this.ownedRuns.has(entry.namespace)) {
       throw new Error("Raster fault namespace is already registered");
     }
-    this.ownedNamespaces.push(entry.namespace);
-    this.ownedRunIds.set(entry.namespace, entry.run_id);
+    this.ownedRuns.set(entry.namespace, { id: entry.run_id, provisional: false });
     this.workbenchBuilt.add(entry.namespace);
     this.projectNamespaces.set(entry.seed.project_id, entry.namespace);
     for (const taskId of entry.seed.task_ids) this.taskRunIds.set(taskId, entry.run_id);
@@ -538,10 +560,9 @@ export class SeedAPI {
       throw new Error(`seed/owned-cleanup failed: ${res.status()} ${await res.text()}`);
     }
     this.workbenchBuilt.delete(token);
-    const runId = this.ownedRunIds.get(token);
-    if (runId) this.retiredRunIds.set(token, runId);
-    this.ownedRunIds.delete(token);
-    this.ownedNamespaces = this.ownedNamespaces.filter((entry) => entry !== token);
+    const run = this.ownedRuns.get(token);
+    if (run) this.retiredRunIds.set(token, run.id);
+    this.ownedRuns.delete(token);
     for (const [projectId, owner] of this.projectNamespaces) {
       if (owner === token) this.projectNamespaces.delete(projectId);
     }
@@ -553,10 +574,9 @@ export class SeedAPI {
    * finished; a failed cleanup must fail the test, so errors propagate.
    */
   async cleanupOwnedFixtures(): Promise<void> {
-    for (const namespace of [...this.ownedNamespaces].reverse()) {
+    for (const namespace of [...this.ownedRuns.keys()].reverse()) {
       await this.cleanupOwned(namespace);
     }
-    this.ownedNamespaces.length = 0;
   }
 
   /** Stop only bound pages from admitting media work before final fixture cleanup. */
@@ -577,13 +597,7 @@ export class SeedAPI {
   /** Build the multi-project employee-role acceptance fixture for this test's namespace. */
   async projectRoles(namespace?: string): Promise<ProjectRolesSeedData> {
     const token = this.ownedNamespace(namespace);
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/project-roles`, {
-      data: this.ownedScope(token),
-      timeout: 60_000,
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/project-roles failed: ${res.status()} ${await res.text()}`);
-    }
+    const res = await this.postOwnedSeed("project-roles", token, { timeout: 60_000 });
     return (await res.json()) as ProjectRolesSeedData;
   }
 
@@ -592,13 +606,10 @@ export class SeedAPI {
     options: { namespace?: string; videoReady?: boolean } = {},
   ): Promise<FilteringSeedManifest> {
     const token = this.ownedNamespace(options.namespace);
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/filtering`, {
-      data: { ...this.ownedScope(token), video_ready: options.videoReady === true },
+    const res = await this.postOwnedSeed("filtering", token, {
+      data: { video_ready: options.videoReady === true },
       timeout: 120_000,
     });
-    if (!res.ok()) {
-      throw new Error(`seed/filtering failed: ${res.status()} ${await res.text()}`);
-    }
     return (await res.json()) as FilteringSeedManifest;
   }
 
@@ -659,12 +670,7 @@ export class SeedAPI {
   /** Build the namespaced point-cloud fixture (reuses this namespace's users). */
   async seedLidar(namespace?: string): Promise<SeedLidarData> {
     const token = this.ownedNamespace(namespace);
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/lidar`, {
-      data: this.ownedScope(token),
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/lidar failed: ${res.status()} ${await res.text()}`);
-    }
+    const res = await this.postOwnedSeed("lidar", token);
     return (await res.json()) as SeedLidarData;
   }
 
