@@ -8,6 +8,7 @@ import threading
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.models.raster_mask_object import RasterMaskObject as Object
@@ -188,6 +189,92 @@ async def test_read_after_binding_in_same_transaction_does_not_upgrade_owner_loc
         assert await owners.bind_publications(caller, reference) == 1
         await caller.commit()
     assert not await harness.guards()
+
+
+async def test_ready_reuse_waits_for_admitted_reader_without_relaxing_owner_fences(
+    harness, monkeypatch
+):
+    rle, reference, data = harness.content()
+    async with harness.factory() as caller:
+        await owners.store(reference, data, db=caller, storage=harness.blobs)
+        assert await owners.bind_publications(caller, reference) == 1
+        await caller.commit()
+        owner = (await harness.rows())[0]
+
+        async with harness.factory() as exclusive:
+            await exclusive.scalar(
+                select(Object.id).where(Object.id == owner.id).with_for_update()
+            )
+            with pytest.raises(physical.RasterObjectStorageError) as blocked:
+                await owners.store(reference, data, db=caller, storage=harness.blobs)
+            assert blocked.value.code == "raster_object_storage_busy"
+
+        reader_pid = asyncio.get_running_loop().create_future()
+        release_reader = asyncio.Event()
+        read_gate = owners._read_gate
+
+        async def hold_reader(db, *args):
+            await read_gate(db, *args)
+            if asyncio.current_task() is reader:
+                reader_pid.set_result(await db.scalar(text("SELECT pg_backend_pid()")))
+                await release_reader.wait()
+
+        monkeypatch.setattr(owners, "_read_gate", hold_reader)
+        reader = asyncio.create_task(
+            owners.load(reference, db=caller, storage=harness.blobs)
+        )
+        writer = None
+        try:
+            pid = await asyncio.wait_for(reader_pid, 5)
+            async with harness.factory() as contender:
+                await contender.execute(text("SET LOCAL lock_timeout = '100ms'"))
+                for statement in (
+                    "UPDATE raster_mask_objects SET state='retired', retired_at=last_used_at",
+                    "UPDATE raster_mask_objects SET storage_ref = storage_ref - 'bucket'",
+                    "DELETE FROM raster_mask_objects",
+                ):
+                    with pytest.raises(DBAPIError) as conflict:
+                        async with contender.begin_nested():
+                            await contender.execute(
+                                text(statement + " WHERE id=:id"), {"id": owner.id}
+                            )
+                    assert conflict.value.orig.sqlstate == "55P03"
+
+            writer = asyncio.create_task(
+                owners.store(reference, data, db=caller, storage=harness.blobs)
+            )
+            async with harness.factory() as observer:
+                for _ in range(100):
+                    if writer.done():
+                        await writer
+                        pytest.fail("Reuse finished before the admitted read released")
+                    if await observer.scalar(
+                        text(
+                            "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE NOT granted "
+                            "AND :reader=ANY(pg_blocking_pids(pid)))"
+                        ),
+                        {"reader": pid},
+                    ):
+                        break
+                    await asyncio.sleep(0.01)
+                else:
+                    pytest.fail("Reuse never waited on the exact ready owner")
+            release_reader.set()
+            assert await reader == rle
+            assert await writer == reference
+        finally:
+            release_reader.set()
+            tasks = [reader] if writer is None else [reader, writer]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        current = (await harness.rows())[0]
+        assert current.id == owner.id
+        assert current.storage_ref == owner.storage_ref and current.state == "ready"
+        assert current.last_used_at > owner.last_used_at
+        assert len(harness.blobs.puts) == 1
+        assert [guard.object_id for guard in await harness.guards()] == [owner.id]
+        assert await owners.bind_publications(caller, reference) == 1
+        await caller.commit()
 
 
 async def test_explicit_null_storage_encoding_preserves_identity_reference(harness):
