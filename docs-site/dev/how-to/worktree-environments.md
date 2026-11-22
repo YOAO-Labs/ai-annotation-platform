@@ -183,6 +183,8 @@ Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 AP
 
 若另一个运行已占用同一 namespace，服务端以 `409 fixture_scope_busy` 确认本次新 UUID 未建档。夹具不会为这个 UUID 请求清理，也不会清理占用者。若请求超时、响应不明或已有操作使用过这个 UUID，仍保留其清理责任；`fixture_run_unsettled` 不是可忽略的结果。
 
+原生输出夹具的 `fixture_native_iam_<操作>_<原因>` 标明失败的是 MinIO 授权（`policy_attach`）、用户查询（`user_info`）还是策略查询（`policy_info`）。例如 `access_denied` 来自提供方明确的拒绝；`nonzero` 只表示命令失败，不能据此判断授权是否写入。错误不包含账号或凭据。授权失败后夹具不会重发写入，也不会出具就绪回执。
+
 夹具 Audit 清理使用原生 `(id, created_at)` 复合回执，而不是按 namespace 或单独的整数 ID 删除。实际认证会话必须属于夹具 owner，叶运行已经封闭且所有准入责任已结算；共享原始 namespace 的两个运行仍各自保留准确归属。旧 UUID 回执不会自动转换或补造时间戳。
 
 涉及后端注册项时，清理还依赖真实 Routing owner 的连续性和排空证明。不可达的展示地址、空作业列表或终态标记不代表后端可以安全删除；未满足前置时保留运行与资源，不绕过静默检查。

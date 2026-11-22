@@ -653,6 +653,21 @@ _NATIVE_OUTPUT_PREFIXES = (
     "_aap_managed/media-cache/video-derivatives/objects/",
 )
 _NATIVE_OUTPUT_OWNER_TAG = "aap-fixture-native-owner"
+_NATIVE_OUTPUT_IAM_COMMANDS = {
+    "policy_attach": ("policy", "attach"),
+    "user_info": ("user", "info"),
+    "policy_info": ("policy", "info"),
+}
+_NATIVE_OUTPUT_IAM_PROVIDER_FAILURES = {
+    "AccessDenied": "access_denied",
+    "InvalidAccessKeyId": "invalid_access_key",
+    "SignatureDoesNotMatch": "signature_mismatch",
+    "XMinioAdminNoSuchPolicy": "no_such_policy",
+    "XMinioAdminNoSuchUser": "no_such_user",
+    "XMinioIAMNotInitialized": "iam_not_initialized",
+    "XMinioServerNotInitialized": "server_not_initialized",
+}
+_NATIVE_OUTPUT_IAM_OUTPUT_LIMIT = 1024 * 1024
 
 
 def _native_output_policy(bucket, *, role):
@@ -811,6 +826,60 @@ def _native_output_paths(owner, run_id):
     }
 
 
+def _native_output_iam(mc_env, operation, *args):
+    argv = [
+        "mc",
+        "--json",
+        "admin",
+        *_NATIVE_OUTPUT_IAM_COMMANDS[operation],
+        "fixture",
+        *args,
+    ]
+    failure = f"fixture_native_iam_{operation}"
+    try:
+        result = subprocess.run(argv, env=mc_env, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise ContractError(f"{failure}_timeout") from None
+    except OSError:
+        raise ContractError(f"{failure}_launch_failed") from None
+    if result.returncode < 0:
+        raise ContractError(f"{failure}_signal_{-result.returncode}")
+
+    bounded = len(result.stdout) <= _NATIVE_OUTPUT_IAM_OUTPUT_LIMIT
+    if result.returncode == 0:
+        require(bounded, f"{failure}_output_budget")
+        if operation == "policy_attach":
+            return None
+
+    payload = None
+    if bounded and result.returncode in (0, 1):
+        try:
+            payload = json.loads(result.stdout)
+        except (ValueError, RecursionError):
+            pass
+    if result.returncode:
+        error = (
+            payload.get("error")
+            if isinstance(payload, dict) and payload.get("status") == "error"
+            else None
+        )
+        cause = (
+            error.get("cause")
+            if isinstance(error, dict) and error.get("type") == "fatal"
+            else None
+        )
+        detail = cause.get("error") if isinstance(cause, dict) else None
+        code = detail.get("Code") if isinstance(detail, dict) else None
+        reason = (
+            _NATIVE_OUTPUT_IAM_PROVIDER_FAILURES.get(code)
+            if isinstance(code, str)
+            else None
+        )
+        raise ContractError(f"{failure}_{reason or 'nonzero'}")
+    require(isinstance(payload, dict), f"{failure}_response_invalid")
+    return payload
+
+
 def _native_output_accounts(owner, store, entry, paths):
     accounts = json.loads(_private_bytes(paths["seed"]))
     require(
@@ -875,26 +944,8 @@ def _native_output_accounts(owner, store, entry, paths):
             json.loads(_private_bytes(paths[role + "_policy"]))
         )
         name = entry[role + "_policy"]
-        info = json.loads(
-            command(
-                [
-                    "mc",
-                    "--json",
-                    "admin",
-                    "user",
-                    "info",
-                    "fixture",
-                    account["access_key"],
-                ],
-                env=mc_env,
-            )
-        )
-        observed = json.loads(
-            command(
-                ["mc", "--json", "admin", "policy", "info", "fixture", name],
-                env=mc_env,
-            )
-        )
+        info = _native_output_iam(mc_env, "user_info", account["access_key"])
+        observed = _native_output_iam(mc_env, "policy_info", name)
         require(
             policy == expected
             and info.get("status") == "success"
@@ -1196,18 +1247,12 @@ def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.
             ],
             env=mc_env,
         )
-        command(
-            [
-                "mc",
-                "admin",
-                "policy",
-                "attach",
-                "fixture",
-                entry[role + "_policy"],
-                "--user",
-                account["access_key"],
-            ],
-            env=mc_env,
+        _native_output_iam(
+            mc_env,
+            "policy_attach",
+            entry[role + "_policy"],
+            "--user",
+            account["access_key"],
         )
     accounts, evidence = _native_output_accounts(owner, store, entry, paths)
     _native_output_bucket(owner, store, entry, require_empty=True)
