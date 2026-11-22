@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import AsyncExitStack
 import os
 from pathlib import Path
 import signal
+import socket
 import sys
+from uuid import UUID
 
 import uvicorn
 from uvicorn.importer import import_from_string
 
 
-def serve_api(app, *, port: int, ready_fd: int | None = None) -> int:
+def serve_api(app, *, port: int, ready_fd: int | None = None, playback=None) -> int:
     application = import_from_string(app)
     shutdown_completed = False
+    controls = AsyncExitStack()
 
     async def observed_application(scope, receive, send):
         if scope["type"] != "lifespan":
@@ -33,6 +37,17 @@ def serve_api(app, *, port: int, ready_fd: int | None = None) -> int:
         async def startup(self, sockets=None):
             nonlocal ready_fd
             await super().startup(sockets=sockets)
+            if self.started and playback is not None:
+                from fixture_playback_control import serve_playback_control
+                from app.services.original_playback import owned_playback_contexts
+
+                await controls.enter_async_context(
+                    serve_playback_control(
+                        *playback,
+                        application.state.original_playback_registry,
+                        owned_playback_contexts,
+                    )
+                )
             if self.started and ready_fd is not None:
                 try:
                     if os.write(ready_fd, b"ready\n") != 6:
@@ -40,6 +55,12 @@ def serve_api(app, *, port: int, ready_fd: int | None = None) -> int:
                 finally:
                     os.close(ready_fd)
                     ready_fd = None
+
+        async def shutdown(self, sockets=None):
+            try:
+                await controls.aclose()
+            finally:
+                await super().shutdown(sockets=sockets)
 
     server = ObservedServer(
         uvicorn.Config(
@@ -79,6 +100,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--ready-fd", type=int, required=True)
+    parser.add_argument("--playback-fd", type=int, required=True)
+    parser.add_argument("--playback-suite", type=UUID, required=True)
+    parser.add_argument("--playback-verifier", required=True)
     args = parser.parse_args()
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps/api"))
-    raise SystemExit(serve_api("app.main:app", port=args.port, ready_fd=args.ready_fd))
+    with socket.socket(fileno=args.playback_fd) as endpoint:
+        raise SystemExit(
+            serve_api(
+                "app.main:app",
+                port=args.port,
+                ready_fd=args.ready_fd,
+                playback=(endpoint, args.playback_suite, args.playback_verifier),
+            )
+        )
