@@ -1,10 +1,10 @@
 # YOAO 产品语言与命名优化计划
 
-> 状态：**产品语言分支已完成 N0–N7 的批准范围，包括 J1、N6-S、N6-E 与 J2。** 产品语言与测试治理两条工作线的实现已合入 `feat/backend-opt`。[测试治理计划 §16.6](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)区分分支限定验收和协调工作树的默认 T1／T2。没有切换日常／生产或公开发布。
+> 状态：**已归档（2026-11-23）。N0–N7 的批准范围已完成，含 J1／J2 的限定验收。** 两条工作线的实现已合入 `feat/backend-opt`；未切换日常／生产环境，未公开发布。[归档结论与交接](#outcome)不代替测试治理的默认 T1／T2 验收。
 >
-> 导出已在同一隔离环境验证旧写、新写、从备份恢复、按原地址下载及精确回收；新工作树已实际启动 API、消费队列并按 owner 退役。Plugin-SDK 与六个官方插件的本地入口对齐，未更新公开 Release。前序 CLI、原生 JSON、点云、插件和邮件结果继续有效。见 [§16.15](#1615-产品语言分支集成与联合验收) 和[验收账本](evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)。
+> 导出已在同一隔离环境验证旧写、新写、从备份恢复、按原地址下载及精确回收；新工作树已实际启动 API、消费队列并按 owner 退役。Plugin-SDK 与六个官方插件的本地入口对齐，未更新公开 Release。前序 CLI、原生 JSON、点云、插件和邮件结果继续有效。见 [§16.15](#1615-产品语言分支集成与联合验收) 和[验收账本](../evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)。
 >
-> 制定：2026-10-29；最近核对：2026-11-20。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
+> 制定：2026-10-29。已确认产品名：**YOAO**，全称 **You Only Annotate Once**。
 >
 > 核心原则：**业务内部名称去品牌前缀；跨项目、跨进程或对外分发的必要命名空间使用 `yoao`；历史事实与安全身份不因品牌变化而重写。** 不做全仓 `AAP → YOAO` 替换，不以搜索结果清零作为目标。
 
@@ -20,10 +20,10 @@
 
 ### 1.2 与既有架构工作的关系
 
-- [后端模组解耦计划](1792160873_backend-module-decoupling.md)及[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md)继续有效。名称变化不等于独立部署、消费者迁移或插件资格完成。
-- [插件能力边界研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)强调核心 owner 和扩展责任；这里的命名应表达责任，而不是把所有代码都称为“插件”。
-- [LibreYOLO 首切片](1793156248_libreyolo-inference-plugin.md)继续完成原业务与 GPU 验收；命名迁移不改写其原制品证据。
-- [插件拆仓计划](1793184138_inference-plugins-repository-extraction.md)负责仓库与制品边界：Plugin-SDK 独立提供作者抽象，YOAO-Plugins 只维护官方插件。已经拆仓的制品不随本次显示名优化重新命名；后续发行入口迁移走 N3，不跳过各自资格门。
+- [后端模组解耦计划](https://github.com/YOAO-Labs/ai-annotation-platform/blob/cc16c46ed14eaefb3928fa6e816c63a271435123/docs/plans/1792160873_backend-module-decoupling.md)及[唯一模块台账](../../../docs-site/dev/concepts/module-deployment.md)继续有效。名称变化不等于独立部署、消费者迁移或插件资格完成。
+- [插件能力边界研究](../../research/51-plugin-capability-boundaries-and-ecosystem.md)强调核心 owner 和扩展责任；这里的命名应表达责任，而不是把所有代码都称为“插件”。
+- [LibreYOLO 首切片](https://github.com/YOAO-Labs/ai-annotation-platform/blob/cc16c46ed14eaefb3928fa6e816c63a271435123/docs/plans/1793156248_libreyolo-inference-plugin.md)继续完成原业务与 GPU 验收；命名迁移不改写其原制品证据。
+- [插件拆仓计划](https://github.com/YOAO-Labs/ai-annotation-platform/blob/cc16c46ed14eaefb3928fa6e816c63a271435123/docs/plans/1793184138_inference-plugins-repository-extraction.md)负责仓库与制品边界：Plugin-SDK 独立提供作者抽象，YOAO-Plugins 只维护官方插件。已经拆仓的制品不随本次显示名优化重新命名；后续发行入口迁移走 N3，不跳过各自资格门。
 
 ### 1.3 非目标
 
@@ -720,7 +720,7 @@ N6-E 只采用可销毁本地模式的新资源命名与 `YOAO_WORKTREE_MODE`。
 
 2026-11-19 已批准两个限定采用切片与 J1／J2。维护者随后明确取消对其他分支 T1／T2 的依赖；在本分支核对 J1，再组合验证 N6-S 与 N6-E。旧读写者、归属核验、可恢复点与精确退役要求不变。[测试治理计划](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)独立记录联合验收结果。
 
-本地切换已完成：`876b961cd2` 迁移可销毁工作树的资源命名与所有模式消费者；`271c6428d5` 只切换外部 export 的新分配。`bo0476` 接受两种已保存的精确地址，`bo0477` 单独保存媒体 PUT 的不可变版本，不改写历史清单。组合验收真实读回旧包、新包及媒体；数据库和工作进程均到期且许可结算后，只删除已登记的版本。没有改其他用途、引用哨兵或用户全局配置。[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#本分支组合验收)区分可销毁环境证明与日常／生产采用。
+本地切换已完成：`876b961cd2` 迁移可销毁工作树的资源命名与所有模式消费者；`271c6428d5` 只切换外部 export 的新分配。`bo0476` 接受两种已保存的精确地址，`bo0477` 单独保存媒体 PUT 的不可变版本，不改写历史清单。组合验收真实读回旧包、新包及媒体；数据库和工作进程均到期且许可结算后，只删除已登记的版本。没有改其他用途、引用哨兵或用户全局配置。[运行账本](../evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#本分支组合验收)区分可销毁环境证明与日常／生产采用。
 
 所有持久切片分别记录：切换前可恢复点、停止新准入与旧写者证据、失败时允许的恢复动作，以及切换后新写入的处理。**存在新写入后，恢复旧快照不能称为无损回退。** 若没有可证明的保全方案，保持拒绝／围栏并采用批准的前向恢复，不自动回开旧 writer。
 
@@ -743,7 +743,7 @@ N6-E 只采用可销毁本地模式的新资源命名与 `YOAO_WORKTREE_MODE`。
 - **N4-D3 已完成独立验收：** `ec897f30b`；同标签页 sessionStorage 交接、单次消费与失败保留通过。
 - **N6-K 已完成：** `d4fc25259`；隔离 HOME 实际发现十个 `yoao-*` 技能，未改全局技能。
 - **N5-S／N5-W 已完成限定资格：** `deepseek/deepseek-flash` task 子代理完成运行时分类器、逐 owner grants、Workspace Python／Node／API 消费者及验收入口，主代理补齐共享授权、前向迁移与 verifier。最终 70 个去重案例通过（20 项安全识别／授权、50 项 owner-transfer），另有 34 项单元检查通过；由 `n5-owner-2` 的 66 项未变更通过证据与 `n5-owner-3 @ 0a62314f1` 的四条兼容路径复验组成。真实 LOGIN、有数据前向切换及拒绝原子性、当前恢复、进程与受限镜像重启重放均有证据；旧完整 T1 仍未通过，不重跑整套来阻塞每次开发。六个实施工作树已退役，日常环境未切换；此结果不放行 N6-S／N6-E／J1／J2，也不扩大到所有 namespace。详见运行账本。
-- T1／T2 的当前状态、未关闭问题与已关闭切片见[测试治理计划 §16.6–§16.8](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)，逐次运行历史与原始回执见[阶段 F 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
+- T1／T2 的当前状态、未关闭问题与已关闭切片见[测试治理计划 §16.6–§16.8](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)，逐次运行历史与原始回执见[阶段 F 运行账本](../evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
 
 ### 16.7 N5：锁域、成员、中继和控制协议
 
@@ -800,7 +800,7 @@ LibreYOLO 候选在仓外按哈希锁安装，CPython 3.11 下原生模型与适
 
 ### 16.12 N5／N7：PostgreSQL 连接显示名与观测读者
 
-当前模块创建连接时的 48 个旧显示名改为 `yoao-`：58 处固定配置共用 45 个名称，Inference GPU 连接池另产生三个名称。Python 发行包、Workspace 的 Node 替代实现、邮件锁等待和 Workspace 进程退出的观测读者同步切换。Notifications 独占验收同时检查目标库的发布账号和当前显示名，不能因为旧进程仍使用旧名称就误判为空闲。滚动部署的看板过滤说明见[模块部署](../../docs-site/dev/concepts/module-deployment.md)。不改授权、签名线协议、锁键、历史工件或仅用于一次性探针的名称。
+当前模块创建连接时的 48 个旧显示名改为 `yoao-`：58 处固定配置共用 45 个名称，Inference GPU 连接池另产生三个名称。Python 发行包、Workspace 的 Node 替代实现、邮件锁等待和 Workspace 进程退出的观测读者同步切换。Notifications 独占验收同时检查目标库的发布账号和当前显示名，不能因为旧进程仍使用旧名称就误判为空闲。滚动部署的看板过滤说明见[模块部署](../../../docs-site/dev/concepts/module-deployment.md)。不改授权、签名线协议、锁键、历史工件或仅用于一次性探针的名称。
 
 11 个 Python 包均构建 wheel／sdist，wheel 中 44 个变更的源模块逐个与候选代码一致。独立 PostgreSQL 上，新旧发布器都能读策略、都被拒绝直接读取用户表；仅旧版、两版共存、仅新版三种状态均拒绝占用同一验收库，全部关闭后才放行。两版 Node 服务的 `/ready` 均为 200，PostgreSQL 连接日志记录同一受限角色和对应版本的显示名。邮件锁等待与 Workspace 进程退出、事务回滚和重放共 4 个实库用例通过；另有 40 个模块用例通过，无跳过。没有把所有 48 种连接都计作单独实跑，也没有重跑发布器整镜像或 8K。
 
@@ -832,12 +832,18 @@ OpenAPI 快照和 Python SDK 操作目录从源码重新生成；与清理前逐
 
 **J1。** 在 `feat/product-language-n7` 的实施基线 `d2a6bda31` 核对祖先：原生格式 `24a109c3d`、三类草稿 `38e3ce262`／`6a86e7987`／`f7df93b55`／`ec897f30b`、技能 `d4fc25259`、N5 最终数据库切换 `254fe2a54` 及 N7 邮件与文件入口 `ee0f3248db` 均已进入本分支。资格来自上述切片实际记录与本次组合验收，不来自分支名或其他计划的通过数。
 
-测试优化分支的 J1 普通 worker 矩阵分开使用提交和观察凭据；该结果不覆盖同一把 API key。合并后的[双向实库对照](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#j1同一-api-key-轮询与导出授权竞争)定位到认证与导出复核争用凭据行。`d9ceedf51b` 将最近使用记录与授权行分开，保留原请求凭据与最终授权检查；[普通单凭据导出验收](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#j1同凭据普通导出前向验收)与历史矩阵分开记账。
+测试优化分支的 J1 普通 worker 矩阵分开使用提交和观察凭据；该结果不覆盖同一把 API key。合并后的[双向实库对照](../evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#j1同一-api-key-轮询与导出授权竞争)定位到认证与导出复核争用凭据行。`d9ceedf51b` 将最近使用记录与授权行分开，保留原请求凭据与最终授权检查；[普通单凭据导出验收](../evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#j1同凭据普通导出前向验收)与历史矩阵分开记账。
 
-**N6-S／J2。** PostgreSQL 从有实际旧导出责任的 `bo0475` 升至 `bo0476`。已登记的全局 S3 只把新 export 分配到 `_yoao_managed/export/`；保存的 `_aap_managed/export/` 仍按原 location、键、版本及租约读取和结算。切换后为旧媒体补建的配套 ZIP 仍在旧根。两代均写入后，恢复数据库和带版本的对象存储，沿原端点下载 10 个对象版本；回收六个确切媒体版本和两个配套 ZIP，不碰两个独立 ZIP 或相邻同内容对象。见[部署与恢复边界](../../docs-site/ops/deploy/storage-recovery.md#导出用途切换的部署顺序)。
+**N6-S／J2。** PostgreSQL 从有实际旧导出责任的 `bo0475` 升至 `bo0476`。已登记的全局 S3 只把新 export 分配到 `_yoao_managed/export/`；保存的 `_aap_managed/export/` 仍按原 location、键、版本及租约读取和结算。切换后为旧媒体补建的配套 ZIP 仍在旧根。两代均写入后，恢复数据库和带版本的对象存储，沿原端点下载 10 个对象版本；回收六个确切媒体版本和两个配套 ZIP，不碰两个独立 ZIP 或相邻同内容对象。见[部署与恢复边界](../../../docs-site/ops/deploy/storage-recovery.md#导出用途切换的部署顺序)。
 
-**N6-E／J2。** 匹配旧工具精确退役非空旧模式；新 manifest、`YOAO_WORKTREE_MODE`、`YOAO_WORKTREE_RESOURCE_ROOT` 和新 owner 只管新建的模式。真实 API 和两个队列 worker 启动，普通队列完成实际任务。旧／混合身份、外部 owner、错误确认值和活跃数据库连接均被拒绝。新工具没有复制、改签或接管旧资源；[工作树指南](../../docs-site/dev/how-to/worktree-environments.md)区分切换和重建。
+**N6-E／J2。** 匹配旧工具精确退役非空旧模式；新 manifest、`YOAO_WORKTREE_MODE`、`YOAO_WORKTREE_RESOURCE_ROOT` 和新 owner 只管新建的模式。真实 API 和两个队列 worker 启动，普通队列完成实际任务。旧／混合身份、外部 owner、错误确认值和活跃数据库连接均被拒绝。新工具没有复制、改签或接管旧资源；[工作树指南](../../../docs-site/dev/how-to/worktree-environments.md)区分切换和重建。
 
-**N7。** 当前读者入口统一使用「模型服务」、实际 Jobs relay 命令、`native_json` 文件合同及对应的插件作者工具名。新增命名检查只看活跃文件中的新增命令、导入、私有状态和明确的展示用语，不匹配历史档案或签名身份。Plugin-SDK `208686dd6765` 与 YOAO-Plugins `80b826288185` 为本地核对修订；平台 `yoao-sdk`／`yoao plugins` 不替代作者工具 `yoao-plugin`。制品、浏览器与隔离环境证据见[运行账本](evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)。
+**N7。** 当前读者入口统一使用「模型服务」、实际 Jobs relay 命令、`native_json` 文件合同及对应的插件作者工具名。新增命名检查只看活跃文件中的新增命令、导入、私有状态和明确的展示用语，不匹配历史档案或签名身份。Plugin-SDK `208686dd6765` 与 YOAO-Plugins `80b826288185` 为本地核对修订；平台 `yoao-sdk`／`yoao plugins` 不替代作者工具 `yoao-plugin`。制品、浏览器与隔离环境证据见[运行账本](../evidence/1793263851_yoao-product-language-and-naming/n7-run-ledger.md)。
 
 **保留边界。** `__aap_reference__`、非 export 受管对象前缀、旧文件标记及精确读者、已签发身份和在用的 `AAP_PLUGIN_*` 凭据不改。共用端口锁需继续与既有客户端互斥；不原地改日常／生产资源、systemd、部署卷网或用户全局设置。未发布 wheel／镜像，未重跑 T1／T2、全模型或全量 E2E，也未将这些工作记作本次完成项。
+
+## Outcome
+
+原生格式（`24a109c3d`）、Native 数据库命名空间（`254fe2a54`）、账号邮件与文件入口（`ee0f3248db`）已合入。J1／J2 核实了限定范围内的真实消费者、新旧导出读取与恢复、新建工作树环境的启动和退役。历史文件、已签发身份和非 export 存储前缀保留原值，不是待更名清单。
+
+现行用法见[导出格式](../../../docs-site/user-guide/reference/export-formats.md)、[存储恢复](../../../docs-site/ops/deploy/storage-recovery.md)和[工作树环境](../../../docs-site/dev/how-to/worktree-environments.md)。图片工作台首次读取原件的单次 409 由 [#187](https://github.com/YOAO-Labs/ai-annotation-platform/issues/187) 跟踪，尚未归因；其余跨计划事项见[测试治理归档交接](1793261328_test-governance-module-plugin-contracts.md#outcome)。

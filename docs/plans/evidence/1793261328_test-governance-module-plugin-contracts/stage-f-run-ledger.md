@@ -1,6 +1,6 @@
 # 阶段 F 运行账本
 
-> 本文件是阶段 F（迁移前后的并行测试治理）的追加式运行账本。原文于 2026-11-12 逐字迁出自[测试治理计划](../../1793261328_test-governance-module-plugin-contracts.md)第 16.6／16.7 节，仅为可读性拆分归档，不是当前状态入口；任务状态、未关闭问题与已关闭切片见该计划 [§16.6](../../1793261328_test-governance-module-plugin-contracts.md#166-当前状态)、[§16.7](../../1793261328_test-governance-module-plugin-contracts.md#167-未关闭问题)、[§16.8](../../1793261328_test-governance-module-plugin-contracts.md#168-已关闭切片)。
+> 本文件是阶段 F（迁移前后的并行测试治理）的追加式运行账本。原文于 2026-11-12 逐字迁出自[已归档的测试治理计划](../../archive/1793261328_test-governance-module-plugin-contracts.md)第 16.6／16.7 节。归档时的[任务状态](../../archive/1793261328_test-governance-module-plugin-contracts.md#166-当前状态)、[原未关闭问题](../../archive/1793261328_test-governance-module-plugin-contracts.md#167-未关闭问题)与[已关闭切片](../../archive/1793261328_test-governance-module-plugin-contracts.md#168-已关闭切片)保留原结论；后续进展见[独立跟踪项](../../archive/1793261328_test-governance-module-plugin-contracts.md#outcome)。
 >
 > 文中 `runtime-private/…` 形式的回执位于 Run 私有目录 `.orca-dag/20261104-074930-788/runtime-private/`（未跟踪，不随 Git 分发），本文件只引用、不复制这些字节。
 >

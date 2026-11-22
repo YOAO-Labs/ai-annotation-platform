@@ -1323,7 +1323,7 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 当前源码原生矩阵的准备／清理通过独立 owner 夹具进程执行，普通业务 HTTP 仍使用
 受限连接；Identity 清理 replay 也显式标为 owner 验收。Node 固定能力、私表拒绝和
 借用事务保持独立资格，不将 owner 成功折算成完整 seed 的受限权限证明。
-当前选集及结果见[测试治理计划](docs/plans/1793261328_test-governance-module-plugin-contracts.md)的 G2 后续记录。
+该选集的历史结果见[已归档的测试治理计划](docs/plans/archive/1793261328_test-governance-module-plugin-contracts.md)中的 G2 后续记录。
 
 27 项不同定向检查及 64 项既有路由／隔离回归通过。源码检查 393 项通过、150 项既有
 架构规则跳过；工具检查 58 项及 OpenAPI 核对通过。原始基线与失败收据保留，不相加
@@ -1348,7 +1348,7 @@ AAP_IDENTITY_E2E_FIXTURE_LIVE=1 \
 以及重复清理一个 namespace 后另一个 namespace 和普通邻居仍存活。
 原先在 API 进程中调用 seed、撤销其 fixture 权限和强制中断造数的混合流程已移除；
 其历史收据不能视为当前 owner 通道的物理取消资格。
-当前结果见[测试治理计划](docs/plans/1793261328_test-governance-module-plugin-contracts.md)，
+本次限定验收见[已归档的测试治理计划](docs/plans/archive/1793261328_test-governance-module-plugin-contracts.md)，
 不因本地验收切换日常主环境或宣称整模块部署完成。
 
 ### 历史截图夹具的 Identity 边界

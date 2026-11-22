@@ -2472,7 +2472,7 @@ collector 先锁小型身份列，再在 PostgreSQL 计算完整公开行的 JSO
 迁移、owner／普通运行授权、worktree 授权和便携包资源同步。两项 Labeling 原生
 案例及九项 Jobs 原生案例通过，涵盖精确范围、限量、竞争、回滚和预算拒绝；
 独立普通 API／worker 已完成图像原生 JSON 导出、浏览器下载和未改写文档的重新导入。
-当前限定证据见本仓 `docs/plans/1793261328_test-governance-module-plugin-contracts.md` 的 G3 Outcome。
+该次限定验收见本仓 `docs/plans/archive/1793261328_test-governance-module-plugin-contracts.md` 的 G3 Outcome。
 这不继承为完整模块、替代语言提供方、冷镜像／恢复或点云／视频全流程资格。
 
 ## Jobs 生命周期与队列交接 {#jobs-lifecycle-queue}
