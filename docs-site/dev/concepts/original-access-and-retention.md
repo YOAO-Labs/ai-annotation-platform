@@ -39,6 +39,8 @@ last_reviewed: 2026-10-26
 
 浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造 Task/Item/精确 camera link 的认证请求，核对身份中的完整下载路径，不给任意 URL 附加 Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取。字节 GET 仅对 `429 snapshot_capacity_exceeded` 和 `409 content_busy` 有限重试，沿用同一内容 UUID、SHA 与下载路径；权限或内容身份变化不因此重试。资源 owner 按账号/session 划分，同 session 令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session 及不完整的跨标签凭据停止读取。
 
+图片审核工作台在当前任务、账号及会话的首次认领请求结束后，才启动当前原图的身份查询和读取。认领回执在数据库提交后返回，包括已由他人认领的情况。回执代表本次认领不再持有批次和任务锁，不授予原图读取权限；身份查询和字节交付仍各自验证权限与版本。
+
 `original_binary` 按 Task、精确相机 link 或 `DatasetItem` 冻结来源；`originals` 路由提供零物理 I/O 的身份（`/api/v1/files/tasks/{id}/original-identity`）及绑定 content UUID/SHA 的完整下载。相机只借当前 Task 可见性读取其明确 `camera_` 链接；Item 入口要求 Dataset 管理权限并校验 `dataset_id`。
 
 `original_binary_response` 复用严格 reader，单文件 `512 MiB`、独立两槽，槽覆盖复制与响应到真实文件关闭，声明大小的最大同时暂存为 `1 GiB`。匿名临时文件不产生命名缓存；响应前断连、取消、超时及发送失败等待在途线程收尾。复制和响应各 120 秒为合作式期限。`octet-stream` attachment 不执行图片解码，也不支持 Range/HEAD 或条件 304；大文件明确 413，不隐式回退签名地址。

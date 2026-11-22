@@ -156,14 +156,15 @@ class TaskReviewWorkflow:
                     "contributor_ids": await task_contributor_snapshot(self.db, task),
                 },
             )
-            await self.db.commit()
 
-        return {
+        receipt = {
             "task_id": task.id,
             "reviewer_id": task.reviewer_id,
             "reviewer_claimed_at": task.reviewer_claimed_at,
             "is_self": task.reviewer_id == actor.id,
         }
+        await self.db.commit()
+        return receipt
 
     async def approve_task(
         self,

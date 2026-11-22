@@ -5,16 +5,20 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.task_lifecycle import TaskLifecycleWorkflow
 from app.application.task_review import TaskReviewWorkflow
 from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
+from app.db.models.project import Project
+from app.db.models.task import Task
+from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.notification import NotificationService
+from app.services.original_content_access import visible_task
 from app.services.project_access import resolve_project_access
 from tests.factory import (
     create_batch,
@@ -210,3 +214,85 @@ async def test_review_audits_and_notifies_from_the_locked_actor_profile(
     # Identity facts drive the write without refreshing an unrelated cached ORM row.
     assert actor.name == "Initial Reviewer"
     assert actor.email != current_email
+
+
+@pytest.fixture
+async def review_claim_rows(test_engine):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker.begin() as db:
+        owner = await create_user(
+            db, "project_admin", f"claim-owner-{uuid.uuid4()}@test.local", "Owner"
+        )
+        project = await create_project(db, owner_id=owner.id)
+        reviewers = [
+            await create_user(
+                db, "employee", f"claim-{uuid.uuid4()}@test.local", "Reviewer"
+            )
+            for _ in range(2)
+        ]
+        for reviewer in reviewers:
+            await create_membership(
+                db, project_id=project.id, user_id=reviewer.id, role="reviewer"
+            )
+        batch = await create_batch(db, project_id=project.id, status="reviewing")
+        task = await create_task(db, project_id=project.id, status="review")
+        task.batch_id = batch.id
+        task.assignee_id = owner.id
+        task.annotation_contributor_ids = [str(owner.id)]
+        task.review_contributor_ids = [str(owner.id)]
+        task.review_submitter_id = owner.id
+        task.review_round_id = uuid.uuid4()
+        reviewer_ids = tuple(reviewer.id for reviewer in reviewers)
+        project_id, batch_id, task_id = project.id, batch.id, task.id
+        user_ids = (owner.id, *reviewer_ids)
+
+    try:
+        yield maker, project_id, batch_id, task_id, reviewer_ids
+    finally:
+        async with maker.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
+            await db.execute(delete(AuditLog).where(AuditLog.target_id == str(task_id)))
+            await db.execute(delete(Task).where(Task.id == task_id))
+            await db.execute(delete(TaskBatch).where(TaskBatch.id == batch_id))
+            await db.execute(delete(Project).where(Project.id == project_id))
+            await db.execute(delete(User).where(User.id.in_(user_ids)))
+
+
+async def _claim_review(db, project_id, task_id, actor_id):
+    project = await db.get(Project, project_id)
+    access = await resolve_project_access(db, actor_id=actor_id, project=project)
+    return await TaskReviewWorkflow(db).claim_review(
+        task_id,
+        actor_id=actor_id,
+        access=access,
+        origin=AuditOriginContext(None, None, None),
+    )
+
+
+@pytest.mark.parametrize(
+    "is_self", [True, False], ids=["claim-owner", "other-reviewer"]
+)
+async def test_repeated_review_claim_releases_locks_before_original_read(
+    review_claim_rows, is_self
+):
+    maker, project_id, _, task_id, (reviewer, other) = review_claim_rows
+    async with maker() as claimant, maker() as reader:
+        saved = await _claim_review(claimant, project_id, task_id, reviewer)
+        actor_id = reviewer if is_self else other
+        actor = await reader.get(User, actor_id)
+        repeated = await _claim_review(claimant, project_id, task_id, actor_id)
+
+        task = await visible_task(reader, task_id, actor, lock=True)
+        assert repeated == {**saved, "is_self": is_self}
+        assert task.id == task_id
+        assert task.reviewer_id == reviewer
+        assert task.reviewer_claimed_at == saved["reviewer_claimed_at"]
+        (audit,) = (
+            await reader.scalars(
+                select(AuditLog).where(
+                    AuditLog.action == "task.review_claim",
+                    AuditLog.target_id == str(task_id),
+                )
+            )
+        ).all()
+        assert audit.detail_json["review_round_id"] == str(task.review_round_id)

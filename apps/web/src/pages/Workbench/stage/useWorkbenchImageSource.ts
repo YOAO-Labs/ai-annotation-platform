@@ -191,6 +191,7 @@ export function useWorkbenchImageSource(
   incomingTask: TaskResponse | undefined,
   mediaIdentity?: string | null,
   requestedTaskId?: string | null,
+  admittedTaskId?: string | null,
 ): {
   source: WorkbenchImageSource | null;
   /** Refresh authenticated bytes or derived metadata without rebuilding the pyramid. */
@@ -219,7 +220,10 @@ export function useWorkbenchImageSource(
   } else if (!requestedTaskId || retained.current.task?.id !== requestedTaskId) {
     retained.current.task = undefined;
   }
-  const task = retained.current.task;
+  const retainedTask = retained.current.task;
+  const awaitingAdmission = admittedTaskId !== undefined && retainedTask?.id !== admittedTaskId;
+  const pendingAdmission = awaitingAdmission && retainedTask?.file_type === "image";
+  const task = awaitingAdmission ? undefined : retainedTask;
   const reference = task?.storage_mode === "reference";
   const verified = useVerifiedImage(
     reference && task?.content_sha256
@@ -407,17 +411,21 @@ export function useWorkbenchImageSource(
   return {
     source,
     refresh,
-    contentPending: reference
-      ? !verified.ready && !verified.error
-      : needsOriginal && !original.ready && !original.error,
+    contentPending:
+      pendingAdmission ||
+      (reference
+        ? !verified.ready && !verified.error
+        : needsOriginal && !original.ready && !original.error),
     contentBlockedReason:
-      incomingTask?.file_type === "image" && !task
+      incomingTask?.file_type === "image" && !retainedTask
         ? "正在当前会话重新读取任务图片，请稍候"
-        : reference && !verified.ready
-          ? (verified.error ?? "正在核验并读取原图，请稍候")
-          : needsOriginal && !original.ready
-            ? (original.error ?? "正在核验并读取原图，请稍候")
-            : null,
+        : pendingAdmission
+          ? "正在准备任务，请稍候"
+          : reference && !verified.ready
+            ? (verified.error ?? "正在核验并读取原图，请稍候")
+            : needsOriginal && !original.ready
+              ? (original.error ?? "正在核验并读取原图，请稍候")
+              : null,
     retry:
       reference || needsOriginal
         ? refresh

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -785,12 +785,118 @@ export function useAcceptRejection() {
   });
 }
 
-export function useReviewClaim() {
+function reviewClaimReason(error: unknown): string | undefined {
+  const detail = error instanceof ApiError ? error.detailRaw : undefined;
+  if (
+    detail &&
+    typeof detail === "object" &&
+    "reason" in detail &&
+    typeof detail.reason === "string"
+  ) {
+    return detail.reason;
+  }
+  return undefined;
+}
+
+function isReviewClaimBusy(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false;
+  const reason = reviewClaimReason(error);
+  return reason === "batch_busy" || reason === "task_busy";
+}
+
+export interface ReviewClaimState {
+  canDecide: boolean;
+  ownsClaim: () => boolean;
+  initialSettled: boolean;
+  message: string | null;
+  retry: (() => void) | undefined;
+}
+
+export function useReviewClaim(taskId: string | undefined): ReviewClaimState {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (taskId: string) => tasksApi.reviewClaim(taskId),
-    onSuccess: (_, taskId) => {
-      qc.invalidateQueries({ queryKey: ["task", taskId] });
+  const userId = useAuthStore((s) => s.user?.id);
+  const sessionId = useAuthStore((s) => s.sessionId);
+  const scope = useMemo(
+    () => (taskId && userId && sessionId ? { taskId, userId, sessionId } : null),
+    [taskId, userId, sessionId],
+  );
+  type Scope = NonNullable<typeof scope>;
+  const currentScope = useRef<Scope | null>(null);
+  const lastStartedScope = useRef<Scope | null>(null);
+  const [initialSettledScope, setInitialSettledScope] = useState<Scope | null>(null);
+  useLayoutEffect(() => {
+    currentScope.current = scope;
+    return () => {
+      currentScope.current = null;
+    };
+  }, [scope]);
+
+  const ownsScope = useCallback(
+    (owner: Scope) =>
+      currentScope.current === owner &&
+      useAuthStore.getState().sessionId === owner.sessionId &&
+      isCurrentAuthOwner(owner.userId),
+    [],
+  );
+  const { mutate, variables, data, error } = useMutation({
+    mutationFn: (owner: Scope) => {
+      if (!ownsScope(owner)) throw new Error("Review claim context changed");
+      return tasksApi.reviewClaim(owner.taskId);
+    },
+    retry: (attempt, error) => attempt < 1 && isReviewClaimBusy(error),
+    onSuccess: (_, owner) => {
+      if (ownsScope(owner)) void qc.invalidateQueries({ queryKey: ["task", owner.taskId] });
+    },
+    onSettled: (_data, _error, owner) => {
+      if (currentScope.current === owner) setInitialSettledScope(owner);
     },
   });
+  useEffect(() => {
+    if (!scope || lastStartedScope.current === scope) return;
+    lastStartedScope.current = scope;
+    mutate(scope);
+  }, [mutate, scope]);
+
+  const current = scope !== null && variables === scope;
+  const claim = current && data?.task_id === scope.taskId ? data : null;
+  const canDecide = claim?.is_self === true && claim.reviewer_id === scope?.userId;
+  const ownsClaim = useCallback(
+    () => canDecide && scope !== null && ownsScope(scope),
+    [canDecide, ownsScope, scope],
+  );
+  const currentError = current ? error : null;
+  const busy = isReviewClaimBusy(currentError);
+  const canRetry =
+    busy ||
+    currentError instanceof TypeError ||
+    (currentError instanceof ApiError &&
+      (currentError.status === 429 || currentError.status >= 500));
+  let message: string | null = null;
+  if (scope && !canDecide) {
+    if (claim && !claim.is_self) {
+      message = `已被其他审核员认领（${new Date(claim.reviewer_claimed_at).toLocaleString("zh-CN")}），无法提交审核结果`;
+    } else if (busy) {
+      message = "任务正忙，未能认领，请重试";
+    } else if (reviewClaimReason(currentError) === "task_review_assigned_to_other") {
+      message = "任务已分配给其他审核员，无法认领";
+    } else if (canRetry) {
+      message = "未能认领审核任务，请重试";
+    } else if (currentError || (current && data)) {
+      message = "无法认领审核任务";
+    } else {
+      message = "正在认领审核任务，请稍候";
+    }
+  }
+  return {
+    canDecide,
+    ownsClaim,
+    initialSettled: !scope || initialSettledScope === scope,
+    message,
+    retry:
+      scope && canRetry
+        ? () => {
+            if (ownsScope(scope)) mutate(scope);
+          }
+        : undefined,
+  };
 }

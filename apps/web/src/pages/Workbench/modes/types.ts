@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import type { ReviewClaimResponse } from "@/types";
 import type { SkipReason } from "../shell/SkipTaskModal";
 
 export type WorkbenchMode = "annotate" | "review";
@@ -53,7 +52,6 @@ export interface WorkbenchModeState {
   diffMode?: DiffMode;
   onSetDiffMode?: (mode: DiffMode) => void;
   banners?: ReactNode;
-  claimInfo: ReviewClaimResponse | null;
   topbarActions: WorkbenchTopbarActions;
   bannerActions: WorkbenchBannerActions;
 }

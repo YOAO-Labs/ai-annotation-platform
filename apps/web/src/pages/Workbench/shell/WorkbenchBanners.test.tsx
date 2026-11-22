@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { TaskResponse } from "@/types";
+import { ReviewClaimNotice } from "@/pages/Review/ReviewClaimNotice";
 import { WorkbenchBanners } from "./WorkbenchBanners";
 
 function task(overrides: Partial<TaskResponse> = {}): TaskResponse {
@@ -46,7 +47,6 @@ const baseProps = {
   mode: "annotate" as const,
   task: task(),
   lockError: null,
-  claimInfo: null,
   canWithdraw: false,
   canReopen: false,
   isWithdrawing: false,
@@ -93,12 +93,7 @@ describe("WorkbenchBanners", () => {
         {...baseProps}
         mode="review"
         task={task({ skip_reason: "no_target" })}
-        claimInfo={{
-          task_id: "task-1",
-          reviewer_id: "reviewer-2",
-          reviewer_claimed_at: "2026-05-11T08:00:00Z",
-          is_self: false,
-        }}
+        modeBanner={<ReviewClaimNotice message="已被其他审核员认领，无法提交审核结果" />}
       />,
     );
 

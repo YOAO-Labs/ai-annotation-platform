@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isWorkbenchInteractionBlocked } from "../state/workbenchInteractionGuards";
-import { useApproveTask, useRejectTask, useReviewClaim } from "@/hooks/useTasks";
+import { useApproveTask, useRejectTask, type ReviewClaimState } from "@/hooks/useTasks";
 import { ReviewerMiniPanel } from "@/pages/Review/ReviewerMiniPanel";
+import { ReviewClaimNotice } from "@/pages/Review/ReviewClaimNotice";
 import { promptRejectReason } from "@/pages/Review/rejectReasonDialog";
-import type { ReviewClaimResponse, TaskResponse } from "@/types";
+import type { TaskResponse } from "@/types";
 import type { DiffMode, NavigateTask, PushToast, WorkbenchMode, WorkbenchModeState } from "./types";
 
 interface UseReviewModeParams {
   mode: WorkbenchMode;
   taskId: string | undefined;
   task: TaskResponse | undefined;
+  claim: ReviewClaimState;
   navigateTask: NavigateTask;
   pushToast: PushToast;
   isCurrentContext?: () => boolean;
@@ -32,6 +34,7 @@ export function useReviewMode({
   mode,
   taskId,
   task,
+  claim: { canDecide, ownsClaim, message, retry },
   navigateTask,
   pushToast,
   isCurrentContext,
@@ -39,15 +42,13 @@ export function useReviewMode({
   resumeTaskLock,
 }: UseReviewModeParams): WorkbenchModeState {
   const [diffMode, setDiffMode] = useState<DiffMode>("diff");
-  const [claimInfo, setClaimInfo] = useState<ReviewClaimResponse | null>(null);
   const approveMut = useApproveTask();
   const rejectMut = useRejectTask();
-  const claimMut = useReviewClaim();
   const currentTaskIdRef = useRef(taskId);
   currentTaskIdRef.current = taskId;
   const currentReviewContextRef = useRef({ taskId, status: task?.status, mode });
   currentReviewContextRef.current = { taskId, status: task?.status, mode };
-  const reviewAvailable = mode === "review" && task?.status === "review";
+  const reviewAvailable = mode === "review" && task?.id === taskId && task?.status === "review";
   const reviewSessionRef = useRef({ taskId, mode, available: reviewAvailable });
   if (
     reviewSessionRef.current.taskId !== taskId ||
@@ -82,21 +83,9 @@ export function useReviewMode({
     [isCurrentContext],
   );
 
-  useEffect(() => {
-    if (mode !== "review" || !taskId || task?.status !== "review") return;
-    const owns = ownsReviewTask;
-    claimMut.mutate(taskId, {
-      onSuccess: (data) => {
-        if (owns(taskId)) setClaimInfo(data);
-      },
-      onError: () => {},
-    });
-    // claimMut 故意不在依赖数组中（每次 taskId 变化只 fire 一次）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, taskId, task?.status, ownsReviewTask]);
   const handleDecision = useCallback(
     async (kind: "approve" | "reject") => {
-      if (!taskId || !ownsReviewTask(taskId)) return;
+      if (!taskId || !ownsReviewTask(taskId) || !ownsClaim()) return;
       const session = reviewSessionRef.current;
       if (decisionRef.current?.session === session) return;
       const ownerTaskId = taskId;
@@ -132,12 +121,17 @@ export function useReviewMode({
                 skipReasonHint: task?.skip_reason ?? null,
               })
             : null;
-        if ((kind === "reject" && !payload) || !owns() || !ownsReviewTask(ownerTaskId)) {
+        if (
+          (kind === "reject" && !payload) ||
+          !owns() ||
+          !ownsReviewTask(ownerTaskId) ||
+          !ownsClaim()
+        ) {
           clear();
           return;
         }
         await releaseTaskLock?.(ownerTaskId);
-        if (!owns() || !ownsReviewTask(ownerTaskId)) {
+        if (!owns() || !ownsReviewTask(ownerTaskId) || !ownsClaim()) {
           clear();
           return;
         }
@@ -163,6 +157,7 @@ export function useReviewMode({
       taskId,
       task?.skip_reason,
       ownsReviewTask,
+      ownsClaim,
       isCurrentContext,
       releaseTaskLock,
       resumeTaskLock,
@@ -201,13 +196,13 @@ export function useReviewMode({
 
   const pendingDecision =
     reviewAvailable && decision?.session === reviewSessionRef.current ? decision : null;
-  const reviewTaskAvailable = reviewAvailable && !pendingDecision;
+  const reviewTaskAvailable = reviewAvailable && canDecide && !pendingDecision;
   const topbarActions = useMemo(
     () => ({
       canApprove: reviewTaskAvailable,
       canReject: reviewTaskAvailable,
-      onApprove: handleApproveTask,
-      onReject: () => void handleRejectTask(),
+      onApprove: reviewTaskAvailable ? handleApproveTask : undefined,
+      onReject: reviewTaskAvailable ? () => void handleRejectTask() : undefined,
       isApproving: pendingDecision?.kind === "approve",
       isRejecting: pendingDecision?.kind === "reject",
       reviewInfoSlot: mode === "review" ? <ReviewerMiniPanel /> : undefined,
@@ -219,8 +214,7 @@ export function useReviewMode({
     isLocked: mode === "review" ? task?.status !== "review" : task?.status === "completed",
     diffMode: mode === "review" ? diffMode : undefined,
     onSetDiffMode: mode === "review" ? setDiffMode : undefined,
-    banners: null,
-    claimInfo,
+    banners: <ReviewClaimNotice message={message} retry={retry} />,
     topbarActions,
     bannerActions: emptyBannerActions,
   };

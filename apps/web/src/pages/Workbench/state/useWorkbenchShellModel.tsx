@@ -193,9 +193,9 @@ import type { VideoTrackAnnotation } from "../stage/videoStageTypes";
 import type { StageKind } from "../stages/types";
 import {
   LARGE_IMAGE_TILES_ENABLED,
-  useWorkbenchImageSource,
   workbenchImagePreviewUrl,
 } from "../stage/useWorkbenchImageSource";
+import { useWorkbenchTaskImage } from "./useWorkbenchTaskImage";
 import { loadAbortableImage } from "../stage/useAbortableImage";
 import { imageTileDeviceBudget, singleImageFitsDecodedBudget } from "../stage/imagePyramid";
 import { WorkbenchOverlays } from "../shell/WorkbenchOverlays";
@@ -821,10 +821,17 @@ export function useWorkbenchShellModel({
   const blurhash = task?.blurhash ?? null;
   const thumbnailUrl = task?.thumbnail_url ?? null;
   const {
-    source: workbenchImageSource,
-    retry: retryWorkbenchImagePyramid,
-    contentBlockedReason,
-  } = useWorkbenchImageSource(task, imageMediaKey, currentTaskId ?? requestedTaskId);
+    reviewClaim,
+    image: {
+      source: workbenchImageSource,
+      retry: retryWorkbenchImagePyramid,
+      contentBlockedReason,
+    },
+  } = useWorkbenchTaskImage({
+    task,
+    requestedTaskId: currentTaskId ?? requestedTaskId,
+    review: mode === "review" && !scenePlaybackActive,
+  });
   const workbenchImagePreview = workbenchImagePreviewUrl(workbenchImageSource);
   const isVideoTask = task?.file_type === "video" || currentProject?.type_key === "video-track";
   const stageKind = currentProject?.type_key === "lidar" ? "3d" : isVideoTask ? "video" : "image";
@@ -4425,6 +4432,7 @@ export function useWorkbenchShellModel({
     mode,
     taskId: scenePlaybackActive ? undefined : taskId,
     task,
+    claim: reviewClaim,
     navigateTask,
     pushToast,
     isCurrentContext: isCurrentSubmitContext,
@@ -5661,7 +5669,7 @@ export function useWorkbenchShellModel({
       onRetryContent: retryWorkbenchImagePyramid,
       lockError,
       lockConflict,
-      claimInfo: modeState.claimInfo,
+      modeBanner: modeState.banners,
       canWithdraw: !scenePlaybackActive && bannerActions.canWithdraw,
       isWithdrawing: bannerActions.isWithdrawing,
       isReopening: bannerActions.isReopening,
