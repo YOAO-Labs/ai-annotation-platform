@@ -1748,8 +1748,7 @@ async def _cleanup_owned_e2e_fixtures(
     )
     from app.db.models.user import User
     from app.services import fixture_run_ownership as ownership, storage_access
-    from app.services.original_binary import AuthorizedOriginal, Resource
-    from app.services.original_playback import PlaybackContext
+    from app.services.original_playback import owned_playback_contexts
 
     run_id = owned.run_id
     if run_id is None:
@@ -1815,23 +1814,22 @@ async def _cleanup_owned_e2e_fixtures(
             db, owned, family=family, drained_runs=completed_drains
         )
 
-        def fixture_context(context):
-            if not isinstance(context, PlaybackContext) or not isinstance(
-                context.original, AuthorizedOriginal
-            ):
-                return False
-            resource = context.original.resource
-            if not isinstance(resource, Resource):
-                return False
-            return (resource.kind == "task" and resource.task_id in scope.task_ids) or (
-                resource.kind == "item" and resource.dataset_id in scope.dataset_ids
-            )
+        fixture_contexts = (
+            owned_playback_contexts(scope.task_ids, scope.dataset_ids)
+            if registry is not None
+            else None
+        )
+
+        async def revoke_playback():
+            if registry is not None:
+                await registry.revoke_contexts(fixture_contexts)
+            elif native_runtime is not None:
+                await native_runtime.revoke_playback(scope.task_ids, scope.dataset_ids)
 
         if native is not None and run_id not in native.retired_runs:
             await db.commit()
             await native.stop_producers(run_id)
-            if registry is not None:
-                await registry.revoke_contexts(fixture_context)
+            await revoke_playback()
             if not native.video_scope_prepared(run_id):
                 await _prepare_fixture_native_video_cleanup(db, scope, native, run_id)
             await native.retire_datasets(db, run_id, scope.dataset_ids)
@@ -1936,15 +1934,13 @@ async def _cleanup_owned_e2e_fixtures(
         window_id = window.id if window is not None else None
         try:
             plan = await attachments.prepare(db, scope)
-            if registry is not None:
-                await registry.revoke_contexts(fixture_context)
+            await revoke_playback()
             video_plan = (
                 await _prepare_fixture_video_cleanup(db, scope)
                 if native is None
                 else None
             )
-            if registry is not None:
-                await registry.revoke_contexts(fixture_context)
+            await revoke_playback()
             await attachments.delete_objects(db, plan, resolve)
             if video_plan is not None:
                 await _delete_fixture_video_objects(db, video_plan, resolve)

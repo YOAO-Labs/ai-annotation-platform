@@ -460,6 +460,13 @@ class FixtureNativeRuntime:
         self.runs = {}
         self.retired_runs = set()
 
+    async def revoke_playback(self, task_ids, dataset_ids):
+        from fixture_playback_control import revoke_owned_playback
+
+        await revoke_owned_playback(
+            self.directory, self.suite_id, task_ids, dataset_ids
+        )
+
     def _journal(self, run, state, **values):
         run["journal"].update(state=state, **values)
         atomic_json(run["directory"] / "owner.json", run["journal"])

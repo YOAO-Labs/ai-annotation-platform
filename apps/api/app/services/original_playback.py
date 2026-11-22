@@ -1,5 +1,6 @@
 """Prepare verified video originals without giving native media a bearer token."""
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import threading
@@ -18,6 +19,26 @@ _copy_slots = threading.BoundedSemaphore(2)
 class PlaybackContext:
     original: originals.AuthorizedOriginal = field(repr=False)
     session_id: UUID
+
+
+def owned_playback_contexts(
+    task_ids: Iterable[UUID], dataset_ids: Iterable[UUID]
+) -> Callable[[object], bool]:
+    tasks, datasets = frozenset(task_ids), frozenset(dataset_ids)
+
+    def matches(context: object) -> bool:
+        if not isinstance(context, PlaybackContext) or not isinstance(
+            context.original, originals.AuthorizedOriginal
+        ):
+            return False
+        resource = context.original.resource
+        if not isinstance(resource, originals.Resource):
+            return False
+        return (resource.kind == "task" and resource.task_id in tasks) or (
+            resource.kind == "item" and resource.dataset_id in datasets
+        )
+
+    return matches
 
 
 async def capture_video(spec, **read_options):

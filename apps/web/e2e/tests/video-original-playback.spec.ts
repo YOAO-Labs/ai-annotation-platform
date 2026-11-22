@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import type { Page, WebSocketRoute } from "@playwright/test";
 import { test, expect, type SeedAPI } from "../fixtures/seed";
 import { rangeValueForFrame } from "../helpers/video-timeline-seek";
@@ -262,5 +263,62 @@ test.describe("verified original native video", () => {
     expect(prepares).toBe(0);
     await expect(source(page)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "重新准备视频" })).toBeVisible();
+  });
+
+  test("owned fixture cleanup frees only its stage in the supervised API", async ({
+    request,
+    seed,
+  }) => {
+    test.skip(
+      !process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE ||
+        process.env.PLAYWRIGHT_RASTER_OFFLINE === "1",
+      "requires the supervised worktree API and separate fixture owner",
+    );
+
+    const viewer = async (namespace: string) => {
+      const { project_id, admin_email } = await seed.owned(namespace);
+      const { task_id } = await seed.videoTask(project_id);
+      const path = `${API}/api/v1/files/tasks/${task_id}/original`;
+      const headers = { Authorization: `Bearer ${await seed.accessToken(admin_email)}` };
+      const describe = await request.get(`${path}-identity`, { headers });
+      expect(describe.status(), await describe.text()).toBe(200);
+      const { content_id, sha256 } = await describe.json();
+      const prepare = () =>
+        request.post(`${path}-playback`, {
+          headers,
+          data: { content_id, sha256, session_id: randomUUID() },
+        });
+      const prepared = await prepare();
+      expect(prepared.status(), await prepared.text()).toBe(200);
+      const { media_path, expires_at } = await prepared.json();
+      expect(media_path).toMatch(mediaPath);
+      return { url: `${API}${media_path}`, sha256, expiresAt: Date.parse(expires_at), prepare };
+    };
+
+    const a = await viewer("playbacka");
+    const b = await viewer("playbackb");
+    expect((await request.head(a.url)).status()).toBe(200);
+    expect((await request.head(b.url)).status()).toBe(200);
+    const blocked = await b.prepare();
+    expect(blocked.status()).toBe(429);
+    expect(await blocked.json()).toEqual({ detail: { code: "video_playback_capacity_exceeded" } });
+
+    await seed.cleanupOwned("playbacka");
+    expect(a.expiresAt).toBeGreaterThan(Date.now());
+
+    expect((await request.head(a.url)).status()).toBe(410);
+    const neighbor = await request.get(b.url);
+    expect(neighbor.status()).toBe(200);
+    expect(
+      createHash("sha256")
+        .update(await neighbor.body())
+        .digest("hex"),
+    ).toBe(b.sha256);
+    const reclaimed = await b.prepare();
+    expect(reclaimed.status(), await reclaimed.text()).toBe(200);
+    const replacement = (await reclaimed.json()).media_path;
+    expect(replacement).toMatch(mediaPath);
+    expect(`${API}${replacement}`).not.toBe(b.url);
+    expect((await request.head(`${API}${replacement}`)).status()).toBe(200);
   });
 });
