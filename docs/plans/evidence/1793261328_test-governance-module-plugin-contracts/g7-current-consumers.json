@@ -1,0 +1,154 @@
+{
+  "scope": "Seven previously failing G7 node IDs still used by the current module-data verifier. Scoped real runs only; never a default T1/T2, E2E or release pass.",
+  "prior_receipt_sha256": "32e1fb2eb29427a8c052326dc06c3310c815930b1f7e3c193653fdee2f6e39d6",
+  "private_results": ".artifacts/g7-current-ILyRtlYS/exchange/results",
+  "profiles": {
+    "audit-consumers-cold": "tests/test_audit_consumers_cold.py::test_current_cold_audit_api_worker_queries_exports_and_restore",
+    "audit-maintenance-consumers-cold": "tests/test_audit_maintenance_consumers_cold.py::test_installed_beat_maintenance_consumers_recover_archive_after_restore",
+    "audit-maintenance-module": "tests/test_audit_maintenance_module_live.py::test_cold_archive_process_loss_orphan_takeover_and_full_restore",
+    "media-seed": "tests/test_media_seed_identity_live.py::test_media_seed_identity_consumers_use_owned_identity_capabilities",
+    "parent-seed": "tests/test_seed_parent_operator_live.py::test_seed_parent_helpers_run_with_operator_only_capabilities",
+    "workspace-import": "tests/test_workspace_import_cli_live.py::test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabilities",
+    "workspace-seed": "tests/test_workspace_seed_operator_live.py::test_seed_entrypoints_run_through_the_fenced_api_image"
+  },
+  "runs": [
+    {
+      "private_run": "audit-a",
+      "source_commit": "8016c8a7655f990604a5a41e82f16fe66eed3aa5",
+      "verified_image_summary_sha256": "77854fbd79df48b1b4631d356694a49199dea0c6db3415fb25da33c3cc9b33b1",
+      "cases": {
+        "audit-maintenance-consumers-cold": {
+          "result": "passed",
+          "junit_sha256": "910ebabdd5ba67483b82cd3f24e22e1f113b8b1e0fdc673ec7cfe6cef703a87e",
+          "report_sha256": "11d05e2d59cb8752d6d1aae21553bb4f8a4002122f9e20c29ce8ffbafab34c29"
+        },
+        "audit-maintenance-module": {
+          "result": "passed",
+          "junit_sha256": "40444c1f96d80278e34cfb6215108a0a1e9f597041df48eab5741172809325a6",
+          "report_sha256": "f463042bd31e3b35d37d0f8dd9f4afc1625e0e4753efd73e9bf29fffb4954d2c"
+        },
+        "audit-consumers-cold": {
+          "result": "passed",
+          "junit_sha256": "eb30ca992e7ddac1441335c437682f189511fbf4aa39fa1f2042db9279deddb0",
+          "report_sha256": "5a8994c7e1e2815724e7aaf6895f5f30d2de41282250ba738c90cd163a88c714"
+        }
+      }
+    },
+    {
+      "private_run": "seed-a",
+      "source_commit": "30681b186c02b2eea6d612254a7d10c8db763b8e",
+      "verified_image_summary_sha256": "57cea6b1fd86274551e09ac0bc2bd7570f80a428fa85ccb244129fbd2b571ce6",
+      "cases": {
+        "media-seed": {
+          "result": "failed",
+          "junit_sha256": "b70c0b315bea27a6a7b4ce3f0940525e6624b83a9aed669061d5f3c5bdbaf872",
+          "report_sha256": "e21c396d5cf3ec5298269c3a74a1d298eb665318046f981defb024459ed3b299",
+          "first_failure": "required direct SELECT on the now-private projects table"
+        },
+        "parent-seed": {
+          "result": "failed",
+          "junit_sha256": "34bb98fbf6f980cd3c29c58eefa9969dff9a0374692a6e41f5c401a8e39b7fb3",
+          "report_sha256": "aca821c6b6439a360d9e39eb36cda99ea0b34a34696fc0da7351765498f05e3a",
+          "first_failure": "retired Workspace namespace and hard-coded routine count"
+        },
+        "workspace-import": {
+          "result": "passed",
+          "junit_sha256": "ddd8674ce81cfc02913a65d359cf4d0323f77e56d5f17662c5a91567f855d41a",
+          "report_sha256": "7ca568bcaff496727b826a02d83b25e59a1e540d25b1ad44735a2914dd620e4d"
+        },
+        "workspace-seed": {
+          "result": "passed",
+          "junit_sha256": "ae7863b0962f468a887678d3d6e0130a87faf57e1decf566b22f2d1487897d53",
+          "report_sha256": "c839b69a7753a97022a887a1a5fa2c3a6c0205d15d690aa51a4958ce2e8e8f3c"
+        }
+      }
+    },
+    {
+      "private_run": "seed-b",
+      "source_commit": "5b896a4b4347b6caf058d5afdb8e38593fbf960c",
+      "verified_image_summary_sha256": "02f5bfca1a2195545942041cae4033a97dfae7108f95e4b7db47f7eb522ad130",
+      "cases": {
+        "media-seed": {
+          "result": "failed",
+          "junit_sha256": "f34279b216325175b491a8f6807e2a526f0fb414204adc8d4d59f0278bee1d1e",
+          "report_sha256": "735dbb28b7e4d7f15290c033336fde8291e50541dc8da30dcc84d31bbea675d0",
+          "first_failure": "ordinary API in this verifier profile still had the media operator grant"
+        },
+        "parent-seed": {
+          "result": "failed",
+          "junit_sha256": "2d35f26eda8d6cc1d45085cc993f6aa3efd3510c4253076a5bed23b91f5ac62d",
+          "report_sha256": "c69b1736b130eac53d286260cf2f6ffc52ab16b0607ea8814805e3127405a24c",
+          "first_failure": "expected memberships on two projects no longer seeded by default"
+        }
+      }
+    },
+    {
+      "private_run": "seed-c",
+      "source_commit": "b44d1e38a78bc99ec20040fb1522ce947e69f1d6",
+      "verified_image_summary_sha256": "82e145019bad76c9b04eb62a0fad441f5f5fb5132f5da4dd4397c0559f3ebdb1",
+      "cases": {
+        "media-seed": {
+          "result": "passed",
+          "junit_sha256": "527fa81eb85d17b6ce76e97bb990bcb889a6d06c9771fb096de40bc3819e0c70",
+          "report_sha256": "e1a642573743824db74627bdf0eb074e9f3291552917d93c89a6e08d637a8415"
+        },
+        "parent-seed": {
+          "result": "passed",
+          "junit_sha256": "357036f003766aa5a9ee61b1c76ba9e6d6965c5641332ff024740f9de30da0d7",
+          "report_sha256": "eb9b89ee2712b0e5ba20bc352ad9138258c3249294e59f9ef811f1c7d0a4c46c"
+        }
+      }
+    }
+  ],
+  "coverage": {
+    "unique_nodes_passed": 7,
+    "total_node_executions": 11,
+    "failed_attempts": 4,
+    "missing": 0,
+    "skipped": 0,
+    "all_attempts_owned_resources_retired": true
+  },
+  "independent_checks": {
+    "partition_boundaries": {
+      "passed": 10,
+      "junit_sha256": "95445ae12b75e85d022c1ca7088df2e07b100d0d9625f2be42443417c4f44453"
+    },
+    "notification_retirement": {
+      "candidate": "5b896a4b4347b6caf058d5afdb8e38593fbf960c",
+      "pytest_nodes_executed": 0,
+      "postgres_retired": true,
+      "checks": {
+        "unrecorded_same_recipient_rejected": true,
+        "changed_rows_rollback_verified": true,
+        "strict_nonempty_neighbor_rejected": true,
+        "post_delete_transaction_rollback_verified": true,
+        "exact_retirement_verified": true,
+        "independent_user_and_project_preserved": true
+      },
+      "assertions_sha256": "9f150ca8296b03d1fdaa12a51c7ac1c428284ce745a6369e18802a6dc2b33d83",
+      "verifier_sha256": "25baf99cc9d8ccbcb6edb4879d952f15fe019744f2313038fe3e891865a9fafe"
+    }
+  },
+  "retirement": {
+    "owner_cleanup_verified": true,
+    "bootstrap_resources_removed": {
+      "volume": 1,
+      "network": 1,
+      "container": 1
+    },
+    "shared_buckets_before_bootstrap_removal": 0,
+    "shared_nonroot_users_before_bootstrap_removal": 0,
+    "remaining_guest_containers": 0,
+    "remaining_guest_volumes": 0,
+    "remaining_guest_custom_networks": 0,
+    "fixture_evidence_files_exported_and_hash_checked": 24,
+    "vm_removed": true,
+    "host_owned_image_tags_removed": 14,
+    "remaining_owned_image_tags": 0
+  },
+  "historical_92": {
+    "passed_at_known_candidate": 90,
+    "passed_without_source_commit": 1,
+    "strict_memory_peak_deferred": 1
+  }
+}
