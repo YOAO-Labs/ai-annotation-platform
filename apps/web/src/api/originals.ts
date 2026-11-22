@@ -254,16 +254,13 @@ async function fetchBinary(
         apiClient.silentGetBlob(path, { signal, cache: "no-store" }),
       );
     } catch (error) {
-      const detail = error instanceof ApiError ? error.detailRaw : null;
+      if (attempt >= 3 || abandoned() || !(error instanceof ApiError)) throw error;
+      const { detailRaw: detail, status } = error;
       const code = detail && typeof detail === "object" && "code" in detail ? detail.code : null;
-      if (
-        attempt >= 3 ||
-        abandoned() ||
-        !(error instanceof ApiError) ||
-        error.status !== 429 ||
-        code !== "snapshot_capacity_exceeded"
-      )
-        throw error;
+      const retryable =
+        (status === 429 && code === "snapshot_capacity_exceeded") ||
+        (status === 409 && code === "content_busy");
+      if (!retryable) throw error;
       await delay(signal, 250 * 2 ** attempt);
     }
   }

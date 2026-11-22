@@ -37,7 +37,7 @@ last_reviewed: 2026-10-26
 
 ### 认证通用原件交付（`512 MiB`）
 
-浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造 Task/Item/精确 camera link 的认证请求，核对身份中的完整下载路径，不给任意 URL 附加 Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取；只有明确容量不足才有限重试。资源 owner 按账号/session 划分，同 session 令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session 及不完整的跨标签凭据停止读取。
+浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造 Task/Item/精确 camera link 的认证请求，核对身份中的完整下载路径，不给任意 URL 附加 Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取。字节 GET 仅对 `429 snapshot_capacity_exceeded` 和 `409 content_busy` 有限重试，沿用同一内容 UUID、SHA 与下载路径；权限或内容身份变化不因此重试。资源 owner 按账号/session 划分，同 session 令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session 及不完整的跨标签凭据停止读取。
 
 `original_binary` 按 Task、精确相机 link 或 `DatasetItem` 冻结来源；`originals` 路由提供零物理 I/O 的身份（`/api/v1/files/tasks/{id}/original-identity`）及绑定 content UUID/SHA 的完整下载。相机只借当前 Task 可见性读取其明确 `camera_` 链接；Item 入口要求 Dataset 管理权限并校验 `dataset_id`。
 
