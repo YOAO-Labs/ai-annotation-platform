@@ -1,6 +1,6 @@
 # 工作台「当前题 AI」与批量预标执行语义分离
 
-Issue: [工作台「当前题 AI」被批量预标注状态校验拒绝（409）](https://github.com/yyq19990828/ai-annotation-platform/issues/121)
+Issue: [工作台「当前题 AI」被批量预标注状态校验拒绝（409）](https://github.com/YOAO-Labs/ai-annotation-platform/issues/121)
 
 ## 目标
 

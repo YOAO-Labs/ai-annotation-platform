@@ -29,7 +29,7 @@ PUBLIC_DOCS_STATUSES = {
 }
 DOWNLOAD_USER_AGENT = (
     "ai-annotation-platform-seed/1.0 "
-    "(https://github.com/yyq19990828/ai-annotation-platform)"
+    "(https://github.com/YOAO-Labs/ai-annotation-platform)"
 )
 
 

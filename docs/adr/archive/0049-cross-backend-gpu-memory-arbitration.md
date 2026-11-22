@@ -697,9 +697,9 @@ non-evictable，不进入 enforce allowlist。
 
 ## Notes
 
-- 实施计划：[跨 Backend GPU 显存互斥编排](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-14-v0.22.4-cross-backend-gpu-memory-arbitration.md)
-- P0a 地基：[ML Backend GPU 失效诊断与 CPU fallback 地基审计](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-13-v0.22.3-ml-backend-cpu-fallback-audit.md)
-- 协议现状与后续契约：[ML Backend 协议契约](https://yyq19990828.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol)
+- 实施计划：[跨 Backend GPU 显存互斥编排](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-14-v0.22.4-cross-backend-gpu-memory-arbitration.md)
+- P0a 地基：[ML Backend GPU 失效诊断与 CPU fallback 地基审计](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-13-v0.22.3-ml-backend-cpu-fallback-audit.md)
+- 协议现状与后续契约：[ML Backend 协议契约](https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol)
 - 相关决策：ADR-0012（backend 独立 GPU 服务）、ADR-0038（不借机抽 backend 基类）、ADR-0044（全局注册表）
 - 主要实现触点：`apps/api/app/services/ml_client.py`、
   `apps/api/app/services/gpu_arbitration/`（contracts、policy、ledger、fences、proofs、

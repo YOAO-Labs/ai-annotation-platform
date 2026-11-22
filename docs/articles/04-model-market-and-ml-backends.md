@@ -2,8 +2,8 @@
 
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、MLOps、模型部署、人工智能、开源项目<br>
-> 项目地址：[GitHub](https://github.com/yyq19990828/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yyq19990828.github.io/ai-annotation-platform/)
+> 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -117,12 +117,12 @@ Backend 的能力声明必须和实际实现一致。平台会把不受支持的
 
 AI Annotation Platform 采用 MIT License 开源。模型市场、ML Backend 协议、服务池路由和项目启用的实现、文档与测试都在同一个仓库里。
 
-- GitHub：<https://github.com/yyq19990828/ai-annotation-platform>
-- 在线文档：<https://yyq19990828.github.io/ai-annotation-platform/>
-- 模型市场：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/superadmin/model-market>
-- ML Backend 注册：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/superadmin/ml-backend-registry>
-- 项目启用 ML Backend：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/projects/ml-backends>
-- ML Backend 协议：<https://yyq19990828.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol>
+- GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
+- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
+- 模型市场：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/superadmin/model-market>
+- ML Backend 注册：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/superadmin/ml-backend-registry>
+- 项目启用 ML Backend：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/projects/ml-backends>
+- ML Backend 协议：<https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol>
 - License：MIT
 
 系列下一篇会把这些已经对项目可用的模型放到同一张 DAG 上，看看检测、分类、OCR 和属性写回怎样组装成一条可执行的标注工作流。

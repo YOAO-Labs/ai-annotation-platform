@@ -7,13 +7,13 @@
 <p><strong>You Only Annotate Once — 开源多模态 AI 辅助数据标注与在线学习平台</strong></p>
 
 <p>
-  <a href="https://github.com/yyq19990828/ai-annotation-platform/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yyq19990828/ai-annotation-platform/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/yyq19990828/ai-annotation-platform/actions/workflows/docs-deploy.yml"><img alt="Docs" src="https://github.com/yyq19990828/ai-annotation-platform/actions/workflows/docs-deploy.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/docs-deploy.yml"><img alt="Docs" src="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/docs-deploy.yml/badge.svg?branch=main"></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue"></a>
 </p>
 
 <p>
-  <a href="https://yyq19990828.github.io/ai-annotation-platform/">文档站</a>
+  <a href="https://yoao-labs.github.io/ai-annotation-platform/">文档站</a>
   ·
   <a href="#核心特色">核心特色</a>
   ·
@@ -89,7 +89,7 @@ pnpm docs:dev
 
 ## 文档
 
-- **[在线文档站](https://yyq19990828.github.io/ai-annotation-platform/)** — 完整的用户、开发、API 与运维文档
+- **[在线文档站](https://yoao-labs.github.io/ai-annotation-platform/)** — 完整的用户、开发、API 与运维文档
 - **[使用指南](./docs-site/user-guide/index.md)** — 项目管理、数据集、多模态工作台、AI 预标注、审阅与在线学习
 - **[开发文档](./docs-site/dev/index.md)** — 架构概念、本地开发、Python SDK 与 ML 协议
 - **[API 参考](./docs-site/api/index.md)** — OpenAPI 契约与模块接口指南，包括[服务池与可见项目绑定数](./docs-site/api/guides/ml-backend.md#服务池管理与观测)、[外部预测导入、预检与审计](./docs-site/api/guides/import.md)和[视频原件准备、范围读取与租约归还](./docs-site/api/guides/verified-content.md#视频原件准备与范围读取)。

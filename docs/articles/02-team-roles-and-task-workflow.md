@@ -3,8 +3,8 @@
 > 系列：AI Annotation Platform 产品拆解 · 第 2 篇<br>
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、团队协作、权限管理、开源项目<br>
-> 项目地址：[GitHub](https://github.com/yyq19990828/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yyq19990828.github.io/ai-annotation-platform/)
+> 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -115,10 +115,10 @@ _结构化原因用于统计常见质量问题，自由备注则帮助标注员�
 
 AI Annotation Platform 采用 MIT License 开源，支持图像、视频和点云标注，也包含 AI 预标注、模型工作流、审核、数据管理和多格式导出。
 
-- GitHub：<https://github.com/yyq19990828/ai-annotation-platform>
-- 在线文档：<https://yyq19990828.github.io/ai-annotation-platform/>
-- 用户与权限文档：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/superadmin/user-management>
-- 批次与分配文档：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/projects/batch>
+- GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
+- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
+- 用户与权限文档：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/superadmin/user-management>
+- 批次与分配文档：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/projects/batch>
 - License：MIT
 
 系列下一篇会继续拆解图片工作台里的交互式 AI：智能点、智能框、智能笔迹、Magic Box 和 Exemplar。

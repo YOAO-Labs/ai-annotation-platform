@@ -3,7 +3,7 @@
 同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、十个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
 
 > 完整的开发文档（架构、How-to、测试、规范）在 VitePress 文档站：
-> 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yyq19990828.github.io/ai-annotation-platform/dev/)。
+> 本地预览 `pnpm docs:dev`，部署版 [GitHub Pages](https://yoao-labs.github.io/ai-annotation-platform/dev/)。
 > 本文件仅保留快速参考。
 
 ## 合并后的数据库迁移谱系

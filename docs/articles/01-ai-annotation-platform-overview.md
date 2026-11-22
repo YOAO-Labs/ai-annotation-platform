@@ -2,8 +2,8 @@
 
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、人工智能、开源项目、产品设计<br>
-> 项目地址：[GitHub](https://github.com/yyq19990828/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yyq19990828.github.io/ai-annotation-platform/)
+> 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -247,8 +247,8 @@ pnpm dev:web
 
 如果你想先了解某一部分，可以直接查看在线文档；如果你正在做类似系统，也欢迎在 GitHub 查看实现、提交 Issue 或参与讨论。
 
-- GitHub：<https://github.com/yyq19990828/ai-annotation-platform>
-- 在线文档：<https://yyq19990828.github.io/ai-annotation-platform/>
+- GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
+- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
 - License：MIT
 
 ---

@@ -6,7 +6,7 @@ const __here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__here, "..");
 const PUBLIC = join(ROOT, "public");
 
-const SITE = "https://yyq19990828.github.io/ai-annotation-platform";
+const SITE = "https://yoao-labs.github.io/ai-annotation-platform";
 const TITLE = "YOAO";
 const DESC =
   "一站式 AI 辅助标注平台：图像 / 视频 / 点云标注、AI 预标注、质量审核、私有化部署。文档覆盖使用平台、开发者、API 与部署运维四个域。";

@@ -135,7 +135,7 @@
   加法兼容，删除或改义需要新 adapter / schema major。
 - “格式完成”要求固定 golden 经过目标事实标准 consumer 解码，并逐像素比较；只校验 JSON shape、ZIP 文件名、
   自己的 encoder→decoder 或截图均不算完成。fixture 与通过门见
-  [`docs/research/20-mask-qc-format-contracts.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/20-mask-qc-format-contracts.md)。
+  [`docs/research/20-mask-qc-format-contracts.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/20-mask-qc-format-contracts.md)。
 
 ## Consequences
 
@@ -169,8 +169,8 @@
 
 ## Notes
 
-- 研究与 fixture 合同：[`docs/research/20-mask-qc-format-contracts.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/20-mask-qc-format-contracts.md)。
-- 实施计划：[`docs/plans/archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)。
+- 研究与 fixture 合同：[`docs/research/20-mask-qc-format-contracts.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/20-mask-qc-format-contracts.md)。
+- 实施计划：[`docs/plans/archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-21-v0.23.11-mask-quality-review-format-ecosystem.md)。
 - 现有原子写入：`apps/api/app/services/mask_mutation.py`；现有 Tracker staged review：
   `apps/api/app/services/video_tracking/runner.py`。
 - 现有格式基线：`apps/api/app/services/exporting/`、`apps/api/app/services/annotations_import.py`、

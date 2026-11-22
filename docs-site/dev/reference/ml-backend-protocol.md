@@ -1193,7 +1193,7 @@ POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /set
 
 **真实 OCR 参考实现**：[RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)提供 `ocr-det`、`ocr-rec` 和 `ocr-e2e`，资产需独立审核和准备。
 
-**协议形态参考实现（无真实推理）**：[`docs-site/dev/examples/mock-v2-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/docs-site/dev/examples/mock-v2-backend) —— `/setup` 暴露 YOLO 风格多任务 `models[]`、PaddleOCR / DocLayout、点 / 框 / exemplar 交互分割及视频 tracker 条目；`/predict` 按 `context.type` 返回固定几何、OCR 文本属性或逐帧追踪结果。可在该示例目录用 `uvicorn main:app --port 9100` 启动，平台仍通过正常探测和绑定读取其能力。固定响应只用于理解协议，不代表真实模型结果。
+**协议形态参考实现（无真实推理）**：[`docs-site/dev/examples/mock-v2-backend/`](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/docs-site/dev/examples/mock-v2-backend) —— `/setup` 暴露 YOLO 风格多任务 `models[]`、PaddleOCR / DocLayout、点 / 框 / exemplar 交互分割及视频 tracker 条目；`/predict` 按 `context.type` 返回固定几何、OCR 文本属性或逐帧追踪结果。可在该示例目录用 `uvicorn main:app --port 9100` 启动，平台仍通过正常探测和绑定读取其能力。固定响应只用于理解协议，不代表真实模型结果。
 
 **最小 v1 参考实现**：见下文 echo-ml-backend。
 
@@ -1510,7 +1510,7 @@ v2.1 推荐 backend 使用结构化错误体。平台代理会保留上游 4xx�
 
 ## 8. 最小 echo backend 示例
 
-> 完整可跑样板（含 Dockerfile + curl 测试脚本 + README）见 [`docs-site/dev/examples/echo-ml-backend/`](https://github.com/yyq19990828/ai-annotation-platform/tree/main/docs-site/dev/examples/echo-ml-backend)。下面的代码块由 `check-doc-snippets.mjs` 锁定到样板源文件，源端改一字 `pnpm docs:build` 即报漂移。
+> 完整可跑样板（含 Dockerfile + curl 测试脚本 + README）见 [`docs-site/dev/examples/echo-ml-backend/`](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/docs-site/dev/examples/echo-ml-backend)。下面的代码块由 `check-doc-snippets.mjs` 锁定到样板源文件，源端改一字 `pnpm docs:build` 即报漂移。
 
 <!-- snippet:docs-site/dev/examples/echo-ml-backend/main.py -->
 
@@ -1669,8 +1669,8 @@ protocol v2.1 为 minor bump，不是 v3。平台与内置 backend 保留 v2.0 �
 社区已有几种现成接入：
 
 - **Label Studio ML Backends 模板**（兼容平台 schema）：https://github.com/HumanSignal/label-studio-ml-backend
-- **GroundingDINO + SAM**：调研报告 [`docs/research/06-ai-patterns.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/06-ai-patterns.md) §模式 B
-- **X-AnyLabeling SAM 工厂**：调研报告 [`docs/research/04-x-anylabeling.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/04-x-anylabeling.md)
+- **GroundingDINO + SAM**：调研报告 [`docs/research/06-ai-patterns.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/06-ai-patterns.md) §模式 B
+- **X-AnyLabeling SAM 工厂**：调研报告 [`docs/research/04-x-anylabeling.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/04-x-anylabeling.md)
 
 ## 全局注册表与项目启用
 

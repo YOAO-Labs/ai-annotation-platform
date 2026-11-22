@@ -27,7 +27,7 @@ DOWNLOAD_PARTS = 8
 MAX_EXTRACTED_BYTES = 6 * 1024**3
 DOWNLOAD_USER_AGENT = (
     "ai-annotation-platform-seed/1.0 "
-    "(https://github.com/yyq19990828/ai-annotation-platform)"
+    "(https://github.com/YOAO-Labs/ai-annotation-platform)"
 )
 
 

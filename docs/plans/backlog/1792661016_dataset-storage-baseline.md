@@ -4,7 +4,7 @@
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
-> 固定代码基线：[`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`](https://github.com/yyq19990828/ai-annotation-platform/tree/e169d9ef53a9eda60abd4e67bf553ab4e6ab618e)。已核对本工作区 HEAD 与该提交一致；未来实施仍需重新审计。
+> 固定代码基线：[`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`](https://github.com/YOAO-Labs/ai-annotation-platform/tree/e169d9ef53a9eda60abd4e67bf553ab4e6ab618e)。已核对本工作区 HEAD 与该提交一致；未来实施仍需重新审计。
 
 ## 1. 证据如何使用
 

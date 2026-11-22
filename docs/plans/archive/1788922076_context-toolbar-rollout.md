@@ -2,7 +2,7 @@
 
 > Status: implemented and locally verified on 2026-09-09; no commit or publication requested.
 > Baseline: `88e5bc94`, branch `feat/toolbar_opt`, inspected on 2026-09-09.
-> Foundation: [PR82](https://github.com/yyq19990828/ai-annotation-platform/pull/82), merged; its head `6d23684f` is an ancestor of the local baseline.
+> Foundation: [PR82](https://github.com/YOAO-Labs/ai-annotation-platform/pull/82), merged; its head `6d23684f` is an ancestor of the local baseline.
 
 ## Objective and boundaries
 

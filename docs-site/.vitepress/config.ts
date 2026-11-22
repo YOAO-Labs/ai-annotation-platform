@@ -34,7 +34,7 @@ export default withMermaid(
       ["link", { rel: "icon", type: "image/svg+xml", href: "/ai-annotation-platform-icon.svg" }],
     ],
     sitemap: {
-      hostname: "https://yyq19990828.github.io/ai-annotation-platform/",
+      hostname: "https://yoao-labs.github.io/ai-annotation-platform/",
       transformItems: (items) =>
         items.filter((item) => !item.url.includes("user-guide/projects/annotation-guide")),
     },
@@ -84,7 +84,7 @@ export default withMermaid(
       },
 
       socialLinks: [
-        { icon: "github", link: "https://github.com/yyq19990828/ai-annotation-platform" },
+        { icon: "github", link: "https://github.com/YOAO-Labs/ai-annotation-platform" },
       ],
 
       outline: { level: [2, 3], label: "本页内容" },
@@ -140,7 +140,7 @@ export default withMermaid(
           else if (filePath.startsWith("dev/adr/")) {
             sourcePath = `docs/adr/${filePath.slice("dev/adr/".length)}`;
           }
-          return `https://github.com/yyq19990828/ai-annotation-platform/edit/main/${sourcePath}`;
+          return `https://github.com/YOAO-Labs/ai-annotation-platform/edit/main/${sourcePath}`;
         },
         text: "在 GitHub 编辑此页",
       },

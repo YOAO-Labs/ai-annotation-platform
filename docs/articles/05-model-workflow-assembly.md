@@ -2,8 +2,8 @@
 
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、MLOps、OCR、人工智能、开源项目<br>
-> 项目地址：[GitHub](https://github.com/yyq19990828/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yyq19990828.github.io/ai-annotation-platform/)
+> 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -112,10 +112,10 @@ _[观看完整演示](../../docs-site/public/media/ai/candidate-keyboard-review.
 
 AI Annotation Platform 采用 MIT License 开源。编排画布、批量任务、候选审阅、OCR 和属性溯源的实现、文档与测试都在同一个仓库里。
 
-- GitHub：<https://github.com/yyq19990828/ai-annotation-platform>
-- 在线文档：<https://yyq19990828.github.io/ai-annotation-platform/>
-- AI 预标与多阶段编排：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/projects/ai-preannotate>
-- 当前题 AI 与二次推理：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/ai/current-task-inference>
+- GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
+- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
+- AI 预标与多阶段编排：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/projects/ai-preannotate>
+- 当前题 AI 与二次推理：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/ai/current-task-inference>
 - License：MIT
 
 系列下一篇会继续介绍视频轨迹：单帧交互式 AI、关键帧、跨帧传播和整段追踪之间有什么区别。

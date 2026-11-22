@@ -137,7 +137,7 @@ ZIP 的所有可入库字节先完成封存，超过 200 个条目也不提前�
 
 ### B. 命令行脚本入库
 
-脚本跳过导入向导，将媒体写入 MinIO，并在当前数据库登记数据集。范例见 [`apps/api/scripts/seed_pointcloud.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/seed_pointcloud.py)(SUSTechPOINTS 示例)与下文 nuScenes 脚本。
+脚本跳过导入向导，将媒体写入 MinIO，并在当前数据库登记数据集。范例见 [`apps/api/scripts/seed_pointcloud.py`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/apps/api/scripts/seed_pointcloud.py)(SUSTechPOINTS 示例)与下文 nuScenes 脚本。
 
 nuScenes 脚本会把 `sample_data` 中的相机像素宽高一并持久化，并保留原始 `.pcd.bin`、相机图、map 以及官方表上下文的 size / SHA-256。对已入库的同名 Scene 重跑时，会幂等回填这些尺寸和可信导出合同，同时保留原有任务和标注。
 
@@ -203,7 +203,7 @@ nuScenes 脚本会把 `sample_data` 中的相机像素宽高一并持久化，�
 
 ### nuScenes
 
-用配套脚本 [`apps/api/scripts/import_nuscenes_scene.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/import_nuscenes_scene.py) 离线转换 + 直接入库。脚本**为每个传入的 scene 各建一个 scene**,sample 顺序赋 `frame_index`:
+用配套脚本 [`apps/api/scripts/import_nuscenes_scene.py`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/apps/api/scripts/import_nuscenes_scene.py) 离线转换 + 直接入库。脚本**为每个传入的 scene 各建一个 scene**,sample 顺序赋 `frame_index`:
 
 首次使用该脚本前，管理员须独立准备并版本化平台的受管原件 bucket；导入进程使用受限身份，不能创建 bucket 或修复漂移的目标。步骤见[可信导入器部署](/api/guides/module-data#可信导入器数据集与素材登记)。
 

@@ -38,7 +38,7 @@ last_reviewed: 2026-10-26
 
 ## 2. 环境变量
 
-平台通过 pydantic-settings 加载，源文件：`apps/api/app/config.py`。本节按 [`.env.example`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/.env.example) 的分块结构介绍；标 **必填** 的在 `ENVIRONMENT=production` 启动时会触发断言失败。
+平台通过 pydantic-settings 加载，源文件：`apps/api/app/config.py`。本节按 [`.env.example`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/.env.example) 的分块结构介绍；标 **必填** 的在 `ENVIRONMENT=production` 启动时会触发断言失败。
 
 > 生产部署：基于 `.env.example` 复制 `.env.production`，逐项审过再启动。`config.py` 里有几个未列入 `.env.example` 的可选项，统一在 §2.10 兜底。
 
@@ -376,7 +376,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec \
   api python -m scripts.bootstrap_admin
 ```
 
-脚本：[`apps/api/scripts/bootstrap_admin.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/bootstrap_admin.py)。
+脚本：[`apps/api/scripts/bootstrap_admin.py`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/apps/api/scripts/bootstrap_admin.py)。
 
 - 已存在同邮箱用户时跳过（不更新角色）
 - 写一行 `audit_logs.action = system.bootstrap_admin`，可在 SettingsPage 审计日志页搜索追溯

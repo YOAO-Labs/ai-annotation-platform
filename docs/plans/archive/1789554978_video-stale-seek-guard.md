@@ -2,7 +2,7 @@
 
 > Status: implemented — see [Outcome](#outcome).
 > Date: 2026-09-16
-> Requested outcome: close the application-level race behind Issue [#114](https://github.com/yyq19990828/ai-annotation-platform/issues/114) — a late async precise-frame fetch started by a timeline click can drag the selected frame index back to the clicked (quantized) frame after keyboard stepping has already advanced it — so the E2E serialization introduced by PR #113 (`expectPaintSettled`) becomes redundant protection instead of the only line of defense.
+> Requested outcome: close the application-level race behind Issue [#114](https://github.com/YOAO-Labs/ai-annotation-platform/issues/114) — a late async precise-frame fetch started by a timeline click can drag the selected frame index back to the clicked (quantized) frame after keyboard stepping has already advanced it — so the E2E serialization introduced by PR #113 (`expectPaintSettled`) becomes redundant protection instead of the only line of defense.
 > Motivation: CI `default-two` run `34952411169` (2026-09-15) failed `video-issue-context` G2-1 twice-on-retry: after clicking the frame timeline (quantized to F105) and stepping with `Shift+ArrowRight` to F120 (all intermediate assertions passing), the final assertion found `data-video-frame-index` rewritten back to **F105** and `data-video-painted-frame-index` jumping `-1 → 105`. PR #113 serialized the test interaction, but real users doing "click timeline, then immediately step/scrub" still hit the race.
 > Non-goals: redesigning the precise-frame pipeline, changing the WebCodecs cache layers, changing timeline click quantization, removing the E2E paint-settle helper entirely (keep as belt-and-braces unless maintainer decides otherwise).
 

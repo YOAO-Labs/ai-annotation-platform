@@ -2,8 +2,8 @@
 
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、SAM、人工智能、开源项目、交互设计<br>
-> 项目地址：[GitHub](https://github.com/yyq19990828/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yyq19990828.github.io/ai-annotation-platform/)
+> 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -109,10 +109,10 @@ Exemplar 的推理输出可以按模型能力选择框、掩膜或两者。结�
 
 AI Annotation Platform 采用 MIT License 开源。五种工具的前端交互、平台路由、Grounded-SAM-2、SAM 3 和 YOLOE 后端实现，以及对应文档与测试都在同一个仓库里。
 
-- GitHub：<https://github.com/yyq19990828/ai-annotation-platform>
-- 在线文档：<https://yyq19990828.github.io/ai-annotation-platform/>
-- 交互式 AI 用户指南：<https://yyq19990828.github.io/ai-annotation-platform/user-guide/workbench/sam-tool>
-- ML Backend 协议：<https://yyq19990828.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol>
+- GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
+- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
+- 交互式 AI 用户指南：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/workbench/sam-tool>
+- ML Backend 协议：<https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol>
 - License：MIT
 
 系列下一篇会继续介绍模型市场与 ML Backend：模型能力怎样被平台识别、全局 Backend 为什么还要由项目显式启用。

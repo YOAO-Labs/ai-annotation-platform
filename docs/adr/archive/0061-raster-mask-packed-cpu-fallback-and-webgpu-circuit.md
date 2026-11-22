@@ -97,6 +97,6 @@ production Worker 协议同时保留了已经结束资格赛的 per-bit benchmar
 
 ## Evidence
 
-- 计划：[`docs/plans/archive/2026-07-31-v0.23.21-raster-mask-packed-cpu-fallback-routing.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-31-v0.23.21-raster-mask-packed-cpu-fallback-routing.md)
-- 研究：[`docs/research/21-webgpu-video-workbench.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/21-webgpu-video-workbench.md)
-- 数据：[`docs/research/data/21-mask-packed-cpu-fallback-ab.json`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/data/21-mask-packed-cpu-fallback-ab.json)
+- 计划：[`docs/plans/archive/2026-07-31-v0.23.21-raster-mask-packed-cpu-fallback-routing.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-31-v0.23.21-raster-mask-packed-cpu-fallback-routing.md)
+- 研究：[`docs/research/21-webgpu-video-workbench.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/21-webgpu-video-workbench.md)
+- 数据：[`docs/research/data/21-mask-packed-cpu-fallback-ab.json`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/data/21-mask-packed-cpu-fallback-ab.json)

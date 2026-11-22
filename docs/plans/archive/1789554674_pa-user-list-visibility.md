@@ -2,7 +2,7 @@
 
 > Status: implemented — code, tests, and docs landed; awaiting review.
 > Date: 2026-09-16
-> Issue: [#115](https://github.com/yyq19990828/ai-annotation-platform/issues/115) — 项目管理员在成员分配中可见未分配标注员，但在用户与权限列表中不可见.
+> Issue: [#115](https://github.com/YOAO-Labs/ai-annotation-platform/issues/115) — 项目管理员在成员分配中可见未分配标注员，但在用户与权限列表中不可见.
 > Requested outcome: a project admin finds the same enabled, not-yet-assigned annotators/reviewers in **both** the member-assignment entry points and the **Users & Permissions** list, and can also **see enabled super admins there (read-only)**, while every account-management write (role change, deactivate, delete, password reset, group assignment) stays bounded to the admin's own projects and stays fully denied against super-admin accounts.
 > Motivation: two entry points return different populations for the same actor, so admins conclude an account does not exist and cannot look people up before assigning them; super admins are also invisible, so admins cannot even find who to contact about cross-project accounts (role-impact copy already tells them to "请联系超级管理员核对").
 > Non-goals: changing who can **manage** accounts; widening visibility of other project admins, viewers, or disabled accounts (incl. deactivated super admins); touching project member lists / performance / task data scopes; changing invitation flows.

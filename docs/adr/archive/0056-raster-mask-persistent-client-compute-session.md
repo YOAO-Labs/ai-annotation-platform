@@ -106,6 +106,6 @@ RLE 会吞掉大部分收益，并形成重复 shader / protocol。拒绝。
 
 - 生产代码：`apps/web/src/pages/Workbench/stage/shared/rasterMaskWorkerRuntime.ts`、
   `rasterMaskWorkerPool.ts`、`sparseMaskTileStore.ts`、`rasterMaskWebGpu.ts`。
-- 研究证据：[`docs/research/21-webgpu-video-workbench.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/21-webgpu-video-workbench.md)。
-- 实施计划：[`docs/plans/archive/2026-07-29-v0.23.16-raster-mask-persistent-compute-webgpu.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-29-v0.23.16-raster-mask-persistent-compute-webgpu.md)。
+- 研究证据：[`docs/research/21-webgpu-video-workbench.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/21-webgpu-video-workbench.md)。
+- 实施计划：[`docs/plans/archive/2026-07-29-v0.23.16-raster-mask-persistent-compute-webgpu.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-29-v0.23.16-raster-mask-persistent-compute-webgpu.md)。
 - 相关 ADR：[ADR-0054](./0054-raster-mask-large-canvas-memory-and-tiles.md)。

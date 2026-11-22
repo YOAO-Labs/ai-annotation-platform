@@ -90,6 +90,6 @@ atomic 差异；当前 word scan p95 足够低，推迟。
 
 ## Evidence
 
-- 计划：[`docs/plans/archive/2026-07-30-v0.23.17-raster-mask-webgpu-packed-xor-pipeline.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-30-v0.23.17-raster-mask-webgpu-packed-xor-pipeline.md)
-- 研究：[`docs/research/21-webgpu-video-workbench.md`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/21-webgpu-video-workbench.md)
-- 数据：[`docs/research/data/21-mask-webgpu-packed-xor-ab.json`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/docs/research/data/21-mask-webgpu-packed-xor-ab.json)
+- 计划：[`docs/plans/archive/2026-07-30-v0.23.17-raster-mask-webgpu-packed-xor-pipeline.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/plans/archive/2026-07-30-v0.23.17-raster-mask-webgpu-packed-xor-pipeline.md)
+- 研究：[`docs/research/21-webgpu-video-workbench.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/21-webgpu-video-workbench.md)
+- 数据：[`docs/research/data/21-mask-webgpu-packed-xor-ab.json`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/data/21-mask-webgpu-packed-xor-ab.json)

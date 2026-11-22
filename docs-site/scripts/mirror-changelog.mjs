@@ -48,7 +48,7 @@ function escapeForVue(text) {
   return lines.join("\n");
 }
 
-const GITHUB_BLOB = "https://github.com/yyq19990828/ai-annotation-platform/blob/main";
+const GITHUB_BLOB = "https://github.com/YOAO-Labs/ai-annotation-platform/blob/main";
 
 function encodeRouteStem(stem) {
   if (stem.startsWith("archive/")) {
