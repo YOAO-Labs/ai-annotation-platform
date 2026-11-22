@@ -49,6 +49,10 @@ last_reviewed: 2026-10-26
 
 `original_binary.authorize_original / recheck_original / capture_authorized` 为完整下载与视频准备共用原 Authority 和保存来源合同。`original_playback` 只接托管 video，Bearer 准备完整核验；`original_playback_registry` 按 Authority/session/资源/完整来源保存进程内匿名 stage 及独立短租约。能力秘密只在准确路径的 `HttpOnly/SameSite=Strict` Cookie 中发送，JSON 与 `media_path` 不含秘密，不保存原 JWT/API Key。
 
+Task 视频清单的请求准入与已就绪元信息校验在同一 `DatasetItem` 的 `FOR SHARE` 围栏内读取；单次取锁最多等待一秒，不扩大调用方更短的限时。短时尺寸等派生更新提交后可继续读取；已登记原件或派生代次变化仍须拒绝，取锁超时仍返回 `storage_original_busy`。权威、保存地址及维护代次的复核不变，业务锁不跨物理 I/O，准备与发布的写入围栏也不变。
+
+持有输出租约的衍生 Worker 在构建前后执行只读校验时，也对同一 Item 使用上述有界共享锁；短暂的行更新不再使已构建的预览帧跳过发布。输出认领和最终发布仍使用原写入围栏，并复核同一租约、原件和元数据代次。
+
 每次 native GET/HEAD 先取得响应 pin，重核原凭证、当前 User/Key/scope、Task 可见性或 Dataset 管理权限、同一源和 Gate，再同步重核租约仍有效，才返回 200/206/HEAD/范围错误。浏览器同源判断同时采用 Fetch Metadata；跨站与同站异源媒体请求拒绝。`original_playback_response` 用 `os.pread` 独立偏移，各响应取消后 drain 真实线程再 unpin，不关闭其他消费者的文件。完整 SHA 证明来自准备时的全量捕获。
 
 单 stage `5 GiB`、两 stage、最多 8 响应，每 stage 32 租约；准备 900 秒、transport 30 秒、响应 120 秒为合作式期限。租约 300 秒，stage 最迟 3600 秒退休，30 秒 reaper 与 lifespan 关闭负责收尾。此 API 只资格化当前单 Uvicorn 实例，其他实例或重启后的 410 必须重新 Bearer 准备；方案与取舍记录于 [ADR 0107](/dev/adr/0107-scoped-native-video-stages)。

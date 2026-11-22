@@ -456,7 +456,14 @@ async def check(
     building=False,
 ):
     """Compare the current logical slot, generation, authority and lease only."""
-    source = await originals.check(db, authority, lock=lock)
+    source = await originals.check(
+        db,
+        authority,
+        lock=lock,
+        wait_for_item=(
+            not (write or building) and (token is not None or output.kind == "metadata")
+        ),
+    )
     if (
         source.item_id != output.dataset_item_id
         or originals.receipt(source) != output.original_ref
@@ -798,9 +805,7 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         return []
     if delivery_id is not None and len(identifiers) != 1:
         raise ContentError("fixture_media_scope_mismatch", 409)
-    rows = list(await db.scalars(select(Output).where(
-        Output.id.in_(identifiers)
-    )))
+    rows = list(await db.scalars(select(Output).where(Output.id.in_(identifiers))))
     outputs = {row.id: row for row in rows}
     if any(identifier not in outputs for identifier in identifiers):
         raise ContentError("video_derivative_output_missing", 409)
@@ -815,14 +820,22 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         source = {
             "schema": "aap-video-derivative-inputs/v1",
             "outputs": [
-                {"output_id": str(identifier), "original": outputs[identifier].original_ref}
+                {
+                    "output_id": str(identifier),
+                    "original": outputs[identifier].original_ref,
+                }
                 for identifier in group
             ],
         }
         values = [str(identifier) for identifier in group]
         preparation = await media_dispatch.prepare(
-            db, owner_kind="dataset_item", owner_id=owner_id, producer_kind="video_derivatives",
-            source=source, task_name="app.workers.media.generate_video_derivatives", args=[values],
+            db,
+            owner_kind="dataset_item",
+            owner_id=owner_id,
+            producer_kind="video_derivatives",
+            source=source,
+            task_name="app.workers.media.generate_video_derivatives",
+            args=[values],
             delivery_id=delivery_id,
         )
         return preparation, values
@@ -837,7 +850,9 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         else:
             ordinary_ids.update(group)
     if ordinary_ids:
-        ordinary_group = [identifier for identifier in identifiers if identifier in ordinary_ids]
+        ordinary_group = [
+            identifier for identifier in identifiers if identifier in ordinary_ids
+        ]
         preparation, values = await prepare_group(ordinary_group)
         if preparation.ownership != "ordinary":
             raise ContentError("fixture_media_scope_changed", 409)
@@ -850,4 +865,6 @@ async def publish_dispatch(prepared):
     from app.workers.media import generate_video_derivatives
 
     for preparation, identifiers in prepared:
-        await media_dispatch.publish(preparation, lambda: generate_video_derivatives.delay(identifiers))
+        await media_dispatch.publish(
+            preparation, lambda: generate_video_derivatives.delay(identifiers)
+        )

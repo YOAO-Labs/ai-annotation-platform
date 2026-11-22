@@ -12,7 +12,7 @@ import re
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import Text, case, cast, func, select
+from sqlalchemy import Text, case, cast, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,6 +131,7 @@ class OriginalSource:
     location_facts: LocationFacts | None
     read_route: ReadRoute | None = None
 
+
 def media_permit_purpose(source, family):
     """Bind a physical reader to its canonical content rather than a shared bucket."""
     if (
@@ -142,7 +143,6 @@ def media_permit_purpose(source, family):
         raise ContentError("content_binding_changed", 409)
     kind = "a" if source.owner_kind == "dataset_asset" else "t"
     return f"media_{family}_{kind}_{source.content_id.hex}"
-
 
 
 @asynccontextmanager
@@ -170,9 +170,9 @@ async def _reads(db, lock):
             await savepoint.commit()
 
 
-def _statement(statement, lock):
+def _statement(statement, lock, *, nowait=True):
     if lock:
-        statement = statement.with_for_update(read=True, nowait=True)
+        statement = statement.with_for_update(read=True, nowait=nowait)
     return statement.execution_options(populate_existing=True)
 
 
@@ -622,22 +622,40 @@ def _safe_locator(bucket, key):
         raise ContentError("no_readable_original")
 
 
-async def _item(db, item_id, lock, *, bounded=False):
-    item = (
-        await db.execute(
-            _statement(
-                select(
-                    DatasetItem.id,
-                    DatasetItem.dataset_id,
-                    DatasetItem.file_path,
-                    DatasetItem.file_type,
-                    DatasetItem.width,
-                    DatasetItem.height,
-                ).where(DatasetItem.id == item_id),
-                lock,
-            )
-        )
-    ).one_or_none()
+async def _bounded_item_read(db, statement):
+    """Bound just the Item lock, without extending a shorter caller timeout."""
+    previous = await db.scalar(
+        text("SELECT setting FROM pg_catalog.pg_settings WHERE name = 'lock_timeout'")
+    )
+    if 0 < int(previous) <= 1000:
+        return await db.execute(statement)
+    await db.execute(text("SET LOCAL lock_timeout = '1s'"))
+    result = await db.execute(statement)
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": previous + "ms"},
+    )
+    return result
+
+
+async def _item(db, item_id, lock, *, bounded=False, wait_for_item=False):
+    wait = lock and wait_for_item
+    statement = _statement(
+        select(
+            DatasetItem.id,
+            DatasetItem.dataset_id,
+            DatasetItem.file_path,
+            DatasetItem.file_type,
+            DatasetItem.width,
+            DatasetItem.height,
+        ).where(DatasetItem.id == item_id),
+        lock,
+        nowait=not wait,
+    )
+    result = (
+        await _bounded_item_read(db, statement) if wait else await db.execute(statement)
+    )
+    item = result.one_or_none()
     if item is None:
         raise ContentError("item_removed")
     statement = (
@@ -776,13 +794,19 @@ async def resolve_item(db, item_id, *, lock=False):
         return await _item(db, item_id, lock)
 
 
-async def _task_source(db, relation, lock, *, source=None, bounded=False):
+async def _task_source(
+    db, relation, lock, *, source=None, bounded=False, wait_for_item=False
+):
     if relation.original_id is None:
         if relation.item_id is None:
             raise ContentError("no_readable_original")
         if source is None:
             source = await _item(
-                db, relation.item_id, lock, **({"bounded": True} if bounded else {})
+                db,
+                relation.item_id,
+                lock,
+                **({"bounded": True} if bounded else {}),
+                **({"wait_for_item": True} if wait_for_item else {}),
             )
         if (
             relation.file_path != source.object_key
@@ -849,14 +873,17 @@ async def _task_source(db, relation, lock, *, source=None, bounded=False):
     return await _read_route(db, source, lock, bounded=bounded)
 
 
-async def resolve_task(db, task_id, *, lock=False, compact_relation=False):
+async def resolve_task(
+    db, task_id, *, lock=False, compact_relation=False, wait_for_item=False
+):
     """Freeze a TaskOriginal or the exact direct/primary DatasetItem source.
 
     Compact guards retain only primary links; the default freezes every link.
+    Task video reads can wait on the same Item SHARE fence within one second.
     """
     async with _reads(db, lock):
         relation = await _relation(db, task_id, lock, compact_relation=compact_relation)
-        return await _task_source(db, relation, lock)
+        return await _task_source(db, relation, lock, wait_for_item=wait_for_item)
 
 
 def _camera_link(selected):
